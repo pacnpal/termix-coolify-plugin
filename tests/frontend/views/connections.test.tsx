@@ -417,4 +417,44 @@ describe("connections view under concurrent requests", () => {
     expect(url).toBe("/connections/5");
     expect(await inStep.findByText(done)).toBeTruthy();
   });
+
+  it("onboarding keeps a form dirtied during a save visible and saveable", async () => {
+    const api = stubApi([]);
+    const saved = { ...scopedConnection, id: 5, name: "Prod", lastError: null };
+    const pending = deferred<{ data: unknown }>();
+    api.post.mockReturnValueOnce(pending.promise as never);
+    api.patch.mockResolvedValueOnce({
+      data: { ...saved, name: "Prod 2" },
+    } as never);
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions: ALL,
+    });
+    const step = rendered.renderOnboardingStep("connect");
+    const inStep = within(step.element);
+    await fillAddForm(inStep);
+    fireEvent.click(inStep.getByRole("button", { name: L.form.save }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    // Edited while the save is still running.
+    fireEvent.change(inStep.getByPlaceholderText(L.form.namePlaceholder), {
+      target: { value: "Prod 2" },
+    });
+    pending.resolve({ data: saved });
+    await new Promise((r) => setTimeout(r, 20));
+
+    const name = inStep.getByPlaceholderText(
+      L.form.namePlaceholder,
+    ) as HTMLInputElement;
+    expect(name.value).toBe("Prod 2");
+    fireEvent.click(inStep.getByRole("button", { name: L.form.save }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalled());
+    const [url, body] = api.patch.mock.calls[0] as unknown as [string, object];
+    expect(url).toBe("/connections/5");
+    expect(body).toMatchObject({ name: "Prod 2" });
+    expect(api.post).toHaveBeenCalledTimes(1);
+    const done = locales.onboarding.connect.done.replace("{{name}}", "Prod 2");
+    expect(await inStep.findByText(done)).toBeTruthy();
+  });
 });

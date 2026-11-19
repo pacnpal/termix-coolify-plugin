@@ -19,10 +19,12 @@ the rest come with the rest of release 1.0.0.
    - **Cloudflare Access client ID and secret**, when the Coolify dashboard sits behind Cloudflare Access.
    - **On my local network**, when Coolify has a private address such as `192.168.1.10`.
 
-   The address must use `https`, so the token never travels in the clear. Plain `http` is accepted only for
-   `localhost` (`127.0.0.0/8`, `::1`), and for a local network address (a private range, a name without
-   dots, or one ending in `.local`, `.lan`, `.internal`, `.localdomain` or `.home.arpa`) when **On my
-   local network** is on. Anything else is refused before Termix sends a request.
+   The address should use `https`. Plain `http` is accepted only for `localhost` (`127.0.0.0/8`, `::1`),
+   and for a private or link-local IP address (such as `192.168.1.10` or `fd00::5`) when **On my local
+   network** is on. Every other name needs `https`, even one like `coolify.lan`, because a name can point
+   anywhere. Anything else is refused before Termix sends a request. With plain `http` to a private IP,
+   the token and any Cloudflare Access secret do travel in the clear on your own network, so choose it only
+   for a network you trust.
    - **CA certificate**, when Coolify uses a certificate from a private CA.
 
 4. Save. Termix checks the connection and shows what the token can do:

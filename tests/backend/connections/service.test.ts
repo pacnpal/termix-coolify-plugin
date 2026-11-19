@@ -32,17 +32,27 @@ const input = {
   token: TOKEN,
 };
 
-/** A /team answer, already read, held back for one token until released. */
+type Headers = Record<string, string> | undefined;
+
+/** A /team answer, already read, held back for one request until released. */
 let hold: {
-  auth: string;
+  match: (headers: Headers) => boolean;
   held: Promise<void>;
   reached: () => void;
 } | null = null;
 
-function holdAfterTeam(auth: string, held: Promise<void>): Promise<void> {
+function holdAfterTeamWhen(
+  match: (headers: Headers) => boolean,
+  held: Promise<void>,
+): Promise<void> {
   return new Promise((reached) => {
-    hold = { auth, held, reached };
+    hold = { match, held, reached };
   });
+}
+
+/** Holds the /team answer sent with one token. */
+function holdAfterTeam(auth: string, held: Promise<void>): Promise<void> {
+  return holdAfterTeamWhen((h) => h?.authorization === auth, held);
 }
 
 beforeEach(async () => {
@@ -66,7 +76,7 @@ beforeEach(async () => {
       if (
         h &&
         url.endsWith("/api/v1/team") &&
-        init?.headers?.authorization === h.auth
+        h.match(init?.headers as Headers)
       ) {
         hold = null;
         h.reached();
@@ -390,6 +400,37 @@ describe("connection service", () => {
     expect((await service.target(view.id)).token).toBe(TOKEN);
   });
 
+  it("an update whose conditional write matched no row answers conflict and loses nothing silently", async () => {
+    const view = await service.create(input);
+    const cert = "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----";
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    // Hold the older update: the one sent without Cloudflare Access headers.
+    const reachedTeam = holdAfterTeamWhen(
+      (h) => !h?.["cf-access-client-id"],
+      held,
+    );
+
+    const older = service.update(view.id, { caCert: cert, name: "From older" });
+    const olderDone = older.then(
+      () => "saved",
+      (err: { status?: number }) => err.status,
+    );
+    await reachedTeam;
+    // The newer update sets the same certificate and also Cloudflare Access.
+    await service.update(view.id, {
+      caCert: cert,
+      cfAccessId: "fake-cf-id",
+      cfAccessSecret: CF_SECRET,
+    });
+
+    release();
+    expect(await olderDone).toBe(409);
+    const stored = await service.get(view.id);
+    expect(stored?.name).toBe("Prod");
+    expect(stored?.cfAccess).toBe(true);
+  });
+
   it("refuses plain http to a public host before sending anything", async () => {
     for (const baseUrl of [
       "http://coolify.example.test",
@@ -401,7 +442,7 @@ describe("connection service", () => {
         baseUrl,
       ).rejects.toMatchObject({
         status: 400,
-        message: expect.stringContaining("https"),
+        message: expect.stringContaining("HTTPS"),
       });
     }
     expect(fake.calls).toHaveLength(0);
@@ -425,11 +466,52 @@ describe("connection service", () => {
       const saved = await service.create({ ...input, baseUrl });
       expect(saved.baseUrl, baseUrl).toBe(baseUrl);
     }
+    for (const baseUrl of ["http://192.168.1.10:8000", "http://10.0.0.5"]) {
+      const saved = await service.create({
+        ...input,
+        baseUrl,
+        allowPrivate: true,
+      });
+      expect(saved.baseUrl, baseUrl).toBe(baseUrl);
+    }
+  });
+
+  it("http to a .lan name is refused even with allowPrivateHosts", async () => {
+    // A name can resolve anywhere, so only https protects its token.
+    for (const baseUrl of [
+      "http://coolify.lan",
+      "http://coolify",
+      "http://coolify.local:8000",
+      "http://coolify.internal",
+      "http://coolify.localdomain",
+      "http://coolify.home.arpa",
+    ]) {
+      await expect(
+        service.create({ ...input, baseUrl, allowPrivate: true }),
+        baseUrl,
+      ).rejects.toMatchObject({
+        status: 400,
+        message: expect.stringMatching(/HTTPS.*private IP address/),
+      });
+    }
+    expect(fake.calls).toHaveLength(0);
+    expect(rawRows()).toHaveLength(0);
+  });
+
+  it("http to a private IP literal is allowed only with allowPrivateHosts", async () => {
     for (const baseUrl of [
       "http://192.168.1.10:8000",
-      "http://10.0.0.5",
-      "http://coolify.lan",
+      "http://172.16.4.2",
+      "http://169.254.10.1",
+      "http://[fd00::5]:8000",
     ]) {
+      await expect(
+        service.create({ ...input, baseUrl }),
+        baseUrl,
+      ).rejects.toMatchObject({
+        status: 400,
+        message: expect.stringMatching(/HTTPS.*private IP address/),
+      });
       const saved = await service.create({
         ...input,
         baseUrl,

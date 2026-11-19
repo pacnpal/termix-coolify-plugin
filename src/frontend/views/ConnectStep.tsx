@@ -19,9 +19,11 @@ export function ConnectStep(_props: OnboardingStepProps) {
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
   const form = useConnectionForm(api, null, () => {});
-  // Done only when the saved connection's check passed. A saved failure stays
-  // editable, and saving again changes that same connection.
-  const connected = form.result && !form.result.lastError ? form.result : null;
+  // Done only when the saved connection's check passed and nothing was edited
+  // since. A saved failure, or edits made while the save ran, stay editable,
+  // and saving again changes that same connection.
+  const connected =
+    form.result && !form.result.lastError && !form.dirty ? form.result : null;
   return (
     <div className="flex flex-col">
       <p className={cn(PANEL.body, "text-[12px] text-muted-foreground")}>

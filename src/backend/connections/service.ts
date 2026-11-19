@@ -175,56 +175,48 @@ export function normalizeBaseUrl(raw: string): string | null {
 }
 
 /**
- * Where a URL's host is, from its name alone (the plugin can't resolve it):
- * loopback, a private network (private and link-local ranges, a bare name or
- * a local suffix), or anywhere else.
+ * Where a URL's host is: loopback (localhost, 127.0.0.0/8, ::1), an IP
+ * literal in a private or link-local range, or anything else. Any other name
+ * counts as "name": the plugin can't resolve it, and a name can point
+ * anywhere, so it is never trusted to be private.
  */
-function hostReach(url: URL): "loopback" | "private" | "public" {
+function hostReach(url: URL): "loopback" | "private-ip" | "other" {
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (host === "localhost" || host.endsWith(".localhost")) return "loopback";
+  if (host === "localhost") return "loopback";
   const v4 = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(host);
   if (v4) {
     const a = Number(v4[1]);
     const b = Number(v4[2]);
     if (a === 127) return "loopback";
-    if (
+    const isPrivate =
       a === 10 ||
       (a === 172 && b >= 16 && b <= 31) ||
       (a === 192 && b === 168) ||
-      (a === 169 && b === 254) ||
-      (a === 100 && b >= 64 && b <= 127)
-    ) {
-      return "private";
-    }
-    return "public";
+      (a === 169 && b === 254);
+    return isPrivate ? "private-ip" : "other";
   }
   if (host.includes(":")) {
     if (host === "::1") return "loopback";
-    return /^(f[cd]|fe[89ab])/.test(host) ? "private" : "public";
+    // fc00::/7 unique local, fe80::/10 link-local.
+    return /^(f[cd]|fe[89ab])/.test(host) ? "private-ip" : "other";
   }
-  if (
-    !host.includes(".") ||
-    /\.(local|lan|internal|localdomain|home\.arpa)$/.test(host)
-  ) {
-    return "private";
-  }
-  return "public";
+  return "other";
 }
 
 /**
  * Plain http would send the token and Cloudflare Access secret in the clear,
- * so it is allowed only to loopback, or to a private-network host when the
- * connection allows private hosts. Throws before anything is sent.
+ * so it is allowed only to loopback, or to a private or link-local IP literal
+ * when the connection allows private hosts. Throws before anything is sent.
  */
 export function checkTransport(baseUrl: string, allowPrivate: boolean): void {
   const url = new URL(baseUrl);
   if (url.protocol === "https:") return;
   const reach = hostReach(url);
-  if (reach === "loopback" || (reach === "private" && allowPrivate)) return;
+  if (reach === "loopback" || (reach === "private-ip" && allowPrivate)) return;
   throw invalid(
-    reach === "private"
-      ? 'baseUrl must use https; plain http to a local network address needs "On my local network"'
-      : "baseUrl must use https; plain http is only for localhost or a local network address",
+    reach === "private-ip"
+      ? 'Use HTTPS, or turn on "On my local network" to reach this private IP address over plain HTTP'
+      : 'Use HTTPS, or the server\'s private IP address with "On my local network" on; plain HTTP to a name sends the token in the clear',
   );
 }
 
@@ -722,14 +714,15 @@ export function createConnections(
       await ctx.db.persist();
       const after = await row(found.id);
       if (!after) throw notFound();
-      const landed =
-        after.baseUrl === baseUrl &&
-        after.tokenSealed === tokenSealed &&
-        (after.allowPrivate === true) === allowPrivate &&
-        after.caCert === caCert &&
-        (!cfChanged ||
-          (after.cfAccessIdSealed === changes.cfAccessIdSealed &&
-            after.cfAccessSecretSealed === changes.cfAccessSecretSealed));
+      // The affected-row count isn't the same across SQLite, PostgreSQL and
+      // MySQL, so read the row back: the write landed (or nothing it set was
+      // lost) only if every field it wrote holds what it wrote.
+      const stored = after as unknown as Record<string, unknown>;
+      const landed = Object.entries(changes).every(([key, value]) =>
+        typeof value === "boolean"
+          ? Boolean(stored[key]) === value
+          : stored[key] === value,
+      );
       if (!landed) {
         throw new ConnectionError(
           "conflict",
