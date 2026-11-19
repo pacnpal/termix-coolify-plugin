@@ -2,6 +2,7 @@ import type { Request, Response, Router } from "express";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { ConnectionError } from "../connections/service.js";
 import { idParam, safe, sendError } from "../connections/routes.js";
+import { baseUrlOf } from "./base-url.js";
 import { renderStatusPage } from "./render.js";
 import {
   StatusPagesOffError,
@@ -142,10 +143,12 @@ export function registerStatusRoutes(
     configure,
     guarded(async (req, res) => {
       const body = (req.body ?? {}) as Record<string, unknown>;
-      const { page, url } = await pages.create(idParam(req), {
-        title: body.title,
-        resources: body.resources,
-      });
+      // The link is built from this request's own address, never a stored one.
+      const { page, url } = await pages.create(
+        idParam(req),
+        { title: body.title, resources: body.resources },
+        { base: baseUrlOf(ctx, req) },
+      );
       res.status(201).json({ ...page, url });
     }),
   );
@@ -178,7 +181,9 @@ export function registerStatusRoutes(
     "/status-pages/:id/rotate",
     configure,
     guarded(async (req, res) => {
-      const { page, url } = await pages.rotate(pageIdParam(req));
+      const { page, url } = await pages.rotate(pageIdParam(req), {
+        base: baseUrlOf(ctx, req),
+      });
       res.json({ id: page.id, url });
     }),
   );

@@ -109,9 +109,11 @@ aren't obvious from the code, and anything that has bitten you before.
   (`resources.peekCached`), never Coolify. The `status-refresh` job (60 s, jitter, in `sandbox.schedules`)
   refreshes that cache with `resources.refreshUnattended` / `connections.unattendedApi`, which skip the actor
   check: never return what they read to a caller. It calls `keepAwake("status pages", active)` and backs off
-  1, 2, 5, 15 minutes per connection. Operations have no request, so the page URL's base comes from
-  `base-url.ts`, which notes `ctx.http.baseUrl(req)` from signed-in requests only (a public request's Host is
-  the caller's to pick); with none seen yet the URL is relative. The URL never enters run history: create and
+  1, 2, 5, 15 minutes per connection. A page URL's base is the create/rotate request's own
+  `ctx.http.baseUrl(req)`. Operations have no request, so `base-url.ts` keeps each signed-in user's own last
+  address (memory and kv `publicBaseUrl:<userId>`) and uses only the same actor's; with none the URL is
+  relative. Never share one remembered address between users: a Host header is the caller's to choose, and
+  it would steer another user's secret link. The URL never enters run history: create and
   rotate return `{ id, handoffId, url }` with `url` a `sensitive` output, and stash it in memory
   (`stashOnceUrl`, 5 minutes, once, per user and run id) for the MCP `tools/call` answer,
   `take_status_page_url` or `POST /status-pages/handoff/:handoffId`. The MCP endpoint applies

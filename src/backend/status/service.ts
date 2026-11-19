@@ -236,9 +236,18 @@ export function createStatusPages(ctx: PluginContext, deps: StatusPagesDeps) {
     return (await ctx.settings.get("allowStatusPages")) !== false;
   }
 
-  async function pageUrl(token: string): Promise<string> {
-    const base = (await knownBaseUrl(ctx)) ?? "";
-    return `${base}/plugin-api/${ctx.pluginId}/status/${token}`;
+  /**
+   * The page's URL. `base` is the address of the request that asked, when
+   * there is one; otherwise only an address this same actor sent earlier is
+   * used, and with none the URL is relative. Never another user's address.
+   */
+  async function pageUrl(
+    token: string,
+    userId: string | null,
+    base: string | null | undefined,
+  ): Promise<string> {
+    const origin = base ?? (await knownBaseUrl(ctx, userId)) ?? "";
+    return `${origin}/plugin-api/${ctx.pluginId}/status/${token}`;
   }
 
   async function liveRows(): Promise<StatusPageRow[]> {
@@ -375,7 +384,9 @@ export function createStatusPages(ctx: PluginContext, deps: StatusPagesDeps) {
     async create(
       connectionId: number,
       input: { title: unknown; resources: unknown },
+      opts: { base?: string | null } = {},
     ): Promise<{ page: StatusPageView; url: string }> {
+      const userId = ctx.currentActor() ?? null;
       await ownConnection(connectionId);
       if (!(await allowed())) throw new StatusPagesOffError();
       const title = cleanTitle(input.title);
@@ -396,11 +407,18 @@ export function createStatusPages(ctx: PluginContext, deps: StatusPagesDeps) {
         .where(eq(t.tokenHash, tokenHash))
         .limit(1)) as StatusPageRow[];
       await syncAwake();
-      return { page: toView(created), url: await pageUrl(token) };
+      return {
+        page: toView(created),
+        url: await pageUrl(token, userId, opts.base),
+      };
     },
 
     /** A new token; the old URL stops working at once. */
-    async rotate(id: number): Promise<{ page: StatusPageView; url: string }> {
+    async rotate(
+      id: number,
+      opts: { base?: string | null } = {},
+    ): Promise<{ page: StatusPageView; url: string }> {
+      const userId = ctx.currentActor() ?? null;
       const found = await ownPage(id);
       const { token, tokenHash } = issueToken();
       const db = await dbClient(ctx);
@@ -409,7 +427,10 @@ export function createStatusPages(ctx: PluginContext, deps: StatusPagesDeps) {
         .set({ tokenHash })
         .where(and(eq(t.id, found.id), isNull(t.revokedAt)));
       await ctx.db.persist();
-      return { page: toView(found), url: await pageUrl(token) };
+      return {
+        page: toView(found),
+        url: await pageUrl(token, userId, opts.base),
+      };
     },
 
     async revoke(id: number): Promise<StatusPageView> {

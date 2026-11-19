@@ -1,40 +1,46 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 
-const KV_KEY = "publicBaseUrl";
+/** One kv entry per user: `publicBaseUrl:<userId>`. */
+const KV_PREFIX = "publicBaseUrl:";
+const HTTP_BASE = /^https?:\/\/[^\s/?#@]+(\/[^\s?#]*)?$/i;
 
-let remembered: string | null = null;
+// Each user's own last address. A page URL carries its token, so it is only
+// ever built from an address the same user sent: a request's Host header is
+// the caller's to choose, and one user must never steer another's link.
+const remembered = new Map<string, string>();
+
+/** The public address of this request, or null when it isn't http(s). */
+export function baseUrlOf(ctx: PluginContext, req: unknown): string | null {
+  let base: string;
+  try {
+    base = String(ctx.http.baseUrl(req)).replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+  return HTTP_BASE.test(base) ? base : null;
+}
 
 /**
- * Notes Termix's public address from a signed-in request, so a status page
- * URL made by an operation (which has no request) can still be absolute.
- * Kept in memory and, when it changes, in ctx.kv.
+ * Notes the signed-in actor's address from their own request, for URLs an
+ * operation builds later for that same actor (operations have no request).
  */
 export async function rememberBaseUrl(
   ctx: PluginContext,
   req: unknown,
-): Promise<string | null> {
-  let base: string;
+): Promise<void> {
+  const userId = ctx.currentActor();
+  if (!userId) return;
+  const base = baseUrlOf(ctx, req);
+  if (!base || remembered.get(userId) === base) return;
+  remembered.set(userId, base);
   try {
-    base = ctx.http.baseUrl(req).replace(/\/+$/, "");
+    await ctx.kv.set(KV_PREFIX + userId, base);
   } catch {
-    return remembered;
+    // Memory still has it; the store is only for after a restart.
   }
-  if (!/^https?:\/\//.test(base)) return remembered;
-  if (base !== remembered) {
-    remembered = base;
-    try {
-      await ctx.kv.set(KV_KEY, base);
-    } catch {
-      // Memory still has it; the store is only for after a restart.
-    }
-  }
-  return base;
 }
 
-/**
- * Router middleware that notes the address from signed-in requests only. A
- * public request's Host header is the caller's to choose, so it never counts.
- */
+/** Router middleware: signed-in requests only, each kept for its own actor. */
 export function rememberBaseUrlMiddleware(ctx: PluginContext) {
   return (req: unknown, _res: unknown, next: () => void): void => {
     if (ctx.currentActor()) {
@@ -45,18 +51,24 @@ export function rememberBaseUrlMiddleware(ctx: PluginContext) {
 }
 
 /**
- * The last public address seen, or null when no signed-in request has come
- * in yet. A URL is then relative to the Termix address.
+ * The address this user last sent, or null when they sent none (the URL is
+ * then relative). Never another user's address.
  */
-export async function knownBaseUrl(ctx: PluginContext): Promise<string | null> {
-  if (remembered) return remembered;
+export async function knownBaseUrl(
+  ctx: PluginContext,
+  userId: string | null | undefined,
+): Promise<string | null> {
+  if (!userId) return null;
+  const hit = remembered.get(userId);
+  if (hit) return hit;
   try {
-    const stored = await ctx.kv.get(KV_KEY);
-    if (typeof stored === "string" && /^https?:\/\//.test(stored)) {
-      remembered = stored;
+    const stored = await ctx.kv.get(KV_PREFIX + userId);
+    if (typeof stored === "string" && HTTP_BASE.test(stored)) {
+      remembered.set(userId, stored);
+      return stored;
     }
   } catch {
     // No store: answer null.
   }
-  return remembered;
+  return null;
 }

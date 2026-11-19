@@ -84,5 +84,12 @@ can be taken once:
 A second take, another user, another run's id or an expired entry gets nothing. Give the page a new link to
 get a URL again.
 
+**Which address a URL starts with.** Because the URL carries the token, it is only ever built from an address
+the same user sent. The plugin routes (`POST …/status-pages`, `POST …/rotate`) use the address of that request.
+An operation has no request, so it uses the address that user's own last signed-in request to the plugin came
+in on; if that user has sent none, the URL is relative (`/plugin-api/coolify/status/<token>`), to be put after
+your Termix address. Another user's address is never used, and an address that isn't `http` or `https` is
+ignored.
+
 The page itself is `GET /plugin-api/coolify/status/<token>` (HTML) or `…/status/<token>.json`, with no
 login.
