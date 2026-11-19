@@ -62,6 +62,10 @@
 - Coolify resources on Linked hosts (`coolify.resource`, `coolify.list-resources`), `coolify.sync-host`,
   status tiles for degraded resources, server reachability, security updates and deployments running, and
   the declared events deployment finished, deployment failed, container restarted and server unreachable
+- The security updates tile shows the newer of Coolify's own update check and the host card's last
+  **Check now**, and says which; reading it never connects over SSH
+- Every action stops before it reaches Coolify when its run is cancelled
+- "Coolify: Open shell in…", "Coolify: Logs of…" and "Coolify: Sync servers" in the command palette
 - Server updates on the Linked host's Coolify card: pending and security updates, reboot required and when
   Coolify last checked, with updates that restart Docker called out. **Check now**, **Install updates** (a
   confirm lists every package and highlights Docker restarts) and **Reboot** (type the server's name) run

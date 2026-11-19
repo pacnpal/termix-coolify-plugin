@@ -119,7 +119,7 @@ exited) or **Stop**. **Stop** and **Force rebuild** ask first, naming the resour
 `/deploy` for the resource; a force rebuild builds without Coolify's build cache. A service's parts restart one
 by one from the **Restart** button on each part in the service's Overview; a part opened on its own has
 Restart and Start or Stop, and deploys with its service. In the command palette, **Coolify: Deploy…** opens
-the Resources list to pick from.
+the Resources list to pick from (see [Command palette](#command-palette)).
 
 These need **Operate Coolify resources**, and the connection must be yours or shared with you at operate or
 configure. They work whether or not the resource's server has a Linked host:
@@ -144,9 +144,26 @@ Linked hosts also get:
   the host page. A host that isn't linked lists none, without asking Coolify.
 - `coolify.sync-host`: updates this one host from its Coolify server (owner only, **Configure Coolify**).
 - Status tiles: degraded resources (`coolify.degraded`), whether Coolify can reach the server
-  (`coolify.server`) and security updates from Coolify's last update check (`coolify.updates`), plus
-  `coolify.deploying`, the resources deploying now across your connections. They read the same short caches
-  as the tab, so many hosts on one connection cost one Coolify request.
+  (`coolify.server`) and security updates (`coolify.updates`), plus `coolify.deploying`, the resources
+  deploying now across your connections. They read the same short caches as the tab, so many hosts on one
+  connection cost one Coolify request. The security updates tile shows the newer of Coolify's own update
+  check and the last **Check now** on the host card (see [Server updates](#server-updates)), and says which
+  one; reading the tile never runs a check or connects over SSH.
+
+Cancelling a run stops any of these actions before it reaches Coolify, and a deploy that waits stops
+waiting.
+
+## Command palette
+
+The **Coolify** group in the command palette has:
+
+- **Coolify: Deploy…** opens the Resources list. Pick a resource and deploy from its header.
+- **Coolify: Open shell in…** opens the Resources list; the resource you pick opens in a **Coolify shell**
+  tab (see [Container shells](#container-shells-and-database-consoles)). Without **Operate Coolify
+  resources** the pick opens the resource instead.
+- **Coolify: Logs of…** opens the Resources list; the resource you pick opens on its logs. While the plugin
+  has no Logs view, it opens on the resource's Overview.
+- **Coolify: Sync servers** opens the sync preview (see [Sync servers into hosts](#sync-servers-into-hosts)).
 
 ## Use with an MCP client
 

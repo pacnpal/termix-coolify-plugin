@@ -46,6 +46,17 @@ appear in run history.
 | `coolify.server-updates-install` | `POST /plugin-api/coolify/connections/:id/servers/:uuid/updates/install` | `/operations/coolify.server-updates-install/run` | `operations:run`                      | `coolify__server_updates_install` | `curl -X POST "$TERMIX/operations/coolify.server-updates-install/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","serverUuid":"<server uuid>","confirm":true}}'`                        |
 | `coolify.server-reboot`          | `POST /plugin-api/coolify/connections/:id/servers/:uuid/reboot`          | `/operations/coolify.server-reboot/run`          | `operations:run`                      | `coolify__server_reboot`          | `curl -X POST "$TERMIX/operations/coolify.server-reboot/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","serverUuid":"<server uuid>","confirmName":"<server name>"},"confirmed":true}'` |
 
+### Signals and cancelled runs
+
+The `coolify.signal-*` reads answer `{ value, status, label }` for Operations Center's status tiles, from the
+plugin's short caches: one Coolify request serves every Linked host of a connection. A host that isn't linked
+answers `status: "unknown"` without asking Coolify. `coolify.signal-updates` gives the newer of Coolify's own
+patch check and the plugin's last `coolify.server-updates-check`, with the source in `label`; it never runs a
+check or SSH itself.
+
+Every action stops before it calls Coolify, SSH or another plugin when its run is already cancelled, and a
+deploy with `wait` stops following the deployment when the run is cancelled.
+
 ### Lifecycle routes
 
 `POST /plugin-api/coolify/connections/:id/resources/:uuid/{start|stop|restart|deploy}` (deploy takes

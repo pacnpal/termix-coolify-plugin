@@ -135,9 +135,20 @@ aren't obvious from the code, and anything that has bitten you before.
   outcome back to a status and cause. `sync.linkOfHost(hostId)` is the reverse lookup handlers use.
 - MCP may deploy and restart without `allowMcpChanges` (`MCP_CHANGES_EXEMPT` in `mcp/server.ts`).
 - Signals (`src/backend/ops/signals.ts`) read resources from the resources cache and server statuses from a
-  `servers` cache kind (a minute, no addresses or keys kept). Updates come from Coolify's own patch check
-  (`ServerDto.patch.security`) until the updates service exists. The deployment events are emitted only
-  by a deploy run with `wait`; container-restarted and server-unreachable are declared for later polling.
+  `servers` cache kind (a minute, no addresses or keys kept). `coolify.updates` takes the newer
+  (`newestSecurity`) of Coolify's patch check (`ServerDto.patch`) and the updates service's own last check
+  (`updates.lastCheck`, the `updates:<serverUuid>` cache row); a signal never runs SSH. The deployment events
+  are emitted only by a deploy run with `wait`; container-restarted and server-unreachable are declared for
+  later polling.
+- Abort: `registerOperations` hands the ops files a ctx whose `operations.register` wraps every handler in
+  `abortable` (operations.ts), so a cancelled run throws its signal's reason before it starts. Long handlers
+  (deploy with `wait`, the deploying signal's loop) also check the signal as they go.
+- Palette (`src/frontend/index.tsx`): Deploy, Open shell and Logs open the Coolify tab on Resources with tab
+  data `{ section: "resources", open?: "shell", tab?: "<detail view>" }`; CoolifyTab's `pick` opens a
+  shell once (with coolify.operate) or the detail on that view. `detailTabOf` in ResourceDetail falls back to
+  Overview for a view it doesn't have. The tab reads its data at mount only, like the import menu's.
+- Operations Center host page: SDK 2.8.1 has no shell API that opens it (`ShellApi` has none, and the
+  design's `host-page.open` action can't be detected), so the host section has no link to it yet.
 - Server updates: `src/backend/updates/` (`service.ts` `createUpdates`, `routes.ts`) and
   `src/backend/ops/updates.ts`; the UI is `src/frontend/views/ServerUpdates.tsx` inside the host card.
   Coolify's `patch_check_result` is mapped by `toPatch` in `dto.ts` (an explicit `security_updates: null`
