@@ -394,5 +394,60 @@
   },
   "importMenu": {
     "title": "Import from Coolify"
+  },
+  "companions": {
+    "cancel": "Cancel",
+    "dns": {
+      "create": "Create DNS record",
+      "domain": "Domain",
+      "content": "Points to",
+      "contentHint": "An IP address or host name. Leave empty to use the server's address.",
+      "submit": "Create record",
+      "record": "{{fqdn}} {{type}} {{content}}",
+      "remove": "Remove",
+      "failed": "The DNS record could not be created.",
+      "removeFailed": "The DNS record could not be removed."
+    },
+    "uptime": {
+      "title": "Uptime",
+      "none": "No Uptime monitor checks this resource's domains.",
+      "open": "Create monitor in Uptime",
+      "why": "Uptime can't create HTTP monitors for other plugins, so add the monitor in the Uptime tab.",
+      "status": {
+        "up": "Up",
+        "down": "Down",
+        "paused": "Paused",
+        "pending": "Pending",
+        "unknown": "Unknown"
+      }
+    },
+    "logs": {
+      "search": "Search logs across servers",
+      "source": "Docker logs, from Log Search. It can't filter by host.",
+      "none": "No log lines matched.",
+      "failed": "Log Search could not search the logs."
+    },
+    "databases": {
+      "saved": "A login for this database is saved in Databases.",
+      "notSaved": "Databases has no saved login for this database yet.",
+      "summary": "{{saved}} of {{total}} Coolify databases on this server have a saved login in Databases.",
+      "open": "Open Databases"
+    },
+    "security": {
+      "label": "Security Center",
+      "score": "Score {{score}}",
+      "noScore": "Not checked yet",
+      "critical": "{{count}} critical"
+    },
+    "metrics": {
+      "title": "Coolify on this server",
+      "counts": "{{applications}} applications, {{services}} services, {{databases}} databases"
+    },
+    "backups": {
+      "title": "Failed backups",
+      "none": "No failed backup jobs.",
+      "failed": "Failed",
+      "job": "{{name}}, {{at}}"
+    }
   }
 }

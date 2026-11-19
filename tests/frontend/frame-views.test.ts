@@ -28,6 +28,22 @@ const connection = {
   steps: [],
 };
 
+const allCompanions = Object.fromEntries(
+  [
+    "files",
+    "tunnels",
+    "reverseProxy",
+    "dns",
+    "uptime",
+    "logSearch",
+    "packageManager",
+    "securityCenter",
+    "hostMetrics",
+    "databases",
+    "backups",
+  ].map((key) => [key, true]),
+);
+
 // A Linked host, so the host section renders too.
 const linkedHost = {
   id: 7,
@@ -57,6 +73,8 @@ describe("sandboxed frame views", () => {
       hosts: [linkedHost],
       respond: (method, path) => {
         if (method !== "GET") return {};
+        // Every companion runs, so the host card asks for their parts too.
+        if (/\/companions$/.test(path)) return allCompanions;
         if (/\/connections$/.test(path)) return [connection];
         if (/\/connections\/1\/servers$/.test(path)) return [];
         if (/\/connections\/1$/.test(path)) return connection;
