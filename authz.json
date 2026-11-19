@@ -1,5 +1,58 @@
 {
   "$schema": "https://raw.githubusercontent.com/Termix-SSH/Termix/main/scripts/authz/authz.schema.json",
-  "seed": [],
-  "routes": {}
+  "seed": [
+    {
+      "as": "owner",
+      "method": "POST",
+      "path": "/plugin-api/coolify/connections",
+      "body": {
+        "name": "authz-own-connection",
+        "baseUrl": "https://coolify.invalid",
+        "token": "authz-fake-token"
+      },
+      "capture": { "coolify.connection": "id" }
+    }
+  ],
+  "routes": {
+    "GET /plugin-api/coolify/connections": {
+      "access": "user",
+      "permission": "coolify.view",
+      "filtered": true
+    },
+    "POST /plugin-api/coolify/connections": {
+      "access": "user",
+      "permission": "coolify.configure",
+      "body": {
+        "name": "authz-other-connection",
+        "baseUrl": "https://coolify.invalid",
+        "token": "authz-fake-token"
+      }
+    },
+    "GET /plugin-api/coolify/connections/:id": {
+      "access": "user",
+      "permission": "coolify.view",
+      "resource": { "kind": "own", "fixture": "coolify.connection" },
+      "params": { "id": "coolify.connection" }
+    },
+    "PATCH /plugin-api/coolify/connections/:id": {
+      "access": "user",
+      "permission": "coolify.configure",
+      "resource": { "kind": "own", "fixture": "coolify.connection" },
+      "params": { "id": "coolify.connection" },
+      "body": { "name": "authz-own-renamed" }
+    },
+    "DELETE /plugin-api/coolify/connections/:id": {
+      "access": "user",
+      "permission": "coolify.configure",
+      "resource": { "kind": "own", "fixture": "coolify.connection" },
+      "params": { "id": "coolify.connection" },
+      "destructive": true
+    },
+    "POST /plugin-api/coolify/connections/:id/probe": {
+      "access": "user",
+      "permission": "coolify.view",
+      "resource": { "kind": "own", "fixture": "coolify.connection" },
+      "params": { "id": "coolify.connection" }
+    }
+  }
 }
