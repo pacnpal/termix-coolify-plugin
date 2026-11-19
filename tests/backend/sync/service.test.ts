@@ -637,3 +637,94 @@ describe("host sync routes", () => {
     }
   });
 });
+
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+describe("host sync under concurrency", () => {
+  it("two overlapping syncs of one connection create one host and one link row", async () => {
+    const { harness: h, connectionId } = await start();
+    // Each host create waits until a second one arrives (or 150 ms pass), so
+    // two syncs that both read "no host yet" would both create one.
+    const create = h.mock.ctx.hosts.create.bind(h.mock.ctx.hosts);
+    let arrived = 0;
+    let release: () => void = () => {};
+    const both = new Promise<void>((resolve) => (release = resolve));
+    vi.spyOn(h.mock.ctx.hosts, "create").mockImplementation(async (input) => {
+      arrived += 1;
+      if (arrived >= 2) release();
+      await Promise.race([both, sleep(150)]);
+      return create(input);
+    });
+    const [first, second] = await Promise.all([
+      apply(h, connectionId, only("srv-web1")),
+      apply(h, connectionId, only("srv-web1")),
+    ]);
+    const statuses = [first, second]
+      .map((results) => byUuid(results, "srv-web1").status)
+      .sort();
+    expect(statuses).toEqual(["created", "updated"]);
+    const hosts = await h.mock.ctx.hosts.listOwned();
+    expect(hosts).toHaveLength(1);
+    const rows = serverRows(h).filter((r) => r.server_uuid === "srv-web1");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].host_id).toBe(hosts[0].id);
+    expect(lockProvider(h).lockedHosts()).toEqual([hosts[0].id]);
+  });
+
+  it("an unlink that overlaps a sync waits for it and releases the host", async () => {
+    const { harness: h, connectionId } = await start();
+    await apply(h, connectionId, only("srv-web1"));
+    // The re-sync pauses in its host update; the unlink is sent meanwhile.
+    const update = h.mock.ctx.hosts.update.bind(h.mock.ctx.hosts);
+    let paused: () => void = () => {};
+    const inUpdate = new Promise<void>((resolve) => (paused = resolve));
+    let unlinkDone: () => void = () => {};
+    const unlinked$ = new Promise<void>((resolve) => (unlinkDone = resolve));
+    const spy = vi
+      .spyOn(h.mock.ctx.hosts, "update")
+      .mockImplementationOnce(async (id, input) => {
+        paused();
+        await Promise.race([unlinked$, sleep(150)]);
+        return update(id, input);
+      });
+    const resync = apply(h, connectionId, only("srv-web1"));
+    await inUpdate;
+    spy.mockImplementation(update);
+    const unlinking = h
+      .request("POST", `/connections/${connectionId}/servers/srv-web1/unlink`, {
+        removeHost: false,
+      })
+      .finally(unlinkDone);
+    await resync;
+    const unlinked = await unlinking;
+    expect(unlinked.status).toBe(200);
+    expect(lockProvider(h).lockedHosts()).toEqual([]);
+    const [row] = serverRows(h).filter((r) => r.server_uuid === "srv-web1");
+    expect(row.host_id).toBeNull();
+  });
+
+  it("a link row that can't be saved removes the host it just created", async () => {
+    const { harness: h, connectionId } = await start();
+    const create = h.mock.ctx.hosts.create.bind(h.mock.ctx.hosts);
+    // Another writer takes the (connection, server) row after the host is
+    // made, so saving this sync's link row fails on the unique constraint.
+    vi.spyOn(h.mock.ctx.hosts, "create").mockImplementation(async (input) => {
+      const host = await create(input);
+      h.db.sqlite
+        .prepare(
+          "INSERT INTO p_coolify_servers (connection_id, server_uuid) VALUES (?, ?)",
+        )
+        .run(connectionId, "srv-web1");
+      return host;
+    });
+    const results = await apply(h, connectionId, only("srv-web1"));
+    expect(byUuid(results, "srv-web1")).toMatchObject({
+      status: "failed",
+      cause: "host-write-failed",
+      hostId: null,
+    });
+    expect(await h.mock.ctx.hosts.listOwned()).toHaveLength(0);
+    expect(lockProvider(h).lockedHosts()).toEqual([]);
+  });
+});
