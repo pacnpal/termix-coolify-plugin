@@ -8,7 +8,7 @@ import {
 } from "@termix-ssh/plugin-sdk/testing";
 import type { PluginManifest } from "@termix-ssh/plugin-sdk/manifest";
 import manifestJson from "../../../manifest.json";
-import { defineTables } from "../../../src/backend/db.js";
+import { defineTables, type Tables } from "../../../src/backend/db.js";
 import {
   createConnections,
   type Connections,
@@ -51,6 +51,7 @@ const BASE_URL = "https://coolify.example.test";
 const MOVED_URL = "https://coolify-moved.example.test";
 let connections: Connections;
 let resources: Resources;
+let tables: Tables;
 let clock: number;
 let connectionId: number;
 
@@ -77,6 +78,29 @@ function authorizations(): (string | null)[] {
   return listCalls().map((c) =>
     new Headers(c.init?.headers as Record<string, string>).get("authorization"),
   );
+}
+
+/**
+ * Holds the next cache write until `release`, as a slow database would, so
+ * the write can land after an invalidate's drop.
+ */
+function holdNextCacheWrite() {
+  const db = mock.ctx.db;
+  const batch = db.batch.bind(db);
+  let reached = () => {};
+  let release = () => {};
+  const atWrite = new Promise<void>((resolve) => (reached = resolve));
+  const released = new Promise<void>((resolve) => (release = resolve));
+  let armed = true;
+  db.batch = (async (...args: Parameters<typeof batch>) => {
+    if (armed) {
+      armed = false;
+      reached();
+      await released;
+    }
+    return batch(...args);
+  }) as typeof db.batch;
+  return { atWrite, release };
 }
 
 function listCalls() {
@@ -119,7 +143,7 @@ beforeEach(async () => {
     },
     actor: "user-1",
   });
-  const tables = await defineTables(mock.ctx);
+  tables = await defineTables(mock.ctx);
   connections = createConnections(mock.ctx, tables);
   clock = Date.parse("2026-11-19T10:00:00Z");
   resources = createResources(mock.ctx, {
@@ -283,33 +307,39 @@ describe("resource service", () => {
   });
 
   it("a cache write held past an invalidate is never served", async () => {
-    // Hold the cache write until invalidate has run to completion, as a slow
-    // database would: the write then lands after the drop.
-    const db = mock.ctx.db;
-    const batch = db.batch.bind(db);
-    let reached = () => {};
-    let release = () => {};
-    const atWrite = new Promise<void>((resolve) => (reached = resolve));
-    const released = new Promise<void>((resolve) => (release = resolve));
-    let armed = true;
-    db.batch = (async (...args: Parameters<typeof batch>) => {
-      if (armed) {
-        armed = false;
-        reached();
-        await released;
-      }
-      return batch(...args);
-    }) as typeof db.batch;
-
+    // The write lands after invalidate has run to completion.
+    const hold = holdNextCacheWrite();
     const stale = resources.list(connectionId);
-    await atWrite;
+    await hold.atWrite;
     await resources.invalidate(connectionId);
-    release();
+    hold.release();
     await stale;
 
     fake.set("GET /applications", NARROWER);
     fake.calls.length = 0;
     const uuids = (await resources.list(connectionId)).map((r) => r.uuid);
+    expect(listCalls().length).toBeGreaterThan(0);
+    expect(uuids).toContain("app-only-uuid");
+    expect(uuids).not.toContain("app-web-uuid");
+  });
+
+  it("a cache write that landed after invalidate is not served after a restart", async () => {
+    const hold = holdNextCacheWrite();
+    const stale = resources.list(connectionId);
+    await hold.atWrite;
+    await resources.invalidate(connectionId);
+    hold.release();
+    await stale;
+
+    // A restart: a new instance over the same tables, with the row still there.
+    const restarted = createResources(mock.ctx, {
+      tables,
+      connections,
+      now: () => clock,
+    });
+    fake.set("GET /applications", NARROWER);
+    fake.calls.length = 0;
+    const uuids = (await restarted.list(connectionId)).map((r) => r.uuid);
     expect(listCalls().length).toBeGreaterThan(0);
     expect(uuids).toContain("app-only-uuid");
     expect(uuids).not.toContain("app-web-uuid");

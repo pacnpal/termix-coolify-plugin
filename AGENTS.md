@@ -125,6 +125,8 @@ aren't obvious from the code, and anything that has bitten you before.
   is the hook for lifecycle actions: it advances an in-memory per-connection generation, drops the
   in-flight fetches and the cached row. Cached rows carry their generation too, and a hit needs both the
   revision and the generation to be current, so a write that lands after the drop is never served.
+  Generations are unique to each `createResources` instance (`<epoch>:<n>`, the epoch a random uuid), so
+  after a restart no row an old instance wrote matches and the cache starts cold.
   `ResourceDto.serverName` comes from `server.name` or `destination.server.name` in the payload.
   The MCP tool `list_resources` (`src/backend/mcp/server.ts`) runs `coolify.list-resources-all`.
 - Status words: `src/shared/resource-health.ts` (`resourceHealth`, `countResources`) is the one reading of a

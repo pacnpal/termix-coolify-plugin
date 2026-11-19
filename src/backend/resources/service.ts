@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { createCache } from "../cache.js";
 import type { ResourceDto } from "../coolify/dto.js";
@@ -32,7 +33,7 @@ export interface ResourceList {
  */
 interface CachedRows {
   revision: string;
-  generation: number;
+  generation: string;
   rows: ResourceDto[];
 }
 
@@ -49,6 +50,9 @@ const notFound = () =>
  * the cached rows carry both. A cache hit counts only when both are current,
  * so rows read before a changed address, token or TLS setting, or before an
  * invalidate, are never served, even when their write lands after the drop.
+ * Generations are unique to each instance (`<epoch>:<n>`, the epoch a random
+ * uuid), so after a restart no row an old instance wrote ever matches: the
+ * cache starts cold, which costs one fetch.
  */
 export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
   const cache = createCache(ctx, deps.tables);
@@ -57,9 +61,10 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
   // share it, and a caller after a change never joins a fetch from before it.
   const inflight = new Map<string, Promise<ResourceList>>();
   // Advanced by invalidate(); a fetch commits only under the one it began in.
+  const epoch = randomUUID();
   const generations = new Map<number, number>();
   const generationOf = (connectionId: number) =>
-    generations.get(connectionId) ?? 0;
+    `${epoch}:${generations.get(connectionId) ?? 0}`;
 
   /** The connection's current revision, or a 404. */
   async function reach(connectionId: number): Promise<string> {
@@ -71,7 +76,7 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
   async function fetchList(
     connectionId: number,
     revision: string,
-    generation: number,
+    generation: string,
   ): Promise<ResourceList> {
     const api = await deps.connections.api(connectionId);
     const [applications, services, databases] = await Promise.all([
@@ -178,7 +183,7 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
 
     /** Drops the cached list, after a change like a deploy or a stop. */
     async invalidate(connectionId: number): Promise<void> {
-      generations.set(connectionId, generationOf(connectionId) + 1);
+      generations.set(connectionId, (generations.get(connectionId) ?? 0) + 1);
       for (const key of [...inflight.keys()]) {
         if (key.startsWith(`${connectionId}:`)) inflight.delete(key);
       }
