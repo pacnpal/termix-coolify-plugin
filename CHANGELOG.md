@@ -54,3 +54,12 @@
   the command to copy
 - The action `coolify.shell-command`, offered to the assistant and MCP, answers the exact `docker exec`
   command. Shells need Operate Coolify resources and your own connect access to the Linked host
+- Companion plugins on a resource's container, each shown only while its plugin runs: Browse files and
+  Edit compose file in File Manager (the resource's `/data/coolify/...` folder, its compose file and its
+  storages on the server), Reach from here through Tunnels (a forward named `web:<hostId>:coolify-<uuid>`,
+  listening on the Termix server, with Stop), and Open web UI through Reverse Proxy (a one-time signed-in
+  link, or what the admin must set up first). They need Operate Coolify resources and your own connect
+  access to the Linked host, and never pass the Coolify token to another plugin
+- A Coolify view in the Tunnels tab, listing the host's Coolify resources with a port to forward and stop
+- The actions `coolify.companion-read` (`companions`, `files-paths`) and `coolify.companion`
+  (`tunnel-open`, `tunnel-close`, `web-ui`); the web UI link is a sensitive output, never kept in run history

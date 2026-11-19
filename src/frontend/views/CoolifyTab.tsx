@@ -173,6 +173,7 @@ export function CoolifyTab(props: TabProps) {
           rows={rows}
           onOpen={setOpenUuid}
           onClose={() => setOpenUuid(null)}
+          connectionId={connection?.id}
           onShell={(resource, console) => {
             if (!connection) return;
             props.shell.openTab(null, "coolify-shell", {

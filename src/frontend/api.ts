@@ -160,6 +160,47 @@ export type ShellResult =
   | ({ kind: "command" } & ShellAnswer)
   | { kind: "choices"; choices: ContainerChoice[] };
 
+/** Which companion plugins run, by feature. */
+export interface CompanionMap {
+  files: boolean;
+  tunnels: boolean;
+  reverseProxy: boolean;
+  dns: boolean;
+  uptime: boolean;
+  logSearch: boolean;
+  packageManager: boolean;
+  securityCenter: boolean;
+  hostMetrics: boolean;
+  databases: boolean;
+  backups: boolean;
+}
+
+/** Where a resource's files are on its Linked host, for File Manager. */
+export interface ResourcePaths {
+  hostId: number;
+  dataDir: string;
+  composeFile: string;
+  volumes: string[];
+}
+
+/** A Tunnels forward to a container port, listening on the Termix server. */
+export interface TunnelAnswer {
+  name: string;
+  hostId: number;
+  targetPort: number;
+  bindHost: string;
+  bindPort: number;
+}
+
+/** Which container of a resource, and its part, for a tunnel or web UI. */
+export interface ContainerTarget {
+  part?: string;
+  container?: string;
+}
+
+export type Chosen<T> =
+  ({ kind: "done" } & T) | { kind: "choices"; choices: ContainerChoice[] };
+
 function choicesOf(data: unknown): ContainerChoice[] | null {
   const list = (data as { choices?: unknown } | null)?.choices;
   return Array.isArray(list) ? (list as ContainerChoice[]) : null;
@@ -281,7 +322,70 @@ export function createApi(api: PluginApiClient) {
         throw err;
       }
     },
+    async companions(): Promise<CompanionMap> {
+      return (await api.get<CompanionMap>("/companions")).data;
+    },
+    async resourcePaths(
+      id: number,
+      uuid: string,
+      part?: string,
+    ): Promise<ResourcePaths> {
+      const query = part ? `?part=${encodeURIComponent(part)}` : "";
+      return (
+        await api.get<ResourcePaths>(`${resourcePath(id, uuid)}/paths${query}`)
+      ).data;
+    },
+    /** Several matching containers answer 300 with choices. */
+    async openTunnel(
+      id: number,
+      uuid: string,
+      body: { port: number } & ContainerTarget,
+    ): Promise<Chosen<TunnelAnswer>> {
+      return chosen(() =>
+        api.post<TunnelAnswer>(`${resourcePath(id, uuid)}/tunnel`, body),
+      );
+    },
+    async closeTunnel(
+      id: number,
+      uuid: string,
+      port: number,
+      part?: string,
+    ): Promise<void> {
+      const query = part ? `?part=${encodeURIComponent(part)}` : "";
+      await api.delete(`${resourcePath(id, uuid)}/tunnel/${port}${query}`);
+    },
+    /** A one-time signed-in URL to the container's port, through Reverse Proxy. */
+    async openWebUi(
+      id: number,
+      uuid: string,
+      body: { port: number; scheme?: "http" | "https" } & ContainerTarget,
+    ): Promise<Chosen<{ url: string }>> {
+      return chosen(() =>
+        api.post<{ url: string }>(`${resourcePath(id, uuid)}/web-ui`, body),
+      );
+    },
   };
+}
+
+function resourcePath(id: number, uuid: string): string {
+  return `/connections/${id}/resources/${encodeURIComponent(uuid)}`;
+}
+
+/** Reads a 200 answer, or a 300 (or 300-shaped) one with choices. */
+async function chosen<T extends object>(
+  call: () => Promise<{ data: T }>,
+): Promise<Chosen<T>> {
+  try {
+    const data = (await call()).data;
+    const choices = choicesOf(data);
+    return choices ? { kind: "choices", choices } : { kind: "done", ...data };
+  } catch (err) {
+    const choices = choicesOf(
+      (err as { response?: { data?: unknown } })?.response?.data,
+    );
+    if (choices) return { kind: "choices", choices };
+    throw err;
+  }
 }
 
 export type Api = ReturnType<typeof createApi>;

@@ -29,6 +29,22 @@ const connection = {
   steps: [],
 };
 
+const allCompanions = Object.fromEntries(
+  [
+    "files",
+    "tunnels",
+    "reverseProxy",
+    "dns",
+    "uptime",
+    "logSearch",
+    "packageManager",
+    "securityCenter",
+    "hostMetrics",
+    "databases",
+    "backups",
+  ].map((key) => [key, true]),
+);
+
 // A Linked host, so the host section renders too.
 const linkedHost = {
   id: 7,
@@ -54,10 +70,13 @@ describe("sandboxed frame views", () => {
     const { refused, errors, rendered } = await checkFrameViews(plugin, {
       manifest: manifest as unknown as Record<string, unknown>,
       locales,
-      permissions: ["coolify.view", "coolify.configure"],
+      // Operate too, so the resource detail draws its companion buttons.
+      permissions: ["coolify.view", "coolify.operate", "coolify.configure"],
       hosts: [linkedHost],
       respond: (method, path) => {
         if (method !== "GET") return {};
+        // Every companion runs, so the host card asks for their parts too.
+        if (/\/companions$/.test(path)) return allCompanions;
         if (/\/connections$/.test(path)) return [connection];
         if (/\/connections\/1\/servers$/.test(path)) return [];
         if (/\/resources(\?|$)/.test(path)) return resourceAnswer;

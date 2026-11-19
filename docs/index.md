@@ -142,6 +142,45 @@ The action `coolify.shell-command` (offered to the assistant and MCP) answers th
 or the list of containers to choose from, for a client with its own SSH. It makes the same checks. See
 [the API](api.md).
 
+## Companion plugins on containers
+
+When these Termix plugins are installed and running, a resource's or part's Overview shows a **Companion
+plugins** group. Each button hides while its plugin isn't running.
+
+| Button                | Plugin        | What it does                                                                                  |
+| --------------------- | ------------- | --------------------------------------------------------------------------------------------- |
+| **Browse files**      | File Manager  | Opens the Linked host at the resource's data folder                                           |
+| **Edit compose file** | File Manager  | Opens the compose file Coolify wrote there in the editor                                      |
+| **Open** _path_       | File Manager  | Opens one of the resource's storages on the server                                            |
+| **Reach from here**   | Tunnels       | Forwards a container port through the Linked host, listening on the Termix server             |
+| **Open web UI**       | Reverse Proxy | A one-time signed-in link to the container's web port, with no tunnel or public domain needed |
+
+- **Data folders** are Coolify's own: `/data/coolify/applications/<uuid>`, `/data/coolify/services/<uuid>`
+  (a service's parts share it) and `/data/coolify/databases/<uuid>`. The compose file is
+  `docker-compose.yaml` for an application and `docker-compose.yml` for a service or database. Storages come
+  from Coolify's storages list: a bind mount's or a file's path on the server, or a Docker volume's
+  `/var/lib/docker/volumes/<name>/_data` folder. A storage's mount path inside the container isn't on the
+  server, so it isn't offered.
+- **Reach from here** reads the container's internal address with `docker inspect` over SSH and asks
+  Tunnels to forward the port you enter to it. The forward listens on the Termix server (`127.0.0.1`), is
+  named `web:<hostId>:coolify-<uuid>` and isn't saved in your Tunnels list. **Stop** closes it. One forward
+  runs per resource and Linked host. Forwarding to your own computer isn't possible: Tunnels offers that only
+  from the desktop app's own tunnels.
+- The **Tunnels tab** gets a **Coolify** view listing the resources of the host's Coolify server (or every
+  connection's, on the hostless tab), each with a port to forward and stop.
+- **Open web UI** needs Reverse Proxy's endpoint set up: an admin sets its **Termix address** and **Web
+  endpoint domain** (a wildcard DNS name pointing at the proxy). Until then the button explains that. The
+  link signs you in once; ask for a new one next time.
+- When there are several containers (a service), pick one from the list.
+
+These reach the server over SSH, so they need **Operate Coolify resources** and your own **connect** access
+to the Linked host, like shells. The plugin never hands a companion plugin the Coolify token: only the host,
+the container's internal address and the port.
+
+The actions `coolify.companion-read` (kinds `companions` and `files-paths`) and `coolify.companion` (kinds
+`tunnel-open`, `tunnel-close` and `web-ui`) do the same from Termix's API, the CLI and Automations. The web
+UI link is a sensitive output, never kept in run history. See [the API](api.md).
+
 ## Permissions
 
 Admins and users get all five by default. Admins can take any of them away per role.

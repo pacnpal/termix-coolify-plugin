@@ -138,3 +138,16 @@ aren't obvious from the code, and anything that has bitten you before.
 console }`, calls the shell route and draws `PluginComponent id="terminal.view"` with `hostConfig` and
   `executeCommand`; the fallback is a NoticePanel with the command to copy. Picking a container re-asks in
   place. Shell host ids can be strings, so hosts are matched by `String(id)`, not `useHost`.
+- Container companions (ticket #19): `src/backend/companions/container-adapters.ts` (data paths, the
+  `docker inspect` IP parse, `tunnels.access` and `reverse-proxy.endpoints` calls), `container-service.ts`
+  (the checks), `container-routes.ts` and `src/backend/ops/container-companions.ts` (the `files-paths`,
+  `tunnel-open`, `tunnel-close` and `web-ui` kinds). They reuse `containers.linked()` and
+  `containers.locate()` from the shell service. Check order: `coolify.operate` (`ctx.rbac.has`), input, the
+  companion running (`detect.ts`, the same file as ticket #13's), the resource and Linked host, the
+  companion's service methods, then SSH. Termix's references name the services (`tunnels.access`,
+  `reverse-proxy.endpoints`) but not their methods; the code calls `forward`/`stop` and `available`/`open`
+  from the design and answers `companion-missing` when a provider lacks them, so a forward that can't be
+  stopped is never opened. The tunnel name has no port, so one forward runs per resource and host.
+  `files.openHost` and `files.openEditor` are File Manager frontend actions, run with `invokeAction` and
+  listed in `contributes.uses`, as is the `tunnels.views` extension point (`TunnelsCoolifyView.tsx`,
+  registered only when `hasPermission("operate")`). `src/frontend/companions.ts` matches ticket #13's.

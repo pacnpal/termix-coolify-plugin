@@ -15,6 +15,7 @@ import {
   type InfoItem,
 } from "@termix-ssh/plugin-sdk/ui";
 import type { Resource } from "../api";
+import { ContainerCompanions } from "./ContainerCompanions";
 import { resourceHealth } from "../../shared/resource-health";
 import {
   formatTime,
@@ -79,11 +80,13 @@ function OverviewTab({
   resource,
   rows,
   onOpen,
+  connectionId,
 }: {
   t: T;
   resource: Resource;
   rows: readonly Resource[];
   onOpen: (uuid: string) => void;
+  connectionId?: number;
 }) {
   const service = resource.parentUuid
     ? (rows.find((r) => r.uuid === resource.parentUuid) ?? null)
@@ -94,6 +97,9 @@ function OverviewTab({
       <div className="p-3">
         <InfoGrid items={overviewItems(t, resource, service)} />
       </div>
+      {connectionId !== undefined && (
+        <ContainerCompanions connectionId={connectionId} resource={resource} />
+      )}
       {parts.length > 0 && (
         <div>
           <GroupHeading
@@ -141,6 +147,7 @@ export function ResourceDetail({
   onOpen,
   onClose,
   onShell,
+  connectionId,
 }: {
   /** Null when the resource is gone from the list. */
   resource: Resource | null;
@@ -149,6 +156,8 @@ export function ResourceDetail({
   onClose: () => void;
   /** Opens a coolify-shell tab for the resource. */
   onShell?: (resource: Resource, console: "shell" | "db") => void;
+  /** The connection the resource belongs to, for the companion actions. */
+  connectionId?: number;
 }) {
   const { t } = useTranslation();
   // Shells run over SSH: coolify.operate, plus host access the backend checks.
@@ -161,7 +170,13 @@ export function ResourceDetail({
     switch (tab) {
       case "overview":
         body = (
-          <OverviewTab t={t} resource={resource} rows={rows} onOpen={onOpen} />
+          <OverviewTab
+            t={t}
+            resource={resource}
+            rows={rows}
+            onOpen={onOpen}
+            connectionId={connectionId}
+          />
         );
         break;
     }

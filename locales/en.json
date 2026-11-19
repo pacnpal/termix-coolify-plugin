@@ -550,5 +550,34 @@
       "shell": "Open shell",
       "console": "Open database console"
     }
+  },
+  "containerCompanions": {
+    "title": "Companion plugins",
+    "browse": "Browse files",
+    "editCompose": "Edit compose file",
+    "volume": "Open {{path}}",
+    "volumes": "Storage on the server",
+    "reach": "Reach from here",
+    "webUi": "Open web UI",
+    "port": "Container port",
+    "scheme": "Scheme",
+    "forward": "Forward",
+    "stop": "Stop",
+    "open": "Open",
+    "openLink": "Open the web UI",
+    "oneTime": "This link signs you in once. Open it now; ask for a new one next time.",
+    "listening": "Listening on {{bindHost}}:{{bindPort}} on the Termix server",
+    "localNote": "Forwards listen on the Termix server, not on your own computer: Tunnels can't forward to a desktop from here.",
+    "pickContainer": "Several containers match. Pick one:",
+    "tunnelsMissing": "Install and turn on Tunnels to reach Coolify containers from here.",
+    "viewTitle": "Coolify",
+    "noResources": "No Coolify resources run on this host.",
+    "errors": {
+      "proxyNotConfigured": "Reverse Proxy isn't set up for web pages yet. An admin sets its Termix address and Web endpoint domain in Settings.",
+      "companionMissing": "That plugin isn't running any more.",
+      "openFailed": "File Manager couldn't open this. Check that it is installed and turned on.",
+      "badContainerIp": "The container has no address Termix can reach on its server.",
+      "failed": "That didn't work: {{error}}"
+    }
   }
 }
