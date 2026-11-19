@@ -298,7 +298,7 @@ describe("connections view under concurrent requests", () => {
       permissions: ALL,
     });
     rendered.renderTab("coolify", { isVisible: true });
-    await screen.findByText("Prod");
+    await openConnections();
     fireEvent.click(screen.getByRole("button", { name: L.actions.edit }));
     const name = await screen.findByPlaceholderText(L.form.namePlaceholder);
     fireEvent.change(name, { target: { value: "Renamed" } });
@@ -354,11 +354,15 @@ describe("connections view under concurrent requests", () => {
       permissions: ALL,
     });
     const tab = rendered.renderTab("coolify", { isVisible: true });
-    await screen.findByText("Prod");
+    await openConnections();
     const stale = deferred<{ data: unknown }>();
     api.get.mockReturnValueOnce(stale.promise as never);
+    // The tab and the Overview read first, so count only the list calls since.
+    const listCalls = () =>
+      api.get.mock.calls.filter(([url]) => url === "/connections").length;
+    const before = listCalls();
     fireEvent.click(within(tab).getByRole("button", { name: L.refresh }));
-    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(listCalls()).toBe(before + 1));
     await confirmDelete(tab);
     await waitFor(() => expect(within(tab).queryByText("Prod")).toBeNull());
     stale.resolve({ data: [scopedConnection] });
@@ -375,7 +379,7 @@ describe("connections view under concurrent requests", () => {
       permissions: ALL,
     });
     const tab = rendered.renderTab("coolify", { isVisible: true });
-    await screen.findByText("Prod");
+    await openConnections();
     const late = deferred<{ data: unknown }>();
     api.post.mockReturnValueOnce(late.promise as never);
     fireEvent.click(within(tab).getByRole("button", { name: L.actions.probe }));
@@ -534,6 +538,7 @@ describe("connections view under concurrent requests", () => {
       permissions: ALL,
     });
     const tab = rendered.renderTab("coolify", { isVisible: true });
+    await openConnections();
     await within(tab).findByText(L.badges.error);
     fireEvent.click(within(tab).getByRole("button", { name: L.actions.edit }));
     fireEvent.click(await screen.findByRole("button", { name: L.form.save }));
