@@ -132,7 +132,7 @@
       },
       "params": {
         "id": "coolify.connection",
-        "uuid": "authz-own-resource"
+        "uuid": "=authz-own-resource"
       },
       "allowed": "any",
       "note": "Answers 404 companion-missing unless the DNS plugin runs, and the authz run installs no companions"
@@ -146,7 +146,7 @@
       },
       "params": {
         "id": "coolify.connection",
-        "uuid": "authz-own-resource"
+        "uuid": "=authz-own-resource"
       },
       "allowed": "any",
       "note": "Answers 404 companion-missing unless the DNS plugin runs, and the authz run installs no companions",
@@ -165,8 +165,8 @@
       },
       "params": {
         "id": "coolify.connection",
-        "uuid": "authz-own-resource",
-        "recordId": "1"
+        "uuid": "=authz-own-resource",
+        "recordId": "=1"
       },
       "allowed": "any",
       "note": "Answers 404 companion-missing unless the DNS plugin runs, and the authz run installs no companions",
@@ -181,7 +181,7 @@
       },
       "params": {
         "id": "coolify.connection",
-        "uuid": "authz-own-resource"
+        "uuid": "=authz-own-resource"
       },
       "allowed": "any",
       "note": "Answers 404 companion-missing unless the Uptime plugin runs, and the authz run installs no companions"
@@ -208,7 +208,7 @@
       },
       "params": {
         "id": "coolify.connection",
-        "uuid": "authz-own-server"
+        "uuid": "=authz-own-server"
       },
       "allowed": "any",
       "note": "Answers 404 companion-missing unless the Security Center plugin runs, and the authz run installs no companions"
@@ -222,7 +222,7 @@
       },
       "params": {
         "id": "coolify.connection",
-        "uuid": "authz-own-server"
+        "uuid": "=authz-own-server"
       },
       "allowed": "any",
       "note": "Answers 404 companion-missing unless the Backups plugin runs, and the authz run installs no companions"
@@ -236,7 +236,7 @@
       },
       "params": {
         "id": "coolify.connection",
-        "uuid": "authz-own-server"
+        "uuid": "=authz-own-server"
       },
       "allowed": "any",
       "note": "Answers 404 companion-missing unless the Host Metrics plugin runs, and the authz run installs no companions"
@@ -250,7 +250,7 @@
       },
       "params": {
         "id": "coolify.connection",
-        "uuid": "authz-own-server"
+        "uuid": "=authz-own-server"
       },
       "allowed": "any",
       "note": "Answers 404 companion-missing unless the Databases plugin runs, and the authz run installs no companions"
@@ -264,7 +264,7 @@
       },
       "params": {
         "id": "coolify.connection",
-        "uuid": "authz-own-resource"
+        "uuid": "=authz-own-resource"
       },
       "allowed": "any",
       "note": "Answers 404 companion-missing unless the Databases plugin runs, and the authz run installs no companions"
