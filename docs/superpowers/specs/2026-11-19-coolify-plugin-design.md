@@ -1058,9 +1058,12 @@ REST API (Termix API keys) and through Termix's MCP. Nothing may exist only as a
        actor's level), `params` and `body`.
      - **The wrapper's own permission is not enough.** Each `operationId` resolves to the Termix permission
        and grant level that the Permissions table gives the same action, kept as two separate values:
-       - reads need `coolify.view`, except Coolify's log endpoints, which need `coolify.operate`;
+       - reads need `coolify.view`, except reads that carry log or command output, which need
+         `coolify.operate`: `/logs` endpoints, deployments (which carry build logs) and task or backup
+         executions;
        - lifecycle, deploys, tasks and backups need `coolify.operate`;
-       - deletes, server create, transfer and migrate, cloud provisioning and instance settings need
+       - deletes, starting a server create, transfer or migration (reading a transfer's status is a
+         read), cloud provisioning and instance settings need
          `coolify.administer` (with a configure grant, or ownership);
        - everything else needs `coolify.configure`.
      - The three-way minimum (see Permissions) is applied to that, in both the call and the operation
