@@ -1,7 +1,9 @@
 // Dev only. Reads the vendored Coolify specs in vendor/coolify/ and writes
 // src/backend/coolify/generated/operations.ts (OPERATIONS and
-// EXCLUDED_OPERATIONS). Run with `npm run gen:coolify` after updating a spec,
-// then update docs/coverage.md.
+// EXCLUDED_OPERATIONS) and src/backend/coolify/generated/schemas.ts (each
+// operation's parameters and top-level body fields, for the generic API and
+// the API console's forms). Run with `npm run gen:coolify` after updating a
+// spec, then update docs/coverage.md.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import * as prettier from "prettier";
@@ -47,8 +49,16 @@ function compareVersions(a, b) {
   return 0;
 }
 
+const MAX_TEXT = 200;
+const specs = new Map(
+  SOURCES.map(({ file }) => [
+    file,
+    JSON.parse(readFileSync(vendorDir + file, "utf8")),
+  ]),
+);
+
 function readOperations(file) {
-  const spec = JSON.parse(readFileSync(vendorDir + file, "utf8"));
+  const spec = specs.get(file);
   const seen = new Map();
   for (const [path, item] of Object.entries(spec.paths ?? {})) {
     for (const method of METHODS) {
@@ -58,15 +68,20 @@ function readOperations(file) {
       if (!id)
         fail(`${file}: ${method.toUpperCase()} ${path} has no operationId`);
       if (seen.has(id)) fail(`${file}: operationId ${id} is used twice`);
-      seen.set(id, { id, method: method.toUpperCase(), path });
+      seen.set(id, { id, method: method.toUpperCase(), path, operation });
     }
   }
   return seen;
 }
 
 const union = new Map();
+// The newest spec's description of each operation: its parameters and body.
+const described = new Map();
 for (const { source, file, minVersion } of SOURCES) {
-  for (const operation of readOperations(file).values()) {
+  for (const { operation: raw, ...operation } of readOperations(
+    file,
+  ).values()) {
+    described.set(operation.id, { spec: specs.get(file), operation: raw });
     const known = union.get(operation.id);
     if (!known) {
       union.set(operation.id, { ...operation, source, minVersion });
@@ -142,6 +157,101 @@ ${EXCLUDED.map((e, i) => ` * - ${excludedIds[i]} (${e.method} ${e.path}): ${e.wh
 export const EXCLUDED_OPERATIONS: ReadonlySet<string> = new Set(${JSON.stringify(excludedIds)});
 `;
 
+function short(text) {
+  if (typeof text !== "string") return undefined;
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (!flat) return undefined;
+  return flat.length > MAX_TEXT ? `${flat.slice(0, MAX_TEXT - 1)}…` : flat;
+}
+
+function resolve(spec, node) {
+  let current = node;
+  for (let depth = 0; current && current.$ref && depth < 5; depth++) {
+    const parts = current.$ref.replace(/^#\//, "").split("/");
+    current = parts.reduce((n, part) => (n ? n[part] : undefined), spec);
+  }
+  return current ?? {};
+}
+
+function typeOf(spec, schema) {
+  const resolved = resolve(spec, schema);
+  if (Array.isArray(resolved.type)) {
+    return resolved.type.filter((t) => t !== "null").join("|") || "string";
+  }
+  if (typeof resolved.type === "string") return resolved.type;
+  if (resolved.properties) return "object";
+  return "string";
+}
+
+function withDescription(out, text) {
+  const description = short(text);
+  return description ? { ...out, description } : out;
+}
+
+function schemaOf({ spec, operation }) {
+  const params = [];
+  for (const raw of operation.parameters ?? []) {
+    const param = resolve(spec, raw);
+    if (param.in !== "path" && param.in !== "query") continue;
+    params.push(
+      withDescription(
+        {
+          name: param.name,
+          in: param.in,
+          required: param.in === "path" || param.required === true,
+          type: typeOf(spec, param.schema ?? {}),
+        },
+        param.description,
+      ),
+    );
+  }
+  let body = null;
+  const json = operation.requestBody?.content?.["application/json"]?.schema;
+  if (json) {
+    const schema = resolve(spec, json);
+    const required = new Set(schema.required ?? []);
+    body = Object.entries(schema.properties ?? {}).map(([name, prop]) =>
+      withDescription(
+        { name, type: typeOf(spec, prop), required: required.has(name) },
+        resolve(spec, prop).description,
+      ),
+    );
+  }
+  return { summary: short(operation.summary) ?? "", params, body };
+}
+
+const schemas = Object.fromEntries(
+  operations.map(({ id }) => [id, schemaOf(described.get(id))]),
+);
+
+const schemasTs = `${header}
+export interface OperationParam {
+  name: string;
+  in: "path" | "query";
+  required: boolean;
+  /** The JSON type, like "string" or "integer"; "a|b" when it can be either. */
+  type: string;
+  description?: string;
+}
+
+export interface OperationBodyField {
+  name: string;
+  type: string;
+  required: boolean;
+  description?: string;
+}
+
+export interface OperationSchema {
+  summary: string;
+  params: OperationParam[];
+  /** The JSON body's top-level fields, or null when it takes no JSON body. */
+  body: OperationBodyField[] | null;
+}
+
+/** Each operation as the newest vendored spec that has it describes it. */
+export const OPERATION_SCHEMAS: Readonly<Record<string, OperationSchema>> = ${JSON.stringify(schemas)};
+`;
+
 async function write(name, text) {
   const file = outDir + name;
   const options = (await prettier.resolveConfig(file)) ?? {};
@@ -154,6 +264,7 @@ async function write(name, text) {
 
 mkdirSync(outDir, { recursive: true });
 await write("operations.ts", operationsTs);
+await write("schemas.ts", schemasTs);
 
 const counts = Object.fromEntries(SOURCES.map(({ source }) => [source, 0]));
 for (const operation of operations) counts[operation.source]++;

@@ -90,7 +90,8 @@
     "fields": {
       "connectionId": {
         "label": "Coolify connection",
-        "description": "One of your Coolify connections."
+        "description": "One of your Coolify connections.",
+        "listDescription": "One of your Coolify connections. Leave empty to list what you can call on any of them."
       },
       "name": {
         "label": "Name"
@@ -124,6 +125,18 @@
       "removeHosts": {
         "label": "Also delete the Linked hosts",
         "description": "Off: the hosts made for this connection's servers stay as ordinary, editable hosts."
+      },
+      "operationId": {
+        "label": "Coolify operation",
+        "description": "The Coolify API operation, by its operation id, like list-applications."
+      },
+      "params": {
+        "label": "Parameters (JSON)",
+        "description": "Path and query parameters as a JSON object, like {\"uuid\": \"...\"}. Never stored in run history."
+      },
+      "body": {
+        "label": "Body (JSON)",
+        "description": "The request body as JSON. Never stored in run history."
       }
     },
     "listConnections": {
@@ -145,6 +158,22 @@
     "connectionDelete": {
       "title": "Remove a Coolify connection",
       "description": "Removes the connection from Termix. Nothing changes in Coolify, and Linked hosts become ordinary hosts."
+    },
+    "listApiReads": {
+      "title": "List Coolify API reads",
+      "description": "The Coolify API read operations you may run, for coolify.api-read."
+    },
+    "listApiOperations": {
+      "title": "List Coolify API operations",
+      "description": "Every Coolify API operation you may call, for coolify.api-call."
+    },
+    "apiRead": {
+      "title": "Read from the Coolify API",
+      "description": "Runs one Coolify API read (GET). It needs the permission and access that read needs; secrets in the answer are masked."
+    },
+    "apiCall": {
+      "title": "Call the Coolify API",
+      "description": "Runs any Coolify API operation. It needs the permission and access that operation needs, and a confirm. Secrets in the request and answer are masked in history."
     }
   },
   "connections": {

@@ -10,7 +10,9 @@
         "baseUrl": "https://coolify.invalid",
         "token": "authz-fake-token"
       },
-      "capture": { "coolify.connection": "id" }
+      "capture": {
+        "coolify.connection": "id"
+      }
     }
   ],
   "routes": {
@@ -31,33 +33,99 @@
     "GET /plugin-api/coolify/connections/:id": {
       "access": "user",
       "permission": "coolify.view",
-      "resource": { "kind": "own", "fixture": "coolify.connection" },
-      "params": { "id": "coolify.connection" }
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      }
     },
     "PATCH /plugin-api/coolify/connections/:id": {
       "access": "user",
       "permission": "coolify.configure",
-      "resource": { "kind": "own", "fixture": "coolify.connection" },
-      "params": { "id": "coolify.connection" },
-      "body": { "name": "authz-own-renamed" }
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      },
+      "body": {
+        "name": "authz-own-renamed"
+      }
     },
     "DELETE /plugin-api/coolify/connections/:id": {
       "access": "user",
       "permission": "coolify.configure",
-      "resource": { "kind": "own", "fixture": "coolify.connection" },
-      "params": { "id": "coolify.connection" },
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      },
       "destructive": true
     },
     "POST /plugin-api/coolify/connections/:id/probe": {
       "access": "user",
       "permission": "coolify.view",
-      "resource": { "kind": "own", "fixture": "coolify.connection" },
-      "params": { "id": "coolify.connection" }
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      }
+    },
+    "GET /plugin-api/coolify/connections/:id/api/operations": {
+      "access": "user",
+      "permission": "coolify.view",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      }
+    },
+    "POST /plugin-api/coolify/connections/:id/api/call": {
+      "access": "user",
+      "permission": "coolify.view",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      },
+      "body": {
+        "operationId": "version"
+      }
+    },
+    "POST /plugin-api/coolify/connections/:id/api/reveal": {
+      "access": "user",
+      "permission": "coolify.configure",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      },
+      "body": {
+        "operationId": "list-servers",
+        "pointer": [0, "name"]
+      }
     },
     "POST /plugin-api/coolify/mcp": {
       "access": "user",
       "permission": "coolify.mcp",
-      "body": { "jsonrpc": "2.0", "id": 1, "method": "ping" }
+      "body": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "ping"
+      }
     },
     "GET /plugin-api/coolify/mcp": {
       "access": "user",

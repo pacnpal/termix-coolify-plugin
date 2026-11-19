@@ -1,18 +1,22 @@
 import type { Router } from "express";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { defineTables } from "./db.js";
+import { registerApiConsoleRoutes } from "./api/routes.js";
 import { createConnections } from "./connections/service.js";
 import { registerConnectionRoutes } from "./connections/routes.js";
 import { registerMcpRoutes } from "./mcp/routes.js";
+import { createGenericApi } from "./ops/api-generic.js";
 import { registerOperations } from "./operations.js";
 
 export async function activate(ctx: PluginContext): Promise<void> {
   const tables = await defineTables(ctx);
   const connections = createConnections(ctx, tables);
+  const genericApi = createGenericApi(ctx, connections);
   const router = ctx.http.router<Router>();
   registerConnectionRoutes(router, ctx, connections);
+  registerApiConsoleRoutes(router, ctx, genericApi);
   registerMcpRoutes(router, ctx);
-  registerOperations(ctx, { connections });
+  registerOperations(ctx, { connections, genericApi });
 }
 
 export async function deactivate(): Promise<void> {

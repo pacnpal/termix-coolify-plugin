@@ -643,6 +643,14 @@ export function createConnections(
       return (await cachedClient((await reach(id)).row)).api;
     },
 
+    /**
+     * The request layer, for the generic API operations, which call any
+     * vendored operation. Shares the connection's request budget with api().
+     */
+    async http(id: number): Promise<CoolifyHttp> {
+      return (await cachedClient((await reach(id)).row)).http;
+    },
+
     /** Runs the probe again and stores what it found. Any access level may. */
     async probe(
       id: number,

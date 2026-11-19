@@ -1,9 +1,14 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import type { Connections } from "./connections/service.js";
 import { registerConnectionOperations } from "./ops/connections.js";
+import {
+  registerGenericApiOperations,
+  type GenericApi,
+} from "./ops/api-generic.js";
 
 export interface Services {
   connections: Connections;
+  genericApi: GenericApi;
 }
 
 /**
@@ -15,4 +20,5 @@ export function registerOperations(
   services: Services,
 ): void {
   registerConnectionOperations(ctx, services.connections);
+  registerGenericApiOperations(ctx, services.genericApi);
 }
