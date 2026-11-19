@@ -761,7 +761,8 @@ of every step.
     the user opts in. Store the credential as mode A where possible and allowed, otherwise mode B.
 
 **Partial onboarding.** Each run is a row in `onboardings`: `id`, `userId`, `connectionId`, `hostId`,
-`keyMode` (generated or existing), `step`, `generatedKeySealed` (erased at the end), `authorizedKeyMarker`,
+`keyMode` (generated or existing), `step`, `state` (running, uncertain, failed, done or watching), `sentAt`,
+`watchUntil`, `generatedKeySealed` (erased at the end), `authorizedKeyMarker`,
 `coolifyKeyUuid` (when we created it),
 `serverUuid`, `lastError` and `updatedAt`. Each step records its effect before moving on.
 
@@ -793,6 +794,15 @@ of every step.
       below rather than left behind silently.
     - only one resume or clean-up runs per onboarding row at a time (a per-row lock), so the plugin never
       races itself.
+  - **Clean up after an uncertain step** warns first: "Coolify may still create the server or key this run
+    sent. Cleaning up now can leave it behind." If the person goes ahead:
+    - the marked `authorized_keys` line stays, so a server Coolify creates late still has SSH access; it is
+      removed only once the server is found and deleted, or the person removes it from the host section;
+    - the onboarding row is not deleted. It moves to `watching`, keeping its marker, connection and host,
+      for 30 days or until the person dismisses it;
+    - while a row is `watching`, sync and the host section look for its marker. A late server or key shows
+      as "Created by an onboarding you cleaned up" with Adopt (finish onboarding with it) or Delete (each
+      confirmed, and only with no resources). Deleting the late server also removes the kept key line.
   - **More than one match** (two servers or keys with the same marker) stops the run. The person sees every
     match with its name, IP and resources, picks the one to keep, and is offered deletion of the others, each
     confirmed and only if it has no resources.
