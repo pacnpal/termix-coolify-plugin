@@ -888,13 +888,20 @@ Both sources feed one pipeline, deduped by `deployment_uuid` or `(event, resourc
    - Coolify allows one webhook per team, so there is **one webhook per Coolify team per Termix install**
      (`webhooks` table, keyed by `instanceKey`), not one per connection. An event fans out only to the
      connections with that `instanceKey` **whose token can see the event's subject**:
-     - Resource events (deploys, restarts, backups, tasks): the resource uuid must be in that connection's
-       cached resource list. If it isn't, refresh the list once (rate limited), then check again.
-     - Server events: only connections whose token can read `/servers` and sees that server.
-     - Team-wide events (API token expiring, vulnerability digest, test): only connections with an
-       unscoped token.
-     - An event whose subject can't be established for a connection is dropped for that connection. It's
-       never stored or emitted there.
+     - **Access is checked live, per event and per connection, with that connection's own token.**
+       - Resource events (deploys, restarts, backups, tasks): `GET` the resource itself (for example
+         `GET /applications/{uuid}`).
+       - Server events: `GET /servers/{uuid}`.
+       - Team-wide events (API token expiring, vulnerability digest, test): `GET /team`.
+       - Only a 200 lets the event through.
+       - The cached resource list is used only to skip connections that clearly can't see the subject. A
+         cache hit never lets an event through on its own, so a token that lost access since the cache was
+         filled gets nothing.
+     - **Fail closed.** A 401, 403 or 404, a timeout or any other error drops the event for that connection.
+       It's never stored or emitted there. A failed check is not retried later for a webhook event; polling
+       picks up anything that was missed.
+     - These checks count against the per-connection request budget. Webhook events are infrequent, and an
+       event is checked once per connection, not once per alert recipient.
      - Each remaining connection then applies its own alert preferences and grants.
      - Polled events are naturally scoped, because each connection polls with its own token.
    - Body limit 64 KB, strict shape. It answers 200 fast and never echoes input.
