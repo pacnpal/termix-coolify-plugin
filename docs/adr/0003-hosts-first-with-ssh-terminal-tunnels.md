@@ -15,5 +15,5 @@ locked while managed, and Unlink makes them ordinary hosts.
 
 ## Consequences
 
-- Tunnelled servers need the SSH Terminal plugin to be running.
+- Tunnelled servers need the SSH Terminal plugin, version 1.2.0 or newer, to be running. Earlier versions tunnel only the terminal tab. The plugin checks for it and recommends it.
 - The plugin depends on SSH Terminal's setting names. They live in one constant and are covered by a test.
