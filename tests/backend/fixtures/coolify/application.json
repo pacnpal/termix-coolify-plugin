@@ -1,0 +1,27 @@
+{
+  "id": 11,
+  "uuid": "app-web-uuid",
+  "name": "web",
+  "fqdn": "https://a.x,https://b.x",
+  "status": "running:healthy",
+  "build_pack": "nixpacks",
+  "git_repository": "example/web",
+  "git_branch": "main",
+  "git_commit_sha": "HEAD",
+  "manual_webhook_secret_github": "REDACTED",
+  "http_basic_auth_password": "REDACTED",
+  "docker_compose_raw": "REDACTED",
+  "dockerfile": "REDACTED",
+  "custom_labels": "REDACTED",
+  "destination": {
+    "id": 1,
+    "server": { "id": 2, "uuid": "srv-vps1-uuid", "name": "vps1" }
+  },
+  "environment": {
+    "id": 4,
+    "name": "production",
+    "project": { "id": 2, "uuid": "proj-uuid", "name": "Shop" }
+  },
+  "last_online_at": "2026-11-18T10:05:00.000000Z",
+  "updated_at": "2026-11-18T09:00:00.000000Z"
+}

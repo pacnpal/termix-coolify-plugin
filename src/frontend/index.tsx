@@ -1,23 +1,16 @@
 import { Rocket } from "lucide-react";
-import {
-  useTranslation,
-  type TabProps,
-  type TermixApp,
-} from "@termix-ssh/plugin-sdk/frontend";
-import { EmptyState, PanelShell } from "@termix-ssh/plugin-sdk/ui";
+import type { TabProps, TermixApp } from "@termix-ssh/plugin-sdk/frontend";
+import { PanelFrame } from "@termix-ssh/plugin-sdk/ui";
+import { ConnectionsView } from "./views/ConnectionsView";
+import { ConnectStep } from "./views/ConnectStep";
 
 const TAB_ID = "coolify";
 
 function CoolifyTab(_props: TabProps) {
-  const { t } = useTranslation();
   return (
-    <PanelShell icon={<Rocket className="size-4" />} title={t("tab.title")}>
-      <EmptyState
-        icon={Rocket}
-        title={t("tab.empty.title")}
-        hint={t("tab.empty.hint")}
-      />
-    </PanelShell>
+    <PanelFrame>
+      <ConnectionsView />
+    </PanelFrame>
   );
 }
 
@@ -34,5 +27,14 @@ export function activate(app: TermixApp): void {
     titleKey: "tab.title",
     singleton: true,
     hostless: true,
+  });
+  app.registerOnboardingStep({
+    id: "connect",
+    titleKey: "onboarding.connect.title",
+    descriptionKey: "onboarding.connect.description",
+    icon: Rocket,
+    component: ConnectStep,
+    permission: "configure",
+    section: "setup",
   });
 }

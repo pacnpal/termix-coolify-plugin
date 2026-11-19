@@ -271,7 +271,7 @@ run `npm run gen:coolify` and add the new rows.
 | -------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------ |
 | create-private-key         | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.5 Infrastructure (Keys section). |
 | delete-private-key-by-uuid | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.5 Infrastructure (Keys section). |
-| get-private-key-by-uuid    | used   | Task 4 `key()`, Task 9 (mode A key copy).                                                                                      |
+| get-private-key-by-uuid    | used   | Task 4 `key()`, Task 6 (probe: key material readable, then dropped), Task 9 (mode A key copy).                                 |
 | list-private-keys          | used   | Task 4 `keys()`, Task 6 (probe: can the token read keys), Task 9 (mode A key copy).                                            |
 | update-private-key         | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.5 Infrastructure (Keys section). |
 
@@ -407,42 +407,42 @@ run `npm run gen:coolify` and add the new rows.
 
 ## Services
 
-| Operation                              | Status | Where or why                                                                                                                                   |
-| -------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| clone-service-by-uuid                  | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.4 Create (create, clone, move, migrate, delete). |
-| create-env-by-service-uuid             | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (environment variables).             |
-| create-service                         | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.4 Create (create, clone, move, migrate, delete). |
-| create-storage-by-service-uuid         | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (storages and backups).              |
-| create-tag-by-service-uuid             | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (tags).                              |
-| delete-env-by-service-uuid             | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (environment variables).             |
-| delete-service-by-uuid                 | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.4 Create (create, clone, move, migrate, delete). |
-| delete-service-storage-backup-schedule | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (storages and backups).              |
-| delete-storage-by-service-uuid         | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (storages and backups).              |
-| delete-tag-by-service-uuid             | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (tags).                              |
-| get-service-by-uuid                    | used   | Task 4 `resource()`, Task 10 (resource detail).                                                                                                |
-| get-service-logs-by-uuid               | used   | Task 4 `logs()`, Task 14 (logs read from Coolify).                                                                                             |
-| list-envs-by-service-uuid              | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.3 Configure (environment variables).             |
-| list-services                          | used   | Task 4 `services()`, Task 10 (resource list, services with their parts).                                                                       |
-| list-storages-by-service-uuid          | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.3 Configure (storages and backups).              |
-| list-tags-by-service-uuid              | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.3 Configure (tags).                              |
-| migrate-service-by-uuid                | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.4 Create (create, clone, move, migrate, delete). |
-| move-service-by-uuid                   | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.4 Create (create, clone, move, migrate, delete). |
-| restart-service-by-uuid                | used   | Task 4 `lifecycle()`, Tasks 11 and 12 (lifecycle service, operations and routes).                                                              |
-| run-service-storage-backup             | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (storages and backups).              |
-| set-service-storage-backup-schedule    | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (storages and backups).              |
-| start-service-by-uuid                  | used   | Task 4 `lifecycle()`, Tasks 11 and 12 (lifecycle service, operations and routes).                                                              |
-| stop-service-by-uuid                   | used   | Task 4 `lifecycle()`, Tasks 11 and 12 (lifecycle service, operations and routes).                                                              |
-| update-env-by-service-uuid             | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (environment variables).             |
-| update-envs-by-service-uuid            | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (environment variables).             |
-| update-service-by-uuid                 | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (resource settings).                 |
-| update-storage-by-service-uuid         | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (storages and backups).              |
+| Operation                              | Status  | Where or why                                                                                                                                                         |
+| -------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| clone-service-by-uuid                  | used    | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.4 Create (create, clone, move, migrate, delete).                       |
+| create-env-by-service-uuid             | used    | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (environment variables).                                   |
+| create-service                         | used    | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.4 Create (create, clone, move, migrate, delete).                       |
+| create-storage-by-service-uuid         | used    | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (storages and backups).                                    |
+| create-tag-by-service-uuid             | used    | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (tags).                                                    |
+| delete-env-by-service-uuid             | used    | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (environment variables).                                   |
+| delete-service-by-uuid                 | used    | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.4 Create (create, clone, move, migrate, delete).                       |
+| delete-service-storage-backup-schedule | used    | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (storages and backups).                                    |
+| delete-storage-by-service-uuid         | used    | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (storages and backups).                                    |
+| delete-tag-by-service-uuid             | used    | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (tags).                                                    |
+| get-service-by-uuid                    | used    | Task 4 `resource()`, Task 10 (resource detail).                                                                                                                      |
+| get-service-logs-by-uuid               | skipped | Needs a `sub_service_name` selector and answers 400 without one; logs are read per Part through the service-application and service-database logs endpoints instead. |
+| list-envs-by-service-uuid              | used    | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.3 Configure (environment variables).                                   |
+| list-services                          | used    | Task 4 `services()`, Task 10 (resource list, services with their parts).                                                                                             |
+| list-storages-by-service-uuid          | used    | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.3 Configure (storages and backups).                                    |
+| list-tags-by-service-uuid              | used    | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.3 Configure (tags).                                                    |
+| migrate-service-by-uuid                | used    | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.4 Create (create, clone, move, migrate, delete).                       |
+| move-service-by-uuid                   | used    | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.4 Create (create, clone, move, migrate, delete).                       |
+| restart-service-by-uuid                | used    | Task 4 `lifecycle()`, Tasks 11 and 12 (lifecycle service, operations and routes).                                                                                    |
+| run-service-storage-backup             | used    | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (storages and backups).                                    |
+| set-service-storage-backup-schedule    | used    | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (storages and backups).                                    |
+| start-service-by-uuid                  | used    | Task 4 `lifecycle()`, Tasks 11 and 12 (lifecycle service, operations and routes).                                                                                    |
+| stop-service-by-uuid                   | used    | Task 4 `lifecycle()`, Tasks 11 and 12 (lifecycle service, operations and routes).                                                                                    |
+| update-env-by-service-uuid             | used    | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (environment variables).                                   |
+| update-envs-by-service-uuid            | used    | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (environment variables).                                   |
+| update-service-by-uuid                 | used    | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (resource settings).                                       |
+| update-storage-by-service-uuid         | used    | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.3 Configure (storages and backups).                                    |
 
 ## Settings
 
-| Operation                      | Status | Where or why                                                                                                                         |
-| ------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| get-instance-email-settings    | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.6 Team and sharing (Instance section). |
-| update-instance-email-settings | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.6 Team and sharing (Instance section). |
+| Operation                      | Status | Where or why                                                                                                                                                                                                                   |
+| ------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| get-instance-email-settings    | used   | Task 4 `rootCheck()`, Task 6 (probe: is the token root; the settings are dropped unread); Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.6 Team and sharing (Instance section). |
+| update-instance-email-settings | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.6 Team and sharing (Instance section).                                                                                           |
 
 ## Shared Environment Variables
 

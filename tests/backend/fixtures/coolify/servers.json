@@ -1,0 +1,90 @@
+[
+  {
+    "id": 2,
+    "uuid": "srv-vps1-uuid",
+    "name": "vps1",
+    "description": null,
+    "ip": "ssh-vps1.example.test",
+    "user": "root",
+    "port": 22,
+    "private_key_id": 3,
+    "is_coolify_host": false,
+    "proxy": { "type": "traefik", "status": "running" },
+    "unreachable_count": 0,
+    "validation_logs": null,
+    "settings": {
+      "id": 2,
+      "server_id": 2,
+      "is_cloudflare_tunnel": true,
+      "is_reachable": true,
+      "is_usable": true,
+      "is_metrics_enabled": true,
+      "is_sentinel_enabled": true,
+      "is_traffic_analytics_enabled": false,
+      "sentinel_token": "REDACTED",
+      "logdrain_custom_config": "REDACTED",
+      "logdrain_axiom_api_key": "REDACTED",
+      "logdrain_newrelic_license_key": "REDACTED",
+      "ssh_host_key_fingerprints": [
+        "SHA256:fakeFingerprintForTestsOnlyAAAAAAAAAAAAAAAA"
+      ],
+      "patch_check_result": {
+        "total_updates": 3,
+        "security_updates": 1,
+        "reboot_required": true,
+        "running_kernel": "6.1.0-fake",
+        "installed_kernel": "6.1.1-fake",
+        "held_packages": [],
+        "updates": [
+          {
+            "package": "docker-ce",
+            "new_version": "5:27.0.1",
+            "current_version": "5:26.1.0",
+            "security": false,
+            "risk": "docker"
+          },
+          {
+            "package": "linux-image-amd64",
+            "new_version": "6.1.1",
+            "current_version": "6.1.0",
+            "security": true,
+            "risk": "kernel"
+          },
+          {
+            "package": "curl",
+            "new_version": "7.88.2",
+            "current_version": "7.88.1",
+            "security": false,
+            "risk": null
+          }
+        ]
+      },
+      "patch_checked_at": "2026-11-18T10:00:00.000000Z",
+      "patch_check_error": null
+    }
+  },
+  {
+    "id": 0,
+    "uuid": "srv-localhost-uuid",
+    "name": "localhost",
+    "description": "This is the server where Coolify is running on.",
+    "ip": "host.docker.internal",
+    "user": "root",
+    "port": 22,
+    "private_key_id": 1,
+    "is_coolify_host": true,
+    "settings": {
+      "id": 1,
+      "server_id": 0,
+      "is_cloudflare_tunnel": false,
+      "is_reachable": true,
+      "is_usable": true,
+      "is_metrics_enabled": false,
+      "is_sentinel_enabled": false,
+      "sentinel_token": "REDACTED",
+      "logdrain_custom_config": "REDACTED",
+      "ssh_host_key_fingerprints": [],
+      "patch_check_result": null
+    }
+  }
+]

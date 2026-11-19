@@ -1,0 +1,21 @@
+{
+  "id": 21,
+  "uuid": "db-main-uuid",
+  "name": "main-db",
+  "database_type": "standalone-postgresql",
+  "status": "running:healthy",
+  "postgres_user": "postgres",
+  "postgres_password": "REDACTED",
+  "internal_db_url": "REDACTED",
+  "external_db_url": "REDACTED",
+  "init_scripts": "REDACTED",
+  "destination": {
+    "id": 1,
+    "server": { "id": 2, "uuid": "srv-vps1-uuid", "name": "vps1" }
+  },
+  "environment": {
+    "id": 4,
+    "name": "production",
+    "project": { "id": 2, "uuid": "proj-uuid", "name": "Shop" }
+  }
+}

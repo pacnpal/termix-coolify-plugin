@@ -66,10 +66,44 @@ Keep this section current when the plugin changes: what it does, how it is put t
 aren't obvious from the code, and anything that has bitten you before.
 
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
-  Where things stand: the identity, permissions and admin settings are declared, the Coolify tab shows an
-  empty state, the Coolify API is vendored and generated, and the tables exist; no routes or features yet.
+  Where things stand: identity, permissions, admin settings, the vendored API and the tables exist, and
+  Connections work (routes, operations, the Connections view and the "Connect Coolify" onboarding step).
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
+- Coolify calls: `src/backend/coolify/http.ts` is the only way to Coolify (ctx.fetch, Bearer and CF Access
+  headers, `redirect: "manual"`, 150 requests a minute, GET retries, every failure a `CoolifyError` with a
+  `CoolifyCause`). `toRouteError` sends fixed messages only, never what Coolify sent back, because Coolify can
+  echo a token. `/version` and `/health` answer `text/html`, so they use `{ text: true }`; any other HTML
+  body is `not-coolify`. `dto.ts` picks fields by name (no spreads), `api.ts` calls paths from `OPERATIONS`.
+- Connections: `src/backend/connections/` (service, probe, routes) and `src/backend/ops/connections.ts`.
+  Tokens are sealed with `ctx.secrets.seal`. The `abilities` column holds the probe summary
+  (`{ abilities, scoped, teamId, steps }`), since there is no column for scope or the checklist.
+  `lastError` holds a cause id, which the UI translates under `causes`. Create refuses Coolify older than
+  4.4 and stores nothing; any other failed probe is saved with `lastError`, so authz CI can seed one with
+  an unreachable URL. Another user's connection is always 404. Only owners reach a connection in 1.0; the
+  grants table is read but nothing writes it. `remove` calls the `releaseLinkedHosts` hook first (host sync
+  supplies it) and keeps the webhook row, which other connections to the same team share.
+- Probe: `abilities.root` is never inferred. `GET /settings/email` answers any root-team admin's token
+  whatever its abilities, so it is only the `settings` step; no read-only call needs `root` alone. Only
+  logs or key material prove `sensitive`. A check with nothing to try gets `skipped: "nothing-to-probe"`.
+- Writes to one connection are serialized by an in-memory per-connection lock (`withLock` in
+  `service.ts`): update (held through its probe, so updates apply in the order asked), remove, and storing
+  an explicit probe's result. This relies on the plugin backend being a single Node process per Termix
+  server; if that ever changes, the lock must move to the database. An explicit probe runs outside the
+  lock and stores its result under it only while the connection still points at the probed target
+  (`sameTarget`), so a probe of an old target is dropped. No path answers 409 for a write. Update
+  reads a stored secret only when the change keeps it and needs a probe; an unreadable one is refused
+  (400), and a replacement token or Cloudflare Access value repairs it.
+- Transport: `checkTransport` runs in `clientFor`, before any client exists. https is required; plain http
+  only for loopback (`localhost`, 127/8, ::1), or a private or link-local IP literal with `allowPrivate`.
+  Names are never trusted as private (the plugin can't resolve them; `coolify.lan` could be public). In `http.ts`, an HTML answer to a 4xx is `not-coolify` (never a token ability), and every
+  body read goes through `readText`, so a failed read is a typed `CoolifyError`.
+- The connection form: after a create it edits the saved row (no duplicates), and saving a failed
+  connection whose update didn't check again (same `lastCheckedAt`) calls the probe route, so a retry after
+  fixing Coolify isn't stuck. The backend still doesn't re-probe a plain rename.
+- Service logs are read per Part; `get-service-logs-by-uuid` needs a `sub_service_name` and is skipped.
+- Operation tests: the mock ctx records no run history, so `tests/backend/helpers/run-history.ts` applies
+  the SDK's own `parseOperationInput` and `redactFields` around `ctx.operations.run`, as core does.
 - Coolify API: `vendor/coolify/` holds the v4.7.5, `main` and `next` specs as fetched (see its README).
   `npm run gen:coolify` writes `src/backend/coolify/generated/operations.ts` (`OPERATIONS`,
   `EXCLUDED_OPERATIONS`). `docs/coverage.md` must list every operation; `tests/backend/coverage.test.ts`

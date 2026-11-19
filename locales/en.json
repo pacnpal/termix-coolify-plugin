@@ -85,5 +85,173 @@
         "label": "Coolify server"
       }
     }
+  },
+  "ops": {
+    "fields": {
+      "connectionId": {
+        "label": "Coolify connection",
+        "description": "One of your Coolify connections."
+      },
+      "name": {
+        "label": "Name"
+      },
+      "baseUrl": {
+        "label": "Coolify URL",
+        "description": "The address you open Coolify at, like https://coolify.example.com."
+      },
+      "token": {
+        "label": "API token",
+        "description": "A Coolify API token. Recommended abilities: read, read:sensitive, write and deploy.",
+        "keepDescription": "Leave empty to keep the stored token."
+      },
+      "cfAccessId": {
+        "label": "Cloudflare Access client ID"
+      },
+      "cfAccessSecret": {
+        "label": "Cloudflare Access client secret"
+      },
+      "allowPrivate": {
+        "label": "On my local network",
+        "description": "Allow a private or local address for this Coolify."
+      },
+      "caCert": {
+        "label": "CA certificate",
+        "description": "A PEM certificate to trust when Coolify uses a private CA."
+      },
+      "autoSync": {
+        "label": "Sync servers automatically"
+      },
+      "removeHosts": {
+        "label": "Also delete the Linked hosts",
+        "description": "Off: the hosts made for this connection's servers stay as ordinary, editable hosts."
+      }
+    },
+    "listConnections": {
+      "title": "List Coolify connections",
+      "description": "The Coolify connections you own or were granted."
+    },
+    "connectionProbe": {
+      "title": "Check a Coolify connection",
+      "description": "Checks the Coolify version, the team and what the token may do, without changing anything."
+    },
+    "connectionCreate": {
+      "title": "Connect a Coolify instance",
+      "description": "Checks the instance and token, then saves the connection with the token encrypted."
+    },
+    "connectionUpdate": {
+      "title": "Change a Coolify connection",
+      "description": "Changes a connection you own. An empty token or Cloudflare Access value keeps the stored one."
+    },
+    "connectionDelete": {
+      "title": "Remove a Coolify connection",
+      "description": "Removes the connection from Termix. Nothing changes in Coolify, and Linked hosts become ordinary hosts."
+    }
+  },
+  "connections": {
+    "title": "Connections",
+    "add": "Add connection",
+    "edit": "Edit connection",
+    "refresh": "Refresh",
+    "loading": "Loading connections",
+    "loadFailed": "The connections could not be loaded.",
+    "empty": {
+      "title": "No Coolify connections yet",
+      "hint": "Add a connection with your Coolify URL and an API token."
+    },
+    "meta": {
+      "version": "Coolify {{version}}",
+      "team": "Team {{team}}",
+      "unknownVersion": "Version unknown"
+    },
+    "badges": {
+      "scoped": "Scoped token",
+      "ok": "Connected",
+      "error": "Not connected"
+    },
+    "actions": {
+      "edit": "Edit",
+      "probe": "Check again",
+      "delete": "Remove"
+    },
+    "form": {
+      "name": "Name",
+      "namePlaceholder": "Production",
+      "baseUrl": "Coolify URL",
+      "baseUrlPlaceholder": "https://coolify.example.com",
+      "token": "API token",
+      "tokenKeep": "Leave empty to keep the stored token",
+      "abilitiesHint": "Create the token in Coolify under Keys & Tokens, API tokens, with the abilities read, read:sensitive, write and deploy. Everything works except deletes and instance settings, and a leaked token can't wipe your resources. Add delete, or use root, only if you want those from Termix.",
+      "advanced": "Advanced",
+      "cfAccessId": "Cloudflare Access client ID",
+      "cfAccessSecret": "Cloudflare Access client secret",
+      "cfAccessHint": "Only when your Coolify dashboard sits behind Cloudflare Access: a service token's ID and secret.",
+      "cfAccessKeep": "Leave empty to keep the stored value",
+      "allowPrivate": "On my local network",
+      "allowPrivateHint": "Allow a private or local address, like 192.168.1.10.",
+      "caCert": "CA certificate",
+      "caCertHint": "Paste a PEM certificate when Coolify uses a private CA.",
+      "save": "Save and check",
+      "saving": "Checking Coolify",
+      "required": "Name, URL and token are required.",
+      "tokenPlaceholder": "Paste the API token"
+    },
+    "probe": {
+      "title": "What the token can do",
+      "steps": {
+        "health": "Coolify answers",
+        "version": "Coolify 4.4 or newer",
+        "team": "Team",
+        "projects": "Projects (scoped token)",
+        "keys": "Read private keys",
+        "logs": "Read logs",
+        "settings": "Instance settings (root team admin)"
+      },
+      "skipped": {
+        "nothing-to-probe": "Not checked: this token sees nothing to try it on yet, so it may still have this ability. Check again after adding one."
+      },
+      "scoped": "This token is scoped to some projects or resources. It can't see servers, so there is no host sync, no shells and no keys, and it can't set up notifications. Applications, services, databases, deploys and logs still work."
+    },
+    "delete": {
+      "title": "Remove {{name}}?",
+      "description": "Termix forgets this connection and its token. Nothing changes in Coolify. Hosts made for its servers become ordinary hosts.",
+      "confirm": "Remove"
+    },
+    "errors": {
+      "saveFailed": "The connection was not saved.",
+      "invalid-input": "Check the fields: {{message}}",
+      "forbidden": "Only the connection's owner can change it.",
+      "not-found": "This connection no longer exists."
+    }
+  },
+  "causes": {
+    "unreachable": "Coolify could not be reached.",
+    "unauthorized": "Coolify refused the API token.",
+    "api-disabled": "API access is turned off in Coolify.",
+    "forbidden-ability": "The token lacks this ability.",
+    "not-found": "Not found in Coolify.",
+    "rate-limited": "Coolify is rate limiting requests.",
+    "access-redirect": "Coolify is behind Cloudflare Access.",
+    "not-coolify": "The address answered, but not as a Coolify API.",
+    "validation": "Coolify refused the values sent.",
+    "upstream": "Coolify answered with an error.",
+    "unsupported-by-instance": "This Coolify doesn't have this feature.",
+    "unsupported-version": "This plugin needs Coolify 4.4 or newer."
+  },
+  "fixes": {
+    "unreachable": "Check the URL. If Coolify is on your local network, turn on \"On my local network\" under Advanced.",
+    "unauthorized": "Create a new API token in Coolify and paste it here.",
+    "api-disabled": "Turn on API access in Coolify, Settings, Advanced.",
+    "forbidden-ability": "Give the token the read:sensitive ability in Coolify if you want this.",
+    "access-redirect": "Add a Cloudflare Access service token under Advanced.",
+    "not-coolify": "Use the address you open Coolify at, without /api at the end.",
+    "unsupported-version": "Update Coolify, then check again."
+  },
+  "onboarding": {
+    "connect": {
+      "title": "Connect Coolify",
+      "description": "Bring your Coolify servers, applications, services and databases into Termix.",
+      "intro": "Add your Coolify URL and an API token. You can skip this and add connections later from the Coolify tab.",
+      "done": "Connected to {{name}}."
+    }
   }
 }
