@@ -30,6 +30,7 @@ import {
   type SyncRow,
 } from "../api";
 import { describeFailure } from "./ConnectionForm";
+import { OpenPluginsButton, SSH_TERMINAL_CAUSES } from "./SshTerminalCheck";
 
 type T = ReturnType<typeof useTranslation>["t"];
 
@@ -66,9 +67,8 @@ function draftOf(row: SyncRow): Draft {
 /** Whether a row can be included with what has been entered so far. */
 function ready(row: SyncRow, draft: Draft): boolean {
   if (row.status === "gone") return false;
+  if (row.cause && SSH_TERMINAL_CAUSES.has(row.cause)) return false;
   switch (row.cause) {
-    case "needs-tunnel-support":
-      return false;
     case "needs-address":
       return draft.address.trim() !== "";
     case "needs-credential":
@@ -183,6 +183,11 @@ function SyncRowView({
           <p className="text-muted-foreground text-xs">
             {causeText(t, row.cause)}
           </p>
+        )}
+        {row.cause && SSH_TERMINAL_CAUSES.has(row.cause) && (
+          <div>
+            <OpenPluginsButton />
+          </div>
         )}
         {row.cause === "needs-address" || row.addressOverride ? (
           <TextField

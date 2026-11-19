@@ -18,6 +18,7 @@ import {
   type ConnectionInput,
   type ConnectionPatch,
 } from "../api";
+import { SshTerminalCheck } from "./SshTerminalCheck";
 
 /** Causes the backend sends that have a fix to suggest (locales `fixes`). */
 const FIXABLE = new Set([
@@ -272,6 +273,7 @@ export function ProbeChecklist({ connection }: { connection: Connection }) {
             </div>
           </li>
         ))}
+        <SshTerminalCheck connection={connection} />
       </ul>
     </div>
   );

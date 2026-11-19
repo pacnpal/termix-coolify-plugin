@@ -23,7 +23,10 @@
     "unlink": "Unlink",
     "unlinked": "Unlinked. This is now an ordinary host.",
     "unlinkFailed": "The host could not be unlinked.",
-    "notLinked": "This host is not linked to Coolify."
+    "notLinked": "This host is not linked to Coolify.",
+    "tunnel": "Tunnel: through SSH Terminal (Cloudflare)",
+    "openTunnelSettings": "Open tunnel settings",
+    "tunnelReadOnly": "SSH Terminal's tunnel settings stay read only while the host is linked."
   },
   "permissions": {
     "view": {
@@ -214,7 +217,7 @@
       "advanced": "Advanced",
       "cfAccessId": "Cloudflare Access client ID",
       "cfAccessSecret": "Cloudflare Access client secret",
-      "cfAccessHint": "Only when your Coolify dashboard sits behind Cloudflare Access: a service token's ID and secret.",
+      "cfAccessHint": "Only when your Coolify dashboard sits behind Cloudflare Access: a service token's ID and secret. Host sync also gives it to SSH Terminal on hosts behind Cloudflare tunnels.",
       "cfAccessKeep": "Leave empty to keep the stored value",
       "allowPrivate": "On my local network",
       "allowPrivateHint": "Allow a private or local address, like 192.168.1.10.",
@@ -234,7 +237,8 @@
         "projects": "Projects (scoped token)",
         "keys": "Read private keys",
         "logs": "Read logs",
-        "root": "Instance settings (root)"
+        "root": "Instance settings (root)",
+        "sshTerminal": "SSH Terminal carries the Cloudflare tunnels"
       },
       "scoped": "This token is scoped to some projects or resources. It can't see servers, so there is no host sync, no shells and no keys, and it can't set up notifications. Applications, services, databases, deploys and logs still work."
     },
@@ -298,6 +302,7 @@
     "credential": "Termix credential",
     "credentialHint": "Coolify's key for this server can't be copied, so pick one of your Termix credentials.",
     "credentialPlaceholder": "Pick a credential",
+    "openPlugins": "Open Plugins",
     "apply": "Create and update hosts",
     "applying": "Syncing hosts",
     "applyFailed": "The hosts were not synced.",
@@ -324,7 +329,8 @@
     "causes": {
       "needs-address": "This is the server Coolify runs on. Enter the address Termix should use for it.",
       "needs-credential": "The token can't read this server's key, or copying keys is turned off. Pick a Termix credential.",
-      "needs-tunnel-support": "This server is behind a Cloudflare tunnel. Tunnelled servers can't be synced yet.",
+      "needs-ssh-terminal": "Turn on the SSH Terminal plugin to reach servers behind Cloudflare tunnels.",
+      "ssh-terminal-too-old": "Update SSH Terminal to 1.2.0 or newer; older versions tunnel only the terminal.",
       "host-write-failed": "Termix refused the host. Check your permissions to create and edit hosts.",
       "credential-not-found": "The picked credential isn't one of your Termix credentials any more. Pick another one.",
       "credential-check-failed": "Your Termix credentials could not be read, so the picked credential can't be checked. Try again, or ask an admin for the permission to view credentials."

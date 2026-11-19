@@ -234,4 +234,109 @@ describe("connections view", () => {
     ).toBeTruthy();
     expect(step.canContinue()).toBe(true);
   });
+
+  it("connection setup shows the SSH Terminal check once when the instance has tunnelled servers", async () => {
+    const plain = { ...scopedConnection, scoped: false, steps: [] };
+    const tunnelRow = (uuid: string) => ({
+      server: {
+        uuid,
+        name: uuid,
+        ip: `${uuid}.example.test`,
+        port: 22,
+        user: "root",
+        isTunnel: true,
+        isCoolifyHost: false,
+        reachable: true,
+        usable: true,
+      },
+      hostId: null,
+      status: "blocked",
+      cause: "needs-ssh-terminal",
+      mode: "coolify",
+      addressOverride: null,
+      suggestedAddress: null,
+      credentialId: null,
+      tunnel: true,
+    });
+    const api = stubApi([]);
+    api.get.mockImplementation(async (url: string) => ({
+      data:
+        url === "/connections/1/servers"
+          ? [tunnelRow("vps1"), tunnelRow("vps2")]
+          : [],
+    }));
+    api.post.mockImplementation(async () => ({ data: plain }));
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions: ALL,
+    });
+    const step = rendered.renderOnboardingStep("connect");
+    const el = step.element;
+    fireEvent.change(within(el).getByPlaceholderText(L.form.namePlaceholder), {
+      target: { value: "Prod" },
+    });
+    fireEvent.change(
+      within(el).getByPlaceholderText(L.form.baseUrlPlaceholder),
+      { target: { value: "https://coolify.example.test" } },
+    );
+    fireEvent.change(within(el).getByPlaceholderText(L.form.tokenPlaceholder), {
+      target: { value: "fake-token-ui" },
+    });
+    fireEvent.click(within(el).getByRole("button", { name: L.form.save }));
+
+    expect(await within(el).findByText(L.probe.steps.sshTerminal)).toBeTruthy();
+    expect(
+      within(el).getAllByText(locales.sync.causes["needs-ssh-terminal"]),
+    ).toHaveLength(1);
+    const open = within(el).getAllByRole("button", {
+      name: locales.sync.openPlugins,
+    });
+    expect(open).toHaveLength(1);
+    fireEvent.click(open[0]);
+    await waitFor(() =>
+      expect(rendered!.shellCalls).toContainEqual(
+        expect.objectContaining({
+          method: "openSingletonTab",
+          args: expect.arrayContaining(["plugins"]),
+        }),
+      ),
+    );
+  });
+
+  it("connection setup shows no SSH Terminal check without tunnelled servers", async () => {
+    const plain = { ...scopedConnection, scoped: false, steps: [] };
+    const api = stubApi([]);
+    api.get.mockImplementation(async () => ({ data: [] }));
+    api.post.mockImplementation(async () => ({ data: plain }));
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions: ALL,
+    });
+    const step = rendered.renderOnboardingStep("connect");
+    const el = step.element;
+    fireEvent.change(within(el).getByPlaceholderText(L.form.namePlaceholder), {
+      target: { value: "Prod" },
+    });
+    fireEvent.change(
+      within(el).getByPlaceholderText(L.form.baseUrlPlaceholder),
+      { target: { value: "https://coolify.example.test" } },
+    );
+    fireEvent.change(within(el).getByPlaceholderText(L.form.tokenPlaceholder), {
+      target: { value: "fake-token-ui" },
+    });
+    fireEvent.click(within(el).getByRole("button", { name: L.form.save }));
+    expect(
+      await within(el).findByText(
+        locales.onboarding.connect.done.replace("{{name}}", "Prod"),
+      ),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(api.get).toHaveBeenCalledWith("/connections/1/servers"),
+    );
+    expect(within(el).queryByText(L.probe.steps.sshTerminal)).toBeNull();
+  });
 });

@@ -65,15 +65,15 @@ const linked = host({
 });
 const ordinary = host(null);
 
-function previewRow(reachable: boolean) {
+function previewRow(reachable: boolean, tunnel = false) {
   return {
     server: {
       uuid: "srv-web1",
       name: "web-1",
-      ip: "203.0.113.11",
+      ip: tunnel ? "ssh-web1.example.test" : "203.0.113.11",
       port: 22,
       user: "root",
-      isTunnel: false,
+      isTunnel: tunnel,
       isCoolifyHost: false,
       reachable,
       usable: reachable,
@@ -84,17 +84,16 @@ function previewRow(reachable: boolean) {
     addressOverride: null,
     suggestedAddress: null,
     credentialId: 3,
-    tunnel: false,
+    tunnel,
   };
 }
 
-function stubApi(reachable = true) {
+function stubApi(reachable = true, tunnel = false) {
   const mocks = {
     get: vi.fn(async (url: string) => ({
-      data:
-        url === "/connections/1/servers"
-          ? [previewRow(reachable)]
-          : { id: 1, name: "Prod" },
+      data: /^\/connections\/\d+\/servers$/.test(url)
+        ? [previewRow(reachable, tunnel)]
+        : { id: 1, name: "Prod" },
     })),
     post: vi.fn(async () => ({ data: { hostId: 7, removed: false } })),
     patch: vi.fn(async () => ({ data: {} })),
@@ -212,6 +211,7 @@ describe("Linked host surfaces", () => {
           .replace("{{connection}}", "Prod"),
       ),
     ).toBeTruthy();
+    expect(screen.queryByText(locales.hostSection.tunnel)).toBeNull();
 
     fireEvent.click(
       screen.getByRole("button", { name: locales.hostSection.sync }),
@@ -241,5 +241,39 @@ describe("Linked host surfaces", () => {
       ),
     );
     expect(await screen.findByText(locales.hostSection.unlinked)).toBeTruthy();
+  });
+
+  it("a tunnelled Linked host shows the tunnel line and opens its tunnel settings", async () => {
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api: stubApi(true, true),
+      permissions: ALL,
+    });
+    const section = listHostSections().find(
+      (s) => s.id === "coolify" || s.id.endsWith(":coolify"),
+    );
+    if (!section) throw new Error("no coolify host section");
+    const Section = section.component;
+    // Its own connection id, so the preview cache of other tests isn't used.
+    const tunnelled = host({
+      coolifyLinked: true,
+      coolifyConnectionId: "2",
+      coolifyServerUuid: "srv-web1",
+    });
+    const shell = { openSingletonTab: vi.fn(), editHost: vi.fn() };
+    render(
+      <SurfaceScope>
+        <Section host={tunnelled as never} isVisible shell={shell as never} />
+      </SurfaceScope>,
+    );
+    expect(await screen.findByText(locales.hostSection.tunnel)).toBeTruthy();
+    expect(screen.getByText(locales.hostSection.tunnelReadOnly)).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: locales.hostSection.openTunnelSettings,
+      }),
+    );
+    expect(shell.editHost).toHaveBeenCalledWith(7);
   });
 });
