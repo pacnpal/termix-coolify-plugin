@@ -153,6 +153,20 @@
       "uuid": {
         "label": "Resource",
         "description": "The uuid of an application, service, database or service part."
+      },
+      "part": {
+        "label": "Part",
+        "description": "Optional. A Part of the service, by uuid, to open instead of the service's containers."
+      },
+      "container": {
+        "label": "Container",
+        "description": "Optional. A container name from an earlier list of choices."
+      },
+      "console": {
+        "label": "Open",
+        "description": "A shell in the container, or the database's own console.",
+        "shell": "Shell",
+        "db": "Database console"
       }
     },
     "listConnections": {
@@ -194,6 +208,10 @@
     "resourceGet": {
       "title": "Read a Coolify resource",
       "description": "One application, service, database or service part, without secrets."
+    },
+    "shellCommand": {
+      "title": "Coolify container shell command",
+      "description": "The docker exec command that opens a shell or database console in a resource's container, run on its Linked host. It holds no password: a console reads its credentials inside the container. Needs connect access to the Linked host."
     }
   },
   "connections": {

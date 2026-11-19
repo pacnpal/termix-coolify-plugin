@@ -84,6 +84,7 @@
         "openFrom": ["palette"]
       }
     ],
+    "uses": ["terminal.view"],
     "hostSections": [
       {
         "id": "coolify",
@@ -545,6 +546,68 @@
           ],
           "risk": "read",
           "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.shell-command",
+          "titleKey": "ops.shellCommand.title",
+          "descriptionKey": "ops.shellCommand.description",
+          "icon": "SquareTerminal",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.uuid.label",
+              "descriptionKey": "ops.fields.uuid.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            },
+            {
+              "key": "part",
+              "type": "string",
+              "labelKey": "ops.fields.part.label",
+              "descriptionKey": "ops.fields.part.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}"
+            },
+            {
+              "key": "container",
+              "type": "string",
+              "labelKey": "ops.fields.container.label",
+              "descriptionKey": "ops.fields.container.description",
+              "pattern": "[A-Za-z0-9_.-]{1,255}"
+            },
+            {
+              "key": "console",
+              "type": "select",
+              "labelKey": "ops.fields.console.label",
+              "descriptionKey": "ops.fields.console.description",
+              "options": [
+                {
+                  "value": "shell",
+                  "labelKey": "ops.fields.console.shell"
+                },
+                {
+                  "value": "db",
+                  "labelKey": "ops.fields.console.db"
+                }
+              ],
+              "default": "shell"
+            }
+          ],
+          "risk": "read",
+          "permission": "operate",
           "surfaces": {
             "assistant": true,
             "mcp": true
