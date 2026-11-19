@@ -81,6 +81,15 @@ export interface ShellChoices {
   choices: ContainerChoice[];
 }
 
+/** A running container of a resource, found after every access check. */
+export interface LocatedContainer {
+  res: ResourceDto;
+  serverUuid: string;
+  hostId: number;
+  sudo: boolean;
+  container: string;
+}
+
 const UUID = /^[A-Za-z0-9_-]{1,64}$/;
 
 function invalid(message: string): ContainerError {
@@ -224,63 +233,80 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
     return { res: found, serverUuid: found.serverUuid ?? res.serverUuid };
   }
 
+  /**
+   * The running container a request names, after every check: the resource
+   * in the connection's list, its server's Linked host, the actor's connect
+   * access, and the container's labels on that host. Several matches answer
+   * choices.
+   */
+  async function locate(
+    connectionId: number,
+    uuid: string,
+    request: ShellRequest,
+  ): Promise<LocatedContainer | ShellChoices> {
+    const { res, serverUuid } = await target(connectionId, uuid, request.part);
+    const hostId = serverUuid
+      ? await deps.sync.linkedHostFor(connectionId, serverUuid)
+      : null;
+    if (!serverUuid || !hostId) {
+      throw new ContainerError(
+        "not-linked",
+        "Link this server first: sync it from Coolify to make it a Linked host.",
+      );
+    }
+    const access = await ctx.hosts.checkAccess(hostId, "connect");
+    if (!access?.hasAccess) {
+      throw new ContainerError(
+        "no-host-access",
+        "You can't open this server's Linked host.",
+      );
+    }
+    const where = { connectionId, serverUuid, hostId };
+
+    const sudo = await probe(where, () => needsSudo(hostId));
+    const containers = await probe(where, () =>
+      resolveContainers(run, hostId, res, { sudo }),
+    );
+    let chosen: ContainerChoice | undefined;
+    if (request.container) {
+      chosen = containers.find((c) => c.name === request.container);
+      if (!chosen) {
+        throw new ContainerError(
+          "container-not-found",
+          "That container doesn't belong to this resource.",
+        );
+      }
+    } else if (containers.length > 1) {
+      return { choices: containers };
+    } else {
+      chosen = containers[0];
+    }
+    if (!chosen) {
+      throw new ContainerError(
+        "container-not-found",
+        "No container of this resource was found on its server.",
+      );
+    }
+    if (!chosen.running) {
+      throw new ContainerError("not-running", "The container isn't running.");
+    }
+    return { res, serverUuid, hostId, sudo, container: chosen.name };
+  }
+
   return {
+    locate,
+
     async shell(
       connectionId: number,
       uuid: string,
       body: unknown,
     ): Promise<ShellAnswer | ShellChoices> {
       const request = readShellRequest(body);
-      const { res, serverUuid } = await target(
-        connectionId,
-        uuid,
-        request.part,
-      );
-      const hostId = serverUuid
-        ? await deps.sync.linkedHostFor(connectionId, serverUuid)
-        : null;
-      if (!serverUuid || !hostId) {
-        throw new ContainerError(
-          "not-linked",
-          "Link this server first: sync it from Coolify to make it a Linked host.",
-        );
-      }
-      const access = await ctx.hosts.checkAccess(hostId, "connect");
-      if (!access?.hasAccess) {
-        throw new ContainerError(
-          "no-host-access",
-          "You can't open this server's Linked host.",
-        );
-      }
+      const found = await locate(connectionId, uuid, request);
+      if ("choices" in found) return found;
+      const { res, serverUuid, hostId, sudo } = found;
+      const chosen = { name: found.container };
       const where = { connectionId, serverUuid, hostId };
-
-      const sudo = await probe(where, () => needsSudo(hostId));
-      const containers = await probe(where, () =>
-        resolveContainers(run, hostId, res, { sudo }),
-      );
-      let chosen: ContainerChoice | undefined;
-      if (request.container) {
-        chosen = containers.find((c) => c.name === request.container);
-        if (!chosen) {
-          throw new ContainerError(
-            "container-not-found",
-            "That container doesn't belong to this resource.",
-          );
-        }
-      } else if (containers.length > 1) {
-        return { choices: containers };
-      } else {
-        chosen = containers[0];
-      }
-      if (!chosen) {
-        throw new ContainerError(
-          "container-not-found",
-          "No container of this resource was found on its server.",
-        );
-      }
-      if (!chosen.running) {
-        throw new ContainerError("not-running", "The container isn't running.");
-      }
 
       const engine = request.console === "db" ? engineOf(res.engine) : null;
       let command: string;

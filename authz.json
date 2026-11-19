@@ -216,6 +216,24 @@
       },
       "allowed": "any",
       "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify before any SSH; there is no reachable Coolify, Linked host or Sentinel in the authz run."
+    },
+    "WS /plugin-ws/coolify/stats": {
+      "access": "user",
+      "permission": "coolify.operate",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "send": [
+        {
+          "connectionId": "{{coolify.connection}}",
+          "uuid": "authzresourceuuid"
+        }
+      ],
+      "refuseReply": "\"type\":\"error\"",
+      "refusalCloseCodes": [1008],
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid, so an allowed caller gets an error reply from Coolify before any SSH; there is no reachable Coolify, Linked host or container in the authz run."
     }
   }
 }

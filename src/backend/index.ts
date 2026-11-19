@@ -7,6 +7,7 @@ import { createResources } from "./resources/service.js";
 import { registerResourceRoutes } from "./resources/routes.js";
 import { createContainers } from "./containers/service.js";
 import { registerContainerRoutes } from "./containers/routes.js";
+import { registerStatsSocket } from "./containers/sockets.js";
 import { createMetrics } from "./metrics/service.js";
 import { registerMetricsRoutes } from "./metrics/routes.js";
 import { registerOperations } from "./operations.js";
@@ -30,6 +31,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
   registerResourceRoutes(router, ctx, resources);
   const containers = createContainers(ctx, { connections, resources, sync });
   registerContainerRoutes(router, ctx, containers);
+  registerStatsSocket(ctx, { connections, containers });
   const metrics = createMetrics(ctx, { connections, resources, sync });
   registerMetricsRoutes(router, ctx, metrics);
   registerOperations(ctx, { connections, sync, resources, containers });

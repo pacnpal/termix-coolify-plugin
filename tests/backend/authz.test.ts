@@ -34,9 +34,13 @@ describe("authz.json", () => {
           (method) =>
             `${method.toUpperCase()} /plugin-api/${manifest.id}${layer.route!.path}`,
         ),
-      )
-      .sort();
-    expect(served).toEqual(Object.keys(authz.routes).sort());
+      );
+    const sockets = mock.wsRoutes.map(
+      (route) => `WS /plugin-ws/${manifest.id}${route.path}`,
+    );
+    expect([...served, ...sockets].sort()).toEqual(
+      Object.keys(authz.routes).sort(),
+    );
     db.close();
   });
 });
