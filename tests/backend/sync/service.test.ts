@@ -791,6 +791,66 @@ describe("host sync under concurrency", () => {
     expect(row.host_id).toBeNull();
   });
 
+  it("a sync queued behind a connection's removal leaves no host, row or lock", async () => {
+    const { harness: h, connectionId } = await start();
+    await apply(h, connectionId, only("srv-web1"));
+
+    // The removal pauses while releasing the Linked host, and again before
+    // deleting the rows, so a sync sent meanwhile is queued behind it.
+    const deleteHost = h.mock.ctx.hosts.delete.bind(h.mock.ctx.hosts);
+    let releasing: () => void = () => {};
+    const inRelease = new Promise<void>((resolve) => (releasing = resolve));
+    vi.spyOn(h.mock.ctx.hosts, "delete").mockImplementation(async (id) => {
+      releasing();
+      await sleep(20);
+      return deleteHost(id);
+    });
+    const batch = h.mock.ctx.db.batch.bind(h.mock.ctx.db);
+    vi.spyOn(h.mock.ctx.db, "batch").mockImplementation(async (queries) => {
+      await sleep(100);
+      return batch(queries);
+    });
+
+    const removal = h.request(
+      "DELETE",
+      `/connections/${connectionId}?removeHosts=true`,
+    );
+    await inRelease;
+    const sync = h.request("POST", `/connections/${connectionId}/sync`, {
+      choices: only("srv-web1", "srv-web2"),
+    });
+    expect((await removal).status).toBe(200);
+    expect((await sync).status).toBe(404);
+
+    expect(await h.mock.ctx.hosts.listOwned()).toHaveLength(0);
+    expect(serverRows(h)).toHaveLength(0);
+    expect(lockProvider(h).lockedHosts()).toEqual([]);
+  });
+
+  it("an apply whose connection was removed before its first host write creates nothing", async () => {
+    const { harness: h, connectionId } = await start();
+    // The connection disappears between the start of the sync and its first
+    // host write (here: while Coolify lists the servers).
+    const ensure = vi.spyOn(h.mock.ctx.hosts.folders, "ensure");
+    const before = h.mock.ctx.fetch;
+    vi.spyOn(h.mock.ctx, "fetch").mockImplementation(async (url, init) => {
+      const res = await before(url, init);
+      if (String(url).endsWith("/servers")) {
+        h.db.sqlite
+          .prepare("DELETE FROM p_coolify_connections WHERE id = ?")
+          .run(connectionId);
+      }
+      return res;
+    });
+    const res = await h.request("POST", `/connections/${connectionId}/sync`, {
+      choices: only("srv-web1"),
+    });
+    expect(res.status).toBe(404);
+    expect(ensure).not.toHaveBeenCalled();
+    expect(await h.mock.ctx.hosts.listOwned()).toHaveLength(0);
+    expect(lockProvider(h).lockedHosts()).toEqual([]);
+  });
+
   it("a link row that can't be saved removes the host it just created", async () => {
     const { harness: h, connectionId } = await start();
     const create = h.mock.ctx.hosts.create.bind(h.mock.ctx.hosts);

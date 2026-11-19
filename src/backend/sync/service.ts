@@ -571,6 +571,9 @@ export async function createSync(
         });
         if (!plan.ok) throw new Error("plan changed");
         if (!folderReady) {
+          // Fail closed before the first host write: the connection must
+          // still exist and be the actor's. Throws, ending the whole sync.
+          await ownedConnection(connectionId);
           await ctx.hosts.folders.ensure(folder, { icon: "Rocket" });
           folderReady = true;
         }
@@ -608,6 +611,8 @@ export async function createSync(
         }
         results.push({ ...base, status, hostId });
       } catch (err) {
+        // A connection gone or no longer the actor's ends the sync.
+        if (err instanceof ConnectionError) throw err;
         ctx.log.warn(`coolify sync of one server failed: ${errorName(err)}`);
         results.push({
           ...base,
@@ -746,16 +751,19 @@ export async function createSync(
     },
 
     /**
-     * Connections' releaseLinkedHosts hook: before a connection is removed,
-     * unlinks its Linked hosts, or deletes them with removeHosts. One host
-     * that can't be changed doesn't stop the others.
+     * Connections' releaseLinkedHosts hook: unlinks the connection's Linked
+     * hosts, or deletes them with removeHosts, then runs `deleteRows` (the
+     * connection's own removal). One host that can't be changed doesn't stop
+     * the others.
      */
     async releaseConnection(
       connectionId: number,
       opts: { removeHosts: boolean },
+      deleteRows: () => Promise<void>,
     ): Promise<void> {
-      // Waits for a sync of this connection to finish, so no host it is
-      // creating is left locked after the connection is gone.
+      // Releasing and deleting run as one step of this connection's queue: a
+      // sync queued before waits for it to finish, and one queued after starts
+      // only once the connection is gone, so it finds nothing to sync.
       await serialized(connectionId, async () => {
         for (const row of await rowsOf(connectionId)) {
           if (row.hostId === null) continue;
@@ -766,6 +774,7 @@ export async function createSync(
             ctx.log.warn(`coolify could not release a host: ${errorName(err)}`);
           }
         }
+        await deleteRows();
       });
     },
   };

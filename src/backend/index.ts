@@ -16,8 +16,10 @@ export async function activate(ctx: PluginContext): Promise<void> {
   // with removeHosts). Sync is made right after, before any call can arrive.
   let sync: Sync | null = null;
   const connections = createConnections(ctx, tables, {
-    releaseLinkedHosts: async (connectionId, opts) =>
-      sync?.releaseConnection(connectionId, opts),
+    releaseLinkedHosts: async (connectionId, opts, deleteRows) => {
+      if (sync) await sync.releaseConnection(connectionId, opts, deleteRows);
+      else await deleteRows();
+    },
   });
   sync = await createSync(ctx, { tables, connections });
   const resources = createResources(ctx, { tables, connections });
