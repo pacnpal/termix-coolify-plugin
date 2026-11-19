@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from "react";
-import { Box } from "lucide-react";
-import { useTranslation } from "@termix-ssh/plugin-sdk/frontend";
+import { Box, Database, SquareTerminal } from "lucide-react";
+import { usePermission, useTranslation } from "@termix-ssh/plugin-sdk/frontend";
 import {
+  Button,
   EmptyState,
   GroupHeading,
   InfoGrid,
@@ -139,6 +140,44 @@ function OverviewTab({
   );
 }
 
+/** A database or a service's database Part: it has a native console. */
+export function hasConsole(r: Resource): boolean {
+  return r.kind === "database" || r.kind === "service-database";
+}
+
+/** Open shell, and Open database console for a database or database Part. */
+function ShellButtons({
+  resource,
+  onShell,
+}: {
+  resource: Resource;
+  onShell: (resource: Resource, console: "shell" | "db") => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => onShell(resource, "shell")}
+      >
+        <SquareTerminal className="size-3.5" />
+        {t("detail.actions.shell")}
+      </Button>
+      {hasConsole(resource) && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => onShell(resource, "db")}
+        >
+          <Database className="size-3.5" />
+          {t("detail.actions.console")}
+        </Button>
+      )}
+    </>
+  );
+}
+
 /**
  * One resource or Part, opened in place over the list. The header names it
  * and its status, with Deploy, Force rebuild, Restart and Start or Stop for
@@ -152,6 +191,7 @@ export function ResourceDetail({
   connectionId,
   canOperate,
   onChanged,
+  onShell,
 }: {
   /** Null when the resource is gone from the list. */
   resource: Resource | null;
@@ -163,10 +203,14 @@ export function ResourceDetail({
   canOperate: boolean;
   /** After a lifecycle action, so the list fetches fresh statuses. */
   onChanged: () => void;
+  /** Opens a coolify-shell tab for the resource. */
+  onShell?: (resource: Resource, console: "shell" | "db") => void;
 }) {
   const { t } = useTranslation();
   const runner = useLifecycle(connectionId, onChanged);
   const lifecycle = canOperate ? runner : null;
+  // Shells run over SSH: coolify.operate, plus host access the backend checks.
+  const canShell = usePermission("operate");
   const [tab, setTab] = useState<DetailTab>("overview");
   let body: ReactNode;
   if (!resource) {
@@ -201,11 +245,6 @@ export function ResourceDetail({
           </StatusBadge>
         ) : undefined
       }
-      actions={
-        resource && lifecycle ? (
-          <ResourceActions resource={resource} lifecycle={lifecycle} />
-        ) : undefined
-      }
       toolbar={
         <TabStrip
           tabs={DETAIL_TABS.map((id) => ({
@@ -215,6 +254,18 @@ export function ResourceDetail({
           activeTab={tab}
           onTabChange={(id) => setTab(id as DetailTab)}
         />
+      }
+      actions={
+        resource && (lifecycle || (onShell && canShell)) ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {lifecycle && (
+              <ResourceActions resource={resource} lifecycle={lifecycle} />
+            )}
+            {onShell && canShell && (
+              <ShellButtons resource={resource} onShell={onShell} />
+            )}
+          </div>
+        ) : undefined
       }
       bare
     >

@@ -9,6 +9,8 @@ import {
   registerLifecycleRoutes,
   registerResourceRoutes,
 } from "./resources/routes.js";
+import { createContainers } from "./containers/service.js";
+import { registerContainerRoutes } from "./containers/routes.js";
 import { registerMcpRoutes } from "./mcp/routes.js";
 import { registerOperations } from "./operations.js";
 import { createSync, type Sync } from "./sync/service.js";
@@ -29,12 +31,14 @@ export async function activate(ctx: PluginContext): Promise<void> {
   const resources = createResources(ctx, { tables, connections });
   const lifecycle = createLifecycle(ctx, { connections, resources, sync });
   const updates = createUpdates(ctx, { tables, connections, sync });
+  const containers = createContainers(ctx, { connections, resources, sync });
   const router = ctx.http.router<Router>();
   registerConnectionRoutes(router, ctx, connections);
   registerSyncRoutes(router, ctx, sync);
   registerResourceRoutes(router, ctx, resources);
   registerLifecycleRoutes(router, ctx, lifecycle);
   registerUpdateRoutes(router, ctx, updates);
+  registerContainerRoutes(router, ctx, containers);
   registerMcpRoutes(router, ctx);
   registerOperations(ctx, {
     tables,
@@ -43,6 +47,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
     resources,
     lifecycle,
     updates,
+    containers,
   });
 }
 

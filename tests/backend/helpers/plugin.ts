@@ -48,6 +48,8 @@ export async function startPlugin(
     installedPlugins?: MockContextOptions["installedPlugins"];
     /** What ctx.credentials.list answers: the actor's own credentials. */
     credentialSummaries?: MockContextOptions["credentialSummaries"];
+    /** Hosts ctx.hosts.get and checkAccess answer with. */
+    hosts?: MockContextOptions["hosts"];
   } = {},
 ): Promise<PluginHarness> {
   const db = await createTestDb(pluginDir);
@@ -69,6 +71,7 @@ export async function startPlugin(
     fetch: options.fetch,
     installedPlugins: options.installedPlugins,
     credentialSummaries: options.credentialSummaries,
+    hosts: options.hosts,
     actor: OWNER,
   });
   await activate(mock.ctx);

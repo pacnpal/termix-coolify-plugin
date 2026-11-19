@@ -68,8 +68,10 @@ aren't obvious from the code, and anything that has bitten you before.
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
   Where things stand: identity, permissions, admin settings, the vendored API and the tables exist,
   Connections work (routes, operations, the Connections view and the "Connect Coolify" onboarding step),
-  host sync turns Coolify servers into locked Linked hosts, and Resources can be browsed (Overview tiles,
-  the Resources list, a resource's Overview detail) and deployed, started, stopped and restarted.
+  host sync turns Coolify servers into locked Linked hosts, Resources can be browsed (Overview tiles,
+  the Resources list, a resource's Overview detail) and deployed, started, stopped and restarted, a Linked
+  host's server updates can be checked and installed, and container shells and database consoles open in a
+  `coolify-shell` tab.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
 - Coolify calls: `src/backend/coolify/http.ts` is the only way to Coolify (ctx.fetch, Bearer and CF Access
@@ -123,7 +125,7 @@ aren't obvious from the code, and anything that has bitten you before.
 - Frontend: `src/frontend/views/CoolifyTab.tsx` owns the SideNav, the selected connection and the shared
   resource list (`useResources`). `ResourceDetail.tsx` lists its views in `DETAIL_TABS`; later views (shell,
   logs, stats) add an id there. Filtering and grouping are pure functions in `resource-model.ts`.
-  `contributes.mobile` lists only `coolify` until the `coolify-shell` tab is registered.
+  `contributes.mobile` lists `coolify` and `coolify-shell`.
 - Lifecycle: `src/backend/resources/lifecycle.ts` has `lifecycle(api, uuid, verb, opts)` (a Part uses its
   service's per-Part endpoints; a Part's deploy deploys its service) and `createLifecycle`, whose
   `authorize` is the one access check for every lifecycle path: `coolify.operate`, owner or a grant of
@@ -149,3 +151,20 @@ aren't obvious from the code, and anything that has bitten you before.
   reboot); a host access read that throws refuses. `ConnectionError` takes an optional status for these.
   The mock ctx's `hosts.checkAccess` only knows hosts given up front, so tests spy on it, on
   `ssh.exec` and on `operations.invoke` (`tests/backend/updates/fixtures.ts`).
+- Shells: `src/backend/ssh.ts` (`SshRunner` over `ctx.ssh.exec`, `isHostKeyError`) and
+  `src/backend/containers/` (`commands.ts` name check, `DB_CONSOLES`, `shellCommand`; `resolver.ts` docker ps
+  filters; `service.ts` the checks; `routes.ts`) and `src/backend/ops/containers.ts`. Order of checks:
+  resource in the connection's list (connection access), Linked host (`sync.linkedHostFor`, else 409
+  `not-linked`), the actor's `ctx.hosts.checkAccess(hostId, "connect")` (else 403 `no-host-access`), then SSH.
+  A Grant level doesn't matter for shells; host access does. Container names are refused outside
+  `[A-Za-z0-9_.-]` or with a leading `-`; every other value goes through `shellQuote`. Console scripts only
+  name the container's own variables and are one quoted `sh -c` argument, so `$` expands in the container.
+  A password reaches a client only through an env variable (PGPASSWORD, MYSQL_PWD, REDISCLI_AUTH,
+  clickhouse-client's own CLICKHOUSE_PASSWORD; mongosh reads `process.env` in `--eval`), never argv,
+  which `ps` on the host shows to every user.
+  Several matches answer HTTP 300 `{ choices }`; the frontend reads choices from a rejected axios call too.
+  `ContainerError` has its own statuses (409 for `not-linked`), unlike `ConnectionError`'s 404.
+- Shell tab: `src/frontend/views/ShellTab.tsx` reads its tab data `{ connectionId, uuid, part?, container?,
+console }`, calls the shell route and draws `PluginComponent id="terminal.view"` with `hostConfig` and
+  `executeCommand`; the fallback is a NoticePanel with the command to copy. Picking a container re-asks in
+  place. Shell host ids can be strings, so hosts are matched by `String(id)`, not `useHost`.

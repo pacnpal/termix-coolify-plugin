@@ -15,7 +15,35 @@
     }
   },
   "shellTab": {
-    "title": "Coolify shell"
+    "title": "Coolify shell",
+    "shellLabel": "Shell: {{name}}",
+    "consoleLabel": "Console: {{name}}",
+    "loading": "Finding the container",
+    "empty": "This tab has no container to open. Open a shell from a resource in the Coolify tab.",
+    "copy": "Copy command",
+    "copied": "Copied",
+    "trust": "Open server terminal",
+    "retry": "Try again",
+    "fingerprints": "Coolify's fingerprint for this host's key:",
+    "noConsole": "There is no database console for this engine, so this is a shell in the container.",
+    "noTerminal": {
+      "title": "SSH Terminal isn't running",
+      "hint": "Turn on the SSH Terminal plugin to open the shell here, or run this command in a terminal on the server."
+    },
+    "pick": {
+      "title": "Pick a container",
+      "hint": "Several containers belong to this resource.",
+      "running": "Running",
+      "stopped": "Stopped"
+    },
+    "errors": {
+      "not-linked": "Link this server first: sync it from Coolify to make it a Linked host.",
+      "not-running": "The container isn't running. Start the resource, then try again.",
+      "container-not-found": "No container of this resource was found on its server.",
+      "host-key": "Open a server terminal once to trust this host's key.",
+      "no-host-access": "You can't open this server's Linked host. Ask its owner for server access.",
+      "failed": "The shell could not be opened."
+    }
   },
   "hostSection": {
     "title": "Coolify",
@@ -154,6 +182,20 @@
         "label": "Resource",
         "description": "The uuid of an application, service, database or service part."
       },
+      "part": {
+        "label": "Part",
+        "description": "Optional. A Part of the service, by uuid, to open instead of the service's containers."
+      },
+      "container": {
+        "label": "Container",
+        "description": "Optional. A container name from an earlier list of choices."
+      },
+      "console": {
+        "label": "Open",
+        "description": "A shell in the container, or the database's own console.",
+        "shell": "Shell",
+        "db": "Database console"
+      },
       "force": {
         "label": "Force rebuild",
         "description": "Rebuild without Coolify's build cache."
@@ -216,6 +258,10 @@
     "resourceGet": {
       "title": "Read a Coolify resource",
       "description": "One application, service, database or service part, without secrets."
+    },
+    "shellCommand": {
+      "title": "Coolify container shell command",
+      "description": "The docker exec command that opens a shell or database console in a resource's container, run on its Linked host. It holds no password: a console reads its credentials inside the container. Needs connect access to the Linked host."
     },
     "listResources": {
       "title": "List a host's Coolify resources",
@@ -617,7 +663,11 @@
       "service": "Service"
     },
     "parts": "Parts",
-    "missing": "This resource is no longer in Coolify."
+    "missing": "This resource is no longer in Coolify.",
+    "actions": {
+      "shell": "Open shell",
+      "console": "Open database console"
+    }
   },
   "lifecycle": {
     "deploy": "Deploy",
