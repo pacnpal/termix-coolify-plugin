@@ -145,6 +145,33 @@ describe("overview", () => {
     expect(within(tile(L.tiles.degraded)).getByText("0")).toBeTruthy();
   });
 
+  it("a failed connections reload keeps the list and says so", async () => {
+    const api = stubApi();
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions: ["coolify.view"],
+    });
+    rendered.renderTab("coolify", { isVisible: true });
+    await waitFor(() =>
+      expect(within(tile(L.tiles.running)).getByText("3")).toBeTruthy(),
+    );
+    const answer = api.get.getMockImplementation()!;
+    api.get.mockImplementation(async (url: string) => {
+      if (url === "/connections") throw new Error("offline");
+      return answer(url);
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: locales.nav.resources }),
+    );
+    expect(
+      await screen.findByText(locales.connections.loadFailed),
+    ).toBeTruthy();
+    expect(screen.getByText("web")).toBeTruthy();
+    expect(screen.queryByText(locales.tab.noConnection.title)).toBeNull();
+  });
+
   it("names the cause when Coolify fails", async () => {
     const failure = Object.assign(new Error("502"), {
       response: { data: { error: "x", cause: "unauthorized" } },

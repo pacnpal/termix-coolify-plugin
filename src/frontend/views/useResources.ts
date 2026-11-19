@@ -26,27 +26,31 @@ export function useResources(
   const [list, setList] = useState<ResourceList | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Drops answers for a connection, or a revision of it, no longer selected.
+  // A new id or revision is a new `reload`, so the effect below loads again.
   const key = connectionId === null ? null : `${connectionId}:${revision}`;
-  const current = useRef(key);
-  current.current = key;
+  // Each request takes the next generation, and only the latest may set
+  // state: an answer for A that arrives after switching A, B and back to A is
+  // dropped, as is an older reload's answer that arrives after a newer one.
+  const requests = useRef(0);
 
   const reload = useCallback(
     async (refresh = false) => {
-      if (connectionId === null) return;
+      const generation = ++requests.current;
+      const latest = () => generation === requests.current;
+      if (connectionId === null || key === null) return;
       setLoading(true);
       try {
         const answer = await api.listResources(connectionId, { refresh });
-        if (current.current !== key) return;
+        if (!latest()) return;
         setList(answer);
         setError(null);
       } catch (err) {
-        if (current.current !== key) return;
+        if (!latest()) return;
         setError(
           failureOf(err) ? describeFailure(t, err) : t("resources.loadFailed"),
         );
       } finally {
-        if (current.current === key) setLoading(false);
+        if (latest()) setLoading(false);
       }
     },
     [api, connectionId, key, t],

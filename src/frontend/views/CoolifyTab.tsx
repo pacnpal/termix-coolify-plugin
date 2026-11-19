@@ -5,6 +5,7 @@ import { usePluginApi, useTranslation } from "@termix-ssh/plugin-sdk/frontend";
 import {
   EmptyState,
   LoadingState,
+  NoticePanel,
   PanelFrame,
   SideNav,
   ToolbarSelect,
@@ -37,16 +38,20 @@ export function CoolifyTab(_props: TabProps) {
   const [health, setHealth] = useState<HealthFilter>("all");
   const [openUuid, setOpenUuid] = useState<string | null>(null);
 
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  /** A failed reload keeps the list it had and says so; an empty answer is kept. */
   const loadConnections = useCallback(async () => {
-    let list: Connection[] = [];
     try {
       const answer = await api.listConnections();
-      list = Array.isArray(answer) ? answer : [];
+      const list = Array.isArray(answer) ? answer : [];
+      setConnections(list);
+      setLoadFailed(false);
+      setSection((prev) => prev ?? (list.length ? "overview" : "connections"));
     } catch {
-      // The Connections section shows the failure; other sections stay empty.
+      setLoadFailed(true);
+      setSection((prev) => prev ?? "connections");
     }
-    setConnections(list);
-    setSection((prev) => prev ?? (list.length ? "overview" : "connections"));
   }, [api]);
 
   useEffect(() => {
@@ -148,7 +153,15 @@ export function CoolifyTab(_props: TabProps) {
             label={t("nav.label")}
           />
         )}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">{body}</div>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {loadFailed && section !== "connections" && (
+            <NoticePanel
+              tone="destructive"
+              title={t("connections.loadFailed")}
+            />
+          )}
+          {body}
+        </div>
       </div>
       {openUuid !== null && section === "resources" && (
         <ResourceDetail
