@@ -546,6 +546,7 @@ Not used, deliberately:
 | `coolify.operate`    | Lifecycle actions, deploys, tasks, backups, Coolify API logs; also the role switch for SSH features (see below)    | admin, user   |
 | `coolify.configure`  | Edits, envs, creates, imports, keys, sources, storage, DNS, notifications                                          | admin, user   |
 | `coolify.administer` | Deletes, server create, delete and transfer, cloud provisioning, instance settings, MCP toggle, connection sharing | admin, user   |
+| `coolify.mcp`        | Use the plugin's MCP endpoint (calls still need the permission of each action)                                     | admin, user   |
 
 There are two kinds of access, checked differently.
 
@@ -960,6 +961,100 @@ Both sources feed one pipeline, deduped by `deployment_uuid` or `(event, resourc
    - Default alert kinds: deploy failed, restart limit, server unreachable, backup failed, task failed, high
      disk, certificate problems, API token expiring.
 
+### Fully usable through Termix's API and Termix's MCP (1.0)
+
+The owner's requirement: everything the plugin can do must also work without the browser, through Termix's
+REST API (Termix API keys) and through Termix's MCP. Nothing may exist only as a button.
+
+**What Termix offers today** (core f1c2964, verified in source):
+
+- **Plugin routes:** `/plugin-api/<id>/…` accept Termix API keys, and the request runs as the key's user.
+  - A key with no scopes reaches every route.
+  - A `read` key reaches GETs.
+  - `operations:read` and `operations:run` keys reach `/operations/…` and `/plugin-api/<id>/mcp`
+    (`operations/key-scopes.ts`).
+- **Termix's REST operations API:** `/operations/<actionId>/run` runs any declared action, with the gate,
+  approvals, dry runs and history. Community plugins are included.
+- **The Termix MCP server:** served by the official Operations Center plugin at
+  `/plugin-api/operations-center/mcp`, built from `ctx.operations.list({ surface: "mcp" })`.
+  - Core's catalog **always leaves community plugins out of the `mcp` and `assistant` surfaces**
+    (`operations/catalog.ts:210-214`). There is no admin switch in this build, even though the guide mentions
+    one.
+  - So this plugin's actions appear there only once it is signed as official, or core adds that switch.
+- **A plugin's own MCP endpoint:** core already treats `/plugin-api/<id>/mcp` as an MCP path for scoped API
+  keys. A plugin may serve its own MCP endpoint there.
+
+**Design:**
+
+1. **Every capability is a declared operation.**
+   - The curated actions (lifecycle, sync, shells, logs, metrics, updates, companions, status pages) each get
+     an operation. Actions that give back text a person reads in the UI (logs, metrics, update lists,
+     traffic) are `read` operations that return the same data.
+   - Interactive-only pieces (the live terminal and live log follow) have their non-interactive equivalents
+     as operations:
+     - `coolify.exec`: run one command in a container and return its output. It's destructive, needs
+       `coolify.operate` plus host `edit`, takes a timeout, and its output is capped.
+     - `coolify.logs-tail`: read.
+     - `coolify.shell-command`: read. It returns the `docker exec` line, so a client with its own SSH can
+       open the shell.
+   - The full Coolify REST API is reachable through two generic operations:
+     - `coolify.api-read`: GET only, read.
+     - `coolify.api-call`: any operation, destructive, with a confirm.
+     - Both take `connectionId`, `operationId` (with `optionsFrom` reads listing the vendored operations,
+       hiding ones newer than the connection's version), `params` and `body`.
+     - Both return redacted output (see Redaction).
+   - A test fails when any plugin route has no operation that does the same thing. The exceptions are the
+     public status route and the sockets, whose equivalents are named in the test.
+2. **Termix REST API:**
+   - Every `/plugin-api/coolify/…` route has an `@openapi` block, so it appears in Termix's API docs, and
+     works with an unscoped API key as the key's user.
+   - Every operation runs through Termix's `/operations/coolify.<name>/run` with an `operations:run` key.
+     Reads also work with `operations:read`.
+   - `docs/api.md` lists each capability with its route, its operation id, the key scope it needs and a
+     `curl` example.
+3. **Termix MCP, through our own endpoint** `POST /plugin-api/coolify/mcp`:
+   - **Transport:** stateless JSON-RPC over HTTP, with methods `initialize`, `ping`, `tools/list` and
+     `tools/call`. The same shape as Operations Center's server, so the same MCP clients work.
+   - **Auth:** a Termix session or a Termix API key with `operations:read` or `operations:run` (core
+     enforces this). New permission `coolify.mcp` (default roles admin and user) gates the route.
+   - **Tools:** one per declared coolify operation (name `coolify__<action>`), plus `list_connections`,
+     `list_hosts` (linked hosts only) and `list_resources`.
+     - The input schema comes from the operation's inputs, plus `hostId`/`resourceKey` by scope.
+     - Annotations come from the risk: `readOnlyHint` for read, `destructiveHint` for destructive.
+   - **Calls** go through `ctx.operations.run` with `via: "mcp"`. The gate, approvals, risk rules, dry runs,
+     history and audit all apply exactly as in the UI.
+     - A key with only `operations:read` can call only `read` tools.
+     - An approval wait answers with the run id and "waiting for approval", like Operations Center.
+   - **Output** is the operation's `summary` plus redacted `data`. Large data is cut at 8,000 characters with
+     a note.
+   - **`GET /plugin-api/coolify/mcp`** answers a short description and the client config snippet, so the
+     Connections view can show "Use with an MCP client" with copy buttons.
+4. **Also on the official surfaces:**
+   - Every operation still sets `surfaces.mcp` and `surfaces.assistant` (read, deploy and restart on;
+     destructive off), and `cli`, `automations` and `mobile` on.
+   - So if the plugin is ever signed official, or core adds an admin switch, Termix's main MCP server and the
+     AI assistant pick them up with no change.
+5. **The `coolify.client` service** (moved into 1.0) gives other plugins the same capabilities as typed
+   methods. Each method runs through `ctx.operations.run` too.
+
+**Redaction:** every generic output passes through one redactor. That covers operation data, MCP tool
+results and API console results.
+
+- It masks keys matching
+  `/(token|secret|password|passwd|private_key|api_key|apikey|webhook_secret|value|real_value|license|key_pem|client_secret|dsn)$/i`.
+  It also masks values inside `docker_compose_raw`, `custom_labels`, `dockerfile` and `logdrain_*_config`.
+- Operation and MCP outputs are always redacted, and have no reveal.
+- The in-app API console (a section of the Coolify tab, generated forms for every operation, so the full
+  Coolify API is also usable by hand) can reveal one value. That needs `coolify.configure` and a
+  sensitive-capable token. The reveal is audited and never cached.
+
+**Coverage contract, extended:** `docs/coverage.md` gets two more tables.
+
+- Every plugin route, with its operation and MCP tool name.
+- Every operation, with its MCP tool and REST run path.
+
+Tests fail when a route lacks an operation, or an operation lacks an MCP tool or a `docs/api.md` entry.
+
 ### Companion plugins
 
 Termix ships about 75 official plugins. When one of the plugins below is installed, Coolify features show up
@@ -1248,6 +1343,10 @@ Everything goes through `ctx.db.persist()`, lazily for cache, events and recent.
      - Server updates: the status display, check, install and reboot.
      - Spec handling: the three vendored specs, version tagging, and the coverage test over their union.
      - Public status page.
+     - Fully usable through Termix's API and MCP: an operation for every capability (including
+       `coolify.exec`, `coolify.logs-tail`, `coolify.api-read` and `coolify.api-call`), the
+       `/plugin-api/coolify/mcp` endpoint, `docs/api.md`, the redactor, the API console, the extended
+       coverage tests and the `coolify.client` service.
 2. **1.1.0: Observe.**
    - Logs snapshot and follow, Stats.
    - Deployments section with live build logs, cancel, rollback, previews.
@@ -1276,7 +1375,6 @@ Everything goes through `ctx.db.persist()`, lazily for cache, events and recent.
    - Integration tokens.
 7. **1.6.0: Team and sharing.**
    - Connection grants with host sharing.
-   - The `coolify.client` service.
    - Security section (vulnerabilities, audit), Team and Instance sections.
    - Assistant and MCP surfaces review.
    - Mobile polish.
