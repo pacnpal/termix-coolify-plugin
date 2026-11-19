@@ -66,8 +66,9 @@ Keep this section current when the plugin changes: what it does, how it is put t
 aren't obvious from the code, and anything that has bitten you before.
 
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
-  Where things stand: identity, permissions, admin settings, the vendored API and the tables exist, and
-  Connections work (routes, operations, the Connections view and the "Connect Coolify" onboarding step).
+  Where things stand: identity, permissions, admin settings, the vendored API and the tables exist,
+  Connections work (routes, operations, the Connections view and the "Connect Coolify" onboarding step),
+  and Resources can be browsed (Overview tiles, the Resources list, a resource's Overview detail).
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
 - Coolify calls: `src/backend/coolify/http.ts` is the only way to Coolify (ctx.fetch, Bearer and CF Access
@@ -94,3 +95,16 @@ aren't obvious from the code, and anything that has bitten you before.
   (`p_coolify_status_pages`); the SDK refuses camelCase. `servers.hostId` is a plain nullable integer, not
   `refHost`: a cascade would delete the row and its `addressOverride` when the host goes. The `host.deleted`
   handler sets it to NULL (unlinks) instead.
+- Resources: `src/backend/resources/` (service, routes) and `src/backend/ops/resources.ts`. The service
+  merges `/applications`, `/services` (each service followed by its Parts) and `/databases`, never
+  `/resources`, and caches the merged DTO list in the `cache` table (kind `resources`, 20 seconds) through
+  `src/backend/cache.ts`. It checks `connections.access()` before reading the cache, so another user never
+  gets a cached row. Concurrent misses share one fetch. `invalidate(connectionId)` is the hook for lifecycle
+  actions. `ResourceDto.serverName` comes from `server.name` or `destination.server.name` in the payload.
+- Status words: `src/shared/resource-health.ts` (`resourceHealth`, `countResources`) is the one reading of a
+  Coolify status, imported by both the backend and the frontend. Exited and unhealthy are degraded; Parts
+  aren't counted (their service's status covers them).
+- Frontend: `src/frontend/views/CoolifyTab.tsx` owns the SideNav, the selected connection and the shared
+  resource list (`useResources`). `ResourceDetail.tsx` lists its views in `DETAIL_TABS`; later views (shell,
+  logs, stats) add an id there. Filtering and grouping are pure functions in `resource-model.ts`.
+  `contributes.mobile` lists only `coolify` until the `coolify-shell` tab is registered.
