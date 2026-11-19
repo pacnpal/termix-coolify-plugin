@@ -39,7 +39,7 @@ export function safe(ctx: PluginContext, fn: Handler): Handler {
 /** A connection id from the path; a malformed one reads as missing. */
 export function idParam(req: Request): number {
   const raw = String(req.params.id ?? "");
-  const id = /^\d{1,15}$/.test(raw) ? Number(raw) : NaN;
+  const id = /^\d{1,15}$/.test(raw) ? Number(raw) : Number.NaN;
   if (!Number.isSafeInteger(id) || id <= 0) {
     throw new ConnectionError("not-found", "Coolify connection not found");
   }

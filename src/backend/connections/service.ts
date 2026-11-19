@@ -1,4 +1,5 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
+import { trimTrailing } from "../text.js";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { createCoolifyApi, type CoolifyApi } from "../coolify/api.js";
 import {
@@ -159,10 +160,10 @@ export function normalizeBaseUrl(raw: string): string | null {
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return null;
   if (url.username || url.password || url.search || url.hash) return null;
-  const path = url.pathname
-    .replace(/\/+$/, "")
-    .replace(/\/api\/v1$/i, "")
-    .replace(/\/+$/, "");
+  const path = trimTrailing(
+    trimTrailing(url.pathname, "/").replace(/\/api\/v1$/i, ""),
+    "/",
+  );
   return `${url.protocol}//${url.host.toLowerCase()}${path}`;
 }
 

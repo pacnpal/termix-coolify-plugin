@@ -2,6 +2,7 @@ import type {
   PluginFetch,
   PluginFetchInit,
 } from "@termix-ssh/plugin-sdk/backend";
+import { trimTrailing } from "../text.js";
 
 /** Everything needed to reach one Coolify instance. Holds the token unsealed: never log or return it. */
 export interface CoolifyTarget {
@@ -103,7 +104,7 @@ const MAX_RETRY_AFTER_MS = 10_000;
 const TIMEOUT_MS = 30_000;
 
 function apiBase(baseUrl: string): string {
-  return `${baseUrl.trim().replace(/\/+$/, "")}/api/v1`;
+  return `${trimTrailing(baseUrl.trim(), "/")}/api/v1`;
 }
 
 function buildUrl(
