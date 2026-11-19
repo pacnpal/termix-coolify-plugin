@@ -67,7 +67,8 @@ aren't obvious from the code, and anything that has bitten you before.
 
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
   Where things stand: identity, permissions, admin settings, the vendored API and the tables exist, and
-  Connections work (routes, operations, the Connections view and the "Connect Coolify" onboarding step).
+  Connections work (routes, operations, the Connections view and the "Connect Coolify" onboarding step),
+  and host sync turns Coolify servers into locked Linked hosts.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
 - Coolify calls: `src/backend/coolify/http.ts` is the only way to Coolify (ctx.fetch, Bearer and CF Access
@@ -94,3 +95,17 @@ aren't obvious from the code, and anything that has bitten you before.
   (`p_coolify_status_pages`); the SDK refuses camelCase. `servers.hostId` is a plain nullable integer, not
   `refHost`: a cascade would delete the row and its `addressOverride` when the host goes. The `host.deleted`
   handler sets it to NULL (unlinks) instead.
+- Host sync: `src/backend/sync/` (`mapping.ts` pure `planHost`, `credentials.ts` key copy, `locks.ts`,
+  `service.ts` `createSync`, `routes.ts`) and `src/backend/ops/sync.ts`. `createSync` is async (it loads the
+  lock set from `servers.hostId` before providing locks) and is made right after `createConnections`, whose
+  `releaseLinkedHosts` hook calls `sync.releaseConnection`. Key material comes only from
+  `api.keyForCopy()` (not a DTO) and goes only to `ctx.credentials.createSshKey`; reuse is by fingerprint
+  among the connection's `credentialMode = "coolify"` rows. `ssh-keys` from the SDK needs `ssh2`, which only
+  Termix supplies, so it is imported lazily and only when Coolify sends no `public_key`. Tunnelled servers
+  are refused in `planTunnel` with `TUNNEL_CAUSE` (`needs-tunnel-support`); ticket #9 replaces that seam
+  with SSH Terminal's tunnel settings. The SDK tsconfig has no strict null checks, so a boolean `ok` does
+  not narrow a union: `HostPlan` names both fields on both sides. The mock ctx's `hosts.create` drops
+  `pluginSettings` and `pluginEnable`, so tests spy on the calls to check them.
+- Frontend host surfaces: `src/frontend/linked.ts` reads a host's link from its own settings and shares one
+  sync preview per connection (five minutes) between badge dots and the host card. The tab opens the sync
+  preview from `tab.data` `{ section: "sync", connectionId? }`; `section: "resources"` is for ticket #7.

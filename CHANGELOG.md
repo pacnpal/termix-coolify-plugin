@@ -18,3 +18,17 @@
   keys, logs and instance settings, with a plain cause and fix when something fails
 - The Connections view and a "Connect Coolify" setup step
 - Actions to list, check, add, change and remove connections; token fields never appear in run history
+- Sync servers: each Coolify server becomes a Linked host in a "Coolify" folder (or "Coolify / <connection>"
+  with several connections), tagged `coolify`, with a note linking back to Coolify. A preview shows every
+  server first; re-sync updates hosts in place, and servers gone from Coolify are flagged, never deleted
+- Each Coolify SSH key is copied once into a Termix credential named "Coolify: <connection> / <key>", reused
+  until the key's fingerprint changes. Every copy is audited. When the token can't read keys, or an admin
+  turned key copying off, you pick a Termix credential instead
+- The server Coolify runs on (`host.docker.internal`, `localhost` or `127.*`) waits for the address Termix
+  should use, while the other servers sync. Servers behind a Cloudflare tunnel are shown but not synced yet
+- Linked hosts are read only while Coolify manages them, with a Coolify badge, a status dot, a Coolify card
+  on the host page, and Resources, Sync and Unlink in their menu. Unlink makes a host ordinary again;
+  deleting a Linked host keeps its address and credential choice for the next sync
+- "Import from Coolify" in the hosts import menu, and a Sync servers button on each connection
+- Actions `coolify.sync-preview`, `coolify.sync-apply` and `coolify.unlink`; only the preview is offered to
+  the assistant and MCP

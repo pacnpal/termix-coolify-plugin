@@ -1,7 +1,7 @@
 Coolify for Termix brings your Coolify servers, applications, services and databases into Termix.
 
-So far you can connect Coolify instances and see what each API token can do. Servers, resources, shells and
-the rest come with the rest of release 1.0.0.
+So far you can connect Coolify instances, see what each API token can do, and sync Coolify servers into
+Termix hosts. Resources, shells and the rest come with the rest of release 1.0.0.
 
 ## Turn it on
 
@@ -40,6 +40,44 @@ run history. Only the two reads are offered to the assistant and MCP.
 
 Adding, changing and removing connections needs **Configure Coolify**; listing and checking them needs
 **View Coolify**. Each person sees only their own connections.
+
+## Sync servers into hosts
+
+Each Coolify server can become a **Linked host**: a Termix host that Coolify for Termix creates and keeps in
+step with Coolify. Open it from **Sync servers** on a connection, **Import from Coolify** in the hosts import
+menu, or **Sync from Coolify** on a Linked host.
+
+1. The preview lists every server the token can see and what it becomes: name, address, port and user, in
+   the **Coolify** folder (**Coolify / <connection>** when you have several connections), tagged `coolify`,
+   with a note linking back to the server in Coolify. Nothing changes until you confirm.
+2. Tick the servers to include and choose **Create and update hosts**. Servers that can't sync yet say why,
+   and the others sync anyway:
+   - **The server Coolify runs on** (Coolify calls it `host.docker.internal`, `localhost` or `127.x`): enter
+     the address Termix should use. The connection's own host name is offered with one click. The address is
+     kept for later syncs. You can set an address for any server the same way.
+   - **No key to copy**: when the token can't read keys (it lacks `read:sensitive`) or an admin turned off
+     **Allow copying Coolify SSH keys**, pick one of your Termix credentials for the server.
+   - **Behind a Cloudflare tunnel**: tunnelled servers are listed but can't be synced yet.
+3. With keys readable, each Coolify key is copied once into a Termix credential named
+   **Coolify: <connection> / <key>** and shared by every server that uses it. It is reused on later syncs
+   and replaced only when the key's fingerprint changes. Every copy is written to the audit log. The key is
+   never stored by the plugin, logged or sent back to the browser.
+
+Syncing again updates the same hosts in place, so pins, shares and history stay. A server removed from
+Coolify is shown as **Gone from Coolify** and is never deleted for you: choose **Keep as normal host** or
+**Remove host**.
+
+Linked hosts are read only while Coolify manages them. They show a **Coolify** badge, a status dot when
+Coolify can't reach the server, and a Coolify card on the host page with **Resources**, **Sync from
+Coolify** and **Unlink**, which are also in the host's menu. **Unlink** makes the host an ordinary, editable
+host and keeps it. If you delete a Linked host yourself, the plugin forgets the link but keeps its address
+and credential choice, so the next sync creates it again. Removing a connection unlinks its hosts, or
+deletes them when you ask it to.
+
+Syncing and unlinking need **Configure Coolify** and only the connection's owner can do them; the preview
+needs **View Coolify**. They are also actions: `coolify.sync-preview` (offered to the assistant and MCP),
+`coolify.sync-apply` (without a server list it syncs every server with its saved address and credential)
+and `coolify.unlink`.
 
 ## Permissions
 
