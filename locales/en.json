@@ -8,6 +8,10 @@
     "empty": {
       "title": "No Coolify connections yet",
       "hint": "Coolify connections and their servers and resources will show here."
+    },
+    "noConnection": {
+      "title": "No Coolify connection",
+      "hint": "Add a connection under Connections to see its resources."
     }
   },
   "shellTab": {
@@ -266,5 +270,95 @@
       "intro": "Add your Coolify URL and an API token. You can skip this and add connections later from the Coolify tab.",
       "done": "Connected to {{name}}."
     }
+  },
+  "nav": {
+    "label": "Coolify sections",
+    "overview": "Overview",
+    "resources": "Resources",
+    "connections": "Connections"
+  },
+  "picker": {
+    "label": "Coolify connection"
+  },
+  "overview": {
+    "title": "Overview",
+    "refresh": "Refresh",
+    "loading": "Loading resources",
+    "updated": "Updated {{time}}",
+    "tiles": {
+      "running": "Running",
+      "degraded": "Degraded",
+      "stopped": "Stopped",
+      "deploying": "Deploying",
+      "open": "Show in Resources"
+    }
+  },
+  "resources": {
+    "title": "Resources",
+    "refresh": "Refresh",
+    "loading": "Loading resources",
+    "loadFailed": "The resources could not be loaded.",
+    "search": "Search names, domains, projects and servers",
+    "filters": {
+      "kind": "Type",
+      "health": "Status",
+      "allKinds": "All types",
+      "applications": "Applications",
+      "services": "Services",
+      "databases": "Databases",
+      "allHealth": "All statuses"
+    },
+    "kinds": {
+      "application": "Application",
+      "service": "Service",
+      "database": "Database",
+      "service-application": "Service app",
+      "service-database": "Service database"
+    },
+    "health": {
+      "running": "Running",
+      "degraded": "Degraded",
+      "stopped": "Stopped",
+      "deploying": "Deploying"
+    },
+    "columns": {
+      "name": "Name",
+      "type": "Type",
+      "status": "Status",
+      "server": "Coolify server",
+      "place": "Project / environment",
+      "domains": "Domains",
+      "lastDeploy": "Last deploy"
+    },
+    "place": "{{project}} / {{environment}}",
+    "none": "None",
+    "empty": {
+      "title": "No resources",
+      "hint": "This connection has no applications, services or databases yet."
+    },
+    "noMatch": {
+      "title": "Nothing matches",
+      "hint": "Change the search or the filters."
+    }
+  },
+  "detail": {
+    "tabs": {
+      "overview": "Overview"
+    },
+    "fields": {
+      "type": "Type",
+      "status": "Status",
+      "coolifyStatus": "Coolify status",
+      "server": "Coolify server",
+      "project": "Project",
+      "environment": "Environment",
+      "engine": "Engine or image",
+      "domains": "Domains",
+      "lastDeploy": "Last deploy",
+      "uuid": "UUID",
+      "service": "Service"
+    },
+    "parts": "Parts",
+    "missing": "This resource is no longer in Coolify."
   }
 }
