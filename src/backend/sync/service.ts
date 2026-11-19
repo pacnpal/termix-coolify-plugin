@@ -17,6 +17,13 @@ import { cleanAddress, folderName, planHost } from "./mapping.js";
 
 export type SyncMode = "coolify" | "termix";
 
+/**
+ * Stored as a row's credentialMode when copying its Coolify key failed: the
+ * preview then asks for a picked credential. A pick, or a later copy that
+ * works, replaces it.
+ */
+const COPY_FAILED = "copy-failed";
+
 /** One Coolify server and the Termix host it is or would become. */
 export interface SyncRow {
   server: ServerDto;
@@ -292,6 +299,7 @@ export async function createSync(
     row: ServerRow | undefined,
   ): SyncMode {
     if (row?.credentialMode === "termix" && row.credentialId) return "termix";
+    if (row?.credentialMode === COPY_FAILED) return "termix";
     return copy && server.privateKeyId !== null ? "coolify" : "termix";
   }
 
@@ -422,11 +430,18 @@ export async function createSync(
         credentialId: r.credentialId!,
         fingerprint: r.keyFingerprint,
       }));
+    // The actor's own SSH keys, read once, to check earlier copies still exist.
+    let ownKeys: Promise<Set<number> | null> | null = null;
     const copier = createKeyCopier(ctx, {
       api,
       connectionId,
       connectionName: view.name,
       known,
+      ownKeys: () =>
+        (ownKeys ??= ctx.credentials.listSshKeys().then(
+          (list) => new Set(list.map((k) => k.id)),
+          () => null,
+        )),
     });
     const folder = folderName(view.name, (await connections.list()).length);
     const docker = await dockerRunning();
@@ -502,16 +517,40 @@ export async function createSync(
         let credentialId: number | null = picked ?? null;
         let mode: SyncMode = "termix";
         let fingerprint: string | null = null;
+        let copyFailed = false;
         if (!credentialId && copy) {
           const copied = await copier.credentialFor(server.privateKeyId);
-          if (copied) {
+          if (copied && "cause" in copied) {
+            await saveRow(connectionId, server.uuid, row, remember);
+            results.push({
+              ...base,
+              status: "blocked",
+              cause: copied.cause,
+              hostId: row?.hostId ?? null,
+            });
+            continue;
+          }
+          if (copied && "credentialId" in copied) {
             credentialId = copied.credentialId;
             fingerprint = copied.fingerprint;
             mode = "coolify";
+          } else {
+            copyFailed = server.privateKeyId !== null;
           }
         }
         if (!credentialId) {
-          await saveRow(connectionId, server.uuid, row, remember);
+          // A failed copy is remembered, so the preview asks for a credential.
+          const failed: Partial<ServerRow> = {
+            credentialMode: COPY_FAILED,
+            credentialId: null,
+            keyFingerprint: null,
+          };
+          await saveRow(
+            connectionId,
+            server.uuid,
+            row,
+            copyFailed ? { ...remember, ...failed } : remember,
+          );
           results.push({
             ...base,
             status: "blocked",

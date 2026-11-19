@@ -206,6 +206,93 @@ describe("host sync", () => {
     });
   });
 
+  it("a key copy that fails is remembered, so the preview asks for a credential", async () => {
+    const fake = syncCoolify();
+    const { harness: h, connectionId } = await start({
+      fake,
+      ownCredentials: [42],
+    });
+    fake.set("GET /security/keys/key-uuid", {
+      status: 403,
+      json: { message: "Forbidden." },
+    });
+    await apply(h, connectionId, only("srv-web1"));
+    expect(byUuid(await preview(h, connectionId), "srv-web1")).toMatchObject({
+      status: "blocked",
+      cause: "needs-credential",
+      mode: "termix",
+    });
+
+    // A picked credential clears it.
+    const picked = await apply(h, connectionId, [
+      { uuid: "srv-web1", include: true, credentialId: 42 },
+    ]);
+    expect(byUuid(picked, "srv-web1").status).toBe("created");
+    expect(byUuid(await preview(h, connectionId), "srv-web1")).toMatchObject({
+      status: "linked",
+      mode: "termix",
+      credentialId: 42,
+    });
+  });
+
+  it("a failed key copy clears once a later copy succeeds", async () => {
+    const fake = syncCoolify();
+    const { harness: h, connectionId } = await start({ fake });
+    fake.set("GET /security/keys/key-uuid", {
+      status: 403,
+      json: { message: "Forbidden." },
+    });
+    await apply(h, connectionId, only("srv-web1"));
+    fake.set("GET /security/keys/key-uuid", { json: deployKey() });
+    // Including the server with no credential picked tries the copy again.
+    const res = await h.request("POST", `/connections/${connectionId}/sync`, {
+      choices: only("srv-web1"),
+    });
+    expect(byUuid(res.body, "srv-web1").status).toBe("created");
+    expect(byUuid(await preview(h, connectionId), "srv-web1")).toMatchObject({
+      status: "linked",
+      mode: "coolify",
+    });
+  });
+
+  it("a copied credential deleted in Termix is copied again, and the new id is saved", async () => {
+    const { harness: h, connectionId } = await start();
+    await apply(h, connectionId, only("srv-web1"));
+    expect(h.mock.createdSshKeys).toHaveLength(1);
+    const oldId = h.mock.createdSshKeys[0].id;
+
+    // The user deleted that credential: it is no longer among their keys.
+    const listKeys = h.mock.ctx.credentials.listSshKeys.bind(
+      h.mock.ctx.credentials,
+    );
+    vi.spyOn(h.mock.ctx.credentials, "listSshKeys").mockImplementation(
+      async () => (await listKeys()).filter((k) => k.id !== oldId),
+    );
+    const again = await apply(h, connectionId, only("srv-web1"));
+    expect(byUuid(again, "srv-web1").status).toBe("updated");
+    expect(h.mock.createdSshKeys).toHaveLength(2);
+    const newId = h.mock.createdSshKeys[1].id;
+    expect(newId).not.toBe(oldId);
+    const [row] = serverRows(h).filter((r) => r.server_uuid === "srv-web1");
+    expect(row.credential_id).toBe(newId);
+    const [host] = await h.mock.ctx.hosts.listOwned();
+    expect(host.credentialId).toBe(newId);
+  });
+
+  it("a copied credential that can't be checked is refused, not reused", async () => {
+    const { harness: h, connectionId } = await start();
+    await apply(h, connectionId, only("srv-web1"));
+    vi.spyOn(h.mock.ctx.credentials, "listSshKeys").mockRejectedValue(
+      new Error("no credentials.view"),
+    );
+    const again = await apply(h, connectionId, only("srv-web1"));
+    expect(byUuid(again, "srv-web1")).toMatchObject({
+      status: "blocked",
+      cause: "credential-check-failed",
+    });
+    expect(h.mock.createdSshKeys).toHaveLength(1);
+  });
+
   it("a picked credential that isn't one of the actor's own is refused and nothing is stored", async () => {
     const { harness: h, connectionId } = await start({
       settings: { allowKeyCopy: false },
