@@ -224,7 +224,10 @@
         "projects": "Projects (scoped token)",
         "keys": "Read private keys",
         "logs": "Read logs",
-        "root": "Instance settings (root)"
+        "settings": "Instance settings (root team admin)"
+      },
+      "skipped": {
+        "nothing-to-probe": "Not checked: this token sees nothing to try it on yet, so it may still have this ability. Check again after adding one."
       },
       "scoped": "This token is scoped to some projects or resources. It can't see servers, so there is no host sync, no shells and no keys, and it can't set up notifications. Applications, services, databases, deploys and logs still work."
     },
@@ -238,6 +241,23 @@
       "invalid-input": "Check the fields: {{message}}",
       "forbidden": "Only the connection's owner can change it.",
       "not-found": "This connection no longer exists."
+    },
+    "mcp": {
+      "title": "Use with an MCP client",
+      "description": "Point an MCP client at this address to use the Coolify actions as tools. Each call runs as the key's user, with that user's permissions, approvals and history.",
+      "endpoint": "Endpoint",
+      "config": "Client config",
+      "copy": "Copy",
+      "copied": "Copied",
+      "loading": "Loading the MCP endpoint",
+      "loadFailed": "The MCP endpoint could not be loaded.",
+      "keyPlaceholder": "<your Termix API key>",
+      "steps": {
+        "title": "Set it up",
+        "key": "In Termix, create an API key with the scope operations:read (read tools only) or operations:run.",
+        "paste": "Paste the client config into your MCP client and put the key in place of the placeholder.",
+        "changes": "Changes over MCP stay off until an admin turns on \"Allow changes over MCP\" in the plugin's settings. Read tools work either way."
+      }
     }
   },
   "causes": {

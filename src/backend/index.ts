@@ -5,6 +5,7 @@ import { createConnections } from "./connections/service.js";
 import { registerConnectionRoutes } from "./connections/routes.js";
 import { createResources } from "./resources/service.js";
 import { registerResourceRoutes } from "./resources/routes.js";
+import { registerMcpRoutes } from "./mcp/routes.js";
 import { registerOperations } from "./operations.js";
 
 export async function activate(ctx: PluginContext): Promise<void> {
@@ -14,6 +15,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
   const router = ctx.http.router<Router>();
   registerConnectionRoutes(router, ctx, connections);
   registerResourceRoutes(router, ctx, resources);
+  registerMcpRoutes(router, ctx);
   registerOperations(ctx, { connections, resources });
 }
 

@@ -40,6 +40,8 @@ export async function startPlugin(
   options: {
     fetch?: (url: string, init?: PluginFetchInit) => Promise<Response>;
     permissions?: string[];
+    /** Seed for the plugin's admin settings. */
+    settings?: Record<string, unknown>;
     serve?: boolean;
   } = {},
 ): Promise<PluginHarness> {
@@ -58,6 +60,7 @@ export async function startPlugin(
     db: db.database,
     router: () => (router = express.Router()),
     permissions: options.permissions,
+    settings: options.settings,
     fetch: options.fetch,
     actor: OWNER,
   });

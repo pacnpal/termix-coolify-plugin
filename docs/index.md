@@ -19,13 +19,25 @@ applications, services and databases. Servers, shells, deploys and the rest come
 3. Under **Advanced**, if you need them:
    - **Cloudflare Access client ID and secret**, when the Coolify dashboard sits behind Cloudflare Access.
    - **On my local network**, when Coolify has a private address such as `192.168.1.10`.
+
+   The address should use `https`. Plain `http` is accepted only for `localhost` (`127.0.0.0/8`, `::1`),
+   and for a private or link-local IP address (such as `192.168.1.10` or `fd00::5`) when **On my local
+   network** is on. Every other name needs `https`, even one like `coolify.lan`, because a name can point
+   anywhere. Anything else is refused before Termix sends a request. With plain `http` to a private IP,
+   the token and any Cloudflare Access secret do travel in the clear on your own network, so choose it only
+   for a network you trust.
    - **CA certificate**, when Coolify uses a certificate from a private CA.
+
 4. Save. Termix checks the connection and shows what the token can do:
    - Coolify answers, and is 4.4 or newer (older versions are refused).
    - The team, or, for a token scoped to some projects, the team of its first project. A scoped token can't
      see servers, so it has no host sync, shells or keys, and can't set up notifications.
-   - Whether it can read private keys and logs (`read:sensitive`) and instance settings (`root`).
-     Write, deploy and delete can't be checked without changing something; they're checked on first use.
+   - Whether it can read private keys and logs (`read:sensitive`). Logs are tried on an application, a
+     database or a service's part; when the token sees none of them, the check says "not checked" rather
+     than "can't".
+   - Whether it can read instance settings, which Coolify allows to any root team admin's token. This
+     doesn't show the `root` ability, which, like write, deploy and delete, can't be checked without
+     changing something; they're checked on first use.
 
 The token is stored encrypted and never shown again. When you edit a connection, leave the token empty to
 keep the stored one. **Check again** reruns the checks. **Remove** forgets the connection and its token;
@@ -37,7 +49,8 @@ off in Coolify (Settings, Advanced), Coolify is behind Cloudflare Access, or the
 Connections are also actions, for the CLI, Automations and the phone app: `coolify.list-connections`,
 `coolify.connection-probe`, `coolify.connection-create`, `coolify.connection-update` and
 `coolify.connection-delete`. The token and Cloudflare Access fields are secret inputs: they never appear in
-run history. Only the two reads are offered to the assistant and MCP.
+run history. Only the two reads are offered to the assistant and Termix's main MCP server; the plugin's own
+MCP endpoint (below) offers all five.
 
 Adding, changing and removing connections needs **Configure Coolify**; listing and checking them needs
 **View Coolify**. Each person sees only their own connections.
@@ -70,6 +83,19 @@ Statuses are cached for 20 seconds; **Refresh** fetches them again.
 
 The same reads are actions, for the CLI, Automations, the assistant and MCP: `coolify.list-resources-all`
 (optionally for one Coolify server) and `coolify.resource-get`. Both need **View Coolify**.
+
+## Use with an MCP client
+
+The plugin serves its own MCP endpoint at `/plugin-api/coolify/mcp`. The Connections view shows the address
+and a client config under **Use with an MCP client**; put a Termix API key with the scope `operations:read`
+(read tools only) or `operations:run` where the config says `<your Termix API key>`.
+
+Every action is a tool, plus `list_connections`, `list_hosts` and `list_resources`. Each call runs as the
+key's user through Termix's operations, so permissions, approvals and history apply. Read tools always work;
+tools that change something answer "changes over MCP are turned off" until an admin turns on **Allow changes
+over MCP**. Output never carries tokens, passwords, keys, env values or compose files, and long output is cut
+at 8,000 characters. [API and MCP reference](api.md) lists every action with its route, run path, key scope,
+MCP tool and a `curl` example.
 
 ## Permissions
 

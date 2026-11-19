@@ -319,6 +319,31 @@ describe("Coolify API wrappers", () => {
     );
   });
 
+  it("asks for a service's logs only through one of its parts", async () => {
+    const { api: coolify, fake } = api({
+      "GET /services/svc/logs": {
+        status: 400,
+        json: { message: "sub_service_name is required." },
+      },
+    });
+    await expect(
+      coolify.logs("service", "svc", { lines: 1 }),
+    ).rejects.toMatchObject({ cause: "validation" });
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  it("never takes a deployment's numeric application_id for its resource uuid", async () => {
+    const queued = { deployment_uuid: "dep-2", application_id: "12" };
+    expect(toDeployment(queued).resourceUuid).toBeNull();
+    const { api: coolify } = api({
+      "GET /deployments/applications/app-a": { json: [queued] },
+      "GET /deployments/dep-2": { json: queued },
+    });
+    const [listed] = await coolify.deployments("app-a", { skip: 0, take: 1 });
+    expect(listed.resourceUuid).toBe("app-a");
+    expect((await coolify.deployment("dep-2")).resourceUuid).toBeNull();
+  });
+
   it("refuses a part without its service", async () => {
     const { api: coolify } = api({});
     await expect(

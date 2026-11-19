@@ -13,6 +13,8 @@ export interface ProbeStep {
   id: string;
   ok: boolean;
   cause?: string;
+  /** Set when the check had nothing to try: the ability is unknown. */
+  skipped?: "nothing-to-probe";
 }
 
 /** A connection as the backend returns it. It never carries a token. */
@@ -44,7 +46,12 @@ export interface ConnectionInput {
   caCert?: string | null;
 }
 
-export type ConnectionPatch = Partial<ConnectionInput> & {
+/** null for both Cloudflare Access values clears them, as the backend allows. */
+export type ConnectionPatch = Partial<
+  Omit<ConnectionInput, "cfAccessId" | "cfAccessSecret">
+> & {
+  cfAccessId?: string | null;
+  cfAccessSecret?: string | null;
   autoSync?: boolean;
 };
 
@@ -88,6 +95,11 @@ export interface ResourceList {
   rows: Resource[];
   counts: ResourceCounts;
   fetchedAt: string | null;
+}
+
+/** GET /mcp: where the plugin's MCP endpoint is. */
+export interface McpInfo {
+  endpoint: string;
 }
 
 /** What a failed call answers: a plain message and a cause the UI translates. */
@@ -154,6 +166,13 @@ export function createApi(api: PluginApiClient) {
           `/connections/${id}/resources/${encodeURIComponent(uuid)}`,
         )
       ).data;
+    },
+    /** Only the endpoint: the panel writes its own snippet, with a placeholder key. */
+    async getMcpInfo(): Promise<McpInfo | null> {
+      const data = (await api.get<{ endpoint?: unknown }>("/mcp")).data;
+      return typeof data?.endpoint === "string"
+        ? { endpoint: data.endpoint }
+        : null;
     },
   };
 }

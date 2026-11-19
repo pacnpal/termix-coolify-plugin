@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pencil, Rocket, Stethoscope, Trash2 } from "lucide-react";
 import {
   usePermission,
@@ -29,6 +29,7 @@ import {
   describeFailure,
   useConnectionForm,
 } from "./ConnectionForm";
+import { McpPanel } from "./McpPanel";
 
 function ConnectionEditor({
   api,
@@ -49,7 +50,7 @@ function ConnectionEditor({
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
-      title={connection ? t("connections.edit") : t("connections.add")}
+      title={form.editing ? t("connections.edit") : t("connections.add")}
       icon={<Rocket className="size-4" />}
       footer={
         <FormFooter
@@ -68,7 +69,7 @@ function ConnectionEditor({
       <FormError message={form.error} />
       <ConnectionFields
         form={form}
-        hasCfAccess={connection?.cfAccess ?? false}
+        hasCfAccess={form.current?.cfAccess ?? false}
       />
       {form.result && <ProbeChecklist connection={form.result} />}
     </InlineView>
@@ -97,22 +98,34 @@ export function ConnectionsView() {
   const api = useMemo(() => createApi(client), [client]);
   const confirm = useConfirm();
   const canConfigure = usePermission("configure");
+  const canUseMcp = usePermission("mcp");
   const [rows, setRows] = useState<Connection[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Connection | "new" | null>(null);
 
+  // Request generations: a list answer is applied only when it is the latest
+  // load and no change (save, probe, removal) landed after it was asked for.
+  const loads = useRef(0);
+  const changes = useRef(0);
+
   const load = useCallback(async () => {
+    const generation = ++loads.current;
+    const changesBefore = changes.current;
+    const current = () =>
+      generation === loads.current && changesBefore === changes.current;
     setLoading(true);
     try {
       const list = await api.listConnections();
-      setRows(Array.isArray(list) ? list : []);
+      if (current()) setRows(Array.isArray(list) ? list : []);
       setError(null);
     } catch {
-      setError(t("connections.loadFailed"));
-      setRows((prev) => prev ?? []);
+      if (current()) {
+        setError(t("connections.loadFailed"));
+        setRows((prev) => prev ?? []);
+      }
     } finally {
-      setLoading(false);
+      if (generation === loads.current) setLoading(false);
     }
   }, [api, t]);
 
@@ -120,17 +133,25 @@ export function ConnectionsView() {
     void load();
   }, [load]);
 
-  const upsert = (saved: Connection) =>
+  const upsert = (saved: Connection) => {
+    changes.current += 1;
     setRows((prev) => {
       const list = prev ?? [];
       return list.some((c) => c.id === saved.id)
         ? list.map((c) => (c.id === saved.id ? saved : c))
         : [...list, saved];
     });
+  };
+
+  /** Updates a row that is still listed; a removed one stays removed. */
+  const replace = (fresh: Connection) => {
+    changes.current += 1;
+    setRows((prev) => (prev ?? []).map((c) => (c.id === fresh.id ? fresh : c)));
+  };
 
   async function probe(c: Connection) {
     try {
-      upsert((await api.probeConnection(c.id)).connection);
+      replace((await api.probeConnection(c.id)).connection);
     } catch (err) {
       setError(describeFailure(t, err));
     }
@@ -146,6 +167,7 @@ export function ConnectionsView() {
     if (!ok) return;
     try {
       await api.deleteConnection(c.id);
+      changes.current += 1;
       setRows((prev) => (prev ?? []).filter((r) => r.id !== c.id));
     } catch (err) {
       setError(describeFailure(t, err));
@@ -237,6 +259,7 @@ export function ConnectionsView() {
           ))}
         </PanelList>
       )}
+      {canUseMcp && <McpPanel api={api} />}
       {editing !== null && (
         <ConnectionEditor
           api={api}
