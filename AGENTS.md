@@ -68,8 +68,8 @@ aren't obvious from the code, and anything that has bitten you before.
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
   Where things stand: identity, permissions, admin settings, the vendored API and the tables exist,
   Connections work (routes, operations, the Connections view and the "Connect Coolify" onboarding step),
-  Resources can be browsed (Overview tiles, the Resources list, a resource's Overview detail), and host
-  sync turns Coolify servers into locked Linked hosts.
+  Resources can be browsed (Overview tiles, the Resources list, a resource's Overview detail) and deployed,
+  started, stopped and restarted, and host sync turns Coolify servers into locked Linked hosts.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
 - Coolify calls: `src/backend/coolify/http.ts` is the only way to Coolify (ctx.fetch, Bearer and CF Access
@@ -208,3 +208,22 @@ aren't obvious from the code, and anything that has bitten you before.
   credential-check-failed). Rows blocked by `SSH_TERMINAL_CAUSES` (needs-ssh-terminal,
   ssh-terminal-too-old, needs-ssh-terminal-to-clear-tunnel) can't be included and show the Open Plugins
   button.
+- Lifecycle: `src/backend/resources/lifecycle.ts` has `lifecycle(api, uuid, verb, opts)` (a Part uses its
+  service's per-Part endpoints; a Part's deploy deploys its service) and `createLifecycle`, whose
+  `authorize` is the one access check for every lifecycle path: `coolify.operate`, owner or a grant of
+  operate/configure, and a uuid found in that connection's own resource list (a cache miss is checked once
+  fresh). `onHost` also needs the resource on the host's own server. Routes (`resources/routes.ts`) run the
+  resource-scope action on the Linked host (`sync.linkedHostFor`) or the server-scope one, and map a failed
+  outcome back to a status and cause. `sync.linkOfHost(hostId)` is the reverse lookup handlers use. Every
+  action that reaches Coolify calls `resources.invalidate(connectionId)` afterwards (success or failure),
+  and a waited deploy calls it again when the deployment ends, so the next read refetches and an
+  in-flight fetch from before the action is dropped.
+- MCP may deploy and restart without `allowMcpChanges` (`MCP_CHANGES_EXEMPT` in `mcp/server.ts`).
+- Signals (`src/backend/ops/signals.ts`) read resources from the resources cache and server statuses from a
+  `servers` cache kind (a minute, no addresses or keys kept). That cache works like the resources cache:
+  rows carry `connections.revision(id)` and a hit needs the current one, in-flight fetches are keyed by
+  id and revision, and a fetch is cached only if the revision didn't change while it ran. The degraded
+  count is `countResources`, so exited (with any health suffix) is stopped and never counts; bare
+  `unhealthy` does. Updates come from Coolify's own patch check (`ServerDto.patch.security`) until the
+  updates service exists. The deployment events are emitted only by a deploy run with `wait`;
+  container-restarted and server-unreachable are declared for later polling.

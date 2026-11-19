@@ -1,8 +1,8 @@
 Coolify for Termix brings your Coolify servers, applications, services and databases into Termix.
 
 So far you can connect Coolify instances, see what each API token can do, browse each connection's
-applications, services and databases, and sync Coolify servers into Termix hosts. Shells, deploys and the
-rest come with the rest of release 1.0.0.
+applications, services and databases, deploy, start, stop and restart them, and sync Coolify servers into
+Termix hosts. Shells, logs and the rest come with the rest of release 1.0.0.
 
 ## Turn it on
 
@@ -85,6 +85,42 @@ Statuses are cached for 20 seconds; **Refresh** fetches them again.
 The same reads are actions, for the CLI, Automations, the assistant and MCP: `coolify.list-resources-all`
 (optionally for one Coolify server) and `coolify.resource-get`. Both need **View Coolify**.
 
+## Deploy, start, stop and restart
+
+A resource's header has **Deploy**, **Force rebuild**, **Restart**, and **Start** (when it is stopped or
+exited) or **Stop**. **Stop** and **Force rebuild** ask first, naming the resource. Deploy calls Coolify's
+`/deploy` for the resource; a force rebuild builds without Coolify's build cache. A service's parts restart one
+by one from the **Restart** button on each part in the service's Overview; a part opened on its own has
+Restart and Start or Stop, and deploys with its service. In the command palette, **Coolify: Deploy…** opens
+the Resources list to pick from.
+
+These need **Operate Coolify resources**, and the connection must be yours or shared with you at operate or
+configure. They work whether or not the resource's server has a Linked host:
+
+- With a Linked host, each press runs `coolify.deploy`, `coolify.start`, `coolify.restart` or `coolify.stop`
+  on that host, so it shows in the host's history.
+- Without one, it runs `coolify.resource-deploy`, `coolify.resource-restart`, or `coolify.resource-action`
+  (start or stop, confirmed) with the connection and the resource's uuid.
+
+A uuid is only accepted when it is one of that connection's own resources (and, for a Linked host, one on
+that host's server). When the Coolify token lacks the ability, the answer says so (`forbidden-ability`).
+
+The same actions work from the CLI, Automations and the phone app. `coolify.deploy` and
+`coolify.resource-deploy` can **wait** for the deployment: the run then follows it to the end, fails when it
+fails, and sends the `coolify.deployment-finished` or `coolify.deployment-failed` event. A dry run of a deploy
+says what it would deploy, and on which server. Deploy and restart are offered to the assistant and MCP; start
+and stop aren't.
+
+Linked hosts also get:
+
+- `coolify.list-resources`: the resources on the host's server, shown in Termix's resources table and on
+  the host page. A host that isn't linked lists none, without asking Coolify.
+- `coolify.sync-host`: updates this one host from its Coolify server (owner only, **Configure Coolify**).
+- Status tiles: degraded resources (`coolify.degraded`), whether Coolify can reach the server
+  (`coolify.server`) and security updates from Coolify's last update check (`coolify.updates`), plus
+  `coolify.deploying`, the resources deploying now across your connections. They read the same short caches
+  as the tab, so many hosts on one connection cost one Coolify request.
+
 ## Use with an MCP client
 
 The plugin serves its own MCP endpoint at `/plugin-api/coolify/mcp`. The Connections view shows the address
@@ -92,9 +128,10 @@ and a client config under **Use with an MCP client**; put a Termix API key with 
 (read tools only) or `operations:run` where the config says `<your Termix API key>`.
 
 Every action is a tool, plus `list_connections`, `list_hosts` and `list_resources`. Each call runs as the
-key's user through Termix's operations, so permissions, approvals and history apply. Read tools always work;
-tools that change something answer "changes over MCP are turned off" until an admin turns on **Allow changes
-over MCP**. Output never carries tokens, passwords, keys, env values or compose files, and long output is cut
+key's user through Termix's operations, so permissions, approvals and history apply. Read tools, deploy and
+restart (`coolify__deploy`, `coolify__restart`, `coolify__resource_deploy`, `coolify__resource_restart`)
+always work; other tools that change something, start and stop included, answer "changes over MCP are
+turned off" until an admin turns on **Allow changes over MCP**. Output never carries tokens, passwords, keys, env values or compose files, and long output is cut
 at 8,000 characters. [API and MCP reference](api.md) lists every action with its route, run path, key scope,
 MCP tool and a `curl` example.
 

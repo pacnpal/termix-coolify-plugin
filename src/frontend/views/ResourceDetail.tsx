@@ -16,6 +16,12 @@ import {
 import type { Resource } from "../api";
 import { resourceHealth } from "../../shared/resource-health";
 import {
+  PartRestart,
+  ResourceActions,
+  useLifecycle,
+  type LifecycleRunner,
+} from "./ResourceActions";
+import {
   formatTime,
   HEALTH_TONE,
   healthLabel,
@@ -78,11 +84,14 @@ function OverviewTab({
   resource,
   rows,
   onOpen,
+  lifecycle,
 }: {
   t: T;
   resource: Resource;
   rows: readonly Resource[];
   onOpen: (uuid: string) => void;
+  /** Null without the right to operate: no Part buttons. */
+  lifecycle: LifecycleRunner | null;
 }) {
   const service = resource.parentUuid
     ? (rows.find((r) => r.uuid === resource.parentUuid) ?? null)
@@ -115,6 +124,11 @@ function OverviewTab({
                   </StatusBadge>
                 }
                 aria-label={p.name}
+                trailing={
+                  lifecycle ? (
+                    <PartRestart part={p} lifecycle={lifecycle} />
+                  ) : undefined
+                }
                 onClick={() => onOpen(p.uuid)}
               />
             ))}
@@ -127,21 +141,32 @@ function OverviewTab({
 
 /**
  * One resource or Part, opened in place over the list. The header names it
- * and its status; lifecycle buttons arrive with the lifecycle actions.
+ * and its status, with Deploy, Force rebuild, Restart and Start or Stop for
+ * people who may operate the connection; a service's Parts restart one by one.
  */
 export function ResourceDetail({
   resource,
   rows,
   onOpen,
   onClose,
+  connectionId,
+  canOperate,
+  onChanged,
 }: {
   /** Null when the resource is gone from the list. */
   resource: Resource | null;
   rows: readonly Resource[];
   onOpen: (uuid: string) => void;
   onClose: () => void;
+  connectionId: number;
+  /** coolify.operate and the owner or an operate grant on the connection. */
+  canOperate: boolean;
+  /** After a lifecycle action, so the list fetches fresh statuses. */
+  onChanged: () => void;
 }) {
   const { t } = useTranslation();
+  const runner = useLifecycle(connectionId, onChanged);
+  const lifecycle = canOperate ? runner : null;
   const [tab, setTab] = useState<DetailTab>("overview");
   let body: ReactNode;
   if (!resource) {
@@ -150,7 +175,13 @@ export function ResourceDetail({
     switch (tab) {
       case "overview":
         body = (
-          <OverviewTab t={t} resource={resource} rows={rows} onOpen={onOpen} />
+          <OverviewTab
+            t={t}
+            resource={resource}
+            rows={rows}
+            onOpen={onOpen}
+            lifecycle={lifecycle}
+          />
         );
         break;
     }
@@ -168,6 +199,11 @@ export function ResourceDetail({
           <StatusBadge tone={HEALTH_TONE[resourceHealth(resource.status)]}>
             {healthLabel(t, resource.status)}
           </StatusBadge>
+        ) : undefined
+      }
+      actions={
+        resource && lifecycle ? (
+          <ResourceActions resource={resource} lifecycle={lifecycle} />
         ) : undefined
       }
       toolbar={

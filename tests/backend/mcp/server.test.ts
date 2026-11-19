@@ -201,7 +201,9 @@ describe("the MCP endpoint", () => {
   it("change and destructive tools refuse with mcp-changes-off unless allowMcpChanges is on", async () => {
     const { ctx } = await start({ allowMcpChanges: false });
     const run = vi.fn<Run>(async () => ({ runId: "r", status: "success" }));
-    for (const action of ACTIONS.filter((a) => a.risk !== "read")) {
+    for (const action of ACTIONS.filter(
+      (a) => a.risk !== "read" && !MCP_CHANGES_EXEMPT.includes(a.id),
+    )) {
       const answer = await handleMcp(
         withRun(ctx, run),
         call(5, toolName(action.id), { connectionId: "1" }),
@@ -420,6 +422,48 @@ describe("the MCP endpoint", () => {
     const body = parsed(answer);
     expect(body.data.rows).toMatchObject([{ name: "Prod" }]);
     expect(JSON.stringify(answer)).not.toContain(TOKEN);
+  });
+
+  it("MCP deploy and restart work without allowMcpChanges, start and stop are refused", async () => {
+    const { ctx } = await start({ allowMcpChanges: false });
+    const run = vi.fn<Run>(async () => ({
+      runId: "r",
+      status: "success",
+      data: { deploymentUuid: "dep-uuid" },
+    }));
+    const resource = { hostId: 7, resourceKey: "app-web-uuid" };
+    const server = { connectionId: "1", uuid: "app-web-uuid" };
+    for (const [tool, args] of [
+      ["coolify__deploy", resource],
+      ["coolify__restart", resource],
+      ["coolify__resource_deploy", server],
+      ["coolify__resource_restart", server],
+    ] as const) {
+      const answer = await handleMcp(withRun(ctx, run), call(30, tool, args));
+      expect(isError(answer), tool).toBe(false);
+    }
+    expect(run.mock.calls.map((c) => c[0])).toEqual([
+      "coolify.deploy",
+      "coolify.restart",
+      "coolify.resource-deploy",
+      "coolify.resource-restart",
+    ]);
+    expect(run.mock.calls[0][1]).toMatchObject({
+      hostId: 7,
+      resourceKey: "app-web-uuid",
+      via: "mcp",
+    });
+    run.mockClear();
+    for (const [tool, args] of [
+      ["coolify__start", resource],
+      ["coolify__stop", { ...resource, confirmed: true }],
+      ["coolify__resource_action", { ...server, action: "stop" }],
+    ] as const) {
+      const answer = await handleMcp(withRun(ctx, run), call(31, tool, args));
+      expect(isError(answer), tool).toBe(true);
+      expect(parsed(answer).errorCode, tool).toBe("mcp-changes-off");
+    }
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("list_hosts answers an empty list without calling Coolify or hosts", async () => {

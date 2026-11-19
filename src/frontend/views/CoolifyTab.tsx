@@ -107,6 +107,13 @@ function ServersSection({
   );
 }
 
+/** Access levels that may start, stop, restart and deploy. */
+const OPERATE_ACCESS: ReadonlySet<string> = new Set([
+  "owner",
+  "operate",
+  "configure",
+]);
+
 /**
  * The Coolify tab: a SideNav of sections over one selected connection. With
  * no connection yet it opens on Connections. On a phone the SideNav becomes a
@@ -116,6 +123,7 @@ export function CoolifyTab({ tab }: TabProps) {
   const { t } = useTranslation();
   const client = usePluginApi();
   const canConfigure = usePermission("configure");
+  const canOperate = usePermission("operate");
   const api = useMemo(() => createApi(client), [client]);
   const [connections, setConnections] = useState<Connection[] | null>(null);
   const [section, setSection] = useState<Section | null>(null);
@@ -307,12 +315,15 @@ export function CoolifyTab({ tab }: TabProps) {
           {body}
         </div>
       </div>
-      {openUuid !== null && section === "resources" && (
+      {openUuid !== null && section === "resources" && connection && (
         <ResourceDetail
           resource={rows.find((r) => r.uuid === openUuid) ?? null}
           rows={rows}
           onOpen={setOpenUuid}
           onClose={() => setOpenUuid(null)}
+          connectionId={connection.id}
+          canOperate={canOperate && OPERATE_ACCESS.has(connection.access)}
+          onChanged={() => void resources.reload(true)}
         />
       )}
     </PanelFrame>

@@ -864,6 +864,27 @@ export async function createSync(
     },
 
     /**
+     * The connection and Coolify server a Linked host belongs to, or null
+     * for a host the plugin doesn't manage. It checks no access: callers
+     * check the actor's access to the connection before using it.
+     */
+    async linkOfHost(
+      hostId: number,
+    ): Promise<{ connectionId: number; serverUuid: string } | null> {
+      if (!Number.isSafeInteger(hostId) || hostId <= 0) return null;
+      const [row] = (await (
+        await db()
+      )
+        .select()
+        .from(t.servers)
+        .where(eq(t.servers.hostId, hostId))
+        .limit(1)) as ServerRow[];
+      return row
+        ? { connectionId: row.connectionId, serverUuid: row.serverUuid }
+        : null;
+    },
+
+    /**
      * Connections' releaseLinkedHosts hook: unlinks the connection's Linked
      * hosts, or deletes them with removeHosts, then runs `deleteRows` (the
      * connection's own removal). One host that can't be changed doesn't stop

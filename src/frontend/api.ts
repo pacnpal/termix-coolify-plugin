@@ -99,6 +99,14 @@ export interface ResourceList {
   fetchedAt: string | null;
 }
 
+export type LifecycleVerb = "start" | "stop" | "restart" | "deploy";
+
+/** What a lifecycle route answers; status "pending" waits for an approval. */
+export interface LifecycleAnswer {
+  deploymentUuid: string | null;
+  status?: "pending";
+}
+
 /** GET /mcp: where the plugin's MCP endpoint is. */
 export interface McpInfo {
   endpoint: string;
@@ -214,6 +222,29 @@ export function createApi(api: PluginApiClient) {
           `/connections/${id}/resources/${encodeURIComponent(uuid)}`,
         )
       ).data;
+    },
+    /**
+     * Starts, stops, restarts or deploys a resource or Part. The backend
+     * runs it as an action, on the server's Linked host when there is one.
+     */
+    async resourceAction(
+      id: number,
+      uuid: string,
+      verb: LifecycleVerb,
+      opts: { force?: boolean } = {},
+    ): Promise<LifecycleAnswer> {
+      const body = verb === "deploy" ? { force: opts.force === true } : {};
+      const data = (
+        await api.post<Partial<LifecycleAnswer>>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/${verb}`,
+          body,
+        )
+      ).data;
+      return {
+        deploymentUuid:
+          typeof data?.deploymentUuid === "string" ? data.deploymentUuid : null,
+        status: data?.status === "pending" ? "pending" : undefined,
+      };
     },
     /** Only the endpoint: the panel writes its own snippet, with a placeholder key. */
     async getMcpInfo(): Promise<McpInfo | null> {

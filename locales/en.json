@@ -156,6 +156,20 @@
       "choices": {
         "label": "Servers",
         "description": "Optional. A JSON list of { uuid, include, addressOverride, credentialId }. Leave empty to sync every server with its saved address and credential."
+      },
+      "force": {
+        "label": "Force rebuild",
+        "description": "Rebuild without Coolify's build cache."
+      },
+      "wait": {
+        "label": "Wait for the deployment",
+        "description": "Follow the deployment until it finishes or fails, and report which."
+      },
+      "action": {
+        "label": "Action",
+        "description": "Start or stop the resource.",
+        "start": "Start",
+        "stop": "Stop"
       }
     },
     "listConnections": {
@@ -197,6 +211,97 @@
     "unlink": {
       "title": "Unlink a Coolify host",
       "description": "Releases the lock on a Linked host and makes it an ordinary host. The host is kept."
+    },
+    "listResources": {
+      "title": "List a host's Coolify resources",
+      "description": "The applications, services, Parts and databases on this Linked host's Coolify server. Empty for a host that isn't linked."
+    },
+    "deploy": {
+      "title": "Deploy a Coolify resource",
+      "description": "Deploys the resource through Coolify, optionally with a force rebuild. A Part deploys its service.",
+      "dryRun": "Would deploy {{name}} on {{server}}",
+      "noServer": "its Coolify server"
+    },
+    "start": {
+      "title": "Start a Coolify resource",
+      "description": "Starts the resource or Part through Coolify."
+    },
+    "restart": {
+      "title": "Restart a Coolify resource",
+      "description": "Restarts the resource through Coolify. A Part restarts on its own."
+    },
+    "stop": {
+      "title": "Stop a Coolify resource",
+      "description": "Stops the resource or Part through Coolify. It stays stopped until started again."
+    },
+    "syncHost": {
+      "title": "Sync this host from Coolify",
+      "description": "Updates this Linked host from its Coolify server. Other servers are left as they are."
+    },
+    "resourceDeploy": {
+      "title": "Deploy a Coolify resource (no host)",
+      "description": "Deploys a resource of a connection by its uuid, for resources whose server has no Linked host."
+    },
+    "resourceRestart": {
+      "title": "Restart a Coolify resource (no host)",
+      "description": "Restarts a resource or Part of a connection by its uuid, for resources whose server has no Linked host."
+    },
+    "resourceAction": {
+      "title": "Start or stop a Coolify resource (no host)",
+      "description": "Starts or stops a resource or Part of a connection by its uuid, for resources whose server has no Linked host."
+    },
+    "signalDegraded": {
+      "title": "Degraded Coolify resources",
+      "description": "How many resources on this Linked host's Coolify server are restarting, dead or unhealthy."
+    },
+    "signalServer": {
+      "title": "Coolify server status",
+      "description": "Whether Coolify can reach this Linked host's server."
+    },
+    "signalUpdates": {
+      "title": "Coolify security updates",
+      "description": "Security updates Coolify's last update check found on this Linked host's server."
+    },
+    "signalDeploying": {
+      "title": "Coolify deployments running",
+      "description": "How many resources are deploying now, across your Coolify connections."
+    },
+    "resource": {
+      "title": "Coolify resources",
+      "columns": {
+        "kind": "Type",
+        "status": "Status",
+        "fqdn": "Domain"
+      }
+    },
+    "signals": {
+      "degraded": "Degraded resources",
+      "server": "Coolify server",
+      "updates": "Security updates",
+      "deploying": "Deploying now"
+    },
+    "events": {
+      "fields": {
+        "name": "Resource name",
+        "deploymentUuid": "Deployment",
+        "status": "Status"
+      },
+      "deploymentFinished": {
+        "title": "Coolify deployment finished",
+        "description": "A deployment finished in Coolify."
+      },
+      "deploymentFailed": {
+        "title": "Coolify deployment failed",
+        "description": "A deployment failed or was cancelled in Coolify."
+      },
+      "containerRestarted": {
+        "title": "Coolify container restarted",
+        "description": "A resource's container restarted on its own."
+      },
+      "serverUnreachable": {
+        "title": "Coolify server unreachable",
+        "description": "Coolify can no longer reach a server."
+      }
     }
   },
   "connections": {
@@ -504,5 +609,36 @@
   },
   "importMenu": {
     "title": "Import from Coolify"
+  },
+  "lifecycle": {
+    "deploy": "Deploy",
+    "forceRebuild": "Force rebuild",
+    "start": "Start",
+    "stop": "Stop",
+    "restart": "Restart",
+    "restartPart": "Restart {{name}}",
+    "running": "Working",
+    "stopConfirm": {
+      "title": "Stop {{name}}?",
+      "description": "Coolify stops it, and it stays stopped until you start it again.",
+      "confirm": "Stop"
+    },
+    "forceConfirm": {
+      "title": "Force rebuild {{name}}?",
+      "description": "Coolify rebuilds it without the build cache, which takes longer than a deploy.",
+      "confirm": "Force rebuild"
+    },
+    "done": {
+      "deploy": "Deploy of {{name}} queued.",
+      "start": "Started {{name}}.",
+      "stop": "Stopped {{name}}.",
+      "restart": "Restarted {{name}}.",
+      "pending": "Waiting for approval to change {{name}}."
+    },
+    "failed": "{{name}} could not be changed."
+  },
+  "palette": {
+    "group": "Coolify",
+    "deploy": "Coolify: Deploy…"
   }
 }
