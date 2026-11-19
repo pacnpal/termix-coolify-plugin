@@ -1,5 +1,5 @@
 {
-  "name": "termix-plugin-hello-world",
+  "name": "termix-plugin-coolify",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -13,7 +13,8 @@
     "sign": "termix-plugin sign",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "husky || true"
+    "prepare": "husky || true",
+    "gen:coolify": "node scripts/gen-coolify-client.mjs"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.4",

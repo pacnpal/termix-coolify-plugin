@@ -1,36 +1,89 @@
 {
   "plugin": {
-    "name": "Hello World",
-    "description": "A minimal Termix plugin: one tab, one route, one setting and one table."
+    "name": "Coolify for Termix",
+    "description": "Coolify inside Termix: servers become hosts (tunnels included), one-click container shells, deploys, logs, variables, backups and alerts, and the full Coolify API."
   },
   "tab": {
-    "title": "Hello World",
-    "empty": "No notes yet.",
-    "placeholder": "Write a note",
-    "add": "Add",
-    "error": "Could not load or save notes."
+    "title": "Coolify",
+    "empty": {
+      "title": "No Coolify connections yet",
+      "hint": "Coolify connections and their servers and resources will show here."
+    }
+  },
+  "shellTab": {
+    "title": "Coolify shell"
+  },
+  "hostSection": {
+    "title": "Coolify"
   },
   "permissions": {
-    "use": {
-      "title": "Use Hello World",
-      "description": "Open the Hello World tab and keep notes in it."
+    "view": {
+      "title": "View Coolify",
+      "description": "Open the plugin and read the Coolify connections you own or were granted."
+    },
+    "operate": {
+      "title": "Operate Coolify resources",
+      "description": "Start, stop, restart and deploy, run tasks and backups, read logs, and open container shells and consoles."
+    },
+    "configure": {
+      "title": "Configure Coolify",
+      "description": "Edit resources, variables, storage, keys, sources, DNS and notifications, and create or import resources."
+    },
+    "administer": {
+      "title": "Administer Coolify",
+      "description": "Delete resources, create, delete and transfer servers, provision cloud servers, change instance settings and share connections."
+    },
+    "mcp": {
+      "title": "Use the Coolify MCP endpoint",
+      "description": "Call the plugin's MCP endpoint. Each call still needs the permission of the action it runs."
     }
   },
   "settings": {
     "admin": {
-      "greeting": {
-        "label": "Greeting",
-        "description": "Shown at the top of the Hello World tab."
+      "allowPolling": {
+        "label": "Allow polling",
+        "description": "Let connections poll Coolify for changes."
+      },
+      "minPollSeconds": {
+        "label": "Minimum poll interval",
+        "description": "The shortest time, in seconds, a connection may wait between polls."
+      },
+      "allowKeyCopy": {
+        "label": "Allow copying Coolify SSH keys",
+        "description": "Copy a server's SSH key from Coolify into a Termix credential. When off, people pick an existing Termix credential instead."
+      },
+      "allowSharing": {
+        "label": "Allow sharing connections",
+        "description": "Let connection owners share a connection with other Termix users."
+      },
+      "allowProvisioning": {
+        "label": "Allow cloud provisioning",
+        "description": "Let people create servers at cloud providers through Coolify."
+      },
+      "allowStatusPages": {
+        "label": "Allow public status pages",
+        "description": "Let connection owners publish read-only status pages that anyone with the link can open."
+      },
+      "allowMcpChanges": {
+        "label": "Allow changes over MCP",
+        "description": "Let MCP clients run actions that change things. Deploy and restart are allowed either way."
+      },
+      "allowExec": {
+        "label": "Allow running commands in containers through the API and MCP",
+        "description": "Each connection also needs its owner to turn this on."
       }
-    }
-  },
-  "operations": {
-    "count": {
-      "title": "Notes"
     },
-    "add": {
-      "title": "Add a note",
-      "text": "Note"
+    "host": {
+      "coolifyLinked": {
+        "label": "Linked to Coolify",
+        "description": "This host is managed by a Coolify connection."
+      },
+      "coolifyConnectionId": {
+        "label": "Coolify connection"
+      },
+      "coolifyServerUuid": {
+        "label": "Coolify server"
+      }
     }
   }
 }

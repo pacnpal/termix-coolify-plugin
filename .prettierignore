@@ -3,6 +3,7 @@ coverage
 dist
 node_modules
 package-lock.json
+vendor
 
 locales/translated
 migrations/snapshot.json

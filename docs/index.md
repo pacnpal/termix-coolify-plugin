@@ -1,12 +1,26 @@
-Hello World adds a tab where you can save short notes. It is a small example plugin to copy when you start your own.
+Coolify for Termix brings your Coolify servers, applications, services and databases into Termix.
+
+This release is the plugin's foundation: it installs, adds its permissions and admin settings, and shows an
+empty Coolify tab. Connecting a Coolify instance comes with the rest of release 1.0.0.
 
 ## Turn it on
 
-1. Install Hello World from the Plugins tab.
-2. Open the Hello World tab from the sidebar.
+1. Install Coolify for Termix from the Plugins tab.
+2. Open the Coolify tab from the sidebar.
 
-## Use it
+## Permissions
 
-Type a note and press Add. Notes are stored on the server and each user sees only their own. Using the tab needs the Use Hello World permission, which admins and users get by default.
+Admins and users get all five by default. Admins can take any of them away per role.
 
-Admins can change the greeting at the top of the tab in Settings, under Hello World.
+- **View Coolify**: open the plugin and read the connections you own or were granted.
+- **Operate Coolify resources**: lifecycle actions, deploys, tasks, backups, logs, and container shells and
+  consoles.
+- **Configure Coolify**: edits, variables, creates, imports, keys, sources, storage, DNS and notifications.
+- **Administer Coolify**: deletes, server create, delete and transfer, cloud provisioning, instance settings
+  and connection sharing.
+- **Use the Coolify MCP endpoint**: each call still needs the permission of the action it runs.
+
+## Coolify versions
+
+The plugin is built against Coolify v4.7.5 and the `main` and `next` branches, and supports Coolify 4.4.0
+and newer. [Coolify API coverage](coverage.md) lists every Coolify API operation and how the plugin uses it.

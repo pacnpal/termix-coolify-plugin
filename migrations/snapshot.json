@@ -1,7 +1,7 @@
 {
   "version": 1,
   "tables": {
-    "notes": {
+    "connections": {
       "columns": {
         "id": {
           "type": "id",
@@ -13,8 +13,109 @@
           "length": 255,
           "notNull": true
         },
-        "text": {
+        "name": {
           "type": "text",
+          "notNull": true
+        },
+        "baseUrl": {
+          "type": "text",
+          "notNull": true
+        },
+        "tokenSealed": {
+          "type": "text",
+          "notNull": true
+        },
+        "cfAccessIdSealed": {
+          "type": "text"
+        },
+        "cfAccessSecretSealed": {
+          "type": "text"
+        },
+        "allowPrivate": {
+          "type": "boolean",
+          "notNull": true,
+          "defaultValue": false
+        },
+        "caCert": {
+          "type": "text"
+        },
+        "instanceKey": {
+          "type": "varchar",
+          "length": 255
+        },
+        "pollEnabled": {
+          "type": "boolean",
+          "notNull": true,
+          "defaultValue": false
+        },
+        "autoSync": {
+          "type": "boolean",
+          "notNull": true,
+          "defaultValue": false
+        },
+        "execEnabled": {
+          "type": "boolean",
+          "notNull": true,
+          "defaultValue": false
+        },
+        "alertKinds": {
+          "type": "json"
+        },
+        "abilities": {
+          "type": "json"
+        },
+        "coolifyVersion": {
+          "type": "text"
+        },
+        "teamName": {
+          "type": "text"
+        },
+        "lastError": {
+          "type": "text"
+        },
+        "lastCheckedAt": {
+          "type": "timestamp"
+        },
+        "createdAt": {
+          "type": "timestamp",
+          "notNull": true,
+          "defaultNow": true
+        }
+      },
+      "indexes": [
+        {
+          "name": "idx_p_coolify_connections_user_id",
+          "columns": [
+            "userId"
+          ]
+        },
+        {
+          "name": "idx_p_coolify_connections_instance_key",
+          "columns": [
+            "instanceKey"
+          ]
+        }
+      ]
+    },
+    "grants": {
+      "columns": {
+        "id": {
+          "type": "id",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "connectionId": {
+          "type": "integer",
+          "notNull": true
+        },
+        "userId": {
+          "type": "refUser",
+          "length": 255,
+          "notNull": true
+        },
+        "level": {
+          "type": "varchar",
+          "length": 16,
           "notNull": true
         },
         "createdAt": {
@@ -25,8 +126,387 @@
       },
       "indexes": [
         {
-          "name": "idx_p_hello_world_notes_user_id",
-          "columns": ["userId"]
+          "name": "idx_p_coolify_grants_connection_user",
+          "columns": [
+            "connectionId",
+            "userId"
+          ],
+          "unique": true
+        }
+      ]
+    },
+    "webhooks": {
+      "columns": {
+        "id": {
+          "type": "id",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "instanceKey": {
+          "type": "varchar",
+          "length": 255,
+          "notNull": true
+        },
+        "tokenHash": {
+          "type": "varchar",
+          "length": 64,
+          "notNull": true
+        },
+        "createdByUserId": {
+          "type": "varchar",
+          "length": 255,
+          "notNull": true
+        },
+        "lastReceivedAt": {
+          "type": "timestamp"
+        }
+      },
+      "indexes": [
+        {
+          "name": "idx_p_coolify_webhooks_instance_key",
+          "columns": [
+            "instanceKey"
+          ],
+          "unique": true
+        },
+        {
+          "name": "idx_p_coolify_webhooks_token_hash",
+          "columns": [
+            "tokenHash"
+          ],
+          "unique": true
+        }
+      ]
+    },
+    "servers": {
+      "columns": {
+        "id": {
+          "type": "id",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "connectionId": {
+          "type": "integer",
+          "notNull": true
+        },
+        "serverUuid": {
+          "type": "varchar",
+          "length": 255,
+          "notNull": true
+        },
+        "hostId": {
+          "type": "integer"
+        },
+        "addressOverride": {
+          "type": "text"
+        },
+        "credentialMode": {
+          "type": "varchar",
+          "length": 16
+        },
+        "credentialId": {
+          "type": "integer"
+        },
+        "keyFingerprint": {
+          "type": "text"
+        },
+        "lastSyncedAt": {
+          "type": "timestamp"
+        }
+      },
+      "indexes": [
+        {
+          "name": "idx_p_coolify_servers_connection_server",
+          "columns": [
+            "connectionId",
+            "serverUuid"
+          ],
+          "unique": true
+        },
+        {
+          "name": "idx_p_coolify_servers_host_id",
+          "columns": [
+            "hostId"
+          ]
+        }
+      ]
+    },
+    "cache": {
+      "columns": {
+        "connectionId": {
+          "type": "integer",
+          "notNull": true
+        },
+        "kind": {
+          "type": "varchar",
+          "length": 255,
+          "notNull": true
+        },
+        "json": {
+          "type": "json",
+          "notNull": true
+        },
+        "fetchedAt": {
+          "type": "timestamp",
+          "notNull": true
+        }
+      },
+      "indexes": [
+        {
+          "name": "idx_p_coolify_cache_connection_kind",
+          "columns": [
+            "connectionId",
+            "kind"
+          ],
+          "unique": true
+        }
+      ]
+    },
+    "events": {
+      "columns": {
+        "id": {
+          "type": "id",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "connectionId": {
+          "type": "integer",
+          "notNull": true
+        },
+        "kind": {
+          "type": "varchar",
+          "length": 64,
+          "notNull": true
+        },
+        "resourceUuid": {
+          "type": "varchar",
+          "length": 255
+        },
+        "deploymentUuid": {
+          "type": "varchar",
+          "length": 255
+        },
+        "hostId": {
+          "type": "integer"
+        },
+        "title": {
+          "type": "text",
+          "notNull": true
+        },
+        "detail": {
+          "type": "json"
+        },
+        "createdAt": {
+          "type": "timestamp",
+          "notNull": true,
+          "defaultNow": true
+        }
+      },
+      "indexes": [
+        {
+          "name": "idx_p_coolify_events_connection_created",
+          "columns": [
+            "connectionId",
+            "createdAt"
+          ]
+        }
+      ]
+    },
+    "onboardings": {
+      "columns": {
+        "id": {
+          "type": "id",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "userId": {
+          "type": "refUser",
+          "length": 255,
+          "notNull": true
+        },
+        "connectionId": {
+          "type": "integer",
+          "notNull": true
+        },
+        "hostId": {
+          "type": "integer",
+          "notNull": true
+        },
+        "keyMode": {
+          "type": "varchar",
+          "length": 16,
+          "notNull": true
+        },
+        "step": {
+          "type": "varchar",
+          "length": 64,
+          "notNull": true
+        },
+        "state": {
+          "type": "varchar",
+          "length": 16,
+          "notNull": true
+        },
+        "sentAt": {
+          "type": "timestamp"
+        },
+        "watchUntil": {
+          "type": "timestamp"
+        },
+        "generatedKeySealed": {
+          "type": "text"
+        },
+        "authorizedKeyMarker": {
+          "type": "varchar",
+          "length": 255
+        },
+        "coolifyKeyUuid": {
+          "type": "varchar",
+          "length": 255
+        },
+        "serverUuid": {
+          "type": "varchar",
+          "length": 255
+        },
+        "lastError": {
+          "type": "text"
+        },
+        "updatedAt": {
+          "type": "timestamp",
+          "notNull": true,
+          "defaultNow": true
+        }
+      },
+      "indexes": [
+        {
+          "name": "idx_p_coolify_onboardings_host_id",
+          "columns": [
+            "hostId"
+          ]
+        },
+        {
+          "name": "idx_p_coolify_onboardings_connection_id",
+          "columns": [
+            "connectionId"
+          ]
+        }
+      ]
+    },
+    "status_pages": {
+      "columns": {
+        "id": {
+          "type": "id",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "connectionId": {
+          "type": "integer",
+          "notNull": true
+        },
+        "tokenHash": {
+          "type": "varchar",
+          "length": 64,
+          "notNull": true
+        },
+        "resources": {
+          "type": "json",
+          "notNull": true
+        },
+        "title": {
+          "type": "text",
+          "notNull": true
+        },
+        "createdAt": {
+          "type": "timestamp",
+          "notNull": true,
+          "defaultNow": true
+        },
+        "revokedAt": {
+          "type": "timestamp"
+        }
+      },
+      "indexes": [
+        {
+          "name": "idx_p_coolify_status_pages_token_hash",
+          "columns": [
+            "tokenHash"
+          ],
+          "unique": true
+        }
+      ]
+    },
+    "dns_records": {
+      "columns": {
+        "id": {
+          "type": "id",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "connectionId": {
+          "type": "integer",
+          "notNull": true
+        },
+        "resourceUuid": {
+          "type": "varchar",
+          "length": 255,
+          "notNull": true
+        },
+        "handle": {
+          "type": "json",
+          "notNull": true
+        },
+        "fqdn": {
+          "type": "varchar",
+          "length": 255,
+          "notNull": true
+        },
+        "createdAt": {
+          "type": "timestamp",
+          "notNull": true,
+          "defaultNow": true
+        }
+      },
+      "indexes": [
+        {
+          "name": "idx_p_coolify_dns_records_resource",
+          "columns": [
+            "connectionId",
+            "resourceUuid"
+          ]
+        }
+      ]
+    },
+    "recent": {
+      "columns": {
+        "userId": {
+          "type": "refUser",
+          "length": 255,
+          "notNull": true
+        },
+        "connectionId": {
+          "type": "integer",
+          "notNull": true
+        },
+        "resourceUuid": {
+          "type": "varchar",
+          "length": 255,
+          "notNull": true
+        },
+        "usedAt": {
+          "type": "timestamp",
+          "notNull": true,
+          "defaultNow": true
+        }
+      },
+      "indexes": [
+        {
+          "name": "idx_p_coolify_recent_user_resource",
+          "columns": [
+            "userId",
+            "connectionId",
+            "resourceUuid"
+          ],
+          "unique": true
         }
       ]
     }
