@@ -1,4 +1,11 @@
-import { Boxes, Download, RefreshCw, Rocket, Unlink } from "lucide-react";
+import {
+  Boxes,
+  Download,
+  RefreshCw,
+  Rocket,
+  SquareTerminal,
+  Unlink,
+} from "lucide-react";
 import type {
   HostDot,
   PluginHostRecord,
@@ -9,6 +16,7 @@ import { forgetPreview, linkOf, useLinkedRow } from "./linked";
 import { ConnectStep } from "./views/ConnectStep";
 import { CoolifyTab } from "./views/CoolifyTab";
 import { HostSection, openCoolify } from "./views/HostSection";
+import { ShellTab } from "./views/ShellTab";
 
 const TAB_ID = "coolify";
 const IMPORT_ACTION = "coolify.import-from-coolify";
@@ -27,6 +35,12 @@ export function activate(app: TermixApp): void {
     icon: Rocket,
     titleKey: "tab.title",
     singleton: true,
+    hostless: true,
+  });
+  // One tab per shell; its data says which resource (views/ShellTab.tsx).
+  app.registerTab("coolify-shell", ShellTab, {
+    icon: SquareTerminal,
+    titleKey: "shellTab.title",
     hostless: true,
   });
   app.registerOnboardingStep({

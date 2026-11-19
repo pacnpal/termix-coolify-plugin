@@ -617,7 +617,7 @@
     },
     "mobile": {
       "mode": "webview",
-      "views": ["coolify"]
+      "views": ["coolify", "coolify-shell"]
     }
   },
   "locales": "locales",

@@ -132,6 +132,39 @@ export interface ResourceList {
   fetchedAt: string | null;
 }
 
+/** What the coolify-shell tab asks for. */
+export interface ShellRequest {
+  part?: string;
+  container?: string;
+  console: "shell" | "db";
+}
+
+/** One container of a resource, offered when several match. */
+export interface ContainerChoice {
+  name: string;
+  running: boolean;
+  part: string | null;
+}
+
+/** The command a terminal runs on the Linked host. It holds no password. */
+export interface ShellAnswer {
+  hostId: number;
+  title: string;
+  container: string;
+  command: string;
+  fingerprints: string[];
+  note?: "no-console";
+}
+
+export type ShellResult =
+  | ({ kind: "command" } & ShellAnswer)
+  | { kind: "choices"; choices: ContainerChoice[] };
+
+function choicesOf(data: unknown): ContainerChoice[] | null {
+  const list = (data as { choices?: unknown } | null)?.choices;
+  return Array.isArray(list) ? (list as ContainerChoice[]) : null;
+}
+
 /** What a failed call answers: a plain message and a cause the UI translates. */
 export interface ApiFailure {
   error: string;
@@ -219,6 +252,34 @@ export function createApi(api: PluginApiClient) {
           `/connections/${id}/resources/${encodeURIComponent(uuid)}`,
         )
       ).data;
+    },
+    /**
+     * The docker exec command for a shell or console in a resource's
+     * container. Several matching containers answer 300 with choices.
+     */
+    async shell(
+      id: number,
+      uuid: string,
+      body: ShellRequest,
+    ): Promise<ShellResult> {
+      try {
+        const data = (
+          await api.post<ShellAnswer>(
+            `/connections/${id}/resources/${encodeURIComponent(uuid)}/shell`,
+            body,
+          )
+        ).data;
+        const choices = choicesOf(data);
+        return choices
+          ? { kind: "choices", choices }
+          : { kind: "command", ...data };
+      } catch (err) {
+        const choices = choicesOf(
+          (err as { response?: { data?: unknown } })?.response?.data,
+        );
+        if (choices) return { kind: "choices", choices };
+        throw err;
+      }
     },
   };
 }

@@ -42,3 +42,15 @@
 - Actions to list a connection's resources and read one (`coolify.list-resources-all`,
   `coolify.resource-get`), offered to the assistant and MCP
 - The Coolify tab in the Termix phone app, with a phone layout for the Resources list
+- Open shell and Open database console on a resource or part: a Coolify shell tab with SSH Terminal's
+  terminal on the Linked host, in the container found by Coolify's labels (uuid first, then the labels from
+  before Coolify 4.4, and for parts their own uuid, then their compose service name). `bash` or `sh`, and
+  `sudo` when the SSH user needs it. A picker when several containers match
+- Database consoles with psql, mysql or mariadb, mongosh, redis-cli, keydb-cli, clickhouse-client and
+  sqlite3. Credentials are read inside the container from its own environment; no password is in the
+  command, the browser or a log
+- Clear answers when the server isn't linked, the container isn't running, or Termix hasn't trusted the
+  host's key yet (with Coolify's fingerprint and a button to open a server terminal). Without SSH Terminal,
+  the command to copy
+- The action `coolify.shell-command`, offered to the assistant and MCP, answers the exact `docker exec`
+  command. Shells need Operate Coolify resources and your own connect access to the Linked host

@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from "react";
-import { Box } from "lucide-react";
-import { useTranslation } from "@termix-ssh/plugin-sdk/frontend";
+import { Box, Database, SquareTerminal } from "lucide-react";
+import { usePermission, useTranslation } from "@termix-ssh/plugin-sdk/frontend";
 import {
+  Button,
   EmptyState,
   GroupHeading,
   InfoGrid,
@@ -125,6 +126,11 @@ function OverviewTab({
   );
 }
 
+/** A database or a service's database Part: it has a native console. */
+export function hasConsole(r: Resource): boolean {
+  return r.kind === "database" || r.kind === "service-database";
+}
+
 /**
  * One resource or Part, opened in place over the list. The header names it
  * and its status; lifecycle buttons arrive with the lifecycle actions.
@@ -134,14 +140,19 @@ export function ResourceDetail({
   rows,
   onOpen,
   onClose,
+  onShell,
 }: {
   /** Null when the resource is gone from the list. */
   resource: Resource | null;
   rows: readonly Resource[];
   onOpen: (uuid: string) => void;
   onClose: () => void;
+  /** Opens a coolify-shell tab for the resource. */
+  onShell?: (resource: Resource, console: "shell" | "db") => void;
 }) {
   const { t } = useTranslation();
+  // Shells run over SSH: coolify.operate, plus host access the backend checks.
+  const canShell = usePermission("operate");
   const [tab, setTab] = useState<DetailTab>("overview");
   let body: ReactNode;
   if (!resource) {
@@ -179,6 +190,30 @@ export function ResourceDetail({
           activeTab={tab}
           onTabChange={(id) => setTab(id as DetailTab)}
         />
+      }
+      actions={
+        resource && onShell && canShell ? (
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onShell(resource, "shell")}
+            >
+              <SquareTerminal className="size-3.5" />
+              {t("detail.actions.shell")}
+            </Button>
+            {hasConsole(resource) && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onShell(resource, "db")}
+              >
+                <Database className="size-3.5" />
+                {t("detail.actions.console")}
+              </Button>
+            )}
+          </div>
+        ) : undefined
       }
       bare
     >
