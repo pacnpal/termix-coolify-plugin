@@ -158,8 +158,13 @@ some are returned but missing from the OpenAPI schema. The nightly channel build
      - `openapi-next.json`: the `next` branch the nightly builds from. Today it adds
        `POST /databases/influxdb`, the `use_production_values_in_previews` and `copy_value_to_preview`
        fields, and InfluxDB database fields.
-   - The client is generated from the union of the three. Each operation and field outside v4.7.5 is
-     tagged with the version that adds it, and is used only when the connection's `/version` is new enough.
+   - The client is generated from the union of the three.
+     - Each operation records its provenance (`source`: which spec first has it) separately from `minVersion`.
+     - Operations in the v4.7.5 spec are treated as available from the supported floor, 4.4.0. On older
+       instances their real availability is feature-detected: a 404 or 405 means "your Coolify doesn't have
+       this yet".
+     - Operations only in `main` or `next` get the first release that can carry them (4.7.6 or 4.8.0) and are
+       hidden below it.
    - Careful: an earlier research copy labelled "v4.7.5" was really `main`'s spec. Take each file from its
      named git ref.
    - This makes "cover all 330 operations" tractable and checkable: a test asserts every spec operation is
@@ -1006,6 +1011,9 @@ REST API (Termix API keys) and through Termix's MCP. Nothing may exist only as a
    - The curated actions (lifecycle, sync, shells, logs, metrics, updates, companions, status pages) each get
      an operation. Actions that give back text a person reads in the UI (logs, metrics, update lists,
      traffic) are `read` operations that return the same data.
+   - Connection management is operations too: `coolify.connection-create`, `-update`, `-delete` and
+     `-set-exec`. Tokens and service secrets use Termix's `secret` input type, so they reach the handler but
+     are never stored in run history or shown, and are sealed at rest like the UI path.
    - Interactive-only pieces (the live terminal and live log follow) have their non-interactive equivalents
      as operations:
      - `coolify.exec`: run one command in a container and return its output.
