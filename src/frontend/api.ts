@@ -160,6 +160,27 @@ export type ShellResult =
   | ({ kind: "command" } & ShellAnswer)
   | { kind: "choices"; choices: ContainerChoice[] };
 
+/** Where logs came from: Coolify's API, or docker logs over SSH. */
+export type LogSource = "coolify" | "ssh";
+
+export interface LogsQuery {
+  lines: number;
+  timestamps: boolean;
+  part?: string;
+  container?: string;
+}
+
+export interface LogsAnswer {
+  source: LogSource;
+  text: string;
+  /** The container read over SSH. */
+  container?: string;
+}
+
+export type LogsResult =
+  | ({ kind: "logs" } & LogsAnswer)
+  | { kind: "choices"; choices: ContainerChoice[] };
+
 function choicesOf(data: unknown): ContainerChoice[] | null {
   const list = (data as { choices?: unknown } | null)?.choices;
   return Array.isArray(list) ? (list as ContainerChoice[]) : null;
@@ -273,6 +294,40 @@ export function createApi(api: PluginApiClient) {
         return choices
           ? { kind: "choices", choices }
           : { kind: "command", ...data };
+      } catch (err) {
+        const choices = choicesOf(
+          (err as { response?: { data?: unknown } })?.response?.data,
+        );
+        if (choices) return { kind: "choices", choices };
+        throw err;
+      }
+    },
+    /**
+     * Recent logs, labelled with their source. Several matching containers
+     * (over SSH) answer 300 with choices.
+     */
+    async logs(
+      id: number,
+      uuid: string,
+      query: LogsQuery,
+    ): Promise<LogsResult> {
+      const params = new URLSearchParams({ lines: String(query.lines) });
+      if (query.timestamps) params.set("timestamps", "true");
+      if (query.part) params.set("part", query.part);
+      if (query.container) params.set("container", query.container);
+      const url = `/connections/${id}/resources/${encodeURIComponent(uuid)}/logs?${params}`;
+      try {
+        const data = (await api.get<LogsAnswer>(url)).data;
+        const choices = choicesOf(data);
+        if (choices) return { kind: "choices", choices };
+        return {
+          kind: "logs",
+          source: data?.source === "coolify" ? "coolify" : "ssh",
+          text: typeof data?.text === "string" ? data.text : "",
+          ...(typeof data?.container === "string"
+            ? { container: data.container }
+            : {}),
+        };
       } catch (err) {
         const choices = choicesOf(
           (err as { response?: { data?: unknown } })?.response?.data,

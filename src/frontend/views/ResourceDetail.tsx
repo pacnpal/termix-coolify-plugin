@@ -16,6 +16,7 @@ import {
 } from "@termix-ssh/plugin-sdk/ui";
 import type { Resource } from "../api";
 import { resourceHealth } from "../../shared/resource-health";
+import { LogsView } from "./LogsView";
 import {
   formatTime,
   HEALTH_TONE,
@@ -27,11 +28,14 @@ import {
 type T = (key: string, options?: Record<string, unknown>) => string;
 
 /**
- * The detail views. Later releases add Shell, Logs, Stats and Traffic here:
- * one id, one locale key under detail.tabs and one case in DetailBody.
+ * The detail views. Later releases add Stats and Traffic here: one id, one
+ * locale key under detail.tabs and one case in the body switch.
  */
-export const DETAIL_TABS = ["overview"] as const;
+export const DETAIL_TABS = ["overview", "logs"] as const;
 export type DetailTab = (typeof DETAIL_TABS)[number];
+
+/** Views that need coolify.operate (logs read through Coolify or over SSH). */
+const OPERATE_TABS: ReadonlySet<DetailTab> = new Set(["logs"]);
 
 function overviewItems(
   t: T,
@@ -141,6 +145,8 @@ export function ResourceDetail({
   onOpen,
   onClose,
   onShell,
+  connectionId,
+  isVisible = true,
 }: {
   /** Null when the resource is gone from the list. */
   resource: Resource | null;
@@ -149,11 +155,17 @@ export function ResourceDetail({
   onClose: () => void;
   /** Opens a coolify-shell tab for the resource. */
   onShell?: (resource: Resource, console: "shell" | "db") => void;
+  /** The connection the resource belongs to, for the Logs view. */
+  connectionId?: number;
+  /** Whether the tab is shown; a live log follow stops while it isn't. */
+  isVisible?: boolean;
 }) {
   const { t } = useTranslation();
   // Shells run over SSH: coolify.operate, plus host access the backend checks.
   const canShell = usePermission("operate");
-  const [tab, setTab] = useState<DetailTab>("overview");
+  const tabs = DETAIL_TABS.filter((id) => canShell || !OPERATE_TABS.has(id));
+  const [chosen, setTab] = useState<DetailTab>("overview");
+  const tab = tabs.includes(chosen) ? chosen : "overview";
   let body: ReactNode;
   if (!resource) {
     body = <EmptyState icon={Box} title={t("detail.missing")} />;
@@ -163,6 +175,19 @@ export function ResourceDetail({
         body = (
           <OverviewTab t={t} resource={resource} rows={rows} onOpen={onOpen} />
         );
+        break;
+      case "logs":
+        body =
+          connectionId !== undefined ? (
+            <LogsView
+              key={resource.uuid}
+              connectionId={connectionId}
+              resource={resource}
+              isVisible={isVisible}
+            />
+          ) : (
+            <EmptyState icon={Box} title={t("detail.missing")} />
+          );
         break;
     }
   }
@@ -183,7 +208,7 @@ export function ResourceDetail({
       }
       toolbar={
         <TabStrip
-          tabs={DETAIL_TABS.map((id) => ({
+          tabs={tabs.map((id) => ({
             id,
             label: t(`detail.tabs.${id}`),
           }))}
