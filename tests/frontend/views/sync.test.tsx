@@ -1,74 +1,22 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import {
-  renderWithApp,
-  type RenderedPluginApp,
-} from "@termix-ssh/plugin-sdk/testing";
-import type { PluginManifest } from "@termix-ssh/plugin-sdk/manifest";
-import type { PluginApiClient } from "@termix-ssh/plugin-sdk/frontend";
-import * as plugin from "../../../src/frontend/index";
-import manifestJson from "../../../manifest.json";
+import { fireEvent, waitFor, within } from "@testing-library/react";
+import type { RenderedPluginApp } from "@termix-ssh/plugin-sdk/testing";
 import locales from "../../../locales/en.json";
+import {
+  clickOpenPlugins,
+  connectionFixture,
+  renderApp,
+  syncRow as row,
+  syncServer as server,
+  stubClient,
+} from "../helpers";
 
-const manifest = manifestJson as unknown as PluginManifest;
 const S = locales.sync;
-const ALL = ["coolify.view", "coolify.configure"];
 
-const connection = {
-  id: 1,
-  name: "Prod",
-  baseUrl: "https://coolify.example.test",
-  teamName: "Ops",
-  version: "v4.7.5",
-  scoped: false,
-  abilities: {
-    read: true,
-    sensitive: true,
-    keys: true,
-    root: false,
-    mcp: false,
-  },
-  lastError: null,
-  autoSync: false,
-  access: "owner",
-  allowPrivate: false,
-  caCert: null,
-  cfAccess: false,
-  lastCheckedAt: null,
-  steps: [],
-};
-
-function server(uuid: string, name: string, ip: string, extra = {}) {
-  return {
-    uuid,
-    name,
-    ip,
-    port: 22,
-    user: "root",
-    isTunnel: false,
-    isCoolifyHost: false,
-    reachable: true,
-    usable: true,
-    ...extra,
-  };
-}
-
-function row(srv: ReturnType<typeof server>, extra: Record<string, unknown>) {
-  return {
-    server: srv,
-    hostId: null,
-    status: "new",
-    mode: "coolify",
-    addressOverride: null,
-    suggestedAddress: null,
-    credentialId: null,
-    tunnel: srv.isTunnel,
-    ...extra,
-  };
-}
+const connection = connectionFixture({ teamName: "Ops" });
 
 const rows = [
-  row(server("srv-web1", "web-1", "203.0.113.11"), {}),
+  row(server("srv-web1", "web-1", "203.0.113.11")),
   row(
     server("srv-local", "localhost", "host.docker.internal", {
       isCoolifyHost: true,
@@ -95,34 +43,25 @@ const rows = [
   row(server("srv-old", "old-box", ""), { status: "gone", hostId: 9 }),
 ];
 
+const SYNCED = [
+  { uuid: "srv-web1", name: "web-1", status: "created", hostId: 3 },
+  { uuid: "srv-local", name: "localhost", status: "created", hostId: 4 },
+];
+
 function stubApi() {
-  const mocks = {
-    get: vi.fn(async (url: string) => ({
+  return stubClient({
+    get: async (url) => ({
       data:
         url === "/connections"
           ? [connection]
           : url === "/connections/1/servers"
             ? rows
             : connection,
-    })),
-    post: vi.fn(async (url: string) => ({
-      data: url.endsWith("/sync")
-        ? [
-            { uuid: "srv-web1", name: "web-1", status: "created", hostId: 3 },
-            {
-              uuid: "srv-local",
-              name: "localhost",
-              status: "created",
-              hostId: 4,
-            },
-          ]
-        : { hostId: 9, removed: false },
-    })),
-    patch: vi.fn(async () => ({ data: {} })),
-    delete: vi.fn(async () => ({ data: {} })),
-    put: vi.fn(async () => ({ data: {} })),
-  };
-  return mocks as unknown as typeof mocks & PluginApiClient;
+    }),
+    post: async (url) => ({
+      data: url.endsWith("/sync") ? SYNCED : { hostId: 9, removed: false },
+    }),
+  });
 }
 
 let rendered: RenderedPluginApp | null = null;
@@ -134,12 +73,7 @@ afterEach(async () => {
 });
 
 async function openSync(api = stubApi()) {
-  rendered = await renderWithApp(plugin, {
-    manifest,
-    locales,
-    api,
-    permissions: ALL,
-  });
+  rendered = await renderApp(api);
   const tab = rendered.renderTab("coolify", {
     tab: {
       id: "t1",
@@ -242,20 +176,8 @@ describe("sync view", () => {
       }),
     ).toBeNull();
 
-    for (const blocked of [off, old]) {
-      const before = rendered!.shellCalls.length;
-      fireEvent.click(
-        within(blocked).getByRole("button", { name: S.openPlugins }),
-      );
-      await waitFor(() =>
-        expect(rendered!.shellCalls.slice(before)).toContainEqual(
-          expect.objectContaining({
-            method: "openSingletonTab",
-            args: expect.arrayContaining(["plugins"]),
-          }),
-        ),
-      );
-    }
+    await clickOpenPlugins(rendered!, off);
+    await clickOpenPlugins(rendered!, old);
   });
 
   it("a server without a readable key asks for a credential", async () => {

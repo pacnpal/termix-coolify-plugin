@@ -1,29 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import {
   checkFrameApp,
-  renderWithApp,
   type RenderedPluginApp,
 } from "@termix-ssh/plugin-sdk/testing";
-import { listHostSections, SurfaceScope } from "@termix-ssh/plugin-sdk/ui";
-import type { PluginManifest } from "@termix-ssh/plugin-sdk/manifest";
-import type {
-  PluginApiClient,
-  PluginHostRecord,
-} from "@termix-ssh/plugin-sdk/frontend";
+import type { PluginHostRecord } from "@termix-ssh/plugin-sdk/frontend";
 import * as plugin from "../../../src/frontend/index";
 import { linkOf } from "../../../src/frontend/linked";
-import manifestJson from "../../../manifest.json";
 import locales from "../../../locales/en.json";
-
-const manifest = manifestJson as unknown as PluginManifest;
-const ALL = ["coolify.view", "coolify.configure"];
+import {
+  manifest,
+  renderApp,
+  renderHostSection,
+  syncRow,
+  syncServer,
+  stubClient,
+} from "../helpers";
 
 function host(settings: Record<string, unknown> | null): PluginHostRecord {
   return {
@@ -66,41 +58,26 @@ const linked = host({
 const ordinary = host(null);
 
 function previewRow(reachable: boolean, tunnel = false) {
-  return {
-    server: {
-      uuid: "srv-web1",
-      name: "web-1",
-      ip: tunnel ? "ssh-web1.example.test" : "203.0.113.11",
-      port: 22,
-      user: "root",
+  const ip = tunnel ? "ssh-web1.example.test" : "203.0.113.11";
+  return syncRow(
+    syncServer("srv-web1", "web-1", ip, {
       isTunnel: tunnel,
-      isCoolifyHost: false,
       reachable,
       usable: reachable,
-    },
-    hostId: 7,
-    status: "linked",
-    mode: "coolify",
-    addressOverride: null,
-    suggestedAddress: null,
-    credentialId: 3,
-    tunnel,
-  };
+    }),
+    { hostId: 7, status: "linked", credentialId: 3 },
+  );
 }
 
 function stubApi(reachable = true, tunnel = false) {
-  const mocks = {
-    get: vi.fn(async (url: string) => ({
+  return stubClient({
+    get: async (url) => ({
       data: /^\/connections\/\d+\/servers$/.test(url)
         ? [previewRow(reachable, tunnel)]
         : { id: 1, name: "Prod" },
-    })),
-    post: vi.fn(async () => ({ data: { hostId: 7, removed: false } })),
-    patch: vi.fn(async () => ({ data: {} })),
-    delete: vi.fn(async () => ({ data: {} })),
-    put: vi.fn(async () => ({ data: {} })),
-  };
-  return mocks as unknown as typeof mocks & PluginApiClient;
+    }),
+    post: async () => ({ data: { hostId: 7, removed: false } }),
+  });
 }
 
 let rendered: RenderedPluginApp | null = null;
@@ -148,12 +125,7 @@ describe("Linked host surfaces", () => {
       ]),
     );
 
-    rendered = await renderWithApp(plugin, {
-      manifest,
-      locales,
-      api: stubApi(),
-      permissions: ALL,
-    });
+    rendered = await renderApp(stubApi());
     expect(rendered.registered.slot("hosts.importMenu")).toContain(
       "coolify.import-from-coolify",
     );
@@ -163,12 +135,7 @@ describe("Linked host surfaces", () => {
   });
 
   it("shows the Coolify badge on Linked hosts only", async () => {
-    rendered = await renderWithApp(plugin, {
-      manifest,
-      locales,
-      api: stubApi(),
-      permissions: ALL,
-    });
+    rendered = await renderApp(stubApi());
     const badge = rendered.renderHostItems(
       "badge",
       linked as unknown as Record<string, unknown>,
@@ -185,25 +152,11 @@ describe("Linked host surfaces", () => {
 
   it("the host section names the server and connection and unlinks after a confirm", async () => {
     const api = stubApi();
-    rendered = await renderWithApp(plugin, {
-      manifest,
-      locales,
-      api,
-      permissions: ALL,
-    });
-    const section = listHostSections().find(
-      (s) => s.id === "coolify" || s.id.endsWith(":coolify"),
-    );
-    if (!section) throw new Error("no coolify host section");
+    rendered = await renderApp(api);
+    const shell = { openSingletonTab: vi.fn() };
+    const section = renderHostSection(linked, shell);
     expect(section.when(linked as never)).toBe(true);
     expect(section.when(ordinary as never)).toBe(false);
-    const Section = section.component;
-    const shell = { openSingletonTab: vi.fn() };
-    render(
-      <SurfaceScope>
-        <Section host={linked as never} isVisible shell={shell as never} />
-      </SurfaceScope>,
-    );
     expect(
       await screen.findByText(
         locales.hostSection.linked
@@ -244,17 +197,7 @@ describe("Linked host surfaces", () => {
   });
 
   it("a tunnelled Linked host shows the tunnel line and opens its tunnel settings", async () => {
-    rendered = await renderWithApp(plugin, {
-      manifest,
-      locales,
-      api: stubApi(true, true),
-      permissions: ALL,
-    });
-    const section = listHostSections().find(
-      (s) => s.id === "coolify" || s.id.endsWith(":coolify"),
-    );
-    if (!section) throw new Error("no coolify host section");
-    const Section = section.component;
+    rendered = await renderApp(stubApi(true, true));
     // Its own connection id, so the preview cache of other tests isn't used.
     const tunnelled = host({
       coolifyLinked: true,
@@ -262,11 +205,7 @@ describe("Linked host surfaces", () => {
       coolifyServerUuid: "srv-web1",
     });
     const shell = { openSingletonTab: vi.fn(), editHost: vi.fn() };
-    render(
-      <SurfaceScope>
-        <Section host={tunnelled as never} isVisible shell={shell as never} />
-      </SurfaceScope>,
-    );
+    renderHostSection(tunnelled, shell);
     expect(await screen.findByText(locales.hostSection.tunnel)).toBeTruthy();
     expect(screen.getByText(locales.hostSection.tunnelReadOnly)).toBeTruthy();
     fireEvent.click(
