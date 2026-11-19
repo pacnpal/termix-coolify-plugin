@@ -775,6 +775,19 @@ of every step.
   - Termix credential: matched by its name (`Coolify: <connection> / <key>`) and fingerprint.
   - A match is recorded in the row and reused. Only when no match exists is the create sent again, so resume
     and clean up both see what an interrupted step really made, and nothing is duplicated.
+  - **Uncertain outcomes wait.** A create that timed out, lost its connection or was cut off by a restart is
+    recorded as `uncertain`, with the time it was sent. Coolify has no idempotency key and checks for
+    duplicates before its insert, so a lookup made while the request may still be in flight proves nothing.
+    While a step is `uncertain`:
+    - automatic retry and Clean up are both blocked, and the host shows "Waiting to confirm what Coolify
+      created";
+    - the step is re-checked by marker no sooner than 2 minutes after it was sent (well past the request
+      timeout), and only then decided: one match is adopted, no match lets the create be sent again;
+    - only one resume or clean-up runs per onboarding row at a time (a per-row lock), so the plugin never
+      races itself.
+  - **More than one match** (two servers or keys with the same marker) stops the run. The person sees every
+    match with its name, IP and resources, picks the one to keep, and is offered deletion of the others, each
+    confirmed and only if it has no resources.
 
 - **Failure or abandonment:** the host shows "Coolify onboarding unfinished" with two choices.
   - **Resume:** reuses whatever already exists (the same authorized key, Coolify key and server) and
