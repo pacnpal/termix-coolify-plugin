@@ -13,7 +13,14 @@ import {
 import { dbClient, type Tables } from "../db.js";
 import { createKeyCopier, type KnownCopy } from "./credentials.js";
 import { createLocks, type Locks } from "./locks.js";
-import { cleanAddress, folderName, planHost } from "./mapping.js";
+import {
+  cleanAddress,
+  folderName,
+  planHost,
+  SSH_TERMINAL,
+  type PlanContext,
+  type SshTerminalState,
+} from "./mapping.js";
 
 export type SyncMode = "coolify" | "termix";
 
@@ -22,7 +29,10 @@ export interface SyncRow {
   server: ServerDto;
   hostId: number | null;
   status: "new" | "linked" | "gone" | "blocked";
-  /** needs-address, needs-credential or needs-tunnel-support. */
+  /**
+   * needs-address, needs-credential, needs-ssh-terminal,
+   * ssh-terminal-too-old, credential-not-found or credential-check-failed.
+   */
   cause?: string;
   /** coolify: the key is copied from Coolify. termix: a picked credential. */
   mode: SyncMode;
@@ -205,14 +215,36 @@ export async function createSync(
     return setting !== false && view.abilities.keys;
   }
 
-  async function dockerRunning(): Promise<boolean> {
+  /**
+   * The plugins sync works with, from one ctx.plugins.list() call. Fails
+   * closed: when the list can't be read, neither Docker nor SSH Terminal
+   * counts as running, so tunnelled servers are blocked.
+   */
+  async function companions(): Promise<{
+    docker: boolean;
+    sshTerminal: SshTerminalState;
+  }> {
     try {
       const plugins = await ctx.plugins.list();
-      return plugins.some((p) => p.id === "docker" && p.state === "active");
+      const active = (id: string) =>
+        plugins.find((p) => p.id === id && p.state === "active");
+      const terminal = active(SSH_TERMINAL.id);
+      return {
+        docker: Boolean(active("docker")),
+        sshTerminal: {
+          running: Boolean(terminal),
+          version: terminal?.version ?? null,
+        },
+      };
     } catch {
-      return false;
+      return {
+        docker: false,
+        sshTerminal: { running: false, version: null },
+      };
     }
   }
+
+  const NO_SSH_TERMINAL: SshTerminalState = { running: false, version: null };
 
   async function hostNames(): Promise<Map<number, string>> {
     try {
@@ -258,6 +290,7 @@ export async function createSync(
     row: ServerRow | undefined,
     /** Why the stored picked credential can't be used, or null. */
     credentialCause: string | null,
+    sshTerminal: SshTerminalState,
   ): SyncRow {
     const mode = modeOf(copy, server, row);
     const override = row?.addressOverride ?? null;
@@ -277,6 +310,9 @@ export async function createSync(
       credentialId: credentialId ?? 0,
       folder: "",
       dockerRunning: false,
+      sshTerminal,
+      // A preview never reads the Access token: its rows don't carry it.
+      cfAccess: null,
     });
     const hostId = row?.hostId ?? null;
     let cause: string | undefined;
@@ -380,13 +416,18 @@ export async function createSync(
         ? goneRows(rows, present, await hostNames())
         : [];
       const check = ownCredentialCheck();
+      const sshTerminal = servers.some((s) => s.isTunnel)
+        ? (await companions()).sshTerminal
+        : NO_SSH_TERMINAL;
       const previewed: SyncRow[] = [];
       for (const s of servers) {
         const row = byUuid.get(s.uuid);
         const picked =
           row?.credentialMode === "termix" ? row.credentialId : null;
         const credentialCause = picked ? await check(picked) : null;
-        previewed.push(previewRow(view, copy, s, row, credentialCause));
+        previewed.push(
+          previewRow(view, copy, s, row, credentialCause, sshTerminal),
+        );
       }
       return [...previewed, ...gone];
     },
@@ -421,7 +462,15 @@ export async function createSync(
         known,
       });
       const folder = folderName(view.name, (await connections.list()).length);
-      const docker = await dockerRunning();
+      const { docker, sshTerminal } = await companions();
+      // The Access token is unsealed once, and only when a tunnelled host is
+      // about to be written. It goes into that host's SSH Terminal settings
+      // and nowhere else: never a result, a log or an audit entry.
+      let cfAccess: Promise<PlanContext["cfAccess"]> | null = null;
+      const accessToken = () =>
+        (cfAccess ??= connections
+          .target(connectionId)
+          .then((target) => target.cfAccess));
       let folderReady = false;
       const results: SyncResult[] = [];
       const checkCredential = ownCredentialCheck();
@@ -479,6 +528,8 @@ export async function createSync(
             credentialId: 0,
             folder,
             dockerRunning: docker,
+            sshTerminal,
+            cfAccess: null,
           });
           if (!precheck.ok) {
             await saveRow(connectionId, server.uuid, row, remember);
@@ -521,6 +572,8 @@ export async function createSync(
             credentialId,
             folder,
             dockerRunning: docker,
+            sshTerminal,
+            cfAccess: server.isTunnel ? await accessToken() : null,
           });
           if (!plan.ok) throw new Error("plan changed");
           if (!folderReady) {

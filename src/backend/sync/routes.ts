@@ -33,8 +33,8 @@ export function registerSyncRoutes(
    *     description: >-
    *       Each Coolify server with the Termix host it is or would become: new,
    *       linked, blocked (with a cause such as needs-address,
-   *       needs-credential or needs-tunnel-support) or gone from Coolify.
-   *       Changes nothing.
+   *       needs-credential, needs-ssh-terminal or ssh-terminal-too-old) or
+   *       gone from Coolify. Changes nothing.
    *     tags:
    *       - Coolify
    *     parameters:

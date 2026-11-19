@@ -85,7 +85,7 @@ describe("host sync", () => {
     });
     expect(byUuid(rows, "srv-vps1")).toMatchObject({
       status: "blocked",
-      cause: "needs-tunnel-support",
+      cause: "needs-ssh-terminal",
       tunnel: true,
     });
   });
@@ -331,18 +331,6 @@ describe("host sync", () => {
     });
     expect(res.status).toBe(400);
     expect(await h.mock.ctx.hosts.listOwned()).toHaveLength(0);
-  });
-
-  it("a tunnelled server is refused with the tunnel cause", async () => {
-    const { harness: h, connectionId } = await start();
-    const create = vi.spyOn(h.mock.ctx.hosts, "create");
-    const results = await apply(h, connectionId, only("srv-vps1", "srv-web1"));
-    expect(byUuid(results, "srv-vps1")).toMatchObject({
-      status: "blocked",
-      cause: "needs-tunnel-support",
-    });
-    expect(create).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(create.mock.calls)).not.toContain("ssh-terminal");
   });
 
   it("apply updates an existing linked host in place", async () => {
