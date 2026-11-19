@@ -1059,10 +1059,16 @@ REST API (Termix API keys) and through Termix's MCP. Nothing may exist only as a
      - Both take `connectionId`, `operationId` (with `optionsFrom` reads listing the vendored operations,
        hiding ones newer than the connection's version, the excluded `POST /disable` and ones above the
        actor's level), `params` and `body`.
-     - **The wrapper's own permission is not enough.** Each `operationId` resolves to the level of the
-       curated action that does the same thing: reads are view; start, stop, restart, deploy and cancelling a
-       deployment are operate; everything else is configure. The three-way minimum (see Permissions) is
-       applied to that level, so a view grant can't reach a write through `coolify.api-call`.
+     - **The wrapper's own permission is not enough.** Each `operationId` resolves to the Termix permission
+       and grant level that the Permissions table gives the same action, kept as two separate values:
+       - reads need `coolify.view`, except Coolify's log endpoints, which need `coolify.operate`;
+       - lifecycle, deploys, tasks and backups need `coolify.operate`;
+       - deletes, server create, transfer and migrate, cloud provisioning and instance settings need
+         `coolify.administer` (with a configure grant, or ownership);
+       - everything else needs `coolify.configure`.
+     - The three-way minimum (see Permissions) is applied to that, in both the call and the operation
+       pickers. So a view grant can't reach a write, and a configure user can't delete, through
+       `coolify.api-call`.
      - Both return redacted output (see Redaction).
    - A test fails when any plugin route has no operation that does the same thing. The exceptions are the
      public status route and the sockets, whose equivalents are named in the test.
