@@ -490,8 +490,71 @@
             "assistant": false,
             "mcp": false
           }
+        },
+        {
+          "id": "coolify.list-resources-all",
+          "titleKey": "ops.listResourcesAll.title",
+          "descriptionKey": "ops.listResourcesAll.description",
+          "icon": "Boxes",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "serverUuid",
+              "type": "string",
+              "labelKey": "ops.fields.serverFilter.label",
+              "descriptionKey": "ops.fields.serverFilter.description"
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.resource-get",
+          "titleKey": "ops.resourceGet.title",
+          "descriptionKey": "ops.resourceGet.description",
+          "icon": "Box",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.uuid.label",
+              "descriptionKey": "ops.fields.uuid.description",
+              "required": true
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
         }
       ]
+    },
+    "mobile": {
+      "mode": "webview",
+      "views": ["coolify"]
     }
   },
   "locales": "locales",

@@ -1,0 +1,262 @@
+import { fileURLToPath } from "node:url";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  createMockCtx,
+  createTestDb,
+  type MockPluginContext,
+  type TestDb,
+} from "@termix-ssh/plugin-sdk/testing";
+import type { PluginManifest } from "@termix-ssh/plugin-sdk/manifest";
+import manifestJson from "../../../manifest.json";
+import { defineTables } from "../../../src/backend/db.js";
+import {
+  createConnections,
+  type Connections,
+} from "../../../src/backend/connections/service.js";
+import {
+  createResources,
+  RESOURCE_TTL_MS,
+  type Resources,
+} from "../../../src/backend/resources/service.js";
+import { resourceHealth } from "../../../src/shared/resource-health.js";
+import { healthyCoolify } from "../helpers/fake-coolify.js";
+import { resourceLists, SECRET } from "../helpers/resources.js";
+
+const pluginDir = fileURLToPath(new URL("../../..", import.meta.url));
+const manifest = manifestJson as unknown as PluginManifest;
+const TOKEN = "fake-token-resources-test";
+
+const RESOURCE_KEYS = [
+  "engine",
+  "environmentName",
+  "fqdns",
+  "id",
+  "kind",
+  "lastDeployAt",
+  "name",
+  "parentUuid",
+  "projectName",
+  "serverName",
+  "serverUuid",
+  "status",
+  "uuid",
+];
+
+let db: TestDb;
+let mock: MockPluginContext;
+let fake: ReturnType<typeof healthyCoolify>;
+let connections: Connections;
+let resources: Resources;
+let clock: number;
+let connectionId: number;
+
+function listCalls() {
+  return fake.calls.filter((c) =>
+    ["/applications", "/services", "/databases", "/resources"].includes(c.path),
+  );
+}
+
+beforeEach(async () => {
+  db = await createTestDb(pluginDir);
+  for (const user of ["user-1", "user-2"]) {
+    db.sqlite
+      .prepare("INSERT INTO users (id, username) VALUES (?, ?)")
+      .run(user, user);
+  }
+  fake = healthyCoolify(resourceLists());
+  mock = createMockCtx({
+    pluginId: manifest.id,
+    manifest,
+    sandbox: true,
+    capabilities: manifest.capabilities,
+    db: db.database,
+    fetch: (url, init) => fake.fetch(url, init),
+    actor: "user-1",
+  });
+  const tables = await defineTables(mock.ctx);
+  connections = createConnections(mock.ctx, tables);
+  clock = Date.parse("2026-11-19T10:00:00Z");
+  resources = createResources(mock.ctx, {
+    tables,
+    connections,
+    now: () => clock,
+  });
+  connectionId = (
+    await connections.create({
+      name: "Prod",
+      baseUrl: "https://coolify.example.test",
+      token: TOKEN,
+    })
+  ).id;
+  fake.calls.length = 0;
+});
+
+afterEach(() => db.close());
+
+describe("resource service", () => {
+  it("merges apps, services with parts, and databases", async () => {
+    const rows = await resources.list(connectionId);
+    expect(rows.map((r) => `${r.kind}:${r.uuid}`)).toEqual([
+      "application:app-web-uuid",
+      "application:app-api-uuid",
+      "application:app-worker-uuid",
+      "application:app-docs-uuid",
+      "application:app-blog-uuid",
+      "service:svc-n8n-uuid",
+      "service-application:part-n8n-uuid",
+      "service-application:part-worker-uuid",
+      "service-application:part-runner-uuid",
+      "service-database:part-postgres-uuid",
+      "service-database:part-redis-uuid",
+      "database:db-main-uuid",
+      "database:db-cache-uuid",
+    ]);
+    const parts = rows.filter((r) => r.parentUuid);
+    expect(parts).toHaveLength(5);
+    expect(new Set(parts.map((p) => p.parentUuid))).toEqual(
+      new Set(["svc-n8n-uuid"]),
+    );
+    expect(rows[0]).toMatchObject({
+      name: "web",
+      serverUuid: "srv-vps1-uuid",
+      serverName: "vps1",
+      projectName: "Shop",
+      environmentName: "production",
+      fqdns: ["https://a.x", "https://b.x"],
+      lastDeployAt: "2026-11-18T09:03:00.000000Z",
+    });
+    // The per-type lists, once each, and never the heavy /resources.
+    expect(listCalls().map((c) => `${c.method} ${c.path}`)).toEqual(
+      expect.arrayContaining([
+        "GET /applications",
+        "GET /services",
+        "GET /databases",
+      ]),
+    );
+    expect(listCalls()).toHaveLength(3);
+    expect(fake.calls.some((c) => c.path.startsWith("/resources"))).toBe(false);
+  });
+
+  it("status degraded covers exited and unhealthy", async () => {
+    expect(resourceHealth("exited")).toBe("degraded");
+    expect(resourceHealth("exited:unhealthy")).toBe("degraded");
+    expect(resourceHealth("running:unhealthy")).toBe("degraded");
+    expect(resourceHealth("degraded:unhealthy")).toBe("degraded");
+    expect(resourceHealth("running:healthy")).toBe("running");
+    expect(resourceHealth("running:unknown")).toBe("running");
+    expect(resourceHealth("starting")).toBe("deploying");
+    expect(resourceHealth("stopped")).toBe("stopped");
+    expect(resourceHealth("")).toBe("stopped");
+    // Service Parts are counted through their service, not twice.
+    expect(await resources.counts(connectionId)).toEqual({
+      running: 3,
+      degraded: 3,
+      stopped: 1,
+      deploying: 1,
+    });
+    expect(await resources.counts(connectionId, "srv-vps1-uuid")).toEqual({
+      running: 3,
+      degraded: 2,
+      stopped: 1,
+      deploying: 1,
+    });
+  });
+
+  it("second call within 20s uses the cache", async () => {
+    await resources.list(connectionId);
+    const fetched = fake.calls.length;
+    clock += RESOURCE_TTL_MS - 1;
+    await resources.list(connectionId);
+    await resources.get(connectionId, "app-web-uuid");
+    await resources.byServer(connectionId, "srv-vps1-uuid");
+    await resources.counts(connectionId);
+    expect(RESOURCE_TTL_MS).toBe(20_000);
+    expect(fake.calls.length).toBe(fetched);
+
+    clock += 2;
+    await resources.list(connectionId);
+    expect(listCalls()).toHaveLength(6);
+
+    await resources.list(connectionId, { refresh: true });
+    expect(listCalls()).toHaveLength(9);
+  });
+
+  it("asks Coolify once when several callers miss the cache together", async () => {
+    await Promise.all([
+      resources.list(connectionId),
+      resources.list(connectionId),
+      resources.counts(connectionId),
+    ]);
+    expect(listCalls()).toHaveLength(3);
+  });
+
+  it("invalidate drops the cached list", async () => {
+    await resources.list(connectionId);
+    await resources.invalidate(connectionId);
+    await resources.list(connectionId);
+    expect(listCalls()).toHaveLength(6);
+  });
+
+  it("other user 404", async () => {
+    // The owner fills the cache; the other user must not be served from it.
+    await resources.list(connectionId);
+    const fetched = fake.calls.length;
+    mock.setActor("user-2");
+    for (const call of [
+      () => resources.list(connectionId),
+      () => resources.get(connectionId, "app-web-uuid"),
+      () => resources.byServer(connectionId, "srv-vps1-uuid"),
+      () => resources.counts(connectionId),
+    ]) {
+      await expect(call()).rejects.toMatchObject({
+        status: 404,
+        code: "not-found",
+      });
+    }
+    expect(fake.calls.length).toBe(fetched);
+  });
+
+  it("no Coolify secret field survives into the resource DTOs or the cache", async () => {
+    const rows = await resources.list(connectionId);
+    for (const row of rows) {
+      expect(Object.keys(row).sort(), row.uuid).toEqual(RESOURCE_KEYS);
+    }
+    const answers = [
+      rows,
+      await resources.get(connectionId, "app-web-uuid"),
+      await resources.get(connectionId, "part-postgres-uuid"),
+      await resources.byServer(connectionId, "srv-edge-uuid"),
+    ];
+    for (const answer of answers) {
+      expect(JSON.stringify(answer)).not.toContain(SECRET);
+    }
+    const cached = db.sqlite
+      .prepare("SELECT kind, json FROM p_coolify_cache")
+      .all() as { kind: string; json: string }[];
+    expect(cached.map((c) => c.kind)).toEqual(["resources"]);
+    expect(cached[0].json).not.toContain(SECRET);
+    expect(cached[0].json).not.toContain(TOKEN);
+  });
+
+  it("get finds a resource or a Part by uuid, and byServer filters", async () => {
+    expect(await resources.get(connectionId, "part-redis-uuid")).toMatchObject({
+      kind: "service-database",
+      parentUuid: "svc-n8n-uuid",
+      engine: "redis:7-alpine",
+    });
+    expect(await resources.get(connectionId, "missing-uuid")).toBeNull();
+    const edge = await resources.byServer(connectionId, "srv-edge-uuid");
+    expect(edge.map((r) => r.uuid)).toEqual(["app-api-uuid"]);
+  });
+
+  it("lets a Coolify failure through as a CoolifyError and caches nothing", async () => {
+    fake.set("GET /services", { status: 500, json: { message: "boom" } });
+    await expect(resources.list(connectionId)).rejects.toMatchObject({
+      name: "CoolifyError",
+    });
+    const cached = db.sqlite
+      .prepare("SELECT count(*) AS n FROM p_coolify_cache")
+      .get() as { n: number };
+    expect(cached.n).toBe(0);
+  });
+});

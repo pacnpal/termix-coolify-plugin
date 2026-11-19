@@ -52,6 +52,8 @@ export interface ResourceDto {
   kind: ResourceKind;
   status: string;
   serverUuid: string | null;
+  /** The Coolify server's name, when the payload carries it. */
+  serverName: string | null;
   projectName: string | null;
   environmentName: string | null;
   fqdns: string[];
@@ -231,6 +233,13 @@ function serverUuidOf(raw: Raw): string | null {
   );
 }
 
+function serverNameOf(raw: Raw): string | null {
+  return (
+    strOrNull(obj(raw.server).name) ??
+    strOrNull(obj(obj(raw.destination).server).name)
+  );
+}
+
 function placeOf(raw: Raw): {
   projectName: string | null;
   environmentName: string | null;
@@ -256,6 +265,7 @@ function resource(
     kind,
     status: str(raw.status, "unknown"),
     serverUuid: serverUuidOf(raw),
+    serverName: serverNameOf(raw),
     ...placeOf(raw),
     fqdns: [],
     parentUuid: null,
@@ -287,6 +297,7 @@ export function toService(input: unknown): ResourceDto[] {
   const inherit = {
     parentUuid: service.uuid,
     serverUuid: service.serverUuid,
+    serverName: service.serverName,
     projectName: service.projectName,
     environmentName: service.environmentName,
   };
