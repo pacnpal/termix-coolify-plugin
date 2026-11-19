@@ -80,12 +80,18 @@ export interface ConnectionPatch {
   autoSync?: boolean;
 }
 
-export type ConnectionErrorCode = "invalid-input" | "forbidden" | "not-found";
+export type ConnectionErrorCode =
+  | "invalid-input"
+  | "forbidden"
+  | "not-found"
+  // A server with no Linked host (host sync's unlink).
+  | "not-linked";
 
 const ERROR_STATUS = {
   "invalid-input": 400,
   forbidden: 403,
   "not-found": 404,
+  "not-linked": 404,
 } as const;
 
 /** A refusal by the plugin itself, before or without asking Coolify. */
@@ -105,13 +111,15 @@ const notFound = () =>
   new ConnectionError("not-found", "Coolify connection not found");
 
 /**
- * Called before a connection's rows are deleted, with its id, so the hosts
- * linked to its servers can be unlinked (or removed when `removeHosts`).
- * Host sync supplies it; until then there are no Linked hosts to release.
+ * Removes a connection's Linked hosts and then its rows: it unlinks the hosts
+ * (or removes them when `removeHosts`) and must call `deleteRows` after,
+ * inside the same critical section, so no host sync of the connection runs
+ * between the two. Host sync supplies it; without it, only the rows go.
  */
 export type ReleaseLinkedHosts = (
   connectionId: number,
   opts: { removeHosts: boolean },
+  deleteRows: () => Promise<void>,
 ) => Promise<void>;
 
 export interface ConnectionsOptions {
@@ -421,7 +429,8 @@ export function createConnections(
 ) {
   const t = tables;
   const release: ReleaseLinkedHosts =
-    options.releaseLinkedHosts ?? (async () => {});
+    options.releaseLinkedHosts ??
+    (async (_id, _opts, deleteRows) => deleteRows());
   const clients = new Map<
     number,
     { key: string; http: CoolifyHttp; api: CoolifyApi }
@@ -702,24 +711,33 @@ export function createConnections(
   ): Promise<ConnectionView> {
     const found = await owned(id);
     const gone = toView(found, "owner");
-    await release(found.id, { removeHosts: opts.removeHosts === true });
-    const db = await dbClient(ctx);
-    const byConnection = [
-      t.grants,
-      t.servers,
-      t.cache,
-      t.events,
-      t.onboardings,
-      t.statusPages,
-      t.dnsRecords,
-      t.recent,
-    ].map((table) => db.delete(table).where(eq(table.connectionId, found.id)));
-    await ctx.db.batch([
-      ...byConnection,
-      db.delete(t.connections).where(eq(t.connections.id, found.id)),
-    ]);
-    await ctx.db.persist();
-    clients.delete(found.id);
+    // Lock order: this connection lock, then host sync's queue (inside
+    // release). Host sync never takes this lock, so the two can't deadlock.
+    await release(
+      found.id,
+      { removeHosts: opts.removeHosts === true },
+      async () => {
+        const db = await dbClient(ctx);
+        const byConnection = [
+          t.grants,
+          t.servers,
+          t.cache,
+          t.events,
+          t.onboardings,
+          t.statusPages,
+          t.dnsRecords,
+          t.recent,
+        ].map((table) =>
+          db.delete(table).where(eq(table.connectionId, found.id)),
+        );
+        await ctx.db.batch([
+          ...byConnection,
+          db.delete(t.connections).where(eq(t.connections.id, found.id)),
+        ]);
+        await ctx.db.persist();
+        clients.delete(found.id);
+      },
+    );
     return gone;
   }
 

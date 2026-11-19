@@ -88,8 +88,9 @@ beforeEach(async () => {
   });
   released = [];
   service = createConnections(mock.ctx, await defineTables(mock.ctx), {
-    releaseLinkedHosts: async (connectionId, opts) => {
+    releaseLinkedHosts: async (connectionId, opts, deleteRows) => {
       released.push({ connectionId, removeHosts: opts.removeHosts });
+      await deleteRows();
     },
   });
 });

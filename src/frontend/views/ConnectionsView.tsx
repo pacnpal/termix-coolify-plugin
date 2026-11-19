@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pencil, Rocket, Stethoscope, Trash2 } from "lucide-react";
+import { Pencil, RefreshCw, Rocket, Stethoscope, Trash2 } from "lucide-react";
 import {
   usePermission,
   usePluginApi,
@@ -91,12 +91,23 @@ function metaLine(
   return parts.join(" · ");
 }
 
-/** The Connections section: the list, add, edit, check again and remove. */
+/** Whether the actor can sync this connection's servers into hosts. */
+export function syncable(c: Connection): boolean {
+  return c.access === "owner" && !c.scoped;
+}
+
+/**
+ * The Connections section: the list, add, edit, check again, remove, and
+ * Sync servers, which hands the connection to the tab's Servers section.
+ */
 export function ConnectionsView({
   onSaved,
+  onSync,
 }: {
   /** Told about each saved connection, so the tab can drop stale resources. */
   onSaved?: (saved: Connection) => void;
+  /** Opens host sync for a connection; without it there is no Sync action. */
+  onSync?: (connection: Connection) => void;
 } = {}) {
   const { t } = useTranslation();
   const client = usePluginApi();
@@ -242,6 +253,14 @@ export function ConnectionsView({
                       onClick={() => setEditing(c)}
                     >
                       <Pencil className="size-3.5" />
+                    </ListRowAction>
+                  )}
+                  {onSync && canConfigure && syncable(c) && (
+                    <ListRowAction
+                      label={t("connections.actions.sync")}
+                      onClick={() => onSync(c)}
+                    >
+                      <RefreshCw className="size-3.5" />
                     </ListRowAction>
                   )}
                   <ListRowAction

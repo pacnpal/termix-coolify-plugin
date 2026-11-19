@@ -117,6 +117,47 @@
     "GET /plugin-api/coolify/mcp": {
       "access": "user",
       "permission": "coolify.mcp"
+    },
+    "GET /plugin-api/coolify/connections/:id/servers": {
+      "access": "user",
+      "permission": "coolify.view",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      }
+    },
+    "POST /plugin-api/coolify/connections/:id/sync": {
+      "access": "user",
+      "permission": ["coolify.view", "coolify.configure"],
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      },
+      "body": {
+        "choices": []
+      }
+    },
+    "POST /plugin-api/coolify/connections/:id/servers/:uuid/unlink": {
+      "access": "user",
+      "permission": ["coolify.view", "coolify.configure"],
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-own-server"
+      },
+      "body": {
+        "removeHost": false
+      },
+      "destructive": true
     }
   }
 }

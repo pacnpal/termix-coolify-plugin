@@ -265,6 +265,7 @@ describe("Coolify API wrappers", () => {
     const keys = await coolify.keys();
     expect(keys).toEqual([
       {
+        id: null,
         uuid: "k",
         name: "key",
         fingerprint: "SHA256:f",

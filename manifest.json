@@ -465,6 +465,90 @@
             "assistant": true,
             "mcp": true
           }
+        },
+        {
+          "id": "coolify.sync-preview",
+          "titleKey": "ops.syncPreview.title",
+          "descriptionKey": "ops.syncPreview.description",
+          "icon": "RefreshCw",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.sync-apply",
+          "titleKey": "ops.syncApply.title",
+          "descriptionKey": "ops.syncApply.description",
+          "icon": "RefreshCw",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "choices",
+              "type": "json",
+              "labelKey": "ops.fields.choices.label",
+              "descriptionKey": "ops.fields.choices.description"
+            }
+          ],
+          "risk": "change",
+          "permission": "configure",
+          "check": "coolify.sync-preview",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.unlink",
+          "titleKey": "ops.unlink.title",
+          "descriptionKey": "ops.unlink.description",
+          "icon": "Unlink",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "serverUuid",
+              "type": "string",
+              "labelKey": "ops.fields.linkedServerUuid.label",
+              "descriptionKey": "ops.fields.linkedServerUuid.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            }
+          ],
+          "risk": "change",
+          "permission": "configure",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
         }
       ]
     },

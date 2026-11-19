@@ -86,6 +86,8 @@ export interface ProjectDto {
 
 /** A Coolify private key without its material: only whether this token could read it. */
 export interface KeyDto {
+  /** Coolify's numeric id, which a server's private_key_id points at. */
+  id: number | null;
   uuid: string;
   name: string;
   fingerprint: string | null;
@@ -391,6 +393,7 @@ export function toKey(input: unknown): KeyDto {
   const raw = obj(input);
   const material = raw.private_key;
   return {
+    id: num(raw.id),
     uuid: str(raw.uuid),
     name: str(raw.name),
     fingerprint: strOrNull(raw.fingerprint),

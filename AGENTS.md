@@ -68,7 +68,8 @@ aren't obvious from the code, and anything that has bitten you before.
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
   Where things stand: identity, permissions, admin settings, the vendored API and the tables exist,
   Connections work (routes, operations, the Connections view and the "Connect Coolify" onboarding step),
-  and Resources can be browsed (Overview tiles, the Resources list, a resource's Overview detail).
+  Resources can be browsed (Overview tiles, the Resources list, a resource's Overview detail), and host
+  sync turns Coolify servers into locked Linked hosts.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
 - Coolify calls: `src/backend/coolify/http.ts` is the only way to Coolify (ctx.fetch, Bearer and CF Access
@@ -139,3 +140,39 @@ aren't obvious from the code, and anything that has bitten you before.
   the tab, so editing the selected connection's target clears and reloads it. `ResourceDetail.tsx` lists its views in `DETAIL_TABS`; later views (shell,
   logs, stats) add an id there. Filtering and grouping are pure functions in `resource-model.ts`.
   `contributes.mobile` lists only `coolify` until the `coolify-shell` tab is registered.
+- Host sync: `src/backend/sync/` (`mapping.ts` pure `planHost`, `credentials.ts` key copy, `locks.ts`,
+  `service.ts` `createSync`, `routes.ts`) and `src/backend/ops/sync.ts`. `createSync` is async (it loads the
+  lock set from `servers.hostId` before providing locks) and is made right after `createConnections`, whose
+  `releaseLinkedHosts` hook calls `sync.releaseConnection`. `apply`, `unlink` and `releaseConnection`
+  run through `serialized(connectionId, ...)`, one queue per connection (`locks.ts` is the host lock
+  provider, not a mutex); the `host.deleted` handler stays outside it because `release()` deletes hosts
+  while holding it. Removing a connection is one step of that queue: `releaseLinkedHosts` gets the row
+  deletion as a `deleteRows` continuation and `releaseConnection` runs it after releasing the hosts. Lock
+  order is always the connections service's `withLock` first, then the sync queue; sync never takes
+  `withLock`. `apply` also re-checks `ownedConnection` before its first host write and ends with the
+  `ConnectionError` if the connection is gone. A host `apply` created whose link row fails to save is
+  unlocked and deleted (`discardHost`). Key material comes only from
+  `api.keyForCopy()` (not a DTO) and goes only to `ctx.credentials.createSshKey`; reuse is by fingerprint
+  among the connection's `credentialMode = "coolify"` rows, and only while the id is still in
+  `ctx.credentials.listSshKeys()` (a deleted copy is made again; an unreadable list blocks the server with
+  `credential-check-failed`). A failed copy stores `credentialMode = "copy-failed"` (`COPY_FAILED`), which
+  the preview reads as termix mode with `needs-credential`. Every stored id is checked before use:
+  `hostId` by `ctx.hosts.update` answering null (then a new host is made), picked credential ids by
+  `ctx.credentials.list()`, copied ones by `listSshKeys()`. `ssh-keys` from the SDK needs `ssh2`, which only
+  Termix supplies, so it is imported lazily and only when Coolify sends no `public_key`. Tunnelled servers
+  are refused in `planTunnel` with `TUNNEL_CAUSE` (`needs-tunnel-support`); ticket #9 replaces that seam
+  with SSH Terminal's tunnel settings. The SDK tsconfig has no strict null checks, so a boolean `ok` does
+  not narrow a union: `HostPlan` names both fields on both sides. The mock ctx's `hosts.create` drops
+  `pluginSettings` and `pluginEnable`, so tests spy on the calls to check them. `coolify.unlink`'s server
+  input uses `ops.fields.linkedServerUuid`: `ops.fields.serverUuid` is the optional filter of
+  `coolify.list-resources-all`.
+- Frontend host surfaces: `src/frontend/linked.ts` reads a host's link from its own settings and shares one
+  sync preview per connection (five minutes) between badge dots and the host card. Host sync is the tab's
+  Servers section (`SyncView` for the selected connection, shown with `coolify.configure`); a connection's
+  Sync servers row action calls `ConnectionsView`'s `onSync`, which selects it there. `CoolifyTab` reads
+  `tab.data` `{ section, connectionId? }`: `"sync"` opens Servers (no id: the first connection the actor
+  owns with an unscoped token), and any section name opens that section on that connection. The request
+  is tracked by the `tab.data` object (the shell sets a new one on every opening), not by its values, so
+  the same action twice still applies. `SyncView` shows the address field on every row still in Coolify,
+  and the credential picker for `CREDENTIAL_CAUSES` (needs-credential, credential-not-found,
+  credential-check-failed).

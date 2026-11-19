@@ -104,6 +104,48 @@ export interface McpInfo {
   endpoint: string;
 }
 
+/** A Coolify server as host sync shows it. Never carries a key. */
+export interface SyncServer {
+  uuid: string;
+  name: string;
+  ip: string;
+  port: number;
+  user: string;
+  isTunnel: boolean;
+  isCoolifyHost: boolean;
+  reachable: boolean;
+  usable: boolean;
+}
+
+/** One server and the Termix host it is or would become. */
+export interface SyncRow {
+  server: SyncServer;
+  hostId: number | null;
+  status: "new" | "linked" | "gone" | "blocked";
+  /** needs-address, needs-credential or needs-tunnel-support. */
+  cause?: string;
+  mode: "coolify" | "termix";
+  addressOverride: string | null;
+  suggestedAddress: string | null;
+  credentialId: number | null;
+  tunnel: boolean;
+}
+
+export interface SyncChoice {
+  uuid: string;
+  include: boolean;
+  addressOverride?: string | null;
+  credentialId?: number | null;
+}
+
+export interface SyncResult {
+  uuid: string;
+  name: string;
+  status: "created" | "updated" | "blocked" | "skipped" | "gone" | "failed";
+  hostId: number | null;
+  cause?: string;
+}
+
 /** What a failed call answers: a plain message and a cause the UI translates. */
 export interface ApiFailure {
   error: string;
@@ -175,6 +217,29 @@ export function createApi(api: PluginApiClient) {
       return typeof data?.endpoint === "string"
         ? { endpoint: data.endpoint }
         : null;
+    },
+    async syncPreview(id: number): Promise<SyncRow[]> {
+      const rows = (await api.get<SyncRow[]>(`/connections/${id}/servers`))
+        .data;
+      return Array.isArray(rows) ? rows : [];
+    },
+    async syncApply(id: number, choices: SyncChoice[]): Promise<SyncResult[]> {
+      const results = (
+        await api.post<SyncResult[]>(`/connections/${id}/sync`, { choices })
+      ).data;
+      return Array.isArray(results) ? results : [];
+    },
+    async unlinkServer(
+      id: number,
+      uuid: string,
+      removeHost: boolean,
+    ): Promise<{ hostId: number; removed: boolean }> {
+      return (
+        await api.post<{ hostId: number; removed: boolean }>(
+          `/connections/${id}/servers/${encodeURIComponent(uuid)}/unlink`,
+          { removeHost },
+        )
+      ).data;
     },
   };
 }
