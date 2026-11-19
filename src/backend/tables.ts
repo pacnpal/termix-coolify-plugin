@@ -103,9 +103,10 @@ export const servers = defineTable(
     id: id(),
     connectionId: integer().notNull(),
     serverUuid: varchar(255).notNull(),
-    // refHost (cascades with the host) but nullable: a server is listed
-    // before it is linked. The builder's refHost() is always NOT NULL.
-    hostId: { type: "refHost" },
+    // The Linked host, or null. A plain integer, not refHost: deleting the
+    // host must not delete this row, or addressOverride and the credential
+    // choice are lost. Task 9's host.deleted handler sets it to NULL (unlinks).
+    hostId: integer(),
     addressOverride: text(),
     credentialMode: varchar(16),
     credentialId: integer(),

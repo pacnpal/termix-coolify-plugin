@@ -60,6 +60,26 @@ describe("plugin tables", () => {
     }
   });
 
+  it("deleting a host keeps its server row and address override", async () => {
+    db = await createTestDb(pluginDir);
+    db.sqlite.prepare("INSERT INTO ssh_data (id) VALUES (?)").run(7);
+    db.sqlite
+      .prepare(
+        "INSERT INTO p_coolify_servers (connection_id, server_uuid, host_id, address_override) VALUES (?, ?, ?, ?)",
+      )
+      .run(1, "server-uuid-1", 7, "10.0.0.5");
+    db.sqlite.prepare("DELETE FROM ssh_data WHERE id = ?").run(7);
+    const row = db.sqlite
+      .prepare(
+        "SELECT server_uuid, address_override FROM p_coolify_servers WHERE connection_id = ?",
+      )
+      .get(1);
+    expect(row).toEqual({
+      server_uuid: "server-uuid-1",
+      address_override: "10.0.0.5",
+    });
+  });
+
   it("every table can be defined through ctx.db", async () => {
     db = await createTestDb(pluginDir);
     const mock = createMockCtx({

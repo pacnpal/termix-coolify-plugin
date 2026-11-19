@@ -195,7 +195,7 @@
           "notNull": true
         },
         "hostId": {
-          "type": "refHost"
+          "type": "integer"
         },
         "addressOverride": {
           "type": "text"

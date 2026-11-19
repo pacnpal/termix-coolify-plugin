@@ -53,8 +53,7 @@ CREATE TABLE IF NOT EXISTS `p_coolify_servers` (
   `credential_mode` varchar(16),
   `credential_id` int,
   `key_fingerprint` longtext,
-  `last_synced_at` text,
-  FOREIGN KEY (`host_id`) REFERENCES `ssh_data` (`id`) ON DELETE CASCADE
+  `last_synced_at` text
 );
 CREATE UNIQUE INDEX `idx_p_coolify_servers_connection_server` ON `p_coolify_servers` (`connection_id`, `server_uuid`);
 CREATE INDEX `idx_p_coolify_servers_host_id` ON `p_coolify_servers` (`host_id`);

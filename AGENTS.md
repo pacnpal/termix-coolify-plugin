@@ -76,5 +76,6 @@ aren't obvious from the code, and anything that has bitten you before.
   The generator runs openapi-typescript against the `typescript-5` alias, because TypeScript 7 has no
   compiler API; the `overrides` entry in `package.json` lets that install next to TypeScript 7.
 - Tables: `src/backend/tables.ts`, migrations in `migrations/`. Table names are snake_case
-  (`p_coolify_status_pages`); the SDK refuses camelCase. `servers.hostId` is a nullable `refHost` written as a
-  raw column, because the `refHost()` builder is always NOT NULL; it still cascades when the host is deleted.
+  (`p_coolify_status_pages`); the SDK refuses camelCase. `servers.hostId` is a plain nullable integer, not
+  `refHost`: a cascade would delete the row and its `addressOverride` when the host goes. The `host.deleted`
+  handler sets it to NULL (unlinks) instead.
