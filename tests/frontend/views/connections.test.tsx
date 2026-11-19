@@ -310,7 +310,10 @@ describe("connections view under concurrent requests", () => {
     const api = stubApi([]);
     const failed = { ...scopedConnection, id: 5, lastError: "unreachable" };
     api.post.mockResolvedValueOnce({ data: failed } as never);
-    api.patch.mockResolvedValueOnce({ data: failed } as never);
+    // A new token is checked again, so the answer carries a new check time.
+    api.patch.mockResolvedValueOnce({
+      data: { ...failed, lastCheckedAt: "2026-11-19T10:05:00.000Z" },
+    } as never);
     rendered = await renderWithApp(plugin, {
       manifest,
       locales,
@@ -390,7 +393,11 @@ describe("connections view under concurrent requests", () => {
     };
     api.post.mockResolvedValueOnce({ data: failed } as never);
     api.patch.mockResolvedValueOnce({
-      data: { ...failed, lastError: null },
+      data: {
+        ...failed,
+        lastError: null,
+        lastCheckedAt: "2026-11-19T10:05:00.000Z",
+      },
     } as never);
     rendered = await renderWithApp(plugin, {
       manifest,
@@ -456,5 +463,75 @@ describe("connections view under concurrent requests", () => {
     expect(api.post).toHaveBeenCalledTimes(1);
     const done = locales.onboarding.connect.done.replace("{{name}}", "Prod 2");
     expect(await inStep.findByText(done)).toBeTruthy();
+  });
+
+  it("retrying a saved failure with no changes probes Coolify again", async () => {
+    const failed = {
+      ...scopedConnection,
+      id: 5,
+      name: "Prod",
+      lastError: "unreachable",
+    };
+    const fixed = {
+      ...failed,
+      lastError: null,
+      lastCheckedAt: "2026-11-19T11:00:00.000Z",
+    };
+    const probed = {
+      data: {
+        connection: fixed,
+        probe: { ok: true, version: "v4.7.5", scoped: true, steps: [] },
+      },
+    };
+
+    // Onboarding: the first save stores a failure; Save again rechecks it.
+    const api = stubApi([]);
+    api.post
+      .mockResolvedValueOnce({ data: failed } as never)
+      .mockResolvedValueOnce(probed as never);
+    // With nothing changed, the update keeps the stored check as it was.
+    api.patch.mockResolvedValue({ data: failed } as never);
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions: ALL,
+    });
+    const step = rendered.renderOnboardingStep("connect");
+    const inStep = within(step.element);
+    await fillAddForm(inStep);
+    fireEvent.click(inStep.getByRole("button", { name: L.form.save }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    await inStep.findByText(L.probe.title);
+    fireEvent.click(inStep.getByRole("button", { name: L.form.save }));
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith("/connections/5/probe"),
+    );
+    const done = locales.onboarding.connect.done.replace("{{name}}", "Prod");
+    expect(await inStep.findByText(done)).toBeTruthy();
+    await rendered.deactivate();
+    rendered = null;
+
+    // The editor: Save on an unchanged failed connection rechecks it too.
+    const listed = { ...failed, id: 1 };
+    const editorApi = stubApi([listed]);
+    editorApi.patch.mockResolvedValue({ data: listed } as never);
+    editorApi.post.mockResolvedValueOnce({
+      data: { ...probed.data, connection: { ...fixed, id: 1 } },
+    } as never);
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api: editorApi,
+      permissions: ALL,
+    });
+    const tab = rendered.renderTab("coolify", { isVisible: true });
+    await within(tab).findByText(L.badges.error);
+    fireEvent.click(within(tab).getByRole("button", { name: L.actions.edit }));
+    fireEvent.click(await screen.findByRole("button", { name: L.form.save }));
+    await waitFor(() =>
+      expect(editorApi.post).toHaveBeenCalledWith("/connections/1/probe"),
+    );
+    expect(await within(tab).findByText(L.badges.ok)).toBeTruthy();
   });
 });

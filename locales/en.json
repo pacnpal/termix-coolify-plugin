@@ -220,8 +220,7 @@
       "saveFailed": "The connection was not saved.",
       "invalid-input": "Check the fields: {{message}}",
       "forbidden": "Only the connection's owner can change it.",
-      "not-found": "This connection no longer exists.",
-      "conflict": "This connection changed while it was being checked. Reload it and try again."
+      "not-found": "This connection no longer exists."
     }
   },
   "causes": {

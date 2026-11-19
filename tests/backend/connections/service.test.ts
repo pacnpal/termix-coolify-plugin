@@ -334,7 +334,7 @@ describe("connection service", () => {
     expect(rawRows()[0].base_url).toBe("https://coolify.example.test");
   });
 
-  it("a stale probe result does not overwrite a newer update", async () => {
+  it("a probe of an old target is dropped after an update changed the target", async () => {
     const view = await service.create(input);
     // Hold the old token's probe after it has read the old team.
     let release!: () => void;
@@ -364,71 +364,94 @@ describe("connection service", () => {
     const reachedTeam = holdAfterTeam("Bearer fake-older-token", held);
 
     const older = service.update(view.id, { token: "fake-older-token" });
-    const olderDone = older.then(
-      () => "saved",
-      (err: { status?: number }) => err.status,
-    );
     await reachedTeam;
     fake.set("GET /team", { json: { id: 9, name: "New team" } });
-    await service.update(view.id, { token: "fake-newer-token" });
+    const newer = service.update(view.id, { token: "fake-newer-token" });
 
     release();
-    // The older update learns its change didn't land, instead of overwriting.
-    expect(await olderDone).toBe(409);
+    // Updates to one connection run one after another, in the order asked.
+    await expect(older).resolves.toMatchObject({ teamName: "Ops team" });
+    await expect(newer).resolves.toMatchObject({ teamName: "New team" });
     expect((await service.get(view.id))?.teamName).toBe("New team");
     expect(rawRows()[0].instance_key).toBe("https://coolify.example.test#9");
     expect((await service.target(view.id)).token).toBe("fake-newer-token");
   });
 
-  it("an update checked against older settings does not restore them", async () => {
+  it("concurrent updates to one connection apply in order and none is lost", async () => {
     const view = await service.create(input);
+    const cert = "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----";
     let release!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));
     const reachedTeam = holdAfterTeam("Bearer fake-older-token", held);
 
     const older = service.update(view.id, { token: "fake-older-token" });
-    const olderDone = older.then(
-      () => "saved",
-      (err: { status?: number }) => err.status,
-    );
     await reachedTeam;
-    await service.update(view.id, { allowPrivate: true });
-
-    release();
-    expect(await olderDone).toBe(409);
-    expect(rawRows()[0].allow_private).toBeTruthy();
-    expect((await service.target(view.id)).token).toBe(TOKEN);
-  });
-
-  it("an update whose conditional write matched no row answers conflict and loses nothing silently", async () => {
-    const view = await service.create(input);
-    const cert = "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----";
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => (release = resolve));
-    // Hold the older update: the one sent without Cloudflare Access headers.
-    const reachedTeam = holdAfterTeamWhen(
-      (h) => !h?.["cf-access-client-id"],
-      held,
-    );
-
-    const older = service.update(view.id, { caCert: cert, name: "From older" });
-    const olderDone = older.then(
-      () => "saved",
-      (err: { status?: number }) => err.status,
-    );
-    await reachedTeam;
-    // The newer update sets the same certificate and also Cloudflare Access.
-    await service.update(view.id, {
+    const newer = service.update(view.id, {
       caCert: cert,
-      cfAccessId: "fake-cf-id",
-      cfAccessSecret: CF_SECRET,
+      allowPrivate: true,
+      name: "Renamed",
     });
 
     release();
-    expect(await olderDone).toBe(409);
-    const stored = await service.get(view.id);
-    expect(stored?.name).toBe("Prod");
-    expect(stored?.cfAccess).toBe(true);
+    await expect(older).resolves.toBeTruthy();
+    await expect(newer).resolves.toBeTruthy();
+    const [row] = rawRows();
+    expect(row.name).toBe("Renamed");
+    expect(row.ca_cert).toBe(cert);
+    expect(row.allow_private).toBeTruthy();
+    expect((await service.target(view.id)).token).toBe("fake-older-token");
+  });
+
+  it("an update racing a rename does not answer conflict when its write applied", async () => {
+    const view = await service.create(input);
+    // Start a rename right after the update's write is persisted, and give it
+    // time to land before the update would read its row back.
+    const persist = mock.ctx.db.persist;
+    let rename: Promise<unknown> | null = null;
+    mock.ctx.db.persist = async () => {
+      await persist();
+      if (!rename) {
+        rename = service.update(view.id, { name: "Renamed" });
+        await new Promise((r) => setTimeout(r, 30));
+      }
+    };
+    const saved = service.update(view.id, {
+      token: "fake-newer-token",
+      name: "From update",
+    });
+    await expect(saved).resolves.toMatchObject({ name: "From update" });
+    await rename;
+    mock.ctx.db.persist = persist;
+    expect((await service.target(view.id)).token).toBe("fake-newer-token");
+    expect((await service.get(view.id))?.name).toBe("Renamed");
+  });
+
+  it("ipv6 private check uses real prefixes", async () => {
+    const refuse = async (baseUrl: string) =>
+      expect(
+        service.create({ ...input, baseUrl, allowPrivate: true }),
+        baseUrl,
+      ).rejects.toMatchObject({ status: 400 });
+    const allow = async (baseUrl: string) =>
+      expect(
+        (await service.create({ ...input, baseUrl, allowPrivate: true }))
+          .baseUrl,
+        baseUrl,
+      ).toBe(baseUrl);
+    for (const host of ["fc::1", "fe8::1", "fec0::1", "2001:db8::1"]) {
+      await refuse(`http://[${host}]:8000`);
+    }
+    for (const host of ["fc00::1", "fdff:ffff::1", "fe80::1", "febf::1"]) {
+      await allow(`http://[${host}]:8000`);
+    }
+    // IPv4-mapped: the embedded IPv4 decides (URL writes it in hex).
+    const mapped = await service.create({
+      ...input,
+      baseUrl: "http://[::ffff:10.0.0.1]:8000",
+      allowPrivate: true,
+    });
+    expect(mapped.baseUrl).toBe("http://[::ffff:a00:1]:8000");
+    await refuse("http://[::ffff:8.8.8.8]:8000");
   });
 
   it("refuses plain http to a public host before sending anything", async () => {

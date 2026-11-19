@@ -271,9 +271,7 @@ export function registerConnectionRoutes(
    *       404:
    *         description: No such connection, or another user's
    *       409:
-   *         description: >-
-   *           Coolify is older than 4.4, or the connection changed while this
-   *           change was being checked
+   *         description: Coolify is older than 4.4
    */
   router.patch(
     "/connections/:id",

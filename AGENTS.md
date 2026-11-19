@@ -86,14 +86,21 @@ aren't obvious from the code, and anything that has bitten you before.
 - Probe: `abilities.root` is never inferred. `GET /settings/email` answers any root-team admin's token
   whatever its abilities, so it is only the `settings` step; no read-only call needs `root` alone. Only
   logs or key material prove `sensitive`. A check with nothing to try gets `skipped: "nothing-to-probe"`.
-- Probe writes are conditional on the connection still pointing at the probed target (`sameTarget`), so a
-  slow probe can't overwrite a newer change; an update that lost that race answers 409 `conflict`. Update
+- Writes to one connection are serialized by an in-memory per-connection lock (`withLock` in
+  `service.ts`): update (held through its probe, so updates apply in the order asked), remove, and storing
+  an explicit probe's result. This relies on the plugin backend being a single Node process per Termix
+  server; if that ever changes, the lock must move to the database. An explicit probe runs outside the
+  lock and stores its result under it only while the connection still points at the probed target
+  (`sameTarget`), so a probe of an old target is dropped. No path answers 409 for a write. Update
   reads a stored secret only when the change keeps it and needs a probe; an unreadable one is refused
   (400), and a replacement token or Cloudflare Access value repairs it.
 - Transport: `checkTransport` runs in `clientFor`, before any client exists. https is required; plain http
   only for loopback (`localhost`, 127/8, ::1), or a private or link-local IP literal with `allowPrivate`.
   Names are never trusted as private (the plugin can't resolve them; `coolify.lan` could be public). In `http.ts`, an HTML answer to a 4xx is `not-coolify` (never a token ability), and every
   body read goes through `readText`, so a failed read is a typed `CoolifyError`.
+- The connection form: after a create it edits the saved row (no duplicates), and saving a failed
+  connection whose update didn't check again (same `lastCheckedAt`) calls the probe route, so a retry after
+  fixing Coolify isn't stuck. The backend still doesn't re-probe a plain rename.
 - Service logs are read per Part; `get-service-logs-by-uuid` needs a `sub_service_name` and is skipped.
 - Operation tests: the mock ctx records no run history, so `tests/backend/helpers/run-history.ts` applies
   the SDK's own `parseOperationInput` and `redactFields` around `ctx.operations.run`, as core does.

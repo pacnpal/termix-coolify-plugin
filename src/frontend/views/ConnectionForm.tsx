@@ -31,12 +31,7 @@ const FIXABLE = new Set([
 ]);
 
 /** Plugin refusals that are not Coolify causes (locales `connections.errors`). */
-const PLUGIN_ERRORS = new Set([
-  "invalid-input",
-  "forbidden",
-  "not-found",
-  "conflict",
-]);
+const PLUGIN_ERRORS = new Set(["invalid-input", "forbidden", "not-found"]);
 
 type T = ReturnType<typeof useTranslation>["t"];
 
@@ -136,6 +131,15 @@ export function useConnectionForm(
           patch.cfAccessSecret = state.cfAccessSecret.trim();
         }
         saved = await api.updateConnection(current.id, patch);
+        // An update that changes nothing Coolify sees doesn't check again, so
+        // a saved failure would stay stuck after Coolify is fixed: retrying it
+        // asks for a fresh probe instead.
+        if (
+          current.lastError &&
+          saved.lastCheckedAt === current.lastCheckedAt
+        ) {
+          saved = (await api.probeConnection(saved.id)).connection;
+        }
       } else {
         const input: ConnectionInput = {
           name,
