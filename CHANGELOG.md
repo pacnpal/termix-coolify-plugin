@@ -51,3 +51,14 @@
 - "Use with an MCP client" in the Connections view, with the endpoint and a client config to copy
 - An API and MCP reference (`docs/api.md`) with every action's route, run path, key scope, MCP tool and a
   `curl` example
+- Deploy, Force rebuild, Restart, and Start or Stop in a resource's header, with a Restart for each part of
+  a service. Stop and Force rebuild ask first, naming the resource. "Coolify: Deploy…" in the command palette
+- Lifecycle works with or without a Linked host: on a Linked host's resource through `coolify.deploy`,
+  `coolify.start`, `coolify.restart` and `coolify.stop` (in the host's history), otherwise through
+  `coolify.resource-deploy`, `coolify.resource-restart` and `coolify.resource-action`. Each needs the Operate
+  permission and the owner or an operate grant, and accepts only that connection's own resources
+- Deploy can wait for the deployment and sends a deployment finished or failed event. Over MCP, deploy and
+  restart work without "Allow changes over MCP"; start and stop still need it
+- Coolify resources on Linked hosts (`coolify.resource`, `coolify.list-resources`), `coolify.sync-host`,
+  status tiles for degraded resources, server reachability, security updates and deployments running, and
+  the declared events deployment finished, deployment failed, container restarted and server unreachable

@@ -594,5 +594,36 @@
     },
     "parts": "Parts",
     "missing": "This resource is no longer in Coolify."
+  },
+  "lifecycle": {
+    "deploy": "Deploy",
+    "forceRebuild": "Force rebuild",
+    "start": "Start",
+    "stop": "Stop",
+    "restart": "Restart",
+    "restartPart": "Restart {{name}}",
+    "running": "Working",
+    "stopConfirm": {
+      "title": "Stop {{name}}?",
+      "description": "Coolify stops it, and it stays stopped until you start it again.",
+      "confirm": "Stop"
+    },
+    "forceConfirm": {
+      "title": "Force rebuild {{name}}?",
+      "description": "Coolify rebuilds it without the build cache, which takes longer than a deploy.",
+      "confirm": "Force rebuild"
+    },
+    "done": {
+      "deploy": "Deploy of {{name}} queued.",
+      "start": "Started {{name}}.",
+      "stop": "Stopped {{name}}.",
+      "restart": "Restarted {{name}}.",
+      "pending": "Waiting for approval to change {{name}}."
+    },
+    "failed": "{{name}} could not be changed."
+  },
+  "palette": {
+    "group": "Coolify",
+    "deploy": "Coolify: Deploy…"
   }
 }

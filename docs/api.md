@@ -41,6 +41,21 @@ appear in run history.
 | `coolify.signal-updates`     | `GET /plugin-api/coolify/connections/:id/servers`                  | `/operations/coolify.signal-updates/run`     | `operations:read` or `operations:run` | `coolify__signal_updates`     | `curl -X POST "$TERMIX/operations/coolify.signal-updates/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7}'`                                                                                       |
 | `coolify.signal-deploying`   | `GET /plugin-api/coolify/connections/:id/resources`                | `/operations/coolify.signal-deploying/run`   | `operations:read` or `operations:run` | `coolify__signal_deploying`   | `curl -X POST "$TERMIX/operations/coolify.signal-deploying/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{}}'`                                                                                     |
 
+### Lifecycle routes
+
+`POST /plugin-api/coolify/connections/:id/resources/:uuid/{start|stop|restart|deploy}` (deploy takes
+`{ "force": true|false }`) needs **Operate Coolify resources** and the owner or an operate or configure grant.
+It answers `{ "deploymentUuid": "…" | null }`, or 202 `{ "status": "pending", "runId" }` while an approval
+waits. With a Linked host it runs the resource-scope action on that host (`hostId`, `resourceKey` = the uuid),
+so the run is in the host's history; without one it runs `coolify.resource-deploy`, `coolify.resource-restart`
+or `coolify.resource-action`. A uuid that isn't one of the connection's resources is 404, a missing permission
+or a view grant 403, and a Coolify refusal 502 with a `cause` such as `forbidden-ability`.
+
+```bash
+curl -X POST "$TERMIX/plugin-api/coolify/connections/1/resources/<resource uuid>/deploy" \
+  -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"force":false}'
+```
+
 ## MCP
 
 The endpoint is `POST /plugin-api/coolify/mcp`: stateless JSON-RPC 2.0 over HTTP with `initialize`, `ping`,
@@ -66,8 +81,11 @@ address and a client config example. The Connections view shows the same under *
   - `list_hosts`: the Termix hosts linked to Coolify servers. Empty until host sync arrives.
   - `list_resources`: the applications, services and databases of a connection. Empty until resources
     arrive.
-- **Changes over MCP are off by default.** Read tools always work. Change and destructive tools answer
-  `mcp-changes-off` until an admin turns on **Allow changes over MCP** in the plugin's settings. That switch
+- **Changes over MCP are off by default.** Read tools always work, and so do deploy and restart in both
+  scopes: `coolify__deploy`, `coolify__restart` (on a Linked host's resource) and `coolify__resource_deploy`,
+  `coolify__resource_restart` (by connection and uuid, for resources with no Linked host). Every other change
+  and destructive tool, start and stop included, answers `mcp-changes-off` until an admin turns on **Allow
+  changes over MCP** in the plugin's settings. That switch
   covers this endpoint only; the operations API and plugin routes follow normal permissions, key scope and
   approvals. A destructive tool also needs `confirmed: true` in its arguments.
 - **Approvals:** when a rule needs a person, the tool answers with the run id and waits; the action runs once

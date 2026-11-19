@@ -69,7 +69,7 @@ aren't obvious from the code, and anything that has bitten you before.
   Where things stand: identity, permissions, admin settings, the vendored API and the tables exist,
   Connections work (routes, operations, the Connections view and the "Connect Coolify" onboarding step),
   host sync turns Coolify servers into locked Linked hosts, and Resources can be browsed (Overview tiles,
-  the Resources list, a resource's Overview detail).
+  the Resources list, a resource's Overview detail) and deployed, started, stopped and restarted.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
 - Coolify calls: `src/backend/coolify/http.ts` is the only way to Coolify (ctx.fetch, Bearer and CF Access
@@ -109,7 +109,8 @@ aren't obvious from the code, and anything that has bitten you before.
   `pluginSettings` and `pluginEnable`, so tests spy on the calls to check them.
 - Frontend host surfaces: `src/frontend/linked.ts` reads a host's link from its own settings and shares one
   sync preview per connection (five minutes) between badge dots and the host card. The tab opens the sync
-  preview from `tab.data` `{ section: "sync", connectionId? }`; `section: "resources"` is for ticket #7.
+  preview from `tab.data` `{ section: "sync", connectionId? }`; `{ section: "resources", connectionId? }`
+  opens Resources (`targetOf` in CoolifyTab.tsx).
 - Resources: `src/backend/resources/` (service, routes) and `src/backend/ops/resources.ts`. The service
   merges `/applications`, `/services` (each service followed by its Parts) and `/databases`, never
   `/resources`, and caches the merged DTO list in the `cache` table (kind `resources`, 20 seconds) through
@@ -123,3 +124,15 @@ aren't obvious from the code, and anything that has bitten you before.
   resource list (`useResources`). `ResourceDetail.tsx` lists its views in `DETAIL_TABS`; later views (shell,
   logs, stats) add an id there. Filtering and grouping are pure functions in `resource-model.ts`.
   `contributes.mobile` lists only `coolify` until the `coolify-shell` tab is registered.
+- Lifecycle: `src/backend/resources/lifecycle.ts` has `lifecycle(api, uuid, verb, opts)` (a Part uses its
+  service's per-Part endpoints; a Part's deploy deploys its service) and `createLifecycle`, whose
+  `authorize` is the one access check for every lifecycle path: `coolify.operate`, owner or a grant of
+  operate/configure, and a uuid found in that connection's own resource list (a cache miss is checked once
+  fresh). `onHost` also needs the resource on the host's own server. Routes (`resources/routes.ts`) run the
+  resource-scope action on the Linked host (`sync.linkedHostFor`) or the server-scope one, and map a failed
+  outcome back to a status and cause. `sync.linkOfHost(hostId)` is the reverse lookup handlers use.
+- MCP may deploy and restart without `allowMcpChanges` (`MCP_CHANGES_EXEMPT` in `mcp/server.ts`).
+- Signals (`src/backend/ops/signals.ts`) read resources from the resources cache and server statuses from a
+  `servers` cache kind (a minute, no addresses or keys kept). Updates come from Coolify's own patch check
+  (`ServerDto.patch.security`) until the updates service exists. The deployment events are emitted only
+  by a deploy run with `wait`; container-restarted and server-unreachable are declared for later polling.

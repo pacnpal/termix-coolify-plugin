@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Boxes, LayoutDashboard, Plug, Rocket } from "lucide-react";
 import type { TabProps } from "@termix-ssh/plugin-sdk/frontend";
-import { usePluginApi, useTranslation } from "@termix-ssh/plugin-sdk/frontend";
+import {
+  usePermission,
+  usePluginApi,
+  useTranslation,
+} from "@termix-ssh/plugin-sdk/frontend";
 import {
   EmptyState,
   LoadingState,
@@ -21,6 +25,13 @@ import { useResources } from "./useResources";
 
 /** The sections, in SideNav order. Servers (host sync) adds its own here. */
 export type Section = "overview" | "resources" | "connections";
+
+/** Access levels that may start, stop, restart and deploy. */
+const OPERATE_ACCESS: ReadonlySet<string> = new Set([
+  "owner",
+  "operate",
+  "configure",
+]);
 
 /** What the tab was opened for, from its data. */
 interface TabTarget {
@@ -69,6 +80,7 @@ export function CoolifyTab(props: TabProps) {
   );
   const [health, setHealth] = useState<HealthFilter>("all");
   const [openUuid, setOpenUuid] = useState<string | null>(null);
+  const canOperate = usePermission("operate");
 
   const loadConnections = useCallback(async () => {
     let list: Connection[] = [];
@@ -169,12 +181,15 @@ export function CoolifyTab(props: TabProps) {
         )}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">{body}</div>
       </div>
-      {openUuid !== null && section === "resources" && (
+      {openUuid !== null && section === "resources" && connection && (
         <ResourceDetail
           resource={rows.find((r) => r.uuid === openUuid) ?? null}
           rows={rows}
           onOpen={setOpenUuid}
           onClose={() => setOpenUuid(null)}
+          connectionId={connection.id}
+          canOperate={canOperate && OPERATE_ACCESS.has(connection.access)}
+          onChanged={() => void resources.reload(true)}
         />
       )}
     </PanelFrame>
