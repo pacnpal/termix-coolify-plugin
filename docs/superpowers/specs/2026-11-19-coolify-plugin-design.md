@@ -673,8 +673,20 @@ Coolify server and the Termix host it would become:
   - `ip` is the tunnel hostname, with Coolify's `port` and `user`.
   - `pluginSettings["ssh-terminal"]` is `{ cloudflareTunnelEnabled: true, cloudflareTunnelHostname: ip,
 cloudflareTunnelPort: 443 }`, plus the service token if one is set.
-  - If SSH Terminal isn't running, the row is blocked: "Needs the SSH Terminal plugin for Cloudflare
-    tunnels".
+  - **Cloudflare tunnels are carried by SSH Terminal's built-in tunnel**, which this plugin uses and
+    recommends. It does not use a separate tunnel plugin. SSH Terminal **1.2.0 or newer** is required:
+    1.0.3 tunnelled only its own terminal tab, and 1.2.0 made the tunnel carry every SSH connection, which
+    file manager, Docker and this plugin need.
+    - The plugin checks this with `plugins:read`.
+    - SSH Terminal off: the row is blocked with "Turn on the SSH Terminal plugin to reach servers behind
+      Cloudflare tunnels", and a button opens Termix's Plugins tab.
+    - SSH Terminal older than 1.2.0: the row is blocked with "Update SSH Terminal to 1.2.0 or newer; older
+      versions tunnel only the terminal", and the same button.
+    - Connection setup shows the same check once, as a line in its checklist, whenever the Coolify instance
+      has tunnelled servers.
+    - On a Linked host that is tunnelled, the host section says "Tunnel: through SSH Terminal (Cloudflare)".
+      It offers "Open tunnel settings", which opens the host editor at SSH Terminal's section. The fields
+      there stay read-only while the host is linked, because of the lock.
 - **The Coolify host** (`is_coolify_host`, or `ip` of `host.docker.internal`, `localhost` or `127.*`):
   prefill the connection URL's hostname, require confirmation, and keep it as an address override. Any
   server can have an override, and overrides survive syncs.
