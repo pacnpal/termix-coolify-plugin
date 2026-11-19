@@ -1,5 +1,6 @@
 import type { Request, Response, Router } from "express";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
+import { CompanionError } from "../companions/detect.js";
 import { CoolifyError, toRouteError } from "../coolify/http.js";
 import {
   ConnectionError,
@@ -17,6 +18,11 @@ type Handler = (req: Request, res: Response) => Promise<unknown>;
 export function sendError(ctx: PluginContext, res: Response, err: unknown) {
   if (err instanceof ConnectionError) {
     return res.status(err.status).json({ error: err.message, cause: err.code });
+  }
+  if (err instanceof CompanionError) {
+    return res
+      .status(err.status)
+      .json({ error: err.message, cause: err.code, plugin: err.plugin });
   }
   const { status, body } = toRouteError(err);
   if (!(err instanceof CoolifyError)) {

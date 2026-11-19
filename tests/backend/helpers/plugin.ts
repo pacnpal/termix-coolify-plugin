@@ -48,6 +48,8 @@ export async function startPlugin(
     installedPlugins?: MockContextOptions["installedPlugins"];
     /** What ctx.credentials.list answers: the actor's own credentials. */
     credentialSummaries?: MockContextOptions["credentialSummaries"];
+    /** Other plugins' services, for the companion adapters. */
+    services?: MockContextOptions["services"];
     /** Hosts ctx.hosts.get and checkAccess answer with. */
     hosts?: MockContextOptions["hosts"];
   } = {},
@@ -71,6 +73,7 @@ export async function startPlugin(
     settings: options.settings,
     installedPlugins: options.installedPlugins,
     credentialSummaries: options.credentialSummaries,
+    services: options.services,
     hosts: options.hosts,
     actor: OWNER,
   });

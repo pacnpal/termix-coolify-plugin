@@ -9,6 +9,7 @@ import {
   toProject,
   toServer,
   toService,
+  toStorages,
   toTeam,
   type DeploymentDto,
   type KeyDto,
@@ -16,6 +17,7 @@ import {
   type ResourceDto,
   type ResourceKind,
   type ServerDto,
+  type StorageDto,
   type TeamDto,
 } from "./dto.js";
 
@@ -252,6 +254,16 @@ export function createCoolifyApi(http: CoolifyHttp) {
             opts.parentUuid,
           );
       }
+    },
+
+    /** An application's, service's or database's storages, without content. */
+    async storages(
+      kind: "application" | "service" | "database",
+      uuid: string,
+    ): Promise<StorageDto[]> {
+      return toStorages(
+        await call(op(`list-storages-by-${kind}-uuid`, { uuid })),
+      );
     },
 
     /** Container logs through Coolify. Needs read:sensitive on the token. */

@@ -160,6 +160,73 @@
       "body": {},
       "allowed": "any",
       "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify before any SSH; there is no reachable Coolify or Linked host in the authz run."
+    },
+    "GET /plugin-api/coolify/companions": {
+      "access": "user",
+      "permission": "coolify.view"
+    },
+    "GET /plugin-api/coolify/connections/:id/resources/:uuid/paths": {
+      "access": "user",
+      "permission": "coolify.operate",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-resource-uuid"
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid and the authz run has no companion plugins, so an allowed caller gets 404 companion-missing (or 502 from Coolify) before any SSH."
+    },
+    "POST /plugin-api/coolify/connections/:id/resources/:uuid/tunnel": {
+      "access": "user",
+      "permission": "coolify.operate",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-resource-uuid"
+      },
+      "body": {
+        "port": 3000
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid and the authz run has no companion plugins, so an allowed caller gets 404 companion-missing (or 502 from Coolify) before any SSH."
+    },
+    "DELETE /plugin-api/coolify/connections/:id/resources/:uuid/tunnel/:port": {
+      "access": "user",
+      "permission": "coolify.operate",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-resource-uuid",
+        "port": "=3000"
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid and the authz run has no companion plugins, so an allowed caller gets 404 companion-missing (or 502 from Coolify) before any SSH."
+    },
+    "POST /plugin-api/coolify/connections/:id/resources/:uuid/web-ui": {
+      "access": "user",
+      "permission": "coolify.operate",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-resource-uuid"
+      },
+      "body": {
+        "port": 80
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid and the authz run has no companion plugins, so an allowed caller gets 404 companion-missing (or 502 from Coolify) before any SSH."
     }
   }
 }

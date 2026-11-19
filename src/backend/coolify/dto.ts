@@ -368,3 +368,42 @@ export function toKey(input: unknown): KeyDto {
     privateKeyReadable: typeof material === "string" && material.trim() !== "",
   };
 }
+
+/**
+ * A resource's storage as Coolify's storages list gives it: a Docker volume
+ * (persistent storage) or a file or folder mounted from the server. Never a
+ * file storage's content.
+ */
+export interface StorageDto {
+  kind: "volume" | "file";
+  /** The Docker volume's name, for a volume. */
+  name: string | null;
+  /** Where it is mounted inside the container. */
+  mountPath: string | null;
+  /** Where it is on the server, when Coolify says (a bind mount or a file). */
+  hostPath: string | null;
+}
+
+/** `{ persistent_storages, file_storages }` as StorageDtos. */
+export function toStorages(input: unknown): StorageDto[] {
+  const raw = obj(input);
+  const volumes = list(raw.persistent_storages).map((entry): StorageDto => {
+    const item = obj(entry);
+    return {
+      kind: "volume",
+      name: strOrNull(item.name),
+      mountPath: strOrNull(item.mount_path),
+      hostPath: strOrNull(item.host_path),
+    };
+  });
+  const files = list(raw.file_storages).map((entry): StorageDto => {
+    const item = obj(entry);
+    return {
+      kind: "file",
+      name: null,
+      mountPath: strOrNull(item.mount_path),
+      hostPath: strOrNull(item.fs_path),
+    };
+  });
+  return [...volumes, ...files];
+}

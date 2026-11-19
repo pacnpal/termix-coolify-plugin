@@ -195,6 +195,19 @@
         "description": "A shell in the container, or the database's own console.",
         "shell": "Shell",
         "db": "Database console"
+      },
+      "kind": {
+        "label": "What to do",
+        "description": "The companion feature to use. Each one needs its plugin installed."
+      },
+      "params": {
+        "label": "Details",
+        "readDescription": "A JSON object: uuid for a resource (files-paths), and part for one of a service's parts.",
+        "changeDescription": "A JSON object with uuid, the resource, and port (1 to 65535). Optional: part, container (a name from an earlier choices answer) and, for web-ui, scheme (http or https)."
+      },
+      "url": {
+        "label": "Web UI link",
+        "description": "A one-time link that signs you in to the container's web UI. It is never kept in run history."
       }
     },
     "listConnections": {
@@ -240,6 +253,21 @@
     "shellCommand": {
       "title": "Coolify container shell command",
       "description": "The docker exec command that opens a shell or database console in a resource's container, run on its Linked host. It holds no password: a console reads its credentials inside the container. Needs connect access to the Linked host."
+    },
+    "companionRead": {
+      "title": "Read from a companion plugin",
+      "description": "Reads what a companion plugin needs for a Coolify resource: which companion plugins run, and where the resource's files are on its server for File Manager."
+    },
+    "companion": {
+      "title": "Use a companion plugin",
+      "description": "Reaches a resource's container from the Termix server through Tunnels, stops that forward, or opens a one-time web UI link through Reverse Proxy. Needs connect access to the Linked host."
+    },
+    "kinds": {
+      "companions": "Which companion plugins run",
+      "filesPaths": "Where a resource's files are",
+      "tunnelOpen": "Reach a container port from the Termix server",
+      "tunnelClose": "Stop reaching a container port",
+      "webUi": "Open a container's web UI"
     }
   },
   "connections": {
