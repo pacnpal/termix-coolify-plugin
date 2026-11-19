@@ -66,10 +66,25 @@ Keep this section current when the plugin changes: what it does, how it is put t
 aren't obvious from the code, and anything that has bitten you before.
 
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
-  Where things stand: the identity, permissions and admin settings are declared, the Coolify tab shows an
-  empty state, the Coolify API is vendored and generated, and the tables exist; no routes or features yet.
+  Where things stand: identity, permissions, admin settings, the vendored API and the tables exist, and
+  Connections work (routes, operations, the Connections view and the "Connect Coolify" onboarding step).
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
+- Coolify calls: `src/backend/coolify/http.ts` is the only way to Coolify (ctx.fetch, Bearer and CF Access
+  headers, `redirect: "manual"`, 150 requests a minute, GET retries, every failure a `CoolifyError` with a
+  `CoolifyCause`). `toRouteError` sends fixed messages only, never what Coolify sent back, because Coolify can
+  echo a token. `/version` and `/health` answer `text/html`, so they use `{ text: true }`; any other HTML
+  body is `not-coolify`. `dto.ts` picks fields by name (no spreads), `api.ts` calls paths from `OPERATIONS`.
+- Connections: `src/backend/connections/` (service, probe, routes) and `src/backend/ops/connections.ts`.
+  Tokens are sealed with `ctx.secrets.seal`. The `abilities` column holds the probe summary
+  (`{ abilities, scoped, teamId, steps }`), since there is no column for scope or the checklist.
+  `lastError` holds a cause id, which the UI translates under `causes`. Create refuses Coolify older than
+  4.4 and stores nothing; any other failed probe is saved with `lastError`, so authz CI can seed one with
+  an unreachable URL. Another user's connection is always 404. Only owners reach a connection in 1.0; the
+  grants table is read but nothing writes it. `remove` calls the `releaseLinkedHosts` hook first (host sync
+  supplies it) and keeps the webhook row, which other connections to the same team share.
+- Operation tests: the mock ctx records no run history, so `tests/backend/helpers/run-history.ts` applies
+  the SDK's own `parseOperationInput` and `redactFields` around `ctx.operations.run`, as core does.
 - Coolify API: `vendor/coolify/` holds the v4.7.5, `main` and `next` specs as fetched (see its README).
   `npm run gen:coolify` writes `src/backend/coolify/generated/` (`OPERATIONS`, `EXCLUDED_OPERATIONS`, the
   `paths` types). `docs/coverage.md` must list every operation; `tests/backend/coverage.test.ts` enforces it.

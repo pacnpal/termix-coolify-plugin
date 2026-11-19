@@ -12,3 +12,9 @@
   oldest Coolify version that has it, and a coverage page naming how the plugin uses each one
 - The plugin's tables (connections, grants, webhooks, servers, cache, events, onboardings, status pages, DNS
   records and recent items) with migrations for SQLite, PostgreSQL and MySQL
+- Connect Coolify instances: name, URL and API token, with an optional Cloudflare Access service token,
+  local network address and CA certificate. The token is stored encrypted and never shown again
+- A check of each connection: Coolify 4.4 or newer, the team, scoped tokens, and whether the token can read
+  keys, logs and instance settings, with a plain cause and fix when something fails
+- The Connections view and a "Connect Coolify" setup step
+- Actions to list, check, add, change and remove connections; token fields never appear in run history

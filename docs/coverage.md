@@ -271,7 +271,7 @@ run `npm run gen:coolify` and add the new rows.
 | -------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------ |
 | create-private-key         | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.5 Infrastructure (Keys section). |
 | delete-private-key-by-uuid | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.5 Infrastructure (Keys section). |
-| get-private-key-by-uuid    | used   | Task 4 `key()`, Task 9 (mode A key copy).                                                                                      |
+| get-private-key-by-uuid    | used   | Task 4 `key()`, Task 6 (probe: key material readable, then dropped), Task 9 (mode A key copy).                                 |
 | list-private-keys          | used   | Task 4 `keys()`, Task 6 (probe: can the token read keys), Task 9 (mode A key copy).                                            |
 | update-private-key         | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.5 Infrastructure (Keys section). |
 
@@ -439,10 +439,10 @@ run `npm run gen:coolify` and add the new rows.
 
 ## Settings
 
-| Operation                      | Status | Where or why                                                                                                                         |
-| ------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| get-instance-email-settings    | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.6 Team and sharing (Instance section). |
-| update-instance-email-settings | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.6 Team and sharing (Instance section). |
+| Operation                      | Status | Where or why                                                                                                                                                                                                                   |
+| ------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| get-instance-email-settings    | used   | Task 4 `rootCheck()`, Task 6 (probe: is the token root; the settings are dropped unread); Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.6 Team and sharing (Instance section). |
+| update-instance-email-settings | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.6 Team and sharing (Instance section).                                                                                           |
 
 ## Shared Environment Variables
 
