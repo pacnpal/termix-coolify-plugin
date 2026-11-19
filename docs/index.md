@@ -115,7 +115,9 @@ Who may use them:
 - Anything about a Linked host also needs your own access to that host in Termix.
 
 They are also actions: `coolify.companion-read` (offered to the assistant and MCP) reads any of them, and
-`coolify.companion` creates or removes DNS records and pauses or resumes Uptime monitors. The plugin never
+`coolify.companion` creates DNS records and pauses or resumes Uptime monitors. Removing a DNS record is
+its own action, `coolify.companion-dns-remove`: it is marked destructive, so Termix asks for a confirm, and
+it is never offered to the assistant or MCP. The plugin never
 sends a Coolify token or any other secret to another plugin.
 
 ## Permissions

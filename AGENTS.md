@@ -112,7 +112,9 @@ aren't obvious from the code, and anything that has bitten you before.
   preview from `tab.data` `{ section: "sync", connectionId? }`; `section: "resources"` is for ticket #7.
 - Companions: `src/backend/companions/` (`detect.ts` `companions(ctx)` from `ctx.plugins.list`, cached 60 s
   per ctx in a WeakMap; `adapters.ts`, the only code that calls another plugin; `service.ts`; `routes.ts`) and
-  `src/backend/ops/companions.ts` (`coolify.companion-read` for reads, `coolify.companion` for changes, one
+  `src/backend/ops/companions.ts` (`coolify.companion-read` for reads, `coolify.companion` for changes,
+  `coolify.companion-dns-remove` on its own because it is destructive and is the only call that passes
+  `confirmed: true` downstream, to `dns.delete-record`; one
   `kind` per route). Every service method checks, in order: the Termix permission (`ctx.rbac.has`), the
   connection grant rank (view < operate < configure < owner), that the companion runs, then for Linked hosts
   `ctx.hosts.checkAccess(hostId, "view")`, failing closed. A missing companion is a `CompanionError`

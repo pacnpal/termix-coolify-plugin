@@ -591,10 +591,6 @@
                   "labelKey": "ops.kinds.dns"
                 },
                 {
-                  "value": "dns-remove",
-                  "labelKey": "ops.kinds.dnsRemove"
-                },
-                {
                   "value": "uptime-pause",
                   "labelKey": "ops.kinds.uptimePause"
                 },
@@ -614,6 +610,45 @@
           ],
           "risk": "change",
           "permission": "operate",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.companion-dns-remove",
+          "titleKey": "ops.companionDnsRemove.title",
+          "descriptionKey": "ops.companionDnsRemove.description",
+          "icon": "Trash2",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.resourceUuid.label",
+              "descriptionKey": "ops.fields.resourceUuid.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            },
+            {
+              "key": "recordId",
+              "type": "number",
+              "labelKey": "ops.fields.recordId.label",
+              "descriptionKey": "ops.fields.recordId.description",
+              "min": 1,
+              "required": true
+            }
+          ],
+          "risk": "destructive",
+          "permission": "configure",
           "surfaces": {
             "assistant": false,
             "mcp": false

@@ -169,7 +169,7 @@
         "recordId": "=1"
       },
       "allowed": "any",
-      "note": "Answers 404 companion-missing unless the DNS plugin runs, and the authz run installs no companions",
+      "note": "Answers 404 companion-missing unless the DNS plugin runs, and the authz run installs no companions. Deletes a DNS record, like the destructive action coolify.companion-dns-remove",
       "destructive": true
     },
     "GET /plugin-api/coolify/connections/:id/resources/:uuid/uptime": {

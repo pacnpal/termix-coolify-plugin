@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OperationAction } from "@termix-ssh/plugin-sdk/operations";
 import { manifest, type PluginHarness } from "../helpers/plugin.js";
 import { withRunHistory } from "../helpers/run-history.js";
@@ -72,8 +72,10 @@ describe("companion operations", () => {
       ].sort(),
     );
     expect(kinds("coolify.companion").sort()).toEqual(
-      ["dns", "dns-remove", "uptime-pause", "uptime-resume"].sort(),
+      ["dns", "uptime-pause", "uptime-resume"].sort(),
     );
+    // Removing a DNS record is its own destructive action.
+    expect(declared("coolify.companion-dns-remove")).toBeDefined();
   });
 
   it("security, db-login and backups-failed answer the same through companion-read as their routes", async () => {
@@ -134,8 +136,21 @@ describe("companion operations", () => {
     expect((outcome.data as { source: string }).source).toBe("docker");
   });
 
-  it("dns and dns-remove store and remove a handle; an unknown one is refused", async () => {
-    const { runs, id, companions } = await start();
+  it("dns-remove is a destructive action with confirm", async () => {
+    const action = declared("coolify.companion-dns-remove");
+    expect(action.risk).toBe("destructive");
+    expect(action.permission).toBe("configure");
+    expect(action.scope).toBe("server");
+    expect(action.surfaces?.assistant).toBe(false);
+    expect(action.surfaces?.mcp).toBe(false);
+    expect(action.inputs?.map((i) => i.key)).toEqual([
+      "connectionId",
+      "uuid",
+      "recordId",
+    ]);
+
+    const { harness: h, runs, id, companions } = await start();
+    const invoke = vi.spyOn(h.mock.ctx.operations, "invoke");
     const made = await runs.run("coolify.companion", {
       connectionId: id,
       kind: "dns",
@@ -144,21 +159,72 @@ describe("companion operations", () => {
     expect(made.changed).toBe(true);
     const recordId = (made.data as { id: number }).id;
     await expect(
-      runs.run("coolify.companion", {
+      runs.run("coolify.companion-dns-remove", {
         connectionId: id,
-        kind: "dns-remove",
-        params: { uuid: "app-web-uuid", recordId: recordId + 100 },
+        uuid: "app-web-uuid",
+        recordId: recordId + 100,
       }),
     ).rejects.toThrow(/no dns record/i);
-    const removed = await runs.run("coolify.companion", {
+    const removed = await runs.run("coolify.companion-dns-remove", {
       connectionId: id,
-      kind: "dns-remove",
-      params: { uuid: "app-web-uuid", recordId },
+      uuid: "app-web-uuid",
+      recordId,
     });
     expect(removed.data).toEqual({ id: recordId, removed: true });
+    expect(removed.changed).toBe(true);
     expect(
       companions.calls.filter((c) => c.name === "dns.delete-record"),
     ).toHaveLength(1);
+    // Only the destructive delete carries a confirm downstream.
+    const confirmed = invoke.mock.calls
+      .filter(([, options]) => options?.confirmed === true)
+      .map(([actionId]) => actionId);
+    expect(confirmed).toEqual(["dns.delete-record"]);
+  });
+
+  it("coolify.companion no longer accepts dns-remove", async () => {
+    const { runs, id, companions } = await start();
+    await runs.run("coolify.companion", {
+      connectionId: id,
+      kind: "dns",
+      params: { uuid: "app-web-uuid", fqdn: "a.example.test" },
+    });
+    await expect(
+      runs.run("coolify.companion", {
+        connectionId: id,
+        kind: "dns-remove",
+        params: { uuid: "app-web-uuid", recordId: 1 },
+      }),
+    ).rejects.toThrow();
+    expect(
+      companions.calls.filter((c) => c.name === "dns.delete-record"),
+    ).toEqual([]);
+  });
+
+  it("companion-dns-remove answers the same as DELETE …/dns/:recordId", async () => {
+    const { harness: h, runs, id } = await start();
+    const base = `/connections/${id}/resources/app-web-uuid/dns`;
+    const first = await h.request("POST", base, { fqdn: "a.example.test" });
+    const second = await h.request("POST", base, { fqdn: "b.example.test" });
+    const route = await h.request("DELETE", `${base}/${first.body.id}`);
+    const op = await runs.run("coolify.companion-dns-remove", {
+      connectionId: id,
+      uuid: "app-web-uuid",
+      recordId: second.body.id,
+    });
+    expect(route.status).toBe(200);
+    expect(op.data).toEqual({ ...route.body, id: second.body.id });
+    expect((await h.request("GET", base)).body).toEqual([]);
+    // An unknown record is refused the same way by both.
+    const routeMissing = await h.request("DELETE", `${base}/999`);
+    expect(routeMissing.body.cause).toBe("dns-record-not-found");
+    await expect(
+      runs.run("coolify.companion-dns-remove", {
+        connectionId: id,
+        uuid: "app-web-uuid",
+        recordId: 999,
+      }),
+    ).rejects.toThrow(routeMissing.body.error);
   });
 
   it("uptime-pause and uptime-resume run uptime.pause and uptime.resume for the resource's monitors", async () => {

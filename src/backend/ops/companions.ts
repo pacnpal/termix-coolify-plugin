@@ -23,7 +23,7 @@ function paramsOf(input: Record<string, unknown>): Params {
 
 const text = (value: unknown) => (typeof value === "string" ? value : "");
 
-function recordIdOf(params: Params): number {
+function recordIdOf(params: Record<string, unknown>): number {
   const raw = params.recordId;
   if (typeof raw === "number") return raw;
   return typeof raw === "string" && /^\d{1,15}$/.test(raw) ? Number(raw) : NaN;
@@ -34,7 +34,8 @@ function count(n: number, word: string): string {
 }
 
 /**
- * coolify.companion-read and coolify.companion: one kind per companion route,
+ * coolify.companion-read, coolify.companion and coolify.companion-dns-remove:
+ * one kind (or, for the destructive DNS removal, one action) per companion route,
  * calling the same service the routes use, so access, companion and Linked
  * host checks are the same. Nothing returned carries a token or password.
  */
@@ -128,14 +129,6 @@ export function registerCompanionOperations(
             data,
           };
         }
-        case "dns-remove": {
-          const data = await companions.dnsRemove(id, uuid, recordIdOf(params));
-          return {
-            summary: `Removed DNS record ${data.id}`,
-            changed: true,
-            data,
-          };
-        }
         case "uptime-pause":
         case "uptime-resume": {
           const paused = kind === "uptime-pause";
@@ -149,6 +142,24 @@ export function registerCompanionOperations(
         default:
           throw new ConnectionError("invalid-input", "Unknown kind");
       }
+    },
+  });
+
+  // Destructive, so core asks a person to confirm before this runs. Only after
+  // that does the delete reach dns.delete-record, itself destructive, with
+  // `confirmed`. The same service as DELETE …/dns/:recordId.
+  ctx.operations.register("coolify.companion-dns-remove", {
+    run: async (input) => {
+      const data = await companions.dnsRemove(
+        connectionIdInput(input),
+        text(input.uuid),
+        recordIdOf(input),
+      );
+      return {
+        summary: `Removed DNS record ${data.id}`,
+        changed: true,
+        data,
+      };
     },
   });
 }

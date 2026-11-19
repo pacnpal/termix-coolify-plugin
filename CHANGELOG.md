@@ -38,4 +38,5 @@
   resource counts, failed backups and whether Databases has a saved login. Each hides while its plugin is
   missing
 - Actions `coolify.companion-read` (offered to the assistant and MCP) and `coolify.companion` for the
-  same features, including pausing and resuming a resource's Uptime monitors
+  same features, including pausing and resuming a resource's Uptime monitors, and the destructive
+  `coolify.companion-dns-remove`, which asks for a confirm before it deletes a DNS record made here

@@ -149,7 +149,15 @@
       "params": {
         "label": "Details",
         "readDescription": "A JSON object: uuid for a resource (uptime, log-search, db-login, dns-list) or serverUuid for a server (security, backups-failed, host-metrics, db-logins).",
-        "changeDescription": "A JSON object with uuid, the resource. For dns also fqdn and optional type (A, AAAA or CNAME) and content; for dns-remove, recordId."
+        "changeDescription": "A JSON object with uuid, the resource. For dns also fqdn and optional type (A, AAAA or CNAME) and content."
+      },
+      "resourceUuid": {
+        "label": "Coolify resource",
+        "description": "The uuid of the Coolify application, service or database."
+      },
+      "recordId": {
+        "label": "DNS record",
+        "description": "The id of a DNS record made here for that resource, from the dns-list read."
       }
     },
     "listConnections": {
@@ -190,7 +198,7 @@
     },
     "companion": {
       "title": "Use a companion plugin",
-      "description": "Creates or removes a DNS record for a resource's domain, or pauses and resumes its Uptime monitors."
+      "description": "Creates a DNS record for a resource's domain, or pauses and resumes its Uptime monitors."
     },
     "kinds": {
       "companions": "Which companion plugins run",
@@ -203,9 +211,12 @@
       "hostMetrics": "Coolify resources on a server",
       "dnsList": "DNS records made for a resource",
       "dns": "Create a DNS record",
-      "dnsRemove": "Remove a DNS record made here",
       "uptimePause": "Pause a resource's Uptime monitors",
       "uptimeResume": "Resume a resource's Uptime monitors"
+    },
+    "companionDnsRemove": {
+      "title": "Remove a DNS record made here",
+      "description": "Deletes a DNS record this connection created for the resource, through the DNS plugin. Only records made here can be removed."
     }
   },
   "connections": {
