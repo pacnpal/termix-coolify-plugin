@@ -219,6 +219,34 @@ describe("sync view", () => {
     }
   });
 
+  it("a formerly tunnelled server waits for SSH Terminal to clear its tunnel", async () => {
+    const cause = "needs-ssh-terminal-to-clear-tunnel";
+    const pending = row(server("srv-vps3", "vps3", "203.0.113.40"), {
+      status: "blocked",
+      cause,
+      hostId: 12,
+    });
+    const { api, tab } = await openSync(stubApi([...rows, pending]));
+    const vps3 = rowOf(tab, "vps3");
+    expect(within(vps3).getByText(S.causes[cause])).toBeTruthy();
+    expect(includeBox(tab, "vps3").hasAttribute("disabled")).toBe(true);
+    await clickOpenPlugins(rendered!, vps3);
+
+    fireEvent.click(within(tab).getByRole("button", { name: S.apply }));
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        "/connections/1/sync",
+        expect.anything(),
+      ),
+    );
+    const [, body] = api.post.mock.calls.find(([url]) =>
+      String(url).endsWith("/sync"),
+    ) as unknown as [string, { choices: { uuid: string; include: boolean }[] }];
+    expect(body.choices.find((c) => c.uuid === "srv-vps3")?.include).toBe(
+      false,
+    );
+  });
+
   it("a server without a readable key asks for a credential", async () => {
     const { tab } = await openSync();
     const db = rowOf(tab, "db-1");

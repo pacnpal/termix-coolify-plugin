@@ -73,6 +73,11 @@ export function createKeyCopier(
      * be read. A known copy is reused only while it is still one of them.
      */
     ownKeys: () => Promise<Set<number> | null>;
+    /**
+     * Runs right before a credential is created, after the key reads: it
+     * throws to stop the copy when the sync must write nothing more.
+     */
+    beforeWrite: () => Promise<void>;
   },
 ) {
   let keyList: Promise<KeyDto[]> | null = null;
@@ -141,6 +146,7 @@ export function createKeyCopier(
 
     const name = credentialName(opts.connectionName, key.name || meta.name);
     const details = { keyUuid: meta.uuid, fingerprint };
+    await opts.beforeWrite();
     let created: { id: number };
     try {
       created = await ctx.credentials.createSshKey({
