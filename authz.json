@@ -104,6 +104,15 @@
       },
       "allowed": "any",
       "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify; there is no reachable Coolify in the authz run."
+    },
+    "POST /plugin-api/coolify/mcp": {
+      "access": "user",
+      "permission": "coolify.mcp",
+      "body": { "jsonrpc": "2.0", "id": 1, "method": "ping" }
+    },
+    "GET /plugin-api/coolify/mcp": {
+      "access": "user",
+      "permission": "coolify.mcp"
     }
   }
 }
