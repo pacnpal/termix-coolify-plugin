@@ -121,7 +121,7 @@ see servers, so the section says so instead.
      again until you pick another; one that couldn't be checked can be picked again or tried as it is.
      When copying a server's key fails (Coolify refuses to send it, or sends no key), the server asks for a
      credential the same way until you pick one or a later sync copies the key.
-   - **Behind a Cloudflare tunnel**: tunnelled servers are listed but can't be synced yet.
+   - **Behind a Cloudflare tunnel**: see [Servers behind Cloudflare tunnels](#servers-behind-cloudflare-tunnels).
 3. With keys readable, each Coolify key is copied once into a Termix credential named
    **Coolify: <connection> / <key>** and shared by every server that uses it. It is reused on later syncs
    and replaced when the key's fingerprint changes, or when you deleted that credential in Termix (the
@@ -145,10 +145,48 @@ tabs) syncing at once never make two hosts for one server. If a host was made bu
 saved, the host is deleted again rather than left locked. A sync that was waiting while its connection
 was removed finds the connection gone and creates nothing.
 
+A sync works on one snapshot of the connection: the server list, the Coolify address in host notes and
+the Cloudflare Access token written on tunnelled hosts all come from the same read. If someone changes
+the connection's address, token, Access token or TLS settings while a sync runs, the sync stops before
+its first host change with **The connection's address, token or Cloudflare Access settings changed
+during the sync** (`target-changed`), and no host gets the new settings. Sync again.
+
 Syncing and unlinking need **Configure Coolify** and only the connection's owner can do them; the preview
 needs **View Coolify**. They are also actions: `coolify.sync-preview` (offered to the assistant and MCP),
 `coolify.sync-apply` (without a server list it syncs every server with its saved address and credential)
 and `coolify.unlink`.
+
+### Servers behind Cloudflare tunnels
+
+When Coolify reaches a server through a Cloudflare tunnel, its Linked host uses the **SSH Terminal**
+plugin's own Cloudflare tunnel, which then carries every SSH connection to that host: the terminal, files,
+Docker and this plugin. Sync sets:
+
+- the host address to the tunnel hostname (Coolify's address for the server), with Coolify's port and user;
+- SSH Terminal's tunnel settings on the host: tunnel on, the tunnel hostname, and port 443;
+- the connection's Cloudflare Access service token, when one is set, as SSH Terminal's service token ID and
+  secret. The token is written only into those host settings. It never appears in the preview, sync
+  results, run history, logs or the audit log.
+
+Each sync writes these settings in full, so nothing stale stays behind: when you remove the connection's
+Access token, the next sync clears it from tunnelled hosts, and when a server is no longer behind a tunnel,
+the next sync turns SSH Terminal's tunnel off on its host and clears the tunnel hostname and token (while
+SSH Terminal is on; Termix only takes its settings then).
+
+This needs **SSH Terminal 1.2.0 or newer**, turned on. Version 1.0.3 tunnelled only its own terminal tab.
+Until then a tunnelled server can't sync and says why, with an **Open Plugins** button that opens Termix's
+Plugins tab:
+
+- **Turn on the SSH Terminal plugin to reach servers behind Cloudflare tunnels**: SSH Terminal isn't
+  installed or is turned off. It is also shown when the plugin list can't be read, so a tunnelled host is
+  never made without a tunnel.
+- **Update SSH Terminal to 1.2.0 or newer; older versions tunnel only the terminal.**
+
+When you add a connection and Coolify has tunnelled servers, the setup checklist shows the same check once.
+
+A tunnelled Linked host's Coolify card says **Tunnel: through SSH Terminal (Cloudflare)** and has **Open
+tunnel settings**, which opens the host editor. SSH Terminal's tunnel fields there stay read only while the
+host is linked; unlink it to change them by hand.
 
 ## Permissions
 

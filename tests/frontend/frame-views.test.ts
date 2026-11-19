@@ -4,30 +4,9 @@ import * as plugin from "../../src/frontend/index";
 import manifest from "../../manifest.json";
 import locales from "../../locales/en.json";
 import { resourceAnswer, resourceRows } from "./fixtures";
+import { connectionFixture } from "./helpers";
 
-const connection = {
-  id: 1,
-  name: "Prod",
-  baseUrl: "https://coolify.example.test",
-  teamName: "Ops",
-  version: "v4.7.5",
-  scoped: false,
-  abilities: {
-    read: true,
-    sensitive: true,
-    keys: true,
-    root: false,
-    mcp: false,
-  },
-  lastError: null,
-  autoSync: false,
-  access: "owner",
-  allowPrivate: false,
-  caCert: null,
-  cfAccess: false,
-  lastCheckedAt: null,
-  steps: [],
-};
+const connection = connectionFixture({ teamName: "Ops" });
 
 // A Linked host, so the host section renders too.
 const linkedHost = {

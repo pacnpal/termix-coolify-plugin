@@ -85,13 +85,16 @@ export type ConnectionErrorCode =
   | "forbidden"
   | "not-found"
   // A server with no Linked host (host sync's unlink).
-  | "not-linked";
+  | "not-linked"
+  // The connection's target changed while a host sync was running.
+  | "target-changed";
 
 const ERROR_STATUS = {
   "invalid-input": 400,
   forbidden: 403,
   "not-found": 404,
   "not-linked": 404,
+  "target-changed": 409,
 } as const;
 
 /** A refusal by the plugin itself, before or without asking Coolify. */
@@ -887,6 +890,34 @@ export function createConnections(
       const found = await row(id);
       if (!found || !(await accessTo(found, actor()))) return null;
       return revisionOf(found);
+    },
+
+    /**
+     * One read of the connection, for work that spans several awaits (host
+     * sync): its view, whose `revision` names the target, a Coolify client
+     * for that same target, and its Cloudflare Access token, unsealed on
+     * first use from that same row. A later change to the connection can't
+     * mix into it. The token is only for host settings; never return or log
+     * it.
+     */
+    async snapshot(id: number): Promise<{
+      view: ConnectionView;
+      api: CoolifyApi;
+      cfAccess: () => Promise<CoolifyTarget["cfAccess"]>;
+    }> {
+      const { row: found, access } = await reach(id);
+      const { api } = await cachedClient(found);
+      let cfAccess: Promise<CoolifyTarget["cfAccess"]> | null = null;
+      const unsealAccess = async () => {
+        const cfId = await unsealOrNull(found.cfAccessIdSealed);
+        const cfSecret = await unsealOrNull(found.cfAccessSecretSealed);
+        return cfId && cfSecret ? { id: cfId, secret: cfSecret } : null;
+      };
+      return {
+        view: toView(found, access),
+        api,
+        cfAccess: () => (cfAccess ??= unsealAccess()),
+      };
     },
 
     async api(id: number): Promise<CoolifyApi> {

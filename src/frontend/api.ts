@@ -122,7 +122,10 @@ export interface SyncRow {
   server: SyncServer;
   hostId: number | null;
   status: "new" | "linked" | "gone" | "blocked";
-  /** needs-address, needs-credential or needs-tunnel-support. */
+  /**
+   * needs-address, needs-credential, needs-ssh-terminal,
+   * ssh-terminal-too-old, credential-not-found or credential-check-failed.
+   */
   cause?: string;
   mode: "coolify" | "termix";
   addressOverride: string | null;

@@ -20,6 +20,13 @@ import * as plugin from "../../../src/frontend/index";
 import { CoolifyTab } from "../../../src/frontend/views/CoolifyTab";
 import manifestJson from "../../../manifest.json";
 import locales from "../../../locales/en.json";
+import {
+  ALL,
+  clickOpenPlugins,
+  connectionFixture,
+  syncRow as row,
+  syncServer as server,
+} from "../helpers";
 
 // The actor's Termix credentials, as the credential picker reads them.
 const credentialList = vi.hoisted(() => vi.fn(async () => [] as unknown[]));
@@ -30,63 +37,10 @@ vi.mock("@termix-ssh/plugin-sdk/frontend", async (importOriginal) => ({
 
 const manifest = manifestJson as unknown as PluginManifest;
 const S = locales.sync;
-const ALL = ["coolify.view", "coolify.configure"];
-
-const connection = {
-  id: 1,
-  name: "Prod",
-  baseUrl: "https://coolify.example.test",
-  teamName: "Ops",
-  version: "v4.7.5",
-  scoped: false,
-  abilities: {
-    read: true,
-    sensitive: true,
-    keys: true,
-    root: false,
-    mcp: false,
-  },
-  lastError: null,
-  autoSync: false,
-  access: "owner",
-  allowPrivate: false,
-  caCert: null,
-  cfAccess: false,
-  lastCheckedAt: null,
-  steps: [],
-};
-
-function server(uuid: string, name: string, ip: string, extra = {}) {
-  return {
-    uuid,
-    name,
-    ip,
-    port: 22,
-    user: "root",
-    isTunnel: false,
-    isCoolifyHost: false,
-    reachable: true,
-    usable: true,
-    ...extra,
-  };
-}
-
-function row(srv: ReturnType<typeof server>, extra: Record<string, unknown>) {
-  return {
-    server: srv,
-    hostId: null,
-    status: "new",
-    mode: "coolify",
-    addressOverride: null,
-    suggestedAddress: null,
-    credentialId: null,
-    tunnel: srv.isTunnel,
-    ...extra,
-  };
-}
+const connection = connectionFixture({ teamName: "Ops" });
 
 const rows = [
-  row(server("srv-web1", "web-1", "203.0.113.11"), {}),
+  row(server("srv-web1", "web-1", "203.0.113.11")),
   row(
     server("srv-local", "localhost", "host.docker.internal", {
       isCoolifyHost: true,
@@ -99,7 +53,11 @@ const rows = [
   ),
   row(server("srv-vps1", "vps1", "ssh-vps1.example.test", { isTunnel: true }), {
     status: "blocked",
-    cause: "needs-tunnel-support",
+    cause: "needs-ssh-terminal",
+  }),
+  row(server("srv-vps2", "vps2", "ssh-vps2.example.test", { isTunnel: true }), {
+    status: "blocked",
+    cause: "ssh-terminal-too-old",
   }),
   row(server("srv-db", "db-1", "203.0.113.20"), {
     status: "blocked",
@@ -211,6 +169,7 @@ describe("sync view", () => {
     });
     expect(byUuid["srv-web1"].include).toBe(true);
     expect(byUuid["srv-vps1"].include).toBe(false);
+    expect(byUuid["srv-vps2"].include).toBe(false);
     expect(byUuid["srv-db"].include).toBe(false);
     expect(byUuid["srv-old"]).toBeUndefined();
 
@@ -235,14 +194,29 @@ describe("sync view", () => {
     ).toBe("coolify.example.test");
   });
 
-  it("a tunnelled server is shown with the tunnel reason and can't be included", async () => {
+  it("sync shows needs-ssh-terminal and ssh-terminal-too-old reasons with an Open Plugins button", async () => {
     const { tab } = await openSync();
-    const vps = rowOf(tab, "vps1");
-    expect(
-      within(vps).getByText(S.causes["needs-tunnel-support"]),
-    ).toBeTruthy();
-    expect(within(vps).getByText(S.badges.tunnel)).toBeTruthy();
+    const off = rowOf(tab, "vps1");
+    expect(within(off).getByText(S.causes["needs-ssh-terminal"])).toBeTruthy();
+    expect(within(off).getByText(S.badges.tunnel)).toBeTruthy();
     expect(includeBox(tab, "vps1").hasAttribute("disabled")).toBe(true);
+
+    const old = rowOf(tab, "vps2");
+    expect(
+      within(old).getByText(S.causes["ssh-terminal-too-old"]),
+    ).toBeTruthy();
+    expect(includeBox(tab, "vps2").hasAttribute("disabled")).toBe(true);
+
+    // Rows that don't need SSH Terminal have no such button.
+    expect(
+      within(rowOf(tab, "web-1")).queryByRole("button", {
+        name: S.openPlugins,
+      }),
+    ).toBeNull();
+
+    for (const blocked of [off, old]) {
+      await clickOpenPlugins(rendered!, blocked);
+    }
   });
 
   it("a server without a readable key asks for a credential", async () => {

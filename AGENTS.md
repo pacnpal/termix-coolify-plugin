@@ -160,14 +160,34 @@ aren't obvious from the code, and anything that has bitten you before.
   `hostId` by `ctx.hosts.update` answering null (then a new host is made), picked credential ids by
   `ctx.credentials.list()`, copied ones by `listSshKeys()`. `ssh-keys` from the SDK needs `ssh2`, which only
   Termix supplies, so it is imported lazily and only when Coolify sends no `public_key`. Tunnelled servers
-  are refused in `planTunnel` with `TUNNEL_CAUSE` (`needs-tunnel-support`); ticket #9 replaces that seam
-  with SSH Terminal's tunnel settings. The SDK tsconfig has no strict null checks, so a boolean `ok` does
-  not narrow a union: `HostPlan` names both fields on both sides. The mock ctx's `hosts.create` drops
+  go through `planTunnel`: the host address is the tunnel hostname and `pluginSettings["ssh-terminal"]`
+  gets SSH Terminal's own setting names from `SSH_TERMINAL_KEYS` (checked against SSH Terminal's
+  `src/backend/settings.ts`; keep them in that one constant), port 443, and the connection's Access token
+  only in `apply`, unsealed once from the snapshot (empty strings when the connection has none). Host
+  updates merge the keys they are given and keep the rest, so `planHost` never leaves a key it once wrote
+  out: a plain server gets the tunnel switched off and its hostname and token cleared while SSH Terminal
+  runs (core skips settings for a plugin that doesn't). `pluginEnable.docker` is only ever true and only
+  while Docker runs, which is also the only time core would take a write. `apply` and `preview` read the
+  connection once with `connections.snapshot()`: view (name, address, abilities, `revision`), client and
+  a lazy Access token from one row, so nothing is read again from the connection later. `apply` checks
+  `connections.revision()` against the snapshot after `api.servers()` and before the first host write
+  (`assertSnapshotHolds`, with the owner check) and ends with `target-changed` (409) when they differ:
+  connection updates take #23's `withLock`, not the sync queue. Previews pass `cfAccess: null`. SSH Terminal
+  must be active at 1.2.0+ (`SSH_TERMINAL.minVersion`, semver order, pre-releases of 1.2.0 are below);
+  `ctx.plugins.list()` is read once per preview (only when a server is tunnelled) or apply and fails
+  closed: an unreadable list blocks tunnelled rows with `needs-ssh-terminal`. The SDK tsconfig has no
+  strict null checks, so a boolean `ok` does not narrow a union: `HostPlan` names both fields on both sides. The mock ctx's `hosts.create` drops
   `pluginSettings` and `pluginEnable`, so tests spy on the calls to check them. `coolify.unlink`'s server
   input uses `ops.fields.linkedServerUuid`: `ops.fields.serverUuid` is the optional filter of
   `coolify.list-resources-all`.
 - Frontend host surfaces: `src/frontend/linked.ts` reads a host's link from its own settings and shares one
-  sync preview per connection (five minutes) between badge dots and the host card. Host sync is the tab's
+  sync preview per connection (five minutes) between badge dots and the host card. The host card shows the
+  tunnel line from the row's `tunnel` flag and opens the host editor with `shell.editHost`.
+  `views/SshTerminalCheck.tsx` has the Open Plugins button (`useTabs().openSingletonTab("plugins")`) used
+  by blocked sync rows, and the single SSH Terminal line `ProbeChecklist` adds when Coolify has tunnelled
+  servers (it reads the sync preview; scoped tokens get none). That line reloads on the connection's
+  `revision` and `lastCheckedAt`, clears when the token turns scoped, and keeps only the newest answer
+  (a request generation, as in `useResources`). Host sync is the tab's
   Servers section (`SyncView` for the selected connection, shown with `coolify.configure`); a connection's
   Sync servers row action calls `ConnectionsView`'s `onSync`, which selects it there. `CoolifyTab` reads
   `tab.data` `{ section, connectionId? }`: `"sync"` opens Servers (no id: the first connection the actor
@@ -175,4 +195,5 @@ aren't obvious from the code, and anything that has bitten you before.
   is tracked by the `tab.data` object (the shell sets a new one on every opening), not by its values, so
   the same action twice still applies. `SyncView` shows the address field on every row still in Coolify,
   and the credential picker for `CREDENTIAL_CAUSES` (needs-credential, credential-not-found,
-  credential-check-failed).
+  credential-check-failed). Rows blocked by `SSH_TERMINAL_CAUSES` (needs-ssh-terminal,
+  ssh-terminal-too-old) can't be included and show the Open Plugins button.

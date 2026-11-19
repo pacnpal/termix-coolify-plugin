@@ -13,7 +13,13 @@ import {
 import { dbClient, type Tables } from "../db.js";
 import { createKeyCopier, type KnownCopy } from "./credentials.js";
 import { createLocks, type Locks } from "./locks.js";
-import { cleanAddress, folderName, planHost } from "./mapping.js";
+import {
+  cleanAddress,
+  folderName,
+  planHost,
+  SSH_TERMINAL,
+  type SshTerminalState,
+} from "./mapping.js";
 
 export type SyncMode = "coolify" | "termix";
 
@@ -29,7 +35,10 @@ export interface SyncRow {
   server: ServerDto;
   hostId: number | null;
   status: "new" | "linked" | "gone" | "blocked";
-  /** needs-address, needs-credential or needs-tunnel-support. */
+  /**
+   * needs-address, needs-credential, needs-ssh-terminal,
+   * ssh-terminal-too-old, credential-not-found or credential-check-failed.
+   */
   cause?: string;
   /** coolify: the key is copied from Coolify. termix: a picked credential. */
   mode: SyncMode;
@@ -239,8 +248,7 @@ export async function createSync(
     return view;
   }
 
-  async function ownedConnection(id: number): Promise<ConnectionView> {
-    const view = await connectionFor(id);
+  function requireOwner(view: ConnectionView): ConnectionView {
     if (view.access !== "owner") {
       throw new ConnectionError(
         "forbidden",
@@ -250,20 +258,61 @@ export async function createSync(
     return view;
   }
 
+  async function ownedConnection(id: number): Promise<ConnectionView> {
+    return requireOwner(await connectionFor(id));
+  }
+
+  /**
+   * Fails closed unless the connection still exists, is the actor's, and
+   * points at the target a sync took its snapshot of: a new address, token,
+   * Access token or TLS setting ends the whole sync with target-changed.
+   */
+  async function assertSnapshotHolds(id: number, revision: string) {
+    await ownedConnection(id);
+    if ((await connections.revision(id)) !== revision) {
+      throw new ConnectionError(
+        "target-changed",
+        "The connection's address, token or Access settings changed during the sync. Sync again.",
+      );
+    }
+  }
+
   /** Copying keys is on unless the admin turned it off, and the token reads them. */
   async function copyAllowed(view: ConnectionView): Promise<boolean> {
     const setting = await ctx.settings.get<boolean>("allowKeyCopy");
     return setting !== false && view.abilities.keys;
   }
 
-  async function dockerRunning(): Promise<boolean> {
+  /**
+   * The plugins sync works with, from one ctx.plugins.list() call. Fails
+   * closed: when the list can't be read, neither Docker nor SSH Terminal
+   * counts as running, so tunnelled servers are blocked.
+   */
+  async function companions(): Promise<{
+    docker: boolean;
+    sshTerminal: SshTerminalState;
+  }> {
     try {
       const plugins = await ctx.plugins.list();
-      return plugins.some((p) => p.id === "docker" && p.state === "active");
+      const active = (id: string) =>
+        plugins.find((p) => p.id === id && p.state === "active");
+      const terminal = active(SSH_TERMINAL.id);
+      return {
+        docker: Boolean(active("docker")),
+        sshTerminal: {
+          running: Boolean(terminal),
+          version: terminal?.version ?? null,
+        },
+      };
     } catch {
-      return false;
+      return {
+        docker: false,
+        sshTerminal: { running: false, version: null },
+      };
     }
   }
+
+  const NO_SSH_TERMINAL: SshTerminalState = { running: false, version: null };
 
   async function hostNames(): Promise<Map<number, string>> {
     try {
@@ -310,6 +359,7 @@ export async function createSync(
     row: ServerRow | undefined,
     /** Why the stored picked credential can't be used, or null. */
     credentialCause: string | null,
+    sshTerminal: SshTerminalState,
   ): SyncRow {
     const mode = modeOf(copy, server, row);
     const override = row?.addressOverride ?? null;
@@ -329,6 +379,9 @@ export async function createSync(
       credentialId: credentialId ?? 0,
       folder: "",
       dockerRunning: false,
+      sshTerminal,
+      // A preview never reads the Access token: its rows don't carry it.
+      cfAccess: null,
     });
     const hostId = row?.hostId ?? null;
     let cause: string | undefined;
@@ -417,9 +470,16 @@ export async function createSync(
     connectionId: number,
     choices: SyncChoice[] | null,
   ): Promise<SyncResult[]> {
-    const view = await ownedConnection(connectionId);
-    const api = await connections.api(connectionId);
+    // One snapshot of the target: the view (name, address, abilities and
+    // revision), the Coolify client and the Access token all come from one
+    // read of the connection, so a change made meanwhile can't mix in.
+    const target = await connections.snapshot(connectionId);
+    const view = requireOwner(target.view);
+    const { api } = target;
     const servers = await api.servers();
+    // The list came from the snapshot's target; a change while it was read
+    // ends the sync before any key is copied or any row is saved.
+    await assertSnapshotHolds(connectionId, view.revision);
     const rows = await rowsOf(connectionId);
     const byUuid = new Map(rows.map((r) => [r.serverUuid, r]));
     const wanted = choices && new Map(choices.map((c) => [c.uuid, c]));
@@ -444,7 +504,12 @@ export async function createSync(
         )),
     });
     const folder = folderName(view.name, (await connections.list()).length);
-    const docker = await dockerRunning();
+    const { docker, sshTerminal } = await companions();
+    // The snapshot's Access token is unsealed once, and only when a
+    // tunnelled host is about to be written. It goes into that host's SSH
+    // Terminal settings and nowhere else: never a result, a log or an audit
+    // entry.
+    const accessToken = target.cfAccess;
     let folderReady = false;
     const results: SyncResult[] = [];
     const checkCredential = ownCredentialCheck();
@@ -502,6 +567,8 @@ export async function createSync(
           credentialId: 0,
           folder,
           dockerRunning: docker,
+          sshTerminal,
+          cfAccess: null,
         });
         if (!precheck.ok) {
           await saveRow(connectionId, server.uuid, row, remember);
@@ -568,12 +635,15 @@ export async function createSync(
           credentialId,
           folder,
           dockerRunning: docker,
+          sshTerminal,
+          cfAccess: server.isTunnel ? await accessToken() : null,
         });
         if (!plan.ok) throw new Error("plan changed");
         if (!folderReady) {
           // Fail closed before the first host write: the connection must
-          // still exist and be the actor's. Throws, ending the whole sync.
-          await ownedConnection(connectionId);
+          // still exist, be the actor's and point at the snapshot's target.
+          // Throws, ending the whole sync.
+          await assertSnapshotHolds(connectionId, view.revision);
           await ctx.hosts.folders.ensure(folder, { icon: "Rocket" });
           folderReady = true;
         }
@@ -681,8 +751,9 @@ export async function createSync(
 
     /** Every Coolify server and the host it would become. Read only. */
     async preview(connectionId: number): Promise<SyncRow[]> {
-      const view = await connectionFor(connectionId);
-      const api = await connections.api(connectionId);
+      // The address, abilities and client come from one read, so the rows
+      // describe one target. The Access token is never read here.
+      const { view, api } = await connections.snapshot(connectionId);
       const servers = await api.servers();
       const rows = await rowsOf(connectionId);
       const byUuid = new Map(rows.map((r) => [r.serverUuid, r]));
@@ -694,13 +765,18 @@ export async function createSync(
         ? goneRows(rows, present, await hostNames())
         : [];
       const check = ownCredentialCheck();
+      const sshTerminal = servers.some((s) => s.isTunnel)
+        ? (await companions()).sshTerminal
+        : NO_SSH_TERMINAL;
       const previewed: SyncRow[] = [];
       for (const s of servers) {
         const row = byUuid.get(s.uuid);
         const picked =
           row?.credentialMode === "termix" ? row.credentialId : null;
         const credentialCause = picked ? await check(picked) : null;
-        previewed.push(previewRow(view, copy, s, row, credentialCause));
+        previewed.push(
+          previewRow(view, copy, s, row, credentialCause, sshTerminal),
+        );
       }
       return [...previewed, ...gone];
     },

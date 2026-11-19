@@ -10,6 +10,13 @@ import * as plugin from "../../../src/frontend/index";
 import { createApi, type ConnectionPatch } from "../../../src/frontend/api";
 import manifestJson from "../../../manifest.json";
 import locales from "../../../locales/en.json";
+import {
+  clickOpenPlugins,
+  fillConnectionForm,
+  renderApp,
+  syncRow,
+  syncServer,
+} from "../helpers";
 
 const manifest = manifestJson as unknown as PluginManifest;
 const L = locales.connections;
@@ -75,6 +82,24 @@ afterEach(async () => {
   rendered = null;
   vi.restoreAllMocks();
 });
+
+/**
+ * Connects a plain (unscoped) connection through the setup step, with
+ * `servers` as the sync preview, and returns the step's element.
+ */
+async function connectInSetup(servers: unknown[]) {
+  const api = stubApi([]);
+  api.get.mockImplementation(async (url: string) => ({
+    data: url === "/connections/1/servers" ? servers : [],
+  }));
+  api.post.mockImplementation(async () => ({
+    data: { ...scopedConnection, scoped: false, steps: [] },
+  }));
+  rendered = await renderApp(api);
+  const el = rendered.renderOnboardingStep("connect").element;
+  fillConnectionForm(el);
+  return { api, el };
+}
 
 describe("connections view", () => {
   it("lists connections with their version and status", async () => {
@@ -244,6 +269,36 @@ describe("connections view", () => {
       await within(step.element).findByText(locales.onboarding.connect.intro),
     ).toBeTruthy();
     expect(step.canContinue()).toBe(true);
+  });
+
+  it("connection setup shows the SSH Terminal check once when the instance has tunnelled servers", async () => {
+    const tunnelRow = (uuid: string) =>
+      syncRow(
+        syncServer(uuid, uuid, `${uuid}.example.test`, { isTunnel: true }),
+        { status: "blocked", cause: "needs-ssh-terminal" },
+      );
+    const { el } = await connectInSetup([tunnelRow("vps1"), tunnelRow("vps2")]);
+    expect(await within(el).findByText(L.probe.steps.sshTerminal)).toBeTruthy();
+    expect(
+      within(el).getAllByText(locales.sync.causes["needs-ssh-terminal"]),
+    ).toHaveLength(1);
+    expect(
+      within(el).getAllByRole("button", { name: locales.sync.openPlugins }),
+    ).toHaveLength(1);
+    await clickOpenPlugins(rendered!, el);
+  });
+
+  it("connection setup shows no SSH Terminal check without tunnelled servers", async () => {
+    const { api, el } = await connectInSetup([]);
+    expect(
+      await within(el).findByText(
+        locales.onboarding.connect.done.replace("{{name}}", "Prod"),
+      ),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(api.get).toHaveBeenCalledWith("/connections/1/servers"),
+    );
+    expect(within(el).queryByText(L.probe.steps.sshTerminal)).toBeNull();
   });
 });
 
@@ -546,5 +601,118 @@ describe("connections view under concurrent requests", () => {
       expect(editorApi.post).toHaveBeenCalledWith("/connections/1/probe"),
     );
     expect(await within(tab).findByText(L.badges.ok)).toBeTruthy();
+  });
+});
+
+describe("the SSH Terminal check follows the saved connection", () => {
+  const tunnelRow = (cause: string) =>
+    syncRow(
+      syncServer("vps1", "vps1", "vps1.example.test", { isTunnel: true }),
+      { status: "blocked", cause },
+    );
+  // A saved failure keeps the setup form open, so it can be saved again.
+  const saved = (overrides: Record<string, unknown>) => ({
+    data: {
+      ...scopedConnection,
+      scoped: false,
+      steps: [],
+      lastError: "unreachable",
+      revision: "rev-a",
+      ...overrides,
+    },
+  });
+
+  /**
+   * Saves a connection in the setup step, then changes its URL and saves it
+   * again, answering the update with `second`. `previews` answers each sync
+   * preview request in turn.
+   */
+  async function saveThenRetarget(
+    second: Record<string, unknown>,
+    previews: (call: number) => Promise<unknown>,
+  ) {
+    const api = stubApi([]);
+    let calls = 0;
+    api.get.mockImplementation(async (url: string) => ({
+      data: url === "/connections/1/servers" ? await previews(++calls) : [],
+    }));
+    api.post.mockResolvedValue(saved({}) as never);
+    // A new target is probed again, so the update answers a new check time.
+    api.patch.mockResolvedValue(
+      saved({ lastCheckedAt: "2026-11-19T11:00:00.000Z", ...second }) as never,
+    );
+    rendered = await renderApp(api);
+    const el = rendered.renderOnboardingStep("connect").element;
+    fillConnectionForm(el);
+    await waitFor(() => expect(calls).toBe(1));
+    const retarget = async () => {
+      fireEvent.change(
+        within(el).getByPlaceholderText(L.form.baseUrlPlaceholder),
+        { target: { value: "https://coolify-new.example.test" } },
+      );
+      fireEvent.click(within(el).getByRole("button", { name: L.form.save }));
+      await waitFor(() => expect(api.patch).toHaveBeenCalled());
+      // The checklist stays on screen across the save.
+      await within(el).findByText(L.probe.title);
+    };
+    return { el, retarget, calls: () => calls };
+  }
+
+  it("a new revision reloads the checklist with the new target's rows", async () => {
+    let rows = [tunnelRow("needs-ssh-terminal")];
+    const { el, retarget } = await saveThenRetarget(
+      { revision: "rev-b" },
+      async () => rows,
+    );
+    expect(
+      await within(el).findByText(locales.sync.causes["needs-ssh-terminal"]),
+    ).toBeTruthy();
+
+    rows = [tunnelRow("ssh-terminal-too-old")];
+    await retarget();
+    expect(
+      await within(el).findByText(locales.sync.causes["ssh-terminal-too-old"]),
+    ).toBeTruthy();
+    expect(
+      within(el).queryByText(locales.sync.causes["needs-ssh-terminal"]),
+    ).toBeNull();
+  });
+
+  it("switching the connection to a scoped token clears the rows", async () => {
+    const { el, retarget } = await saveThenRetarget(
+      { revision: "rev-b", scoped: true },
+      async () => [tunnelRow("needs-ssh-terminal")],
+    );
+    expect(await within(el).findByText(L.probe.steps.sshTerminal)).toBeTruthy();
+
+    await retarget();
+    await waitFor(() =>
+      expect(within(el).queryByText(L.probe.steps.sshTerminal)).toBeNull(),
+    );
+  });
+
+  it("an older preview answer that lands late doesn't replace the newer one", async () => {
+    const first = deferred<unknown>();
+    const { el, retarget, calls } = await saveThenRetarget(
+      { revision: "rev-b" },
+      (call) =>
+        call === 1
+          ? first.promise
+          : Promise.resolve([tunnelRow("ssh-terminal-too-old")]),
+    );
+    await retarget();
+    expect(
+      await within(el).findByText(locales.sync.causes["ssh-terminal-too-old"]),
+    ).toBeTruthy();
+    expect(calls()).toBe(2);
+
+    first.resolve([tunnelRow("needs-ssh-terminal")]);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(
+      within(el).getByText(locales.sync.causes["ssh-terminal-too-old"]),
+    ).toBeTruthy();
+    expect(
+      within(el).queryByText(locales.sync.causes["needs-ssh-terminal"]),
+    ).toBeNull();
   });
 });
