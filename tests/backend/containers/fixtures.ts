@@ -1,5 +1,8 @@
 import { vi } from "vitest";
-import type { PluginSshExecResult } from "@termix-ssh/plugin-sdk/backend";
+import type {
+  PluginSshExecOptions,
+  PluginSshExecResult,
+} from "@termix-ssh/plugin-sdk/backend";
 import { healthyCoolify } from "../helpers/fake-coolify.js";
 import { OWNER, startPlugin, type PluginHarness } from "../helpers/plugin.js";
 import { resourceLists } from "../helpers/resources.js";
@@ -30,6 +33,8 @@ export interface DockerHost {
   bash?: boolean;
   /** Throw core's unknown host key error instead of running anything. */
   hostKey?: boolean;
+  /** Answers a command run in a container (coolify.exec), with its stdin. */
+  exec?: (command: string, stdin: string | undefined) => PluginSshExecResult;
 }
 
 function result(stdout: string, code = 0): PluginSshExecResult {
@@ -39,10 +44,12 @@ function result(stdout: string, code = 0): PluginSshExecResult {
 /** Stands in for ctx.ssh.exec on the Linked host, recording every command. */
 export function fakeDocker(harness: PluginHarness, host: DockerHost) {
   const commands: string[] = [];
+  const calls: Array<{ command: string; options?: PluginSshExecOptions }> = [];
   const exec = vi
     .spyOn(harness.mock.ctx.ssh, "exec")
-    .mockImplementation(async (_target, command) => {
+    .mockImplementation(async (_target, command, options) => {
       commands.push(command);
+      calls.push({ command, options });
       if (host.hostKey) {
         const err = new Error(
           "HOST_KEY_UNVERIFIED: open a terminal to this host once",
@@ -62,14 +69,22 @@ export function fakeDocker(harness: PluginHarness, host: DockerHost) {
       if (/command -v bash/.test(command)) {
         return host.bash === false ? result("", 1) : result("/bin/bash\n");
       }
+      if (/docker exec -i /.test(command) && host.exec) {
+        return host.exec(command, options?.stdin);
+      }
       return result("", 127);
     });
-  return { exec, commands };
+  return { exec, commands, calls };
 }
 
 /** A plugin with one connection whose server srv-vps1-uuid has a Linked host. */
 export async function startShell(
-  options: { permissions?: string[]; linked?: boolean } = {},
+  options: {
+    permissions?: string[];
+    linked?: boolean;
+    /** Admin settings, like allowExec. */
+    settings?: Record<string, unknown>;
+  } = {},
 ) {
   const fake = healthyCoolify({
     ...resourceLists(),
@@ -85,6 +100,7 @@ export async function startShell(
   const harness = await startPlugin({
     fetch: fake.fetch,
     permissions: options.permissions,
+    settings: options.settings,
     hosts: [linkedHost],
   });
   const created = await harness.request("POST", "/connections", {

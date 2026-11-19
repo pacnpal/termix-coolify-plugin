@@ -7,7 +7,7 @@ import type {
 export type SshRunner = (
   hostId: number,
   command: string,
-  opts?: { stdin?: string; timeoutMs?: number },
+  opts?: { stdin?: string; timeoutMs?: number; maxOutputBytes?: number },
 ) => Promise<PluginSshExecResult>;
 
 /** Short probes on a Linked host, through core's SSH pipeline (ctx.ssh.exec). */
@@ -17,7 +17,7 @@ export function sshRunner(ctx: PluginContext): SshRunner {
       purpose: "coolify",
       profile: "background",
       timeoutMs: opts.timeoutMs ?? 20_000,
-      maxOutputBytes: 256 * 1024,
+      maxOutputBytes: opts.maxOutputBytes ?? 256 * 1024,
       stdin: opts.stdin,
     });
 }

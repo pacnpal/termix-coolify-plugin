@@ -222,6 +222,8 @@ export function registerConnectionRoutes(
    *       Owner only. An empty or absent token or Cloudflare Access value keeps
    *       the stored one; null for both Cloudflare Access values clears them.
    *       Changing the address, token or TLS settings runs the probe again.
+   *       execEnabled turns running commands in this connection's containers
+   *       (coolify.exec) on or off; a grantee at any level is refused with 403.
    *     tags:
    *       - Coolify
    *     parameters:
@@ -259,6 +261,11 @@ export function registerConnectionRoutes(
    *                 nullable: true
    *               autoSync:
    *                 type: boolean
+   *               execEnabled:
+   *                 type: boolean
+   *                 description: >-
+   *                   Allow running commands in containers through the API and
+   *                   MCP. Also needs the admin setting allowExec.
    *     responses:
    *       200:
    *         description: The changed connection, without any token
@@ -277,7 +284,23 @@ export function registerConnectionRoutes(
     configure,
     safe(ctx, async (req, res) => {
       const id = idParam(req);
-      res.json(await connections.update(id, readBody(req.body, true)));
+      const patch = readBody(req.body, true);
+      const raw = (req.body as Record<string, unknown>).execEnabled;
+      const exec = typeof raw === "boolean" ? raw : undefined;
+      if (raw !== undefined && exec === undefined) {
+        throw new ConnectionError(
+          "invalid-input",
+          "execEnabled must be true or false",
+        );
+      }
+      // execEnabled is its own owner-only, audited change (as the
+      // coolify.connection-set-exec action); the rest is an ordinary update.
+      if (exec !== undefined && Object.keys(patch).length === 0) {
+        res.json(await connections.setExec(id, exec));
+        return;
+      }
+      if (exec !== undefined) await connections.setExec(id, exec);
+      res.json(await connections.update(id, patch));
     }),
   );
 

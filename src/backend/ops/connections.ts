@@ -102,6 +102,20 @@ export function registerConnectionOperations(
     },
   });
 
+  ctx.operations.register("coolify.connection-set-exec", {
+    run: async (input) => {
+      const updated = await connections.setExec(
+        connectionIdInput(input),
+        input.execEnabled as boolean,
+      );
+      return {
+        summary: `${updated.execEnabled ? "Allowed" : "Stopped"} running commands in ${updated.name}'s containers`,
+        changed: true,
+        data: updated,
+      };
+    },
+  });
+
   ctx.operations.register("coolify.connection-delete", {
     run: async (input) => {
       const removed = await connections.remove(connectionIdInput(input), {

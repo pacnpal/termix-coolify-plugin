@@ -409,6 +409,36 @@
           }
         },
         {
+          "id": "coolify.connection-set-exec",
+          "titleKey": "ops.connectionSetExec.title",
+          "descriptionKey": "ops.connectionSetExec.description",
+          "icon": "ShieldAlert",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "execEnabled",
+              "type": "boolean",
+              "labelKey": "ops.fields.execEnabled.label",
+              "descriptionKey": "ops.fields.execEnabled.description",
+              "required": true
+            }
+          ],
+          "risk": "change",
+          "permission": "configure",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
           "id": "coolify.sync-preview",
           "titleKey": "ops.syncPreview.title",
           "descriptionKey": "ops.syncPreview.description",
@@ -611,6 +641,68 @@
           "surfaces": {
             "assistant": true,
             "mcp": true
+          }
+        },
+        {
+          "id": "coolify.exec",
+          "titleKey": "ops.exec.title",
+          "descriptionKey": "ops.exec.description",
+          "icon": "SquareTerminal",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.uuid.label",
+              "descriptionKey": "ops.fields.uuid.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            },
+            {
+              "key": "part",
+              "type": "string",
+              "labelKey": "ops.fields.part.label",
+              "descriptionKey": "ops.fields.part.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}"
+            },
+            {
+              "key": "container",
+              "type": "string",
+              "labelKey": "ops.fields.container.label",
+              "descriptionKey": "ops.fields.container.description",
+              "pattern": "[A-Za-z0-9_.-]{1,255}"
+            },
+            {
+              "key": "command",
+              "type": "string",
+              "labelKey": "ops.fields.command.label",
+              "descriptionKey": "ops.fields.command.description",
+              "required": true
+            },
+            {
+              "key": "timeoutSec",
+              "type": "number",
+              "labelKey": "ops.fields.timeoutSec.label",
+              "descriptionKey": "ops.fields.timeoutSec.description",
+              "min": 1,
+              "max": 120,
+              "default": 30
+            }
+          ],
+          "risk": "destructive",
+          "permission": "operate",
+          "timeoutMs": 150000,
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
           }
         }
       ]

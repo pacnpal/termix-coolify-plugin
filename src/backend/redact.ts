@@ -45,3 +45,32 @@ function walk(value: unknown, seen: WeakSet<object>): unknown {
   seen.delete(value);
   return out;
 }
+
+/** `NAME=value`, `export NAME=value` or `NAME: value`, one per line. */
+const TEXT_PAIR =
+  /^(\s*(?:export\s+)?)([A-Za-z_][A-Za-z0-9_.-]*)(\s*[=:]\s*)(\S.*)$/gm;
+/** `"name": "value"` anywhere in a line, as JSON prints it. */
+const JSON_PAIR = /("([A-Za-z0-9_.-]+)"\s*:\s*)"(?:[^"\\]|\\.)*"/g;
+/** A PEM private key block, whatever its kind, or its start when output was cut. */
+const PEM_KEY =
+  /-----BEGIN ([A-Z0-9 ]*)PRIVATE KEY-----[\s\S]*?(?:-----END \1PRIVATE KEY-----|$)/g;
+
+/**
+ * The text form of {@link redact}, for command output: values of names the
+ * redactor masks (`POSTGRES_PASSWORD=…`, `"client_secret": "…"`) and private
+ * key blocks are replaced. Everything else is kept as it is.
+ */
+export function redactText(text: string): string {
+  return text
+    .replace(
+      PEM_KEY,
+      (_m, kind: string) =>
+        `-----BEGIN ${kind}PRIVATE KEY-----\n${REDACTED_VALUE}\n-----END ${kind}PRIVATE KEY-----`,
+    )
+    .replace(JSON_PAIR, (match, head: string, key: string) =>
+      masked(key) ? `${head}"${REDACTED_VALUE}"` : match,
+    )
+    .replace(TEXT_PAIR, (match, lead: string, key: string, sep: string) =>
+      masked(key) ? `${lead}${key}${sep}${REDACTED_VALUE}` : match,
+    );
+}

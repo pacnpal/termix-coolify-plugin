@@ -16,10 +16,13 @@ import {
   ListRowAction,
   LoadingState,
   NoticePanel,
+  PANEL,
   PanelList,
   PanelShell,
   RefreshButton,
   StatusBadge,
+  SwitchRow,
+  cn,
   useConfirm,
 } from "@termix-ssh/plugin-sdk/ui";
 import { createApi, type Api, type Connection } from "../api";
@@ -73,8 +76,58 @@ function ConnectionEditor({
         form={form}
         hasCfAccess={connection?.cfAccess ?? false}
       />
+      {connection && connection.access === "owner" && (
+        <ExecSwitch api={api} connection={connection} onSaved={onSaved} />
+      )}
       {form.result && <ProbeChecklist connection={form.result} />}
     </InlineView>
+  );
+}
+
+/**
+ * The owner's opt-in to coolify.exec for one saved connection. It saves on
+ * its own, apart from the form, and always shows what turning it on allows.
+ */
+function ExecSwitch({
+  api,
+  connection,
+  onSaved,
+}: {
+  api: Api;
+  connection: Connection;
+  onSaved: (saved: Connection) => void;
+}) {
+  const { t } = useTranslation();
+  const [enabled, setEnabled] = useState(connection.execEnabled === true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function change(next: boolean) {
+    setSaving(true);
+    setError(null);
+    try {
+      const saved = await api.setExec(connection.id, next);
+      setEnabled(saved.execEnabled === true);
+      onSaved(saved);
+    } catch {
+      setError(t("connections.exec.failed"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className={cn(PANEL.body, "flex flex-col gap-3")}>
+      <SwitchRow
+        label={t("connections.exec.label")}
+        description={t("connections.exec.description")}
+        checked={enabled}
+        disabled={saving}
+        onChange={(v) => void change(v)}
+      />
+      <NoticePanel tone="warning" title={t("connections.exec.warning")} />
+      <FormError message={error} />
+    </div>
   );
 }
 

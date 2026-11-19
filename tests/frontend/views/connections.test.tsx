@@ -227,6 +227,61 @@ describe("connections view", () => {
     expect(screen.getByRole("button", { name: L.actions.probe })).toBeTruthy();
   });
 
+  it("the owner turns running commands in containers on from the editor, with a warning", async () => {
+    const owned = { ...scopedConnection, scoped: false, execEnabled: false };
+    const api = stubApi([owned]);
+    api.patch.mockResolvedValueOnce({
+      data: { ...owned, execEnabled: true },
+    } as never);
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions: ALL,
+    });
+    rendered.renderTab("coolify", { isVisible: true });
+    await openConnections();
+    fireEvent.click(screen.getByRole("button", { name: L.actions.edit }));
+    const toggle = await screen.findByRole("switch", { name: L.exec.label });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByText(L.exec.warning)).toBeTruthy();
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith("/connections/1", {
+        execEnabled: true,
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("switch", { name: L.exec.label })
+          .getAttribute("aria-checked"),
+      ).toBe("true"),
+    );
+  });
+
+  it("shows the exec switch only to the owner of a saved connection", async () => {
+    const granted = {
+      ...scopedConnection,
+      access: "configure",
+      execEnabled: true,
+    };
+    const api = stubApi([granted]);
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions: ALL,
+    });
+    rendered.renderTab("coolify", { isVisible: true });
+    await openConnections();
+    expect(screen.queryByRole("button", { name: L.actions.edit })).toBeNull();
+    expect(screen.queryByRole("switch", { name: L.exec.label })).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: L.add })[0]);
+    await screen.findByPlaceholderText(L.form.namePlaceholder);
+    expect(screen.queryByRole("switch", { name: L.exec.label })).toBeNull();
+  });
+
   it("registers the Connect Coolify onboarding step", async () => {
     const api = stubApi([]);
     rendered = await renderWithApp(plugin, {

@@ -63,3 +63,11 @@
 - "Use with an MCP client" in the Connections view, with the endpoint and a client config to copy
 - An API and MCP reference (`docs/api.md`) with every action's route, run path, key scope, MCP tool and a
   `curl` example
+- The action `coolify.exec` runs one command in a resource's container over SSH on its Linked host and
+  returns the output, cut at 64 KB with secrets masked, within at most 120 seconds. It stays off until an
+  admin turns on "Allow running commands in containers through the API and MCP" and the connection's owner
+  turns it on for that connection. Each run needs Operate Coolify resources, your own edit access to the
+  Linked host and a confirm, and over MCP also "Allow changes over MCP". Runs are audited with the
+  command's length, never its text
+- The owner's "Allow running commands in containers through the API and MCP" switch in the connection
+  editor, with a warning, and the action `coolify.connection-set-exec`; a grantee can't change it
