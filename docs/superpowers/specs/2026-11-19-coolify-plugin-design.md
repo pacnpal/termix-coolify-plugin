@@ -626,10 +626,14 @@ file-manager is 1.0.3 in the registry and 1.2.2 at HEAD.
 
 ### Connection setup and ability probe
 
-The Add connection form has name, URL and API token, plus an Advanced group: CF Access id and secret, "on
+The Add connection form recommends creating the Coolify token with the abilities **read, read:sensitive,
+write and deploy**. Everything works except deletes and instance settings, and a leaked token can't wipe
+resources. The form explains how to add `delete`, or use `root`, for those. It has name, URL and API token, plus an Advanced group: CF Access id and secret, "on
 my local network", and a CA certificate. On save, the probe runs:
 
-1. Health and version (record the version). Both are allowed for every token.
+1. Health and version (record the version). Both are allowed for every token. **Coolify older than 4.4.0
+   is refused**, with "This plugin needs Coolify 4.4 or newer". The fallback for containers created before
+   an upgrade stays.
 2. **Scope first.** Try `GET /team`. A scoped token (limited to projects or resources) gets 403 here
    and on `/servers`, `/security/keys` and `/notifications`. So the probe treats a 403 from `/team` as
    "scoped", not as a failure, and confirms it with one allowed call (`GET /projects`).
@@ -992,8 +996,12 @@ REST API (Termix API keys) and through Termix's MCP. Nothing may exist only as a
      traffic) are `read` operations that return the same data.
    - Interactive-only pieces (the live terminal and live log follow) have their non-interactive equivalents
      as operations:
-     - `coolify.exec`: run one command in a container and return its output. It's destructive, needs
-       `coolify.operate` plus host `edit`, takes a timeout, and its output is capped.
+     - `coolify.exec`: run one command in a container and return its output.
+       - It's destructive, needs `coolify.operate` plus host `edit`, takes a timeout, and its output is
+         capped.
+       - **It is off unless two switches are both on.** One is the admin setting "Allow running commands in
+         containers through the API and MCP" (`allowExec`, default off). The other is the Connection owner's
+         per-Connection opt-in (`execEnabled`, default off).
      - `coolify.logs-tail`: read.
      - `coolify.shell-command`: read. It returns the `docker exec` line, so a client with its own SSH can
        open the shell.
@@ -1024,6 +1032,10 @@ REST API (Termix API keys) and through Termix's MCP. Nothing may exist only as a
    - **Calls** go through `ctx.operations.run` with `via: "mcp"`. The gate, approvals, risk rules, dry runs,
      history and audit all apply exactly as in the UI.
      - A key with only `operations:read` can call only `read` tools.
+     - **Changes over MCP:** read tools, `deploy` and `restart` always work, within the key's scope.
+       Every other change or destructive tool answers "changes over MCP are turned off" unless the admin
+       setting "Allow changes over MCP" (`allowMcpChanges`, default off) is on. This switch applies to the MCP
+       endpoint only. REST API-key calls follow normal permissions, key scope and approvals.
      - An approval wait answers with the run id and "waiting for approval", like Operations Center.
    - **Output** is the operation's `summary` plus redacted `data`. Large data is cut at 8,000 characters with
      a note.
@@ -1242,7 +1254,7 @@ follows the Uptime plugin's pattern instead.
   - `allowPrivate`, `caCert`
   - `instanceKey` (varchar 255, indexed): the normalized base URL plus the Coolify team id, used to group
     connections to the same team
-  - `pollEnabled`, `autoSync`, `alertKinds` (json)
+  - `pollEnabled`, `autoSync`, `execEnabled` (default false), `alertKinds` (json)
   - `abilities` (json), `coolifyVersion`, `teamName`
   - `lastError`, `lastCheckedAt`, `createdAt`
 - **`grants`:** `id`, `connectionId`, `userId` (refUser), `level`, `createdAt`. Unique on (`connectionId`,
@@ -1319,6 +1331,11 @@ Everything goes through `ctx.db.persist()`, lazily for cache, events and recent.
   - "Allow polling" (on), "Minimum poll interval" (60s), "Allow copying Coolify SSH keys" (on; off forces
     mode B).
   - "Allow sharing connections" (on).
+  - "Allow public status pages" (`allowStatusPages`, on). Connection owners with `coolify.configure` can
+    publish pages.
+  - "Allow changes over MCP" (`allowMcpChanges`, off).
+  - "Allow running commands in containers through the API and MCP" (`allowExec`, off). Each Connection
+    also needs its owner's opt-in.
   - "Allow cloud provisioning" (on).
 - **Host (hidden):** `coolifyConnectionId` and `coolifyServerUuid`.
 - Everything else is per connection.
@@ -1387,7 +1404,7 @@ reason.
 | Field         | Value                                                                                                                                                                 |
 | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `id`          | `coolify` (not an official id, not in the registry)                                                                                                                   |
-| `name`        | "Coolify"                                                                                                                                                             |
+| `name`        | "Coolify for Termix"                                                                                                                                                  |
 | `description` | "Coolify inside Termix: servers become hosts (tunnels included), one-click container shells, deploys, logs, variables, backups and alerts, and the full Coolify API." |
 | `category`    | Infrastructure                                                                                                                                                        |
 | `icon`        | `Rocket`                                                                                                                                                              |
@@ -1425,6 +1442,26 @@ marked as mine for the owner to check.
    one user, so that is how Termix works. The recommended way for a team is one connection, shared with
    the others, along with its linked hosts.
 4. **Database imports come from a server path or S3, not a browser upload** (my call; reasons above).
+
+### Confirmed with the owner (design interview)
+
+These were settled one by one with the owner. The glossary is in `CONTEXT.md`, and the hard-to-reverse
+choices are in `docs/adr/`.
+
+- **Connections:** personal (owned by the Termix user who added them), shared with named users through
+  Grants. Server access is a separate Grant.
+- **Linked hosts:** locked while managed. Unlink makes them ordinary, editable hosts.
+- **`coolify.exec`:** in 1.0, behind an admin switch and the Connection owner's opt-in. Both are off by
+  default.
+- **Changes over the plugin's MCP endpoint:** reads plus deploy and restart work by default. Everything else
+  needs the admin switch `allowMcpChanges`, which is off by default. REST API-key calls are not affected by
+  that switch.
+- **Supported Coolify versions:** 4.4.0 and newer.
+- **Name:** "Coolify for Termix", id `coolify`, generic Rocket icon, published to the community registry.
+- **Default roles:** all five permissions go to admin and user. Termix admins can tighten them.
+- **Public status pages:** allowed by default. Owners with `coolify.configure` publish them, and admins can
+  turn them off.
+- **Recommended Coolify token:** read, read:sensitive, write and deploy.
 
 ## Gaps (what neither API allows, and what we do instead)
 
