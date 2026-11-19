@@ -898,8 +898,7 @@ Both sources feed one pipeline, deduped by `deployment_uuid` or `(event, resourc
          cache hit never lets an event through on its own, so a token that lost access since the cache was
          filled gets nothing.
      - **Fail closed.** A 401, 403 or 404, a timeout or any other error drops the event for that connection.
-       It's never stored or emitted there. A failed check is not retried later for a webhook event; polling
-       picks up anything that was missed.
+       It's never stored or emitted there. A failed check is not retried for a webhook event, so a dropped event can be lost for that connection. Polling, when it's on, catches up only on deployment and resource status changes (plus backups and tasks every five minutes), not on every kind of webhook event.
      - These checks count against the per-connection request budget. Webhook events are infrequent, and an
        event is checked once per connection, not once per alert recipient.
      - Each remaining connection then applies its own alert preferences and grants.
