@@ -366,18 +366,19 @@ export async function createSync(
     /**
      * Creates or updates a Linked host for each included server, then locks
      * it. A row that can't sync yet is reported and the others carry on.
-     * Servers gone from Coolify are reported, never deleted.
+     * Servers gone from Coolify are reported, never deleted. Null choices
+     * include every server, with its stored address and credential.
      */
     async apply(
       connectionId: number,
-      choices: SyncChoice[],
+      choices: SyncChoice[] | null,
     ): Promise<SyncResult[]> {
       const view = await ownedConnection(connectionId);
       const api = await connections.api(connectionId);
       const servers = await api.servers();
       const rows = await rowsOf(connectionId);
       const byUuid = new Map(rows.map((r) => [r.serverUuid, r]));
-      const wanted = new Map(choices.map((c) => [c.uuid, c]));
+      const wanted = choices && new Map(choices.map((c) => [c.uuid, c]));
       const copy = await copyAllowed(view);
       const known: KnownCopy[] = rows
         .filter((r) => r.credentialMode === "coolify" && r.credentialId)
@@ -397,7 +398,9 @@ export async function createSync(
       const results: SyncResult[] = [];
 
       for (const server of servers) {
-        const choice = wanted.get(server.uuid);
+        const choice: SyncChoice | undefined = wanted
+          ? wanted.get(server.uuid)
+          : { uuid: server.uuid, include: true };
         const row = byUuid.get(server.uuid);
         const base = { uuid: server.uuid, name: server.name };
         if (!choice?.include) {

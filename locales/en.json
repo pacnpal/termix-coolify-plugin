@@ -14,7 +14,16 @@
     "title": "Coolify shell"
   },
   "hostSection": {
-    "title": "Coolify"
+    "title": "Coolify",
+    "linked": "Linked to Coolify server {{server}} on {{connection}}.",
+    "unknownConnection": "a Coolify connection",
+    "locked": "Termix keeps this host read only while Coolify manages it. Sync it to pick up changes, or unlink it to edit it here.",
+    "sync": "Sync from Coolify",
+    "resources": "Resources",
+    "unlink": "Unlink",
+    "unlinked": "Unlinked. This is now an ordinary host.",
+    "unlinkFailed": "The host could not be unlinked.",
+    "notLinked": "This host is not linked to Coolify."
   },
   "permissions": {
     "view": {
@@ -124,6 +133,14 @@
       "removeHosts": {
         "label": "Also delete the Linked hosts",
         "description": "Off: the hosts made for this connection's servers stay as ordinary, editable hosts."
+      },
+      "choices": {
+        "label": "Servers",
+        "description": "Optional. A JSON list of { uuid, include, addressOverride, credentialId }. Leave empty to sync every server with its saved address and credential."
+      },
+      "serverUuid": {
+        "label": "Coolify server",
+        "description": "The uuid of a Coolify server that has a Linked host."
       }
     },
     "listConnections": {
@@ -145,6 +162,18 @@
     "connectionDelete": {
       "title": "Remove a Coolify connection",
       "description": "Removes the connection from Termix. Nothing changes in Coolify, and Linked hosts become ordinary hosts."
+    },
+    "syncPreview": {
+      "title": "Preview Coolify host sync",
+      "description": "Lists each Coolify server and the Termix host it is or would become, without changing anything."
+    },
+    "syncApply": {
+      "title": "Sync Coolify servers into hosts",
+      "description": "Creates or updates a locked Linked host for each server. Servers that need an address or a credential are reported and skipped, and servers gone from Coolify are never deleted."
+    },
+    "unlink": {
+      "title": "Unlink a Coolify host",
+      "description": "Releases the lock on a Linked host and makes it an ordinary host. The host is kept."
     }
   },
   "connections": {
@@ -171,7 +200,8 @@
     "actions": {
       "edit": "Edit",
       "probe": "Check again",
-      "delete": "Remove"
+      "delete": "Remove",
+      "sync": "Sync servers"
     },
     "form": {
       "name": "Name",
@@ -250,5 +280,85 @@
       "intro": "Add your Coolify URL and an API token. You can skip this and add connections later from the Coolify tab.",
       "done": "Connected to {{name}}."
     }
+  },
+  "sync": {
+    "title": "Sync servers from {{name}}",
+    "intro": "Each Coolify server becomes a Linked host in the Coolify folder. Linked hosts stay read only while Coolify manages them; unlink one to edit it.",
+    "loading": "Reading servers from Coolify",
+    "loadFailed": "The servers could not be read from Coolify.",
+    "empty": "This Coolify connection has no servers the token can see.",
+    "pickConnection": "Pick the connection to sync servers from.",
+    "noConnections": "Add a Coolify connection first, then sync its servers.",
+    "back": "Back",
+    "refresh": "Refresh",
+    "include": "Include",
+    "address": "Address Termix uses",
+    "addressHint": "Coolify reaches this server as {{ip}}, which Termix can't use. Enter the address Termix should connect to.",
+    "useSuggested": "Use {{address}}",
+    "credential": "Termix credential",
+    "credentialHint": "Coolify's key for this server can't be copied, so pick one of your Termix credentials.",
+    "credentialPlaceholder": "Pick a credential",
+    "apply": "Create and update hosts",
+    "applying": "Syncing hosts",
+    "applyFailed": "The hosts were not synced.",
+    "keepHost": "Keep as normal host",
+    "removeHost": "Remove host",
+    "unlinkFailed": "The host could not be changed.",
+    "removeConfirm": {
+      "title": "Remove the host for {{name}}?",
+      "description": "The Termix host is deleted. Nothing changes in Coolify.",
+      "confirm": "Remove host"
+    },
+    "status": {
+      "new": "New",
+      "linked": "Linked",
+      "blocked": "Needs attention",
+      "gone": "Gone from Coolify"
+    },
+    "badges": {
+      "tunnel": "Cloudflare tunnel",
+      "coolifyHost": "Coolify host",
+      "keyFromCoolify": "Key from Coolify",
+      "termixCredential": "Picked credential"
+    },
+    "causes": {
+      "needs-address": "This is the server Coolify runs on. Enter the address Termix should use for it.",
+      "needs-credential": "The token can't read this server's key, or copying keys is turned off. Pick a Termix credential.",
+      "needs-tunnel-support": "This server is behind a Cloudflare tunnel. Tunnelled servers can't be synced yet.",
+      "host-write-failed": "Termix refused the host. Check your permissions to create and edit hosts."
+    },
+    "results": {
+      "title": "Sync finished"
+    },
+    "resultStatus": {
+      "created": "Created",
+      "updated": "Updated",
+      "blocked": "Not synced",
+      "skipped": "Left out",
+      "gone": "Gone from Coolify",
+      "failed": "Failed"
+    }
+  },
+  "hostBadge": {
+    "label": "Coolify",
+    "tooltip": "Linked to a Coolify server"
+  },
+  "hostDot": {
+    "unreachable": "Coolify can't reach this server",
+    "degraded": "Coolify reports this server as not usable",
+    "gone": "This server is gone from Coolify"
+  },
+  "hostMenu": {
+    "resources": "Coolify resources",
+    "sync": "Sync from Coolify",
+    "unlink": "Unlink from Coolify"
+  },
+  "unlinkConfirm": {
+    "title": "Unlink {{name}} from Coolify?",
+    "description": "The host stays as an ordinary, editable host. Coolify is not changed.",
+    "confirm": "Unlink"
+  },
+  "importMenu": {
+    "title": "Import from Coolify"
   }
 }
