@@ -66,8 +66,9 @@ Keep this section current when the plugin changes: what it does, how it is put t
 aren't obvious from the code, and anything that has bitten you before.
 
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
-  Where things stand: identity, permissions, admin settings, the vendored API and the tables exist, and
-  Connections work (routes, operations, the Connections view and the "Connect Coolify" onboarding step).
+  Where things stand: identity, permissions, admin settings, the vendored API and the tables exist,
+  Connections work (routes, operations, the Connections view and the "Connect Coolify" onboarding step),
+  and Resources can be browsed (Overview tiles, the Resources list, a resource's Overview detail).
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
 - Coolify calls: `src/backend/coolify/http.ts` is the only way to Coolify (ctx.fetch, Bearer and CF Access
@@ -113,3 +114,28 @@ aren't obvious from the code, and anything that has bitten you before.
   (`p_coolify_status_pages`); the SDK refuses camelCase. `servers.hostId` is a plain nullable integer, not
   `refHost`: a cascade would delete the row and its `addressOverride` when the host goes. The `host.deleted`
   handler sets it to NULL (unlinks) instead.
+- Resources: `src/backend/resources/` (service, routes) and `src/backend/ops/resources.ts`. The service
+  merges `/applications`, `/services` (each service followed by its Parts) and `/databases`, never
+  `/resources`, and caches the merged DTO list in the `cache` table (kind `resources`, 20 seconds) through
+  `src/backend/cache.ts`. Every read first asks `connections.revision(id)`, which checks access (so another
+  user never gets a cached row) and answers a hash of the address, sealed token, sealed Cloudflare Access
+  values and TLS settings. The cached rows carry that revision and in-flight fetches are keyed by it, so a
+  changed target never serves old rows, a caller after a change never joins an older fetch, and a fetch
+  that finishes after a change is not cached. Concurrent misses share one fetch. `invalidate(connectionId)`
+  is the hook for lifecycle actions: it advances an in-memory per-connection generation, drops the
+  in-flight fetches and the cached row. Cached rows carry their generation too, and a hit needs both the
+  revision and the generation to be current, so a write that lands after the drop is never served.
+  Generations are unique to each `createResources` instance (`<epoch>:<n>`, the epoch a random uuid), so
+  after a restart no row an old instance wrote matches and the cache starts cold.
+  `ResourceDto.serverName` comes from `server.name` or `destination.server.name` in the payload.
+  The MCP tool `list_resources` (`src/backend/mcp/server.ts`) runs `coolify.list-resources-all`.
+- Status words: `src/shared/resource-health.ts` (`resourceHealth`, `countResources`) is the one reading of a
+  Coolify status, imported by both the backend and the frontend. Exited is stopped, whatever its health
+  suffix. Degraded covers degraded, restarting, dead and unhealthy, as a state (`unhealthy`) or a suffix
+  (`running:unhealthy`). Parts aren't counted (their service's status covers them).
+- Frontend: `src/frontend/views/CoolifyTab.tsx` owns the SideNav, the selected connection and the shared
+  resource list (`useResources`). The list is keyed by the connection's id and `revision` (the same
+  non-secret hash, also on `ConnectionView`), and `ConnectionsView`'s `onSaved` puts a saved row back into
+  the tab, so editing the selected connection's target clears and reloads it. `ResourceDetail.tsx` lists its views in `DETAIL_TABS`; later views (shell,
+  logs, stats) add an id there. Filtering and grouping are pure functions in `resource-model.ts`.
+  `contributes.mobile` lists only `coolify` until the `coolify-shell` tab is registered.

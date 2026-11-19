@@ -62,6 +62,14 @@ function stubApi(list: unknown[] = []) {
 
 let rendered: RenderedPluginApp | null = null;
 
+/** With a connection the tab opens on Overview; these tests use Connections. */
+async function openConnections() {
+  fireEvent.click(
+    await screen.findByRole("button", { name: locales.nav.connections }),
+  );
+  return screen.findByText("Prod");
+}
+
 afterEach(async () => {
   await rendered?.deactivate();
   rendered = null;
@@ -78,7 +86,7 @@ describe("connections view", () => {
       permissions: ALL,
     });
     rendered.renderTab("coolify", { isVisible: true });
-    expect(await screen.findByText("Prod")).toBeTruthy();
+    expect(await openConnections()).toBeTruthy();
     expect(screen.getByText(L.badges.scoped)).toBeTruthy();
     expect(api.get).toHaveBeenCalledWith("/connections");
   });
@@ -142,7 +150,7 @@ describe("connections view", () => {
       permissions: ALL,
     });
     rendered.renderTab("coolify", { isVisible: true });
-    await screen.findByText("Prod");
+    await openConnections();
     fireEvent.click(screen.getByRole("button", { name: L.actions.edit }));
     const name = await screen.findByPlaceholderText(L.form.namePlaceholder);
     expect((name as HTMLInputElement).value).toBe("Prod");
@@ -172,7 +180,7 @@ describe("connections view", () => {
       permissions: ALL,
     });
     rendered.renderTab("coolify", { isVisible: true });
-    await screen.findByText("Prod");
+    await openConnections();
     fireEvent.click(screen.getByRole("button", { name: L.actions.probe }));
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith("/connections/1/probe"),
@@ -189,7 +197,7 @@ describe("connections view", () => {
       permissions: ALL,
     });
     const tab = rendered.renderTab("coolify", { isVisible: true });
-    await screen.findByText("Prod");
+    await openConnections();
     fireEvent.click(
       within(tab).getByRole("button", { name: L.actions.delete }),
     );
@@ -215,7 +223,7 @@ describe("connections view", () => {
       permissions: ["coolify.view"],
     });
     rendered.renderTab("coolify", { isVisible: true });
-    await screen.findByText("Prod");
+    await openConnections();
     expect(screen.queryByRole("button", { name: L.add })).toBeNull();
     expect(screen.queryByRole("button", { name: L.actions.edit })).toBeNull();
     expect(screen.queryByRole("button", { name: L.actions.delete })).toBeNull();
@@ -290,7 +298,7 @@ describe("connections view under concurrent requests", () => {
       permissions: ALL,
     });
     rendered.renderTab("coolify", { isVisible: true });
-    await screen.findByText("Prod");
+    await openConnections();
     fireEvent.click(screen.getByRole("button", { name: L.actions.edit }));
     const name = await screen.findByPlaceholderText(L.form.namePlaceholder);
     fireEvent.change(name, { target: { value: "Renamed" } });
@@ -346,11 +354,15 @@ describe("connections view under concurrent requests", () => {
       permissions: ALL,
     });
     const tab = rendered.renderTab("coolify", { isVisible: true });
-    await screen.findByText("Prod");
+    await openConnections();
     const stale = deferred<{ data: unknown }>();
     api.get.mockReturnValueOnce(stale.promise as never);
+    // The tab and the Overview read first, so count only the list calls since.
+    const listCalls = () =>
+      api.get.mock.calls.filter(([url]) => url === "/connections").length;
+    const before = listCalls();
     fireEvent.click(within(tab).getByRole("button", { name: L.refresh }));
-    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(listCalls()).toBe(before + 1));
     await confirmDelete(tab);
     await waitFor(() => expect(within(tab).queryByText("Prod")).toBeNull());
     stale.resolve({ data: [scopedConnection] });
@@ -367,7 +379,7 @@ describe("connections view under concurrent requests", () => {
       permissions: ALL,
     });
     const tab = rendered.renderTab("coolify", { isVisible: true });
-    await screen.findByText("Prod");
+    await openConnections();
     const late = deferred<{ data: unknown }>();
     api.post.mockReturnValueOnce(late.promise as never);
     fireEvent.click(within(tab).getByRole("button", { name: L.actions.probe }));
@@ -526,6 +538,7 @@ describe("connections view under concurrent requests", () => {
       permissions: ALL,
     });
     const tab = rendered.renderTab("coolify", { isVisible: true });
+    await openConnections();
     await within(tab).findByText(L.badges.error);
     fireEvent.click(within(tab).getByRole("button", { name: L.actions.edit }));
     fireEvent.click(await screen.findByRole("button", { name: L.form.save }));

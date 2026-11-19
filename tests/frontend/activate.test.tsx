@@ -30,6 +30,16 @@ describe(`${manifest.id} activate`, () => {
     ]);
   });
 
+  it("offers the coolify tab to the phone app as a webview", async () => {
+    rendered = await renderWithApp(plugin, { manifest, locales });
+    const mobile = manifest.contributes?.mobile;
+    expect(mobile?.mode).toBe("webview");
+    expect(mobile?.views?.length).toBeGreaterThan(0);
+    for (const view of mobile?.views ?? []) {
+      expect(rendered.registered.tabs()).toContain(view);
+    }
+  });
+
   it("shows an empty state in the coolify tab", async () => {
     rendered = await renderWithApp(plugin, { manifest, locales });
     rendered.renderTab("coolify", { isVisible: true });

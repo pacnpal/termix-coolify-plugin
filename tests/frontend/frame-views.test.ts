@@ -3,6 +3,7 @@ import { checkFrameViews } from "@termix-ssh/plugin-sdk/testing";
 import * as plugin from "../../src/frontend/index";
 import manifest from "../../manifest.json";
 import locales from "../../locales/en.json";
+import { resourceAnswer, resourceRows } from "./fixtures";
 
 const connection = {
   id: 1,
@@ -35,10 +36,11 @@ describe("sandboxed frame views", () => {
       locales,
       permissions: ["coolify.view", "coolify.configure", "coolify.mcp"],
       respond: (method, path) => {
-        if (method === "GET" && /\/connections$/.test(path)) {
-          return [connection];
-        }
-        if (method === "GET" && /\/mcp$/.test(path)) {
+        if (method !== "GET") return {};
+        if (/\/connections$/.test(path)) return [connection];
+        if (/\/resources(\?|$)/.test(path)) return resourceAnswer;
+        if (/\/resources\/[^/]+$/.test(path)) return resourceRows[0];
+        if (/\/mcp$/.test(path)) {
           return {
             endpoint: "https://termix.example.test/plugin-api/coolify/mcp",
           };

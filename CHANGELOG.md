@@ -29,3 +29,15 @@
 - "Use with an MCP client" in the Connections view, with the endpoint and a client config to copy
 - An API and MCP reference (`docs/api.md`) with every action's route, run path, key scope, MCP tool and a
   `curl` example
+- The Coolify tab's Overview, Resources and Connections sections. Overview counts running, degraded, stopped
+  and deploying resources; a tile opens the Resources list filtered to it
+- A resource Coolify reports as exited counts as stopped, not degraded, since that is how Coolify reports
+  one you stopped yourself
+- The Resources list: every application, service and database of a connection, with each service's parts
+  under it, its status, Coolify server, project and environment, domains and last deploy. Search and filter
+  by type and status. A resource opens its Overview in place
+- Resources come from Coolify's per-type lists without environment values, keys, tokens or compose files,
+  and statuses are cached for 20 seconds; Refresh fetches them again
+- Actions to list a connection's resources and read one (`coolify.list-resources-all`,
+  `coolify.resource-get`), offered to the assistant and MCP; the MCP tool `list_resources` runs the first
+- The Coolify tab in the Termix phone app, with a phone layout for the Resources list
