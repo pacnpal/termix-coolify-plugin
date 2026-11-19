@@ -124,7 +124,8 @@ export interface SyncRow {
   status: "new" | "linked" | "gone" | "blocked";
   /**
    * needs-address, needs-credential, needs-ssh-terminal,
-   * ssh-terminal-too-old, credential-not-found or credential-check-failed.
+   * ssh-terminal-too-old, needs-ssh-terminal-to-clear-tunnel,
+   * credential-not-found or credential-check-failed.
    */
   cause?: string;
   mode: "coolify" | "termix";

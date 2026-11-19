@@ -37,7 +37,8 @@ export interface SyncRow {
   status: "new" | "linked" | "gone" | "blocked";
   /**
    * needs-address, needs-credential, needs-ssh-terminal,
-   * ssh-terminal-too-old, credential-not-found or credential-check-failed.
+   * ssh-terminal-too-old, needs-ssh-terminal-to-clear-tunnel,
+   * credential-not-found or credential-check-failed.
    */
   cause?: string;
   /** coolify: the key is copied from Coolify. termix: a picked credential. */
@@ -77,6 +78,12 @@ interface ServerRow {
   credentialMode: string | null;
   credentialId: number | null;
   keyFingerprint: string | null;
+  tunnelApplied: boolean;
+}
+
+/** Whether the row's current Linked host carries tunnel settings sync wrote. */
+function tunnelOn(row: ServerRow | undefined): boolean {
+  return Boolean(row?.hostId && row.tunnelApplied);
 }
 
 const UUID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -382,6 +389,7 @@ export async function createSync(
       sshTerminal,
       // A preview never reads the Access token: its rows don't carry it.
       cfAccess: null,
+      tunnelApplied: tunnelOn(row),
     });
     const hostId = row?.hostId ?? null;
     let cause: string | undefined;
@@ -439,7 +447,7 @@ export async function createSync(
     const client = await db();
     await client
       .update(t.servers)
-      .set({ hostId: null })
+      .set({ hostId: null, tunnelApplied: false })
       .where(eq(t.servers.id, row.id));
     await ctx.db.persist();
     return removed;
@@ -458,7 +466,7 @@ export async function createSync(
         await db()
       )
         .update(t.servers)
-        .set({ hostId: null })
+        .set({ hostId: null, tunnelApplied: false })
         .where(eq(t.servers.hostId, hostId));
       await ctx.db.persist();
     } catch (err) {
@@ -492,6 +500,11 @@ export async function createSync(
       }));
     // The actor's own SSH keys, read once, to check earlier copies still exist.
     let ownKeys: Promise<Set<number> | null> | null = null;
+    // Fail closed right before every write (a row save, a key copy, the
+    // folder, a host update or create): the connection must still exist, be
+    // the actor's and point at the snapshot's target. Throws, ending the
+    // whole sync with nothing more written. One cheap read per write.
+    const beforeWrite = () => assertSnapshotHolds(connectionId, view.revision);
     const copier = createKeyCopier(ctx, {
       api,
       connectionId,
@@ -502,6 +515,7 @@ export async function createSync(
           (list) => new Set(list.map((k) => k.id)),
           () => null,
         )),
+      beforeWrite,
     });
     const folder = folderName(view.name, (await connections.list()).length);
     const { docker, sshTerminal } = await companions();
@@ -569,8 +583,10 @@ export async function createSync(
           dockerRunning: docker,
           sshTerminal,
           cfAccess: null,
+          tunnelApplied: tunnelOn(row),
         });
         if (!precheck.ok) {
+          await beforeWrite();
           await saveRow(connectionId, server.uuid, row, remember);
           results.push({
             ...base,
@@ -588,6 +604,7 @@ export async function createSync(
         if (!credentialId && copy) {
           const copied = await copier.credentialFor(server.privateKeyId);
           if (copied && "cause" in copied) {
+            await beforeWrite();
             await saveRow(connectionId, server.uuid, row, remember);
             results.push({
               ...base,
@@ -612,6 +629,7 @@ export async function createSync(
             credentialId: null,
             keyFingerprint: null,
           };
+          await beforeWrite();
           await saveRow(
             connectionId,
             server.uuid,
@@ -637,13 +655,11 @@ export async function createSync(
           dockerRunning: docker,
           sshTerminal,
           cfAccess: server.isTunnel ? await accessToken() : null,
+          tunnelApplied: tunnelOn(row),
         });
         if (!plan.ok) throw new Error("plan changed");
         if (!folderReady) {
-          // Fail closed before the first host write: the connection must
-          // still exist, be the actor's and point at the snapshot's target.
-          // Throws, ending the whole sync.
-          await assertSnapshotHolds(connectionId, view.revision);
+          await beforeWrite();
           await ctx.hosts.folders.ensure(folder, { icon: "Rocket" });
           folderReady = true;
         }
@@ -651,6 +667,16 @@ export async function createSync(
         let hostId: number | null = null;
         let status: SyncResult["status"] = "created";
         if (row?.hostId) {
+          if (server.isTunnel && !row.tunnelApplied) {
+            // Write-ahead: the flag is set before the update that turns the
+            // tunnel on, so it never says false while the host has a tunnel.
+            // An abort after this only costs one redundant clear later.
+            await beforeWrite();
+            await saveRow(connectionId, server.uuid, row, {
+              tunnelApplied: true,
+            });
+          }
+          await beforeWrite();
           const updated = await ctx.hosts.update(row.hostId, plan.input);
           if (updated) {
             hostId = updated.id;
@@ -661,17 +687,26 @@ export async function createSync(
         }
         let created: number | null = null;
         if (hostId === null) {
+          await beforeWrite();
           hostId = (await ctx.hosts.create(plan.input)).id;
           created = hostId;
         }
         locks.add(hostId);
         try {
+          // A change since the host write ends the sync here; a host this
+          // sync just created is then discarded below, not left unlinked.
+          await beforeWrite();
           await saveRow(connectionId, server.uuid, row, {
             ...remember,
             hostId,
             credentialMode: mode,
             credentialId,
             keyFingerprint: mode === "coolify" ? fingerprint : null,
+            // True after planTunnel's write (an updated host had it set
+            // ahead; a created one gets it with its hostId here). False only
+            // now that the write turning the tunnel off has succeeded:
+            // planHost plans that only while SSH Terminal runs.
+            tunnelApplied: server.isTunnel,
             lastSyncedAt: new Date().toISOString(),
           });
         } catch (err) {
@@ -765,7 +800,9 @@ export async function createSync(
         ? goneRows(rows, present, await hostNames())
         : [];
       const check = ownCredentialCheck();
-      const sshTerminal = servers.some((s) => s.isTunnel)
+      const sshTerminal = servers.some(
+        (s) => s.isTunnel || tunnelOn(byUuid.get(s.uuid)),
+      )
         ? (await companions()).sshTerminal
         : NO_SSH_TERMINAL;
       const previewed: SyncRow[] = [];

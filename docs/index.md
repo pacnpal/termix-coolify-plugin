@@ -147,9 +147,10 @@ was removed finds the connection gone and creates nothing.
 
 A sync works on one snapshot of the connection: the server list, the Coolify address in host notes and
 the Cloudflare Access token written on tunnelled hosts all come from the same read. If someone changes
-the connection's address, token, Access token or TLS settings while a sync runs, the sync stops before
-its first host change with **The connection's address, token or Cloudflare Access settings changed
-during the sync** (`target-changed`), and no host gets the new settings. Sync again.
+the connection's address, token, Access token or TLS settings while a sync runs, the sync stops at its
+next step that would save, copy a key or change a host, with **The connection's address, token or
+Cloudflare Access settings changed during the sync** (`target-changed`). No host gets the new settings,
+and a host made just before the change is removed again. Sync again.
 
 Syncing and unlinking need **Configure Coolify** and only the connection's owner can do them; the preview
 needs **View Coolify**. They are also actions: `coolify.sync-preview` (offered to the assistant and MCP),
@@ -169,9 +170,15 @@ Docker and this plugin. Sync sets:
   results, run history, logs or the audit log.
 
 Each sync writes these settings in full, so nothing stale stays behind: when you remove the connection's
-Access token, the next sync clears it from tunnelled hosts, and when a server is no longer behind a tunnel,
-the next sync turns SSH Terminal's tunnel off on its host and clears the tunnel hostname and token (while
-SSH Terminal is on; Termix only takes its settings then).
+Access token, the next sync clears it from tunnelled hosts. When a server is no longer behind a tunnel, the
+next sync turns SSH Terminal's tunnel off on its host and clears the tunnel hostname and token. Termix only
+takes SSH Terminal's settings while it is on, so until then that server says **This server is no longer
+behind a Cloudflare tunnel, but its host still has SSH Terminal's tunnel settings**, with **Open Plugins**,
+and its host is left as it is. Hosts that were never tunnelled don't need SSH Terminal.
+
+Hosts linked before 1.0's database migration have no record of whether sync gave them tunnel settings, so
+they count as possibly tunnelled: once their server is a plain one, they may need SSH Terminal on for one
+sync to confirm their tunnel is off. After that they sync without it.
 
 This needs **SSH Terminal 1.2.0 or newer**, turned on. Version 1.0.3 tunnelled only its own terminal tab.
 Until then a tunnelled server can't sync and says why, with an **Open Plugins** button that opens Termix's

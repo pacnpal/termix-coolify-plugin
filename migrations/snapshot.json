@@ -212,6 +212,11 @@
         },
         "lastSyncedAt": {
           "type": "timestamp"
+        },
+        "tunnelApplied": {
+          "type": "boolean",
+          "notNull": true,
+          "defaultValue": false
         }
       },
       "indexes": [

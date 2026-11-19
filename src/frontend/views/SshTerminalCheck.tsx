@@ -8,10 +8,14 @@ import {
 import { Button, StatusDot } from "@termix-ssh/plugin-sdk/ui";
 import { createApi, type Connection, type SyncRow } from "../api";
 
-/** Sync causes that SSH Terminal fixes: turn it on, or update it. */
+/**
+ * Sync causes that SSH Terminal fixes: turn it on (also to clear the tunnel
+ * of a server that is no longer tunnelled), or update it.
+ */
 export const SSH_TERMINAL_CAUSES = new Set([
   "needs-ssh-terminal",
   "ssh-terminal-too-old",
+  "needs-ssh-terminal-to-clear-tunnel",
 ]);
 
 /** Opens Termix's own Plugins tab, where SSH Terminal is turned on or updated. */
