@@ -69,8 +69,8 @@ aren't obvious from the code, and anything that has bitten you before.
   Where things stand: identity, permissions, admin settings, the vendored API and the tables exist,
   Connections work (routes, operations, the Connections view and the "Connect Coolify" onboarding step),
   host sync turns Coolify servers into locked Linked hosts, Resources can be browsed (Overview tiles,
-  the Resources list, a resource's Overview detail), and container shells and database consoles open in a
-  `coolify-shell` tab.
+  the Resources list, a resource's Overview detail), container shells and database consoles open in a
+  `coolify-shell` tab, and a resource's Logs view reads and follows container logs.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
 - Coolify calls: `src/backend/coolify/http.ts` is the only way to Coolify (ctx.fetch, Bearer and CF Access
@@ -138,3 +138,25 @@ aren't obvious from the code, and anything that has bitten you before.
 console }`, calls the shell route and draws `PluginComponent id="terminal.view"` with `hostConfig` and
   `executeCommand`; the fallback is a NoticePanel with the command to copy. Picking a container re-asks in
   place. Shell host ids can be strings, so hosts are matched by `String(id)`, not `useHost`.
+- Logs: `src/backend/containers/logs.ts` (`readLogsRequest`, `logsCommand`, `createLogs` with `snapshot` and
+  `follow`), `sockets.ts` (`WS /logs`) and the `coolify.logs-tail` action in `ops/containers.ts`. The
+  containers service exposes `target`, `locate` (every check up to the chosen container, running or not),
+  `assertHostAccess` and `guard` (host key errors to `host-key`); shells and logs share them. A snapshot
+  uses Coolify's API only with an owner, operate or configure access level and `abilities.sensitive`, never
+  for a whole service (Coolify needs one sub-service) or a container picked from SSH choices; a Coolify
+  `forbidden-ability` falls back to SSH. The count is capped at 10,000 (`MAX_LINES`), never refused. The
+  container name passes `assertContainerName` and is `shellQuote`d, and so is the line count.
+- Follow socket: `ctx.asUser` needs `users:impersonate`, which the plugin doesn't have. Core runs a socket's
+  events in the opener's actor context (its child runtime wraps them in `als.run`), so each message checks
+  `ctx.currentActor() === conn.userId` (refused otherwise), `isDataUnlocked()`, `rbac.has("operate")`, and
+  while following, `connections.access` and host connect access. The follow runs `docker logs -f --tail 0`
+  over `ctx.ssh.connect` with a pty, so closing the channel hangs it up; stop sends KILL, closes the channel
+  and disposes. Lines are batched every 250 ms, at most 500 a batch and 2,000 buffered (older ones dropped
+  with a `dropped` count). Tests drive the handler from `mock.wsRoutes` with a fake socket and must
+  `setActor` to the socket's user, as core does.
+- Logs view: `src/frontend/views/LogsView.tsx` in ResourceDetail's `logs` tab (only with `coolify.operate`).
+  It opens the socket through `src/frontend/socket.ts` (`keepSocketTarget(app)` in activate keeps
+  `app.wsUrl`; tests swap it with `setWsUrl`). The follow effect depends on `isVisible`, so hiding the tab
+  closes it; a Part is asked for by its service's uuid plus `part`.
+- There is no log redactor yet: `redact` doesn't exist in the code, so log text goes out as docker or
+  Coolify wrote it. Task 18A's redactor should be applied to both the snapshot and the follow.

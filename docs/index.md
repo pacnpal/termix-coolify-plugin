@@ -1,8 +1,9 @@
 Coolify for Termix brings your Coolify servers, applications, services and databases into Termix.
 
 So far you can connect Coolify instances, see what each API token can do, sync Coolify servers into
-Termix hosts, browse each connection's applications, services and databases, and open a shell or database
-console in their containers. Deploys and the rest come with the rest of release 1.0.0.
+Termix hosts, browse each connection's applications, services and databases, open a shell or database
+console in their containers and read or follow their logs. Deploys and the rest come with the rest of
+release 1.0.0.
 
 ## Turn it on
 
@@ -141,6 +142,30 @@ server can read every container's secrets.
 The action `coolify.shell-command` (offered to the assistant and MCP) answers the same `docker exec` command,
 or the list of containers to choose from, for a client with its own SSH. It makes the same checks. See
 [the API](api.md).
+
+## Logs
+
+A resource's or part's **Logs** view shows the container's recent logs. Pick how many lines (100 up to
+10,000), turn **Timestamps** on, search the lines, or **Download** them as a text file.
+
+Each read is labelled with where it came from, because a different rule applies to each:
+
+- **from Coolify**: read through Coolify's API. That needs **Operate Coolify resources**, a connection you own
+  or a Grant at operate or configure, and an API token with `read:sensitive`.
+- **from the server over SSH**: `docker logs` on the server's Linked host, used whenever Coolify can't be
+  asked (a token without `read:sensitive`, a view Grant, a whole service, or a container picked from a list).
+  That needs **Operate Coolify resources** and your own **connect** access to the Linked host; a Grant level
+  and the token don't matter. The container is found the same way as for a shell, stopped ones included, and
+  when several match you pick one. A server with no Linked host answers **Link this server first**.
+
+**Follow** streams new lines live over SSH while the view is shown. It stops when you turn it off, switch to
+another view, hide the tab or close it, and the `docker logs` process on the server is stopped with it. Every
+message on the follow's socket checks again that your session is unlocked, that you still hold the
+permission and the connection, and that you can still open the Linked host. Very busy logs are thinned to
+about 2,000 lines a second.
+
+The action `coolify.logs-tail` (offered to the assistant and MCP) answers the same snapshot with its source.
+Its text is a sensitive output, so run history never keeps it. See [the API](api.md).
 
 ## Permissions
 

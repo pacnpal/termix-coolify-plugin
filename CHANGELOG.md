@@ -54,3 +54,13 @@
   the command to copy
 - The action `coolify.shell-command`, offered to the assistant and MCP, answers the exact `docker exec`
   command. Shells need Operate Coolify resources and your own connect access to the Linked host
+- A Logs view on each resource and part: 100 to 10,000 recent lines, timestamps, search and download. Each
+  read says where it came from: "from Coolify" (needs a token with `read:sensitive` and a connection you
+  own or an operate or configure Grant) or "from the server over SSH" (`docker logs` on the Linked host,
+  which needs your own connect access to it). A picker when several containers match, and "Link this server
+  first" when the server has no Linked host
+- Follow: new log lines live over SSH while the view is shown. It stops, and stops `docker logs` on the
+  server, when you turn it off, switch views, hide the tab or close it, and it checks your session, your
+  permission, the connection and your host access again on every message
+- The action `coolify.logs-tail`, offered to the assistant and MCP, answers the same logs; run history never
+  keeps their text
