@@ -1,4 +1,5 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
+import type { Companions } from "./companions/service.js";
 import type { Connections } from "./connections/service.js";
 import { registerConnectionOperations } from "./ops/connections.js";
 import { registerSyncOperations } from "./ops/sync.js";
@@ -7,6 +8,7 @@ import type { Sync } from "./sync/service.js";
 export interface Services {
   connections: Connections;
   sync: Sync;
+  companions: Companions;
 }
 
 /**
