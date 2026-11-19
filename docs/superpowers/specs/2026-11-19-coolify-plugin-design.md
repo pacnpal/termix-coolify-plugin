@@ -525,7 +525,7 @@ Not used, deliberately:
     calls `ctx.hosts.share` at `connect` level only after the owner ticks it, and is audited.
   - Removing the grant offers to revoke the host shares it made.
   - The three-way minimum (see Permissions) governs Coolify API actions. SSH features are governed by
-    Termix host access alone, and the docs and grant UI say so plainly.
+    two things only: the Termix role permission `coolify.operate` and Termix host `connect` access on the linked host (see Permissions). The docs and grant UI say so plainly.
 - **Linked server:** a Coolify server mapped to a Termix host this plugin created and manages.
 - **Resource:** an application, service, service part (app or database) or standalone database.
 
