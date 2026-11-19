@@ -42,13 +42,12 @@ Coolify capability rather than leave it out.
 
 ## Non-goals
 
-- Re-implementing Coolify features that have no API, such as metrics history graphs, the Traefik dashboard
-  and the build-pack editor UI. Where Coolify's dashboard is the only way, link to that exact page.
+- Re-implementing Coolify features that neither its API, its MCP nor Sentinel on the server exposes, such
+  as the Traefik dashboard and the build-pack editor UI. Where Coolify's dashboard is the only way, link to
+  that exact page.
 - Replacing the Docker plugin. Hosts we create switch it on when it is installed.
 - Our own Cloudflare tunnel code or running `cloudflared`. The SSH Terminal plugin already carries tunnels
   for every SSH connection in Termix.
-- Talking to Coolify's MCP endpoint (`/mcp`). Its one unique tool, metrics, is approximated over SSH. See
-  "Gaps".
 
 ## Anti-goals (failure even if it "works")
 
@@ -71,9 +70,10 @@ Coolify capability rather than leave it out.
 These were checked in source code, against the owner's live instances, or both. Details are in the research
 notes. These are the load-bearing ones.
 
-**Coolify** (v4.7.5 source and `openapi.json`; the owner runs a newer build with extra fields such as
-`is_coolify_host`, `settings.ssh_host_key_fingerprints` and `patch_check_result`, so tolerate unknown and
-missing fields):
+**Coolify** (v4.7.5, the current stable release, which the owner's instance matches. Fields like
+`is_coolify_host`, `settings.ssh_host_key_fingerprints` and `patch_check_result` are already in v4.7.5;
+some are returned but missing from the OpenAPI schema. The nightly channel builds from the `next` branch
+(`4.8.0-alpha`). Tolerate unknown and missing fields):
 
 - **API basics:**
   - REST is at `<url>/api/v1` with `Authorization: Bearer <token>`.
@@ -150,9 +150,18 @@ missing fields):
 3. **Our own tunnel transport** (`ssh:transport` + `network:sockets`). Rejected: duplicates SSH Terminal and
    needs two high-risk capabilities.
 4. **Typed client generated from Coolify's `openapi.json` vs. hand-written per endpoint.** Chosen: generated.
-   - A build-time script (`scripts/gen-coolify-client.mjs`) turns the pinned spec (committed under
-     `vendor/coolify-openapi.json`) into types and a thin request layer. The output is committed and
-     regenerated when the spec is bumped.
+   - A build-time script (`scripts/gen-coolify-client.mjs`) turns the vendored specs into types and a thin
+     request layer. The output is committed and regenerated when a spec is bumped.
+   - Three specs are vendored under `vendor/coolify/`:
+     - `openapi-v4.7.5.json`: the stable release, which is what the owner runs.
+     - `openapi-main.json`: fixes heading for the next patch release.
+     - `openapi-next.json`: the `next` branch the nightly builds from. Today it adds
+       `POST /databases/influxdb`, the `use_production_values_in_previews` and `copy_value_to_preview`
+       fields, and InfluxDB database fields.
+   - The client is generated from the union of the three. Each operation and field outside v4.7.5 is
+     tagged with the version that adds it, and is used only when the connection's `/version` is new enough.
+   - Careful: an earlier research copy labelled "v4.7.5" was really `main`'s spec. Take each file from its
+     named git ref.
    - This makes "cover all 330 operations" tractable and checkable: a test asserts every spec operation is
      either used by a feature or listed in `docs/coverage.md` with a reason.
    - This is not code downloaded at runtime (rule 18): the spec is vendored, and the generator runs in
@@ -575,16 +584,44 @@ Admins can tighten the defaults per role in Termix.
 | `events:core`                    | medium       | `host.deleted`, `host.updated`                                            |
 | `plugins:read`                   | low          | Detect SSH Terminal and Docker so features degrade cleanly                |
 | `users:read`                     | medium       | Send alerts in the grantee's language (`users.getLocale`)                 |
+| `operations:invoke`              | high         | Run companion plugins' declared actions, listed one by one in `invokes`   |
 
-`ssh:connect` is the only high-risk capability, and it's required for anything container-level, because
-Coolify has no exec API.
+`ssh:connect` and `operations:invoke` are the high-risk capabilities.
+
+- `ssh:connect` is needed for anything container-level, because Coolify has no exec API.
+- `operations:invoke` is needed only for the companion-plugin features that have no service. It lists
+  exact action ids, never `*`.
 
 `contributes.uses`:
 
 - `terminal.view`, `terminal.open` and `homepage.widgets`
-- the Docker plugin's operations, read-only use through services
+- `files.openHost`, `files.openEditor`
+- `tunnels.openView` and the `tunnels.views` extension point
+- `host-metrics.managers` (slot)
+- `host-page.open` and `operations.hostMenu`
+- `alerts.open`
 
-Optional dependencies: `ssh-terminal`, `docker`, `homepage`.
+Services used, all optional in `requires`:
+
+- `docker.containers`, `docker.events`
+- `files.sftp`, `tunnels.access`, `dns.records`, `reverse-proxy.endpoints`, `security-center.access`
+- `uptime.access`, `automations.access`
+
+Operations invoked (`contributes.operations.invokes`):
+
+- `package-manager.list-updates`, `package-manager.upgrade-all`
+- `log-search.search`
+- `uptime.pause`, `uptime.resume`
+- `backups.failed`
+
+Optional dependencies (each feature switches on only when that plugin runs):
+
+- `ssh-terminal`, `docker`, `homepage`, `file-manager`, `tunnels`, `dns`, `reverse-proxy`
+- `security-center`, `uptime`, `log-search`, `package-manager`, `host-metrics`, `databases`, `backups`
+- `automations`, `operations-center`, `alerts`
+
+Pin each range to the version actually tested. The registry lags the plugin repos: for example,
+file-manager is 1.0.3 in the registry and 1.2.2 at HEAD.
 
 ### Connection setup and ability probe
 
@@ -923,6 +960,186 @@ Both sources feed one pipeline, deduped by `deployment_uuid` or `(event, resourc
    - Default alert kinds: deploy failed, restart limit, server unreachable, backup failed, task failed, high
      disk, certificate problems, API token expiring.
 
+### Companion plugins
+
+Termix ships about 75 official plugins. When one of the plugins below is installed, Coolify features show up
+inside it, and its features show up here. Each integration checks `plugins:read` and the service or action at
+runtime. If it's missing, that one feature hides and nothing else breaks.
+
+**File Manager.** Use: yes.
+
+- "Browse files" on a resource opens `files.openHost(host, path)` on the linked host:
+  - `/data/coolify/applications/<uuid>` for applications.
+  - `/data/coolify/services/<uuid>` for services.
+  - `/data/coolify/databases/<uuid>` for databases.
+  - Each volume's mount path from the resource's storages.
+- "Edit compose file" uses `files.openEditor`.
+- The backend reads small files, such as a generated `docker-compose.yml`, through `files.sftp.read`.
+- SSH rules apply, because this is server access.
+
+**Tunnels.** Use: partial.
+
+- "Reach from here" on a database or private port calls `tunnels.access.forward(hostId, {targetHost:
+<container IP>, targetPort})`.
+- The forward listens on the Termix server (127.0.0.1), is not saved in the user's Tunnels list, and is named
+  `web:<hostId>:coolify-<uuid>`.
+- The Tunnels tab gets a "Coolify" view through the `tunnels.views` extension point. It lists the resources'
+  internal ports with forward and stop.
+- Forwards to the person's own computer aren't possible: desktop-side tunnels offer no service. The UI says
+  so.
+
+**Reverse Proxy.** Use: yes, when the admin has set the endpoint domain.
+
+- "Open web UI" on a container with an HTTP port calls `reverse-proxy.endpoints.open({hostId, target:{host:
+<container IP>, port, scheme}})`.
+- It opens the one-time signed-in URL. No public domain or tunnel is needed.
+- If `available()` is false, the button explains what the admin must set up.
+
+**DNS.** Use: yes.
+
+- On the resource's Domains panel, "Create DNS record" uses `dns.records.findZone(fqdn)` and
+  `setRecord({name, type: A or CNAME, content: <server public IP or tunnel target>})`.
+- The person picks: Coolify's own DNS integration, or the Termix DNS plugin.
+- Records made here are remembered, so they can be removed with the resource.
+
+**Uptime.** Use: partial.
+
+- Show each app's monitor status, matched by URL from `uptime.access.summary()`.
+- Deploy actions pause the app's monitors and resume them after, through operations
+  `uptime.pause`/`uptime.resume`. This is opt-in per connection.
+- Uptime has no API to create HTTP monitors. The UI offers "Create monitor in Uptime", which opens the Uptime
+  tab, and says why it can't be done in one click.
+
+**Log Search.** Use: partial.
+
+- "Search logs across servers" runs `log-search.search` with `source: "docker"` and the resource uuid as the
+  query.
+- Results show in our Logs tab with the source labelled. It can't filter by host. It needs
+  `operations:invoke`.
+
+**Package Manager.** Use: yes. See "Server updates".
+
+**Security Center.** Use: yes.
+
+- Linked hosts show `security-center.access.check(hostId)` (score, critical vulnerabilities) in the Servers
+  view, next to Coolify's own image-vulnerability counts.
+
+**Host Metrics.** Use: partial.
+
+- A card in the `host-metrics.managers` slot on linked hosts shows the Coolify resource counts and Sentinel
+  container top list (see "Metrics").
+- Host Metrics has no read service and doesn't store container data. We don't feed its history.
+
+**Databases.** Use: weak.
+
+- It supports only MySQL, PostgreSQL and SQLite through host CLIs, with no Docker mode, and no way for
+  another plugin to pre-fill a login.
+- We show whether a Coolify database already has a saved login there (`databases.logins.list`) and link to
+  its tab. Our own in-container console stays the main way in.
+
+**Backups, Cron, Certificates.** Use: read only.
+
+- The Servers view shows failed Termix backup jobs on linked hosts (`backups.failed`).
+- Cron and certificates are linked to, not driven. They expose no create API.
+
+**Automations.** Use: yes.
+
+- Our declared operation events (`coolify.deployment-failed` and the rest) appear as Automations triggers
+  with no extra wiring.
+- Our actions appear as Automations steps.
+
+**Operations Center.** Use: yes.
+
+- Our resources, actions and signals show there.
+- Our host section links to `host-page.open(host, "coolify")`.
+
+**Alerts.** Use: yes.
+
+- `ctx.notify.send` delivers through the Alerts hub. Our UI links to `alerts.openChannels`.
+
+**Not yet released:** databases, log-search, uptime, dns, package-manager, security-center, certificates,
+backups, cron, reverse-proxy and operations-center have repos but no registry release yet. Their integrations
+ship dark and light up when they are installed.
+
+### Metrics, traffic and Coolify MCP
+
+Coolify keeps no metric time series itself. Sentinel, its agent on each server, stores them in its own
+database for `sentinel_metrics_history_days`. Coolify reads them over SSH. So the plugin reads them the same
+way, plus through Coolify's MCP where that is on.
+
+- **Container and resource metrics** (SSH, linked host):
+  - `docker exec coolify-sentinel curl -s http://localhost:8888/api/container/<uuid>/cpu/history` and
+    `/memory/history`, the same paths Coolify's client uses.
+  - The current top list comes from `/api/containers/current`.
+  - Shown as charts on the resource's Stats tab, with ranges up to the Sentinel retention, plus the live
+    `docker stats` readout.
+  - If Sentinel or metrics is off for that server, the tab offers "Turn on metrics", which calls
+    `PATCH /servers/{uuid}/sentinel` (needs write and deploy).
+- **Server metrics:**
+  - Preferred: Coolify MCP `get_server_metrics {server_uuid, minutes ≤ 43200}`, which returns `current` and
+    `series` for cpu, memory, disk, load and network. It needs no SSH.
+  - Fallback: Sentinel over SSH.
+  - Shown on the Servers view and the host section.
+- **Traffic analytics** (Sentinel 1.0.2+, when Coolify's traffic analytics is on for the server):
+  - `.../api/{app|resource}/<key>/traffic/{overview|paths|series|breakdown/<dim>}` over SSH.
+  - A Traffic tab on applications shows requests over time, top paths, status codes, countries, browsers and
+    bots.
+  - `traffic_ip_mode` is honoured. When it's `anonymized` or `off`, IPs never show.
+  - Coolify's API can't turn analytics on. The tab links to the Coolify page that does.
+- **Coolify MCP client:**
+  - A small JSON-RPC client posts to `<url>/mcp` with the same Bearer token. It's stateless streamable HTTP:
+    `tools/call` with `{name, arguments}`.
+  - The result is a JSON string inside `content[0].text`, parsed and stripped like REST payloads.
+  - Tools used beyond metrics:
+    - `get_infrastructure_overview` and `list_unhealthy_resources` for the Overview, so it costs one call
+      instead of many.
+    - `get_deployment` with `include_log_summary` for failed deploys.
+    - `get_logs`, whose output is already redacted, for log snippets in alerts.
+  - The probe checks MCP. It is off by default in Coolify (instance flag), and enabling it needs a root-team
+    token. If it's off, every feature falls back to REST or SSH and the Instance section says how to turn it
+    on.
+- **Rules:** these are SSH features, so they need `coolify.operate` plus host `connect`. MCP reads follow the
+  API rules.
+
+### Server updates
+
+- **What Coolify reports:**
+  - `settings.patch_check_result` per server: total, security count, the update list with risk labels
+    (docker, kernel or system), held packages, `reboot_required` and the running and installed kernels.
+  - Also `patch_checked_at` and `patch_check_error`.
+- **Where it shows:**
+  - The Servers view and the host section show updates and security counts, "reboot required" and when it
+    was last checked.
+  - A signal `coolify.updates` shows security updates per linked host.
+  - Updates flagged risk `docker` are called out, because they restart containers.
+- **What can be done** (Coolify has no API to trigger a check, update or reboot):
+  - With Package Manager installed: "Install updates" invokes `package-manager.upgrade-all` on the linked
+    host. It goes through that plugin's own dry run, confirm and edit-access rules. "Check now" invokes
+    `package-manager.list-updates`.
+  - Without it: the same, over our own SSH, using `@termix-ssh/plugin-sdk/host-commands` for the OS's
+    package manager and sudo. It needs edit access on the host and a confirm that lists the packages.
+  - "Reboot server" is a destructive host action with a typed confirm, run over SSH. It warns that every
+    Coolify app on the server goes down meanwhile.
+  - After our own check, the fresh result shows at once. Coolify's own record catches up at its next
+    scheduled check, and the UI says which is which.
+
+### Public status page
+
+Termix's own share-link guest views don't render for framed (API 2) plugins on this core. So the status page
+follows the Uptime plugin's pattern instead.
+
+- **Per connection:** the owner can publish a read-only page at `/plugin-api/coolify/status/:token`. The
+  token is 32 random bytes, stored hashed, and can be revoked and rotated.
+- **Content:** the owner picks which resources appear. The page shows only display names, status, last
+  deploy time and result, and uptime when the Uptime plugin is there.
+  - It never shows uuids, servers, domains the owner didn't tick, logs or anything sensitive.
+- **Serving:**
+  - A public route returns self-contained HTML (inline CSS, no scripts from elsewhere) with its own strict
+    `Content-Security-Policy`, and a JSON variant at `…/status/:token.json`.
+  - Data comes from the status cache, so a page view never calls Coolify.
+  - Public rate limit, and every view is logged. `authz.json` declares it `access: public`.
+- **Optional auto-refresh:** a meta refresh every 30 seconds, with no script.
+
 ### Data model (`p_coolify_*`)
 
 - **`connections`:**
@@ -944,6 +1161,10 @@ Both sources feed one pipeline, deduped by `deployment_uuid` or `(event, resourc
 - **`events`:** `id`, `connectionId`, `kind`, `resourceUuid`, `deploymentUuid`, `hostId`, `title`, `detail`
   (json, no secrets), `createdAt`. Indexed on (`connectionId`, `createdAt`).
 - **`onboardings`:** see "Partial onboarding" under Reverse onboarding.
+- **`statusPages`:** `id`, `connectionId`, `tokenHash` (varchar 64, indexed), `resources` (json list of
+  uuids), `title`, `createdAt`, `revokedAt`.
+- **`dnsRecords`:** records we made through the DNS plugin: `id`, `connectionId`, `resourceUuid`,
+  `handle` (json), `fqdn`, `createdAt`.
 - **`recent`:** `userId` (refUser), `connectionId`, `resourceUuid`, `usedAt`, for palette ranking.
 
 Everything goes through `ctx.db.persist()`, lazily for cache, events and recent.
@@ -1020,6 +1241,13 @@ Everything goes through `ctx.db.persist()`, lazily for cache, events and recent.
    - Host section, badge, dot, menu, import menu, host action.
    - Operations resource, lifecycle actions and signals.
    - Palette, onboarding step.
+   - **Added at the owner's request ("all of them, now, as 1.0"):**
+     - Companion plugins: every integration in "Companion plugins".
+     - Metrics, traffic and the Coolify MCP client: Sentinel over SSH, MCP server metrics, the Stats and
+       Traffic tabs.
+     - Server updates: the status display, check, install and reboot.
+     - Spec handling: the three vendored specs, version tagging, and the coverage test over their union.
+     - Public status page.
 2. **1.1.0: Observe.**
    - Logs snapshot and follow, Stats.
    - Deployments section with live build logs, cancel, rollback, previews.
@@ -1102,8 +1330,15 @@ marked as mine for the owner to check.
 
 ## Gaps (what neither API allows, and what we do instead)
 
-- **Metrics history:** Coolify's REST API has no metrics data, only its MCP. We do live container stats over
-  SSH while a view is open. History is out of scope; we link to Coolify's metrics page.
+- **Metrics history:** Coolify's REST API has none. Server series come from MCP, and container and traffic
+  series from Sentinel over SSH. Both depend on Coolify having metrics or traffic analytics turned on for
+  that server.
+- **Patch check, OS updates, reboot:** Coolify exposes none of these in REST or MCP. We act over SSH or
+  through the Package Manager plugin, and read Coolify's last check from the server settings.
+- **Share-link guest views:** these don't render for framed plugins on this core, so the status page is a
+  self-contained public route.
+- **Termix plugins with no create APIs:** HTTP monitors in Uptime, Databases logins, backup and cron jobs.
+  We link to them instead.
 - **Pre-trusting host keys:** Termix has no plugin API for it. We show Coolify's fingerprint at the trust
   prompt.
 - **Container exec without SSH:** Coolify has no exec API, so shells, consoles, live logs and stats need a
