@@ -32,3 +32,10 @@
 - "Import from Coolify" in the hosts import menu, and a Sync servers button on each connection
 - Actions `coolify.sync-preview`, `coolify.sync-apply` and `coolify.unlink`; only the preview is offered to
   the assistant and MCP
+- Other Termix plugins, when installed: Create DNS record for a resource's domain (records made here are
+  remembered and can be removed), Uptime monitor status with a link to Uptime, Search logs across servers
+  through Log Search, and, on Linked hosts, the Security Center score, a Host Metrics card with Coolify's
+  resource counts, failed backups and whether Databases has a saved login. Each hides while its plugin is
+  missing
+- Actions `coolify.companion-read` (offered to the assistant and MCP) and `coolify.companion` for the
+  same features, including pausing and resuming a resource's Uptime monitors

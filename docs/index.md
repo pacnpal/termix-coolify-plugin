@@ -1,7 +1,7 @@
 Coolify for Termix brings your Coolify servers, applications, services and databases into Termix.
 
-So far you can connect Coolify instances, see what each API token can do, and sync Coolify servers into
-Termix hosts. Resources, shells and the rest come with the rest of release 1.0.0.
+So far you can connect Coolify instances, see what each API token can do, sync Coolify servers into
+Termix hosts, and use other Termix plugins (DNS, Uptime, Log Search and more) with them. Resources, shells and the rest come with the rest of release 1.0.0.
 
 ## Turn it on
 
@@ -79,6 +79,42 @@ Syncing and unlinking need **Configure Coolify** and only the connection's owner
 needs **View Coolify**. They are also actions: `coolify.sync-preview` (offered to the assistant and MCP),
 `coolify.sync-apply` (without a server list it syncs every server with its saved address and credential)
 and `coolify.unlink`.
+
+## Other Termix plugins
+
+When one of these Termix plugins is installed and running, its Coolify feature appears. When it isn't, that
+feature hides and nothing else changes. The plugin checks every minute.
+
+| Plugin          | What appears                                                                                 |
+| --------------- | -------------------------------------------------------------------------------------------- |
+| DNS             | **Create DNS record** for one of a resource's domains                                        |
+| Uptime          | The status of the Uptime monitors whose URL is on a resource's domains                       |
+| Log Search      | **Search logs across servers**, over Docker logs, with the resource's uuid as the query      |
+| Security Center | The score and critical findings of a Linked host, on its Coolify card                        |
+| Host Metrics    | A **Coolify on this server** card on a Linked host: its applications, services and databases |
+| Databases       | Whether a Coolify database already has a saved login there, with **Open Databases**          |
+| Backups         | Failed Termix backup jobs on a Linked host                                                   |
+
+- **DNS records.** The name must be one of the resource's domains. Leave **Points to** empty to use the
+  server's address. Records made here are remembered, listed with the resource and can be removed again.
+  Only records made here can be removed from here.
+- **Uptime.** Uptime can't create HTTP monitors for another plugin, so **Create monitor in Uptime** opens the
+  Uptime tab. A resource's monitors can be paused and resumed with the `coolify.companion` action.
+- **Log Search** searches every server's Docker logs and can't filter by host. The results say where they
+  came from.
+- **Databases** only shows names: logins and database names, never a password.
+
+Who may use them:
+
+- Reading (Uptime, Security Center, Host Metrics, Databases, Backups, listing DNS records) needs **View
+  Coolify** and the connection (yours, or a grant).
+- **Search logs** needs **Operate Coolify resources** and an operate grant, because it shows log output.
+- Creating and removing DNS records needs **Configure Coolify** and a configure grant.
+- Anything about a Linked host also needs your own access to that host in Termix.
+
+They are also actions: `coolify.companion-read` (offered to the assistant and MCP) reads any of them, and
+`coolify.companion` creates or removes DNS records and pauses or resumes Uptime monitors. The plugin never
+sends a Coolify token or any other secret to another plugin.
 
 ## Permissions
 

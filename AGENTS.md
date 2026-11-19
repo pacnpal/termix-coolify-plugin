@@ -68,7 +68,8 @@ aren't obvious from the code, and anything that has bitten you before.
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
   Where things stand: identity, permissions, admin settings, the vendored API and the tables exist, and
   Connections work (routes, operations, the Connections view and the "Connect Coolify" onboarding step),
-  and host sync turns Coolify servers into locked Linked hosts.
+  and host sync turns Coolify servers into locked Linked hosts. Companion plugins (DNS, Uptime, Log Search,
+  Security Center, Host Metrics, Databases, Backups) add their features when they run.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
 - Coolify calls: `src/backend/coolify/http.ts` is the only way to Coolify (ctx.fetch, Bearer and CF Access
@@ -109,3 +110,20 @@ aren't obvious from the code, and anything that has bitten you before.
 - Frontend host surfaces: `src/frontend/linked.ts` reads a host's link from its own settings and shares one
   sync preview per connection (five minutes) between badge dots and the host card. The tab opens the sync
   preview from `tab.data` `{ section: "sync", connectionId? }`; `section: "resources"` is for ticket #7.
+- Companions: `src/backend/companions/` (`detect.ts` `companions(ctx)` from `ctx.plugins.list`, cached 60 s
+  per ctx in a WeakMap; `adapters.ts`, the only code that calls another plugin; `service.ts`; `routes.ts`) and
+  `src/backend/ops/companions.ts` (`coolify.companion-read` for reads, `coolify.companion` for changes, one
+  `kind` per route). Every service method checks, in order: the Termix permission (`ctx.rbac.has`), the
+  connection grant rank (view < operate < configure < owner), that the companion runs, then for Linked hosts
+  `ctx.hosts.checkAccess(hostId, "view")`, failing closed. A missing companion is a `CompanionError`
+  (`companion-missing`, 404, with `plugin`), which `sendError` answers. Services are read with `"method" in
+handle`, since a missing provider is an empty handle. Log search is `operate` (it shows log output); DNS is
+  `configure`. The companion service and action shapes come from the design, not from the companions' code,
+  which wasn't readable when this was written: the adapters read their answers loosely and pick fields by
+  name. The `dns_records.handle` column holds JSON text `{ record, type, content }`, where `record` is the DNS
+  plugin's own handle; removal looks the row up by id, connection and resource, so only a record made here
+  can be removed. `setMonitorsPaused` is the hook for pausing Uptime during deploys (ticket #10 decides
+  when). Files, Tunnels and Reverse Proxy are ticket #19. Frontend: `src/frontend/companions.ts`
+  (`useCompanions`), `views/CompanionActions.tsx` (for the resource view to mount) and
+  `views/HostCompanions.tsx` (inside the host card). Opening Uptime or Databases uses
+  `openSingletonTab("uptime")` and `("databases")`.
