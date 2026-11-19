@@ -78,19 +78,37 @@ export type ConnectionErrorCode =
   | "forbidden"
   | "not-found"
   // A server with no Linked host (host sync's unlink).
-  | "not-linked";
+  | "not-linked"
+  // Server updates: a missing confirm, a mistyped server name, a Linked host
+  // the actor can't open, a login that can't become root, an OS without a
+  // known package manager, and SSH or Package Manager failing.
+  | "confirm-required"
+  | "name-mismatch"
+  | "host-forbidden"
+  | "needs-sudo"
+  | "unsupported-os"
+  | "ssh-failed"
+  | "companion-failed";
+
+export type ConnectionErrorStatus = 400 | 403 | 404 | 409 | 502;
 
 /** A refusal by the plugin itself, before or without asking Coolify. */
 export class ConnectionError extends Error {
-  readonly status: 400 | 403 | 404;
+  readonly status: ConnectionErrorStatus;
   readonly code: ConnectionErrorCode;
 
-  constructor(code: ConnectionErrorCode, message: string) {
+  /** The status follows the code unless one is given. */
+  constructor(
+    code: ConnectionErrorCode,
+    message: string,
+    status?: ConnectionErrorStatus,
+  ) {
     super(message);
     this.name = "ConnectionError";
     this.code = code;
     this.status =
-      code === "invalid-input" ? 400 : code === "forbidden" ? 403 : 404;
+      status ??
+      (code === "invalid-input" ? 400 : code === "forbidden" ? 403 : 404);
   }
 }
 

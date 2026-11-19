@@ -91,6 +91,8 @@ export async function startWithConnection(
     settings?: Record<string, unknown>;
     permissions?: string[];
     dockerRunning?: boolean;
+    /** Other plugins running besides this one, by id. */
+    plugins?: string[];
     /** The actor's own credential ids, for picked credentials. */
     ownCredentials?: number[];
   } = {},
@@ -107,12 +109,26 @@ export async function startWithConnection(
       authType: "key",
       folder: null,
     })),
-    installedPlugins: options.dockerRunning
-      ? [
-          { id: "coolify", version: "1.0.0", source: "user", state: "active" },
-          { id: "docker", version: "1.0.0", source: "user", state: "active" },
-        ]
-      : undefined,
+    installedPlugins:
+      options.dockerRunning || options.plugins?.length
+        ? [
+            {
+              id: "coolify",
+              version: "1.0.0",
+              source: "user",
+              state: "active",
+            },
+            ...[
+              ...(options.dockerRunning ? ["docker"] : []),
+              ...(options.plugins ?? []),
+            ].map((id) => ({
+              id,
+              version: "1.0.0",
+              source: "user" as const,
+              state: "active",
+            })),
+          ]
+        : undefined,
   });
   const created = await harness.request("POST", "/connections", {
     name: "Prod",

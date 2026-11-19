@@ -179,10 +179,16 @@ export function toPatch(
     };
   });
   const securityCount = items.filter((item) => item.security).length;
+  // An explicit null means Coolify can't tell (pacman, apk), so the per-item
+  // false flags don't make it zero. Only a result without the field counts.
+  const securityKnown = raw !== null && "security_updates" in raw;
   return {
     updates: num(raw?.total_updates) ?? items.length,
-    security:
-      num(raw?.security_updates) ?? (items.length ? securityCount : null),
+    security: securityKnown
+      ? num(raw.security_updates)
+      : items.length
+        ? securityCount
+        : null,
     rebootRequired: boolOrNull(raw?.reboot_required),
     checkedAt: strOrNull(checkedAt),
     error: errorText,

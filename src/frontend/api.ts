@@ -145,6 +145,47 @@ export interface McpInfo {
   endpoint: string;
 }
 
+export interface PatchItem {
+  package: string;
+  newVersion: string;
+  currentVersion: string;
+  security: boolean;
+  risk: "docker" | "kernel" | "system" | null;
+}
+
+/** A server's pending package updates, from Coolify or the plugin's own check. */
+export interface PatchStatus {
+  updates: number;
+  security: number | null;
+  rebootRequired: boolean | null;
+  checkedAt: string | null;
+  error: string | null;
+  items: PatchItem[];
+}
+
+export type UpdatesVia = "package-manager" | "ssh";
+
+export interface ServerUpdates {
+  server: { uuid: string; name: string };
+  hostId: number | null;
+  coolify: PatchStatus | null;
+  fresh: PatchStatus | null;
+  via: UpdatesVia | null;
+}
+
+export interface UpdatesCheck {
+  via: UpdatesVia;
+  fresh: PatchStatus;
+}
+
+export interface UpdatesInstall {
+  via: UpdatesVia;
+  summary: string;
+  changed: boolean;
+  pending: boolean;
+  output: string;
+}
+
 /** What a failed call answers: a plain message and a cause the UI translates. */
 export interface ApiFailure {
   error: string;
@@ -262,6 +303,44 @@ export function createApi(api: PluginApiClient) {
       return typeof data?.endpoint === "string"
         ? { endpoint: data.endpoint }
         : null;
+    },
+    async serverUpdates(id: number, uuid: string): Promise<ServerUpdates> {
+      return (
+        await api.get<ServerUpdates>(
+          `/connections/${id}/servers/${encodeURIComponent(uuid)}/updates`,
+        )
+      ).data;
+    },
+    async checkServerUpdates(id: number, uuid: string): Promise<UpdatesCheck> {
+      return (
+        await api.post<UpdatesCheck>(
+          `/connections/${id}/servers/${encodeURIComponent(uuid)}/updates/check`,
+          {},
+        )
+      ).data;
+    },
+    async installServerUpdates(
+      id: number,
+      uuid: string,
+    ): Promise<UpdatesInstall> {
+      return (
+        await api.post<UpdatesInstall>(
+          `/connections/${id}/servers/${encodeURIComponent(uuid)}/updates/install`,
+          { confirm: true },
+        )
+      ).data;
+    },
+    async rebootServer(
+      id: number,
+      uuid: string,
+      confirmName: string,
+    ): Promise<{ via: "ssh"; summary: string }> {
+      return (
+        await api.post<{ via: "ssh"; summary: string }>(
+          `/connections/${id}/servers/${encodeURIComponent(uuid)}/reboot`,
+          { confirmName },
+        )
+      ).data;
     },
   };
 }

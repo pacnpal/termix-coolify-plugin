@@ -167,6 +167,14 @@
         "description": "Start or stop the resource.",
         "start": "Start",
         "stop": "Stop"
+      },
+      "confirmInstall": {
+        "label": "Install every pending update",
+        "description": "Must be on. Updates to Docker packages restart every container on the server."
+      },
+      "confirmName": {
+        "label": "Server name",
+        "description": "Type the Coolify server's exact name to reboot it."
       }
     },
     "listConnections": {
@@ -299,6 +307,22 @@
         "title": "Coolify server unreachable",
         "description": "Coolify can no longer reach a server."
       }
+    },
+    "serverUpdates": {
+      "title": "Coolify server updates",
+      "description": "Pending package updates on a Coolify server: Coolify's last check and the plugin's own, with security updates, Docker risk and whether a reboot is needed."
+    },
+    "serverUpdatesCheck": {
+      "title": "Check a Coolify server for updates",
+      "description": "Re-reads pending updates on the server's Linked host, through the Package Manager plugin when it runs, otherwise over SSH."
+    },
+    "serverUpdatesInstall": {
+      "title": "Install updates on a Coolify server",
+      "description": "Upgrades every package on the server's Linked host, through the Package Manager plugin when it runs, otherwise over SSH. Docker updates restart every container on it."
+    },
+    "serverReboot": {
+      "title": "Reboot a Coolify server",
+      "description": "Reboots the server over SSH on its Linked host. Every Coolify application, service and database on it goes down until it is back."
     }
   },
   "connections": {
@@ -625,5 +649,66 @@
   "palette": {
     "group": "Coolify",
     "deploy": "Coolify: Deploy…"
+  },
+  "updates": {
+    "title": "Package updates",
+    "loading": "Reading updates",
+    "loadFailed": "The updates could not be read.",
+    "none": "No check yet.",
+    "upToDate": "Up to date",
+    "summary": "{{count}} updates, {{security}} security",
+    "summaryUnknownSecurity": "{{count}} updates",
+    "rebootRequired": "Reboot required",
+    "dockerRisk": "{{count}} restart Docker",
+    "checkError": "The last check failed: {{error}}",
+    "source": {
+      "coolify": "Coolify's check, {{when}}",
+      "package-manager": "Checked through Package Manager, {{when}}",
+      "ssh": "Checked over SSH, {{when}}"
+    },
+    "coolifyRecord": "Coolify's own record ({{when}}): {{summary}}. It catches up at Coolify's next scheduled check.",
+    "never": "never",
+    "check": "Check now",
+    "checking": "Checking",
+    "install": "Install updates",
+    "installing": "Installing",
+    "reboot": "Reboot",
+    "rebooting": "Rebooting",
+    "cancel": "Cancel",
+    "installed": {
+      "package-manager": "Installed through Package Manager: {{summary}}",
+      "ssh": "Installed over SSH: {{summary}}"
+    },
+    "pending": "Package Manager is waiting for an approval before it installs.",
+    "rebootStarted": "{{server}} is rebooting. Its Coolify apps come back once it is up.",
+    "risk": {
+      "docker": "Restarts Docker",
+      "kernel": "Needs a reboot",
+      "system": "Restarts system services",
+      "security": "Security"
+    },
+    "installConfirm": {
+      "title": "Install {{count}} updates on {{server}}?",
+      "dockerWarning": "Updates marked Restarts Docker restart the Docker daemon: every Coolify app on this server stops and starts again while they install.",
+      "confirm": "Install updates"
+    },
+    "rebootConfirm": {
+      "title": "Reboot {{server}}?",
+      "warning": "Every Coolify application, service and database on {{server}} goes down until the server is back.",
+      "typeName": "Type {{server}} to confirm",
+      "confirm": "Reboot server"
+    },
+    "errors": {
+      "not-linked": "This Coolify server has no Linked host. Sync it first.",
+      "host-forbidden": "You don't have enough access to this host.",
+      "confirm-required": "Confirm the install first.",
+      "name-mismatch": "The name doesn't match the server's name.",
+      "needs-sudo": "The SSH login is not root and sudo asks for a password. Use root or passwordless sudo, as Coolify does.",
+      "unsupported-os": "This server has no apt, dnf, yum or pacman.",
+      "ssh-failed": "SSH to the host failed.",
+      "companion-failed": "The Package Manager plugin could not do this.",
+      "forbidden": "You don't have permission to do this.",
+      "failed": "That didn't work."
+    }
   }
 }

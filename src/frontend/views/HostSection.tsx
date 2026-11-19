@@ -16,6 +16,7 @@ import {
 import { createApi, failureOf } from "../api";
 import { forgetPreview, linkOf, useLinkedRow, type HostLink } from "../linked";
 import { describeFailure } from "./ConnectionForm";
+import { ServerUpdates } from "./ServerUpdates";
 
 /** Opens the Coolify tab on a section for one Linked host's connection. */
 export function openCoolify(
@@ -111,6 +112,7 @@ export function HostSection({ host, shell }: HostSectionProps) {
         {t("hostSection.locked")}
       </p>
       {error && <NoticePanel tone="destructive" title={error} />}
+      <ServerUpdates link={link} />
       <div className="flex flex-wrap gap-2">
         <Button
           size="sm"
