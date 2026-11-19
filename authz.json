@@ -112,7 +112,7 @@
       },
       "params": {
         "id": "coolify.connection",
-        "uuid": "authz-own-server"
+        "uuid": "=authz-own-server"
       },
       "body": {
         "removeHost": false
