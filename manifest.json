@@ -612,6 +612,84 @@
             "assistant": true,
             "mcp": true
           }
+        },
+        {
+          "id": "coolify.logs-tail",
+          "titleKey": "ops.logsTail.title",
+          "descriptionKey": "ops.logsTail.description",
+          "icon": "ScrollText",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.uuid.label",
+              "descriptionKey": "ops.fields.uuid.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            },
+            {
+              "key": "part",
+              "type": "string",
+              "labelKey": "ops.fields.part.label",
+              "descriptionKey": "ops.fields.part.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}"
+            },
+            {
+              "key": "container",
+              "type": "string",
+              "labelKey": "ops.fields.container.label",
+              "descriptionKey": "ops.fields.container.description",
+              "pattern": "[A-Za-z0-9_.-]{1,255}"
+            },
+            {
+              "key": "lines",
+              "type": "number",
+              "labelKey": "ops.fields.lines.label",
+              "descriptionKey": "ops.fields.lines.description",
+              "min": 1,
+              "max": 10000,
+              "default": 100
+            },
+            {
+              "key": "timestamps",
+              "type": "boolean",
+              "labelKey": "ops.fields.timestamps.label",
+              "default": false
+            }
+          ],
+          "outputs": [
+            {
+              "key": "source",
+              "type": "string",
+              "labelKey": "ops.fields.source.label"
+            },
+            {
+              "key": "text",
+              "type": "textarea",
+              "labelKey": "ops.fields.logText.label",
+              "sensitive": true
+            },
+            {
+              "key": "container",
+              "type": "string",
+              "labelKey": "ops.fields.container.label"
+            }
+          ],
+          "risk": "read",
+          "permission": "operate",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
         }
       ]
     },

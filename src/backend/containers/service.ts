@@ -76,6 +76,24 @@ export interface ShellChoices {
   choices: ContainerChoice[];
 }
 
+/** Where a resource's container runs, checked as the actor. */
+export interface ContainerPlace {
+  connectionId: number;
+  serverUuid: string;
+  hostId: number;
+}
+
+export type Located =
+  | { kind: "choices"; choices: ContainerChoice[] }
+  | {
+      kind: "container";
+      res: ResourceDto;
+      where: ContainerPlace;
+      /** Whether docker needs sudo for the SSH user. */
+      sudo: boolean;
+      container: ContainerChoice;
+    };
+
 const UUID = /^[A-Za-z0-9_-]{1,64}$/;
 
 function invalid(message: string): ContainerError {
@@ -146,7 +164,7 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
 
   /** Runs one probe; core's host key refusal becomes a host-key answer. */
   async function probe<T>(
-    target: { connectionId: number; serverUuid: string; hostId: number },
+    target: ContainerPlace,
     fn: () => Promise<T>,
   ): Promise<T> {
     try {
@@ -221,60 +239,86 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
     return { res: found, serverUuid: found.serverUuid ?? res.serverUuid };
   }
 
+  /** The actor's own connect access to a Linked host, or no-host-access. */
+  async function assertHostAccess(hostId: number): Promise<void> {
+    const access = await ctx.hosts.checkAccess(hostId, "connect");
+    if (!access?.hasAccess) {
+      throw new ContainerError(
+        "no-host-access",
+        "You can't open this server's Linked host.",
+      );
+    }
+  }
+
+  /**
+   * The resource's container on its Linked host, after every check: the
+   * connection and resource (target), the Linked host (else not-linked), the
+   * actor's own connect access to it (else no-host-access), then docker ps.
+   * A chosen container must be one of this resource's; several without a
+   * choice answer choices. Whether it runs is the caller's to judge.
+   */
+  async function locate(
+    connectionId: number,
+    uuid: string,
+    request: { part?: string; container?: string },
+  ): Promise<Located> {
+    const { res, serverUuid } = await target(connectionId, uuid, request.part);
+    const hostId = serverUuid
+      ? await deps.sync.linkedHostFor(connectionId, serverUuid)
+      : null;
+    if (!serverUuid || !hostId) {
+      throw new ContainerError(
+        "not-linked",
+        "Link this server first: sync it from Coolify to make it a Linked host.",
+      );
+    }
+    await assertHostAccess(hostId);
+    const where = { connectionId, serverUuid, hostId };
+
+    const sudo = await probe(where, () => needsSudo(hostId));
+    const containers = await probe(where, () =>
+      resolveContainers(run, hostId, res, { sudo }),
+    );
+    let chosen: ContainerChoice | undefined;
+    if (request.container) {
+      chosen = containers.find((c) => c.name === request.container);
+      if (!chosen) {
+        throw new ContainerError(
+          "container-not-found",
+          "That container doesn't belong to this resource.",
+        );
+      }
+    } else if (containers.length > 1) {
+      return { kind: "choices", choices: containers };
+    } else {
+      chosen = containers[0];
+    }
+    if (!chosen) {
+      throw new ContainerError(
+        "container-not-found",
+        "No container of this resource was found on its server.",
+      );
+    }
+    return { kind: "container", res, where, sudo, container: chosen };
+  }
+
   return {
+    target,
+    locate,
+    assertHostAccess,
+    /** Runs SSH work on a located host; a host key refusal becomes host-key. */
+    guard: probe,
+
     async shell(
       connectionId: number,
       uuid: string,
       body: unknown,
     ): Promise<ShellAnswer | ShellChoices> {
       const request = readShellRequest(body);
-      const { res, serverUuid } = await target(
-        connectionId,
-        uuid,
-        request.part,
-      );
-      const hostId = serverUuid
-        ? await deps.sync.linkedHostFor(connectionId, serverUuid)
-        : null;
-      if (!serverUuid || !hostId) {
-        throw new ContainerError(
-          "not-linked",
-          "Link this server first: sync it from Coolify to make it a Linked host.",
-        );
-      }
-      const access = await ctx.hosts.checkAccess(hostId, "connect");
-      if (!access?.hasAccess) {
-        throw new ContainerError(
-          "no-host-access",
-          "You can't open this server's Linked host.",
-        );
-      }
-      const where = { connectionId, serverUuid, hostId };
-
-      const sudo = await probe(where, () => needsSudo(hostId));
-      const containers = await probe(where, () =>
-        resolveContainers(run, hostId, res, { sudo }),
-      );
-      let chosen: ContainerChoice | undefined;
-      if (request.container) {
-        chosen = containers.find((c) => c.name === request.container);
-        if (!chosen) {
-          throw new ContainerError(
-            "container-not-found",
-            "That container doesn't belong to this resource.",
-          );
-        }
-      } else if (containers.length > 1) {
-        return { choices: containers };
-      } else {
-        chosen = containers[0];
-      }
-      if (!chosen) {
-        throw new ContainerError(
-          "container-not-found",
-          "No container of this resource was found on its server.",
-        );
-      }
+      const located = await locate(connectionId, uuid, request);
+      if (located.kind === "choices") return { choices: located.choices };
+      const { res, where, sudo, container: chosen } = located;
+      const { hostId, serverUuid } = where;
       if (!chosen.running) {
         throw new ContainerError("not-running", "The container isn't running.");
       }

@@ -195,6 +195,19 @@
         "description": "A shell in the container, or the database's own console.",
         "shell": "Shell",
         "db": "Database console"
+      },
+      "lines": {
+        "label": "Lines",
+        "description": "How many lines from the end, up to 10,000."
+      },
+      "timestamps": {
+        "label": "Show timestamps"
+      },
+      "source": {
+        "label": "Source"
+      },
+      "logText": {
+        "label": "Logs"
       }
     },
     "listConnections": {
@@ -240,6 +253,10 @@
     "shellCommand": {
       "title": "Coolify container shell command",
       "description": "The docker exec command that opens a shell or database console in a resource's container, run on its Linked host. It holds no password: a console reads its credentials inside the container. Needs connect access to the Linked host."
+    },
+    "logsTail": {
+      "title": "Coolify container logs",
+      "description": "Recent logs of a resource's container. They come from Coolify when your access and the token allow it (read:sensitive), else from docker logs over SSH on its Linked host, which needs connect access to that host. source says which."
     }
   },
   "connections": {
@@ -501,7 +518,8 @@
   },
   "detail": {
     "tabs": {
-      "overview": "Overview"
+      "overview": "Overview",
+      "logs": "Logs"
     },
     "fields": {
       "type": "Type",
@@ -521,6 +539,38 @@
     "actions": {
       "shell": "Open shell",
       "console": "Open database console"
+    }
+  },
+  "logs": {
+    "title": "Container logs",
+    "source": {
+      "coolify": "from Coolify",
+      "ssh": "from the server over SSH"
+    },
+    "lines": "Lines",
+    "linesOption": "{{count}} lines",
+    "timestamps": "Timestamps",
+    "follow": "Follow",
+    "following": "Following live",
+    "followEnded": "Follow ended",
+    "download": "Download",
+    "refresh": "Refresh logs",
+    "retry": "Try again",
+    "search": "Search logs",
+    "loading": "Loading logs…",
+    "empty": "No log lines yet.",
+    "noMatch": "No line matches the search.",
+    "pick": {
+      "title": "Pick a container",
+      "hint": "This resource runs more than one container."
+    },
+    "errors": {
+      "not-linked": "Link this server first: sync it from Coolify to read its logs over SSH.",
+      "no-host-access": "You can't open this server's Linked host, so its logs can't be read over SSH.",
+      "host-key": "Open a server terminal once to trust this host's key.",
+      "container-not-found": "No container of this resource was found on its server.",
+      "locked": "Your session is locked. Sign in again to follow logs.",
+      "failed": "The logs could not be read."
     }
   }
 }

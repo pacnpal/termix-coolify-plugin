@@ -7,6 +7,8 @@ import { createResources } from "./resources/service.js";
 import { registerResourceRoutes } from "./resources/routes.js";
 import { createContainers } from "./containers/service.js";
 import { registerContainerRoutes } from "./containers/routes.js";
+import { createLogs } from "./containers/logs.js";
+import { registerLogSocket } from "./containers/sockets.js";
 import { registerOperations } from "./operations.js";
 import { createSync, type Sync } from "./sync/service.js";
 import { registerSyncRoutes } from "./sync/routes.js";
@@ -27,8 +29,10 @@ export async function activate(ctx: PluginContext): Promise<void> {
   const resources = createResources(ctx, { tables, connections });
   registerResourceRoutes(router, ctx, resources);
   const containers = createContainers(ctx, { connections, resources, sync });
-  registerContainerRoutes(router, ctx, containers);
-  registerOperations(ctx, { connections, sync, resources, containers });
+  const logs = createLogs(ctx, { connections, containers });
+  registerContainerRoutes(router, ctx, containers, logs);
+  registerLogSocket(ctx, { logs, connections, containers });
+  registerOperations(ctx, { connections, sync, resources, containers, logs });
 }
 
 export async function deactivate(): Promise<void> {
