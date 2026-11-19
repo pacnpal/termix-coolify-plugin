@@ -32,7 +32,21 @@ const input = {
   token: TOKEN,
 };
 
+/** A /team answer, already read, held back for one token until released. */
+let hold: {
+  auth: string;
+  held: Promise<void>;
+  reached: () => void;
+} | null = null;
+
+function holdAfterTeam(auth: string, held: Promise<void>): Promise<void> {
+  return new Promise((reached) => {
+    hold = { auth, held, reached };
+  });
+}
+
 beforeEach(async () => {
+  hold = null;
   db = await createTestDb(pluginDir);
   for (const user of ["user-1", "user-2"]) {
     db.sqlite
@@ -46,7 +60,20 @@ beforeEach(async () => {
     sandbox: true,
     capabilities: manifest.capabilities,
     db: db.database,
-    fetch: (url, init) => fake.fetch(url, init),
+    fetch: async (url, init) => {
+      const answer = await fake.fetch(url, init);
+      const h = hold;
+      if (
+        h &&
+        url.endsWith("/api/v1/team") &&
+        init?.headers?.authorization === h.auth
+      ) {
+        hold = null;
+        h.reached();
+        await h.held;
+      }
+      return answer;
+    },
     actor: "user-1",
   });
   released = [];
@@ -233,6 +260,114 @@ describe("connection service", () => {
 
     await service.remove(keep.id);
     expect(released[1]).toEqual({ connectionId: keep.id, removeHosts: false });
+  });
+
+  it("a new token repairs a connection whose stored token can't be unsealed", async () => {
+    const view = await service.create({
+      ...input,
+      cfAccessId: "fake-cf-id",
+      cfAccessSecret: CF_SECRET,
+    });
+    db.sqlite
+      .prepare(
+        "UPDATE p_coolify_connections SET token_sealed = ?, cf_access_secret_sealed = ?",
+      )
+      .run("fake-damaged-seal", "fake-damaged-seal");
+    await expect(service.target(view.id)).rejects.toMatchObject({
+      cause: "unauthorized",
+    });
+
+    // An unrelated change needs no secret.
+    const renamed = await service.update(view.id, { name: "Renamed" });
+    expect(renamed.name).toBe("Renamed");
+
+    // A new token alone can't be checked: the Cloudflare Access secret is damaged too.
+    await expect(
+      service.update(view.id, { token: "fake-repair-token" }),
+    ).rejects.toMatchObject({ status: 400 });
+
+    const calls = fake.calls.length;
+    const repaired = await service.update(view.id, {
+      token: "fake-repair-token",
+      cfAccessId: "fake-cf-id-2",
+      cfAccessSecret: "fake-cf-secret-2",
+    });
+    expect(repaired.lastError).toBeNull();
+    expect(fake.calls.length).toBeGreaterThan(calls);
+    expect(
+      fake.calls
+        .slice(calls)
+        .every(
+          (c) => c.init?.headers?.authorization === "Bearer fake-repair-token",
+        ),
+    ).toBe(true);
+    expect(await service.target(view.id)).toMatchObject({
+      token: "fake-repair-token",
+      cfAccess: { id: "fake-cf-id-2", secret: "fake-cf-secret-2" },
+    });
+  });
+
+  it("changing baseUrl without a token when the old one can't be unsealed is refused", async () => {
+    const view = await service.create(input);
+    db.sqlite
+      .prepare("UPDATE p_coolify_connections SET token_sealed = ?")
+      .run("fake-damaged-seal");
+    const calls = fake.calls.length;
+    await expect(
+      service.update(view.id, { baseUrl: "https://other.example.test" }),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringContaining("token"),
+    });
+    // Nothing was sent, so no empty token went out, and nothing was stored.
+    expect(fake.calls.length).toBe(calls);
+    expect(rawRows()[0].base_url).toBe("https://coolify.example.test");
+  });
+
+  it("a stale probe result does not overwrite a newer update", async () => {
+    const view = await service.create(input);
+    // Hold the old token's probe after it has read the old team.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const reachedTeam = holdAfterTeam(`Bearer ${TOKEN}`, held);
+
+    const stale = service.probe(view.id);
+    await reachedTeam;
+    fake.set("GET /team", { json: { id: 9, name: "New team" } });
+    const updated = await service.update(view.id, {
+      token: "fake-newer-token",
+    });
+    expect(updated.teamName).toBe("New team");
+
+    release();
+    await stale;
+    const stored = await service.get(view.id);
+    expect(stored?.teamName).toBe("New team");
+    expect(rawRows()[0].instance_key).toBe("https://coolify.example.test#9");
+    expect((await service.target(view.id)).token).toBe("fake-newer-token");
+  });
+
+  it("a stale probe result does not overwrite a newer update, when it ran inside an update", async () => {
+    const view = await service.create(input);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const reachedTeam = holdAfterTeam("Bearer fake-older-token", held);
+
+    const older = service.update(view.id, { token: "fake-older-token" });
+    const olderDone = older.then(
+      () => "saved",
+      (err: { status?: number }) => err.status,
+    );
+    await reachedTeam;
+    fake.set("GET /team", { json: { id: 9, name: "New team" } });
+    await service.update(view.id, { token: "fake-newer-token" });
+
+    release();
+    // The older update learns its change didn't land, instead of overwriting.
+    expect(await olderDone).toBe(409);
+    expect((await service.get(view.id))?.teamName).toBe("New team");
+    expect(rawRows()[0].instance_key).toBe("https://coolify.example.test#9");
+    expect((await service.target(view.id)).token).toBe("fake-newer-token");
   });
 
   it("lists only the actor's own connections", async () => {

@@ -23,8 +23,12 @@ the rest come with the rest of release 1.0.0.
    - Coolify answers, and is 4.4 or newer (older versions are refused).
    - The team, or, for a token scoped to some projects, the team of its first project. A scoped token can't
      see servers, so it has no host sync, shells or keys, and can't set up notifications.
-   - Whether it can read private keys and logs (`read:sensitive`) and instance settings (`root`).
-     Write, deploy and delete can't be checked without changing something; they're checked on first use.
+   - Whether it can read private keys and logs (`read:sensitive`). Logs are tried on an application, a
+     database or a service's part; when the token sees none of them, the check says "not checked" rather
+     than "can't".
+   - Whether it can read instance settings, which Coolify allows to any root team admin's token. This
+     doesn't show the `root` ability, which, like write, deploy and delete, can't be checked without
+     changing something; they're checked on first use.
 
 The token is stored encrypted and never shown again. When you edit a connection, leave the token empty to
 keep the stored one. **Check again** reruns the checks. **Remove** forgets the connection and its token;

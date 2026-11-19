@@ -277,12 +277,13 @@ export function createCoolifyApi(http: CoolifyHttp) {
     },
 
     /**
-     * True when the token may read instance settings, which only root can.
-     * The settings themselves are dropped unread.
+     * Resolves when the token may read instance settings. Coolify allows that
+     * to any token of a root-team admin or owner, whatever its abilities, so
+     * it says nothing about `root` or `read:sensitive`. The settings
+     * themselves are dropped unread.
      */
-    async rootCheck(): Promise<true> {
+    async instanceSettingsCheck(): Promise<void> {
       await call(op("get-instance-email-settings"));
-      return true;
     },
   };
 }

@@ -263,13 +263,17 @@ export function registerConnectionRoutes(
    *       200:
    *         description: The changed connection, without any token
    *       400:
-   *         description: Invalid fields
+   *         description: >-
+   *           Invalid fields, or the change needs a stored token or Cloudflare
+   *           Access value that can't be read and wasn't sent again
    *       403:
    *         description: Missing coolify.configure, or not the owner
    *       404:
    *         description: No such connection, or another user's
    *       409:
-   *         description: Coolify is older than 4.4
+   *         description: >-
+   *           Coolify is older than 4.4, or the connection changed while this
+   *           change was being checked
    */
   router.patch(
     "/connections/:id",

@@ -658,10 +658,14 @@ my local network", and a CA certificate. On save, the probe runs:
      no notifications. It still offers everything that does work.
 4. Non-mutating ability checks:
    - Keys readable? Try `GET /security/keys/{first}` and discard `private_key` immediately.
-   - Logs readable? Try one resource's logs with `lines=1`.
-   - Is it root? Try `GET /settings/email`.
-   - Write, deploy and delete can't be probed without side effects. They're marked "checked on first use",
-     and a 403 is translated to "this token lacks the X ability".
+   - Logs readable? Try one resource's logs with `lines=1`: an application, else a database, else a
+     service's part (a token may see only compose services). When the token sees none, the step is marked
+     "nothing to probe" and the ability stays unproven, not refused.
+   - Instance settings readable? Try `GET /settings/email`. Coolify answers it for any root-team admin's
+     token, whatever its abilities, so it is recorded as its own step and sets no ability.
+   - Root, write, deploy and delete can't be probed without side effects (no read-only call needs the
+     `root` ability alone). They're marked "checked on first use", and a 403 is translated to "this token
+     lacks the X ability".
 5. Store the ability summary. The UI hides or disables sections the token can't use, with the reason.
 
 Each step's failure maps to a cause and a fix:

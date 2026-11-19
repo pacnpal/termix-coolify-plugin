@@ -31,7 +31,12 @@ const FIXABLE = new Set([
 ]);
 
 /** Plugin refusals that are not Coolify causes (locales `connections.errors`). */
-const PLUGIN_ERRORS = new Set(["invalid-input", "forbidden", "not-found"]);
+const PLUGIN_ERRORS = new Set([
+  "invalid-input",
+  "forbidden",
+  "not-found",
+  "conflict",
+]);
 
 type T = ReturnType<typeof useTranslation>["t"];
 
@@ -258,9 +263,17 @@ export function ProbeChecklist({ connection }: { connection: Connection }) {
       <ul className={cn(PANEL.body, "flex flex-col gap-2 text-[12px]")}>
         {connection.steps.map((step) => (
           <li key={step.id} className="flex items-start gap-2">
-            <StatusDot tone={step.ok ? "ok" : "bad"} className="mt-1" />
+            <StatusDot
+              tone={step.ok ? "ok" : step.skipped ? "idle" : "bad"}
+              className="mt-1"
+            />
             <div className="flex flex-col">
               <span>{t(`connections.probe.steps.${step.id}`)}</span>
+              {step.skipped && (
+                <span className="text-muted-foreground">
+                  {t(`connections.probe.skipped.${step.skipped}`)}
+                </span>
+              )}
               {step.cause && (
                 <span className="text-muted-foreground">
                   {t(`causes.${step.cause}`)}

@@ -41,8 +41,8 @@ const scopedConnection = {
     { id: "team", ok: true },
     { id: "projects", ok: true },
     { id: "keys", ok: false, cause: "forbidden-ability" },
-    { id: "logs", ok: false, cause: "forbidden-ability" },
-    { id: "root", ok: false, cause: "forbidden-ability" },
+    { id: "logs", ok: false, skipped: "nothing-to-probe" },
+    { id: "settings", ok: false, cause: "forbidden-ability" },
   ],
 };
 
@@ -128,6 +128,8 @@ describe("connections view", () => {
     expect(
       screen.getAllByText(locales.causes["forbidden-ability"]).length,
     ).toBeGreaterThan(0);
+    // A check with nothing to try says so, rather than reading as a refusal.
+    expect(screen.getByText(L.probe.skipped["nothing-to-probe"])).toBeTruthy();
   });
 
   it("secret field empty keeps token", async () => {

@@ -12,6 +12,8 @@ export interface ProbeStep {
   id: string;
   ok: boolean;
   cause?: string;
+  /** Set when the check had nothing to try: the ability is unknown. */
+  skipped?: "nothing-to-probe";
 }
 
 /** A connection as the backend returns it. It never carries a token. */

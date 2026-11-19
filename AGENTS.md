@@ -83,6 +83,13 @@ aren't obvious from the code, and anything that has bitten you before.
   an unreachable URL. Another user's connection is always 404. Only owners reach a connection in 1.0; the
   grants table is read but nothing writes it. `remove` calls the `releaseLinkedHosts` hook first (host sync
   supplies it) and keeps the webhook row, which other connections to the same team share.
+- Probe: `abilities.root` is never inferred. `GET /settings/email` answers any root-team admin's token
+  whatever its abilities, so it is only the `settings` step; no read-only call needs `root` alone. Only
+  logs or key material prove `sensitive`. A check with nothing to try gets `skipped: "nothing-to-probe"`.
+- Probe writes are conditional on the connection still pointing at the probed target (`sameTarget`), so a
+  slow probe can't overwrite a newer change; an update that lost that race answers 409 `conflict`. Update
+  reads a stored secret only when the change keeps it and needs a probe; an unreadable one is refused
+  (400), and a replacement token or Cloudflare Access value repairs it.
 - Operation tests: the mock ctx records no run history, so `tests/backend/helpers/run-history.ts` applies
   the SDK's own `parseOperationInput` and `redactFields` around `ctx.operations.run`, as core does.
 - Coolify API: `vendor/coolify/` holds the v4.7.5, `main` and `next` specs as fetched (see its README).

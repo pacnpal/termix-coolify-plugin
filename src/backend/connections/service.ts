@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { trimTrailing } from "../text.js";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { createCoolifyApi, type CoolifyApi } from "../coolify/api.js";
@@ -9,7 +9,7 @@ import {
   type CoolifyHttp,
   type CoolifyTarget,
 } from "../coolify/http.js";
-import { dbClient, type Tables } from "../db.js";
+import { dbClient, type Table, type Tables } from "../db.js";
 import {
   runProbe,
   type Abilities,
@@ -74,19 +74,26 @@ export interface ConnectionPatch {
   autoSync?: boolean;
 }
 
-export type ConnectionErrorCode = "invalid-input" | "forbidden" | "not-found";
+export type ConnectionErrorCode =
+  "invalid-input" | "forbidden" | "not-found" | "conflict";
+
+const ERROR_STATUS = {
+  "invalid-input": 400,
+  forbidden: 403,
+  "not-found": 404,
+  conflict: 409,
+} as const;
 
 /** A refusal by the plugin itself, before or without asking Coolify. */
 export class ConnectionError extends Error {
-  readonly status: 400 | 403 | 404;
+  readonly status: (typeof ERROR_STATUS)[ConnectionErrorCode];
   readonly code: ConnectionErrorCode;
 
   constructor(code: ConnectionErrorCode, message: string) {
     super(message);
     this.name = "ConnectionError";
     this.code = code;
-    this.status =
-      code === "invalid-input" ? 400 : code === "forbidden" ? 403 : 404;
+    this.status = ERROR_STATUS[code];
   }
 }
 
@@ -360,6 +367,30 @@ export function createConnections(
     return value ? ctx.secrets.unseal(value) : null;
   }
 
+  /** A stored secret as text, or null when absent or unreadable. Never "". */
+  async function readable(value: string | null): Promise<string | null> {
+    return (await unsealOrNull(value)) || null;
+  }
+
+  /**
+   * Matches the connection only while it still points where `found` did, so
+   * a probe of that target can't land after a change has replaced it.
+   */
+  function sameTarget(found: ConnectionRow) {
+    const c = t.connections;
+    const is = (column: Table, value: string | null) =>
+      value === null ? isNull(column) : eq(column, value);
+    return and(
+      eq(c.id, found.id),
+      eq(c.baseUrl, found.baseUrl),
+      eq(c.tokenSealed, found.tokenSealed),
+      is(c.cfAccessIdSealed, found.cfAccessIdSealed),
+      is(c.cfAccessSecretSealed, found.cfAccessSecretSealed),
+      eq(c.allowPrivate, found.allowPrivate === true),
+      is(c.caCert, found.caCert),
+    );
+  }
+
   async function targetOf(found: ConnectionRow): Promise<CoolifyTarget> {
     const token = await ctx.secrets.unseal(found.tokenSealed);
     if (!token) {
@@ -521,7 +552,12 @@ export function createConnections(
       return toView(created, "owner");
     },
 
-    /** Owner only. Re-probes when the address, token or TLS settings change. */
+    /**
+     * Owner only. Re-probes when the address, token or TLS settings change.
+     * A replacement token or Cloudflare Access value is used as sent, so it
+     * repairs a connection whose stored one can no longer be read; a stored
+     * secret is read only when the change keeps it and needs a probe.
+     */
     async update(id: number, patch: ConnectionPatch): Promise<ConnectionView> {
       const found = await owned(id);
       const changes: Record<string, unknown> = {};
@@ -530,72 +566,119 @@ export function createConnections(
         changes.autoSync = patch.autoSync === true;
       }
 
-      const current = await targetOf(found);
-      const next: CoolifyTarget = { ...current };
-      let reprobe = false;
-      if (patch.baseUrl !== undefined) {
-        next.baseUrl = cleanUrl(patch.baseUrl);
-        reprobe ||= next.baseUrl !== current.baseUrl;
-      }
-      if (present(patch.token)) {
-        next.token = cleanSecret(patch.token, "token");
-        reprobe = true;
-      }
-      if (patch.cfAccessId === null && patch.cfAccessSecret === null) {
-        next.cfAccess = null;
-        reprobe ||= current.cfAccess !== null;
-      } else if (present(patch.cfAccessId) || present(patch.cfAccessSecret)) {
-        const id2 = present(patch.cfAccessId)
-          ? cleanSecret(patch.cfAccessId, "cfAccessId")
-          : current.cfAccess?.id;
-        const secret = present(patch.cfAccessSecret)
-          ? cleanSecret(patch.cfAccessSecret, "cfAccessSecret")
-          : current.cfAccess?.secret;
-        if (!id2 || !secret) {
-          throw invalid("cfAccessId and cfAccessSecret go together");
+      const token = present(patch.token)
+        ? cleanSecret(patch.token, "token")
+        : null;
+      const baseUrl =
+        patch.baseUrl !== undefined ? cleanUrl(patch.baseUrl) : found.baseUrl;
+      const allowPrivate =
+        patch.allowPrivate !== undefined
+          ? patch.allowPrivate === true
+          : found.allowPrivate === true;
+      const caCert =
+        patch.caCert !== undefined ? cleanCert(patch.caCert) : found.caCert;
+      const clearCf =
+        patch.cfAccessId === null && patch.cfAccessSecret === null;
+      const cfId = present(patch.cfAccessId)
+        ? cleanSecret(patch.cfAccessId, "cfAccessId")
+        : null;
+      const cfSecret = present(patch.cfAccessSecret)
+        ? cleanSecret(patch.cfAccessSecret, "cfAccessSecret")
+        : null;
+      const setCf = !clearCf && (cfId !== null || cfSecret !== null);
+      const hadCf = Boolean(
+        found.cfAccessIdSealed && found.cfAccessSecretSealed,
+      );
+
+      const reprobe =
+        token !== null ||
+        setCf ||
+        (clearCf && hadCf) ||
+        baseUrl !== found.baseUrl ||
+        allowPrivate !== (found.allowPrivate === true) ||
+        caCert !== found.caCert;
+
+      if (!reprobe) {
+        if (Object.keys(changes).length) {
+          const db = await dbClient(ctx);
+          await db
+            .update(t.connections)
+            .set(changes)
+            .where(eq(t.connections.id, found.id));
+          await ctx.db.persist();
         }
-        next.cfAccess = { id: id2, secret };
-        reprobe = true;
-      }
-      if (patch.allowPrivate !== undefined) {
-        next.allowPrivate = patch.allowPrivate === true;
-        reprobe ||= next.allowPrivate !== current.allowPrivate;
-      }
-      if (patch.caCert !== undefined) {
-        next.caCert = cleanCert(patch.caCert);
-        reprobe ||= next.caCert !== current.caCert;
+        return view(found.id);
       }
 
-      if (reprobe) {
-        const probe = await probeTarget(next);
-        refuseOldCoolify(probe);
-        Object.assign(changes, probeColumns(next.baseUrl, probe), {
-          baseUrl: next.baseUrl,
-          allowPrivate: next.allowPrivate,
-          caCert: next.caCert,
-        });
-        if (next.token !== current.token) {
-          changes.tokenSealed = await ctx.secrets.seal(next.token);
+      // Read a stored secret only when the change keeps it. A failed read
+      // refuses the change: nothing is sent with an empty or missing value.
+      const nextToken = token ?? (await readable(found.tokenSealed));
+      if (!nextToken) {
+        throw invalid(
+          "The stored token can't be read; enter the token again with this change",
+        );
+      }
+      let cfAccess: CoolifyTarget["cfAccess"] = null;
+      if (setCf || (!clearCf && hadCf)) {
+        const cfIdNext = cfId ?? (await readable(found.cfAccessIdSealed));
+        const cfSecretNext =
+          cfSecret ?? (await readable(found.cfAccessSecretSealed));
+        if (!cfIdNext || !cfSecretNext) {
+          throw invalid(
+            hadCf
+              ? "The stored Cloudflare Access token can't be read; enter both values again or clear them"
+              : "cfAccessId and cfAccessSecret go together",
+          );
         }
-        if (next.cfAccess?.id !== current.cfAccess?.id) {
-          changes.cfAccessIdSealed = next.cfAccess
-            ? await ctx.secrets.seal(next.cfAccess.id)
-            : null;
-        }
-        if (next.cfAccess?.secret !== current.cfAccess?.secret) {
-          changes.cfAccessSecretSealed = next.cfAccess
-            ? await ctx.secrets.seal(next.cfAccess.secret)
-            : null;
-        }
+        cfAccess = { id: cfIdNext, secret: cfSecretNext };
+      }
+      const next: CoolifyTarget = {
+        baseUrl,
+        token: nextToken,
+        cfAccess,
+        allowPrivate,
+        caCert,
+      };
+
+      const probe = await probeTarget(next);
+      refuseOldCoolify(probe);
+      const tokenSealed =
+        token !== null ? await ctx.secrets.seal(token) : found.tokenSealed;
+      Object.assign(changes, probeColumns(baseUrl, probe), {
+        baseUrl,
+        allowPrivate,
+        caCert,
+        tokenSealed,
+      });
+      const cfChanged = clearCf || setCf;
+      if (cfChanged) {
+        changes.cfAccessIdSealed = cfAccess
+          ? await ctx.secrets.seal(cfAccess.id)
+          : null;
+        changes.cfAccessSecretSealed = cfAccess
+          ? await ctx.secrets.seal(cfAccess.secret)
+          : null;
       }
 
-      if (Object.keys(changes).length) {
-        const db = await dbClient(ctx);
-        await db
-          .update(t.connections)
-          .set(changes)
-          .where(eq(t.connections.id, found.id));
-        await ctx.db.persist();
+      // Lands only if nothing replaced the target while the probe ran.
+      const db = await dbClient(ctx);
+      await db.update(t.connections).set(changes).where(sameTarget(found));
+      await ctx.db.persist();
+      const after = await row(found.id);
+      if (!after) throw notFound();
+      const landed =
+        after.baseUrl === baseUrl &&
+        after.tokenSealed === tokenSealed &&
+        (after.allowPrivate === true) === allowPrivate &&
+        after.caCert === caCert &&
+        (!cfChanged ||
+          (after.cfAccessIdSealed === changes.cfAccessIdSealed &&
+            after.cfAccessSecretSealed === changes.cfAccessSecretSealed));
+      if (!landed) {
+        throw new ConnectionError(
+          "conflict",
+          "The connection changed while this change was being checked; reload it and try again",
+        );
       }
       return view(found.id);
     },
@@ -644,18 +727,23 @@ export function createConnections(
       return (await cachedClient((await reach(id)).row)).api;
     },
 
-    /** Runs the probe again and stores what it found. Any access level may. */
+    /**
+     * Runs the probe again and stores what it found, unless the connection
+     * now points somewhere else. Any access level may.
+     */
     async probe(
       id: number,
     ): Promise<{ connection: ConnectionView; probe: ProbeResult }> {
       const { row: found } = await reach(id);
       const { http, api } = await cachedClient(found);
       const probe = await runProbe(api, http);
+      // A change that replaced the target meanwhile wins: this result is
+      // about the old one and is dropped.
       const db = await dbClient(ctx);
       await db
         .update(t.connections)
         .set(probeColumns(found.baseUrl, probe))
-        .where(eq(t.connections.id, found.id));
+        .where(sameTarget(found));
       await ctx.db.persist();
       return { connection: await view(found.id), probe };
     },
