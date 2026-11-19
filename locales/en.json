@@ -204,7 +204,10 @@
         "projects": "Projects (scoped token)",
         "keys": "Read private keys",
         "logs": "Read logs",
-        "root": "Instance settings (root)"
+        "settings": "Instance settings (root team admin)"
+      },
+      "skipped": {
+        "nothing-to-probe": "Not checked: this token sees nothing to try it on yet, so it may still have this ability. Check again after adding one."
       },
       "scoped": "This token is scoped to some projects or resources. It can't see servers, so there is no host sync, no shells and no keys, and it can't set up notifications. Applications, services, databases, deploys and logs still work."
     },

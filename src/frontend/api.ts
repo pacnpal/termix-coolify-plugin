@@ -12,6 +12,8 @@ export interface ProbeStep {
   id: string;
   ok: boolean;
   cause?: string;
+  /** Set when the check had nothing to try: the ability is unknown. */
+  skipped?: "nothing-to-probe";
 }
 
 /** A connection as the backend returns it. It never carries a token. */
@@ -43,7 +45,12 @@ export interface ConnectionInput {
   caCert?: string | null;
 }
 
-export type ConnectionPatch = Partial<ConnectionInput> & {
+/** null for both Cloudflare Access values clears them, as the backend allows. */
+export type ConnectionPatch = Partial<
+  Omit<ConnectionInput, "cfAccessId" | "cfAccessSecret">
+> & {
+  cfAccessId?: string | null;
+  cfAccessSecret?: string | null;
   autoSync?: boolean;
 };
 
