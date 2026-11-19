@@ -176,7 +176,9 @@ aren't obvious from the code, and anything that has bitten you before.
   tunnel line from the row's `tunnel` flag and opens the host editor with `shell.editHost`.
   `views/SshTerminalCheck.tsx` has the Open Plugins button (`useTabs().openSingletonTab("plugins")`) used
   by blocked sync rows, and the single SSH Terminal line `ProbeChecklist` adds when Coolify has tunnelled
-  servers (it reads the sync preview; scoped tokens get none). Host sync is the tab's
+  servers (it reads the sync preview; scoped tokens get none). That line reloads on the connection's
+  `revision` and `lastCheckedAt`, clears when the token turns scoped, and keeps only the newest answer
+  (a request generation, as in `useResources`). Host sync is the tab's
   Servers section (`SyncView` for the selected connection, shown with `coolify.configure`); a connection's
   Sync servers row action calls `ConnectionsView`'s `onSync`, which selects it there. `CoolifyTab` reads
   `tab.data` `{ section, connectionId? }`: `"sync"` opens Servers (no id: the first connection the actor

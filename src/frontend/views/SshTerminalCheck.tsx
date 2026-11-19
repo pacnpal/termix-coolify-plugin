@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Puzzle } from "lucide-react";
 import {
   usePluginApi,
@@ -34,25 +34,30 @@ export function OpenPluginsButton() {
  * One checklist line for connection setup, shown only when the Coolify
  * instance has tunnelled servers: whether SSH Terminal can carry them. It
  * reads the sync preview, which changes nothing. Scoped tokens can't list
- * servers, so they get no line.
+ * servers, so they get no line. The rows belong to the connection's target
+ * (revision) and its latest check: a new address, token or probe loads them
+ * again, and only the newest request may set them.
  */
 export function SshTerminalCheck({ connection }: { connection: Connection }) {
   const { t } = useTranslation();
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
   const [rows, setRows] = useState<SyncRow[] | null>(null);
+  const requests = useRef(0);
+  const { id, scoped, revision, lastCheckedAt } = connection;
 
   useEffect(() => {
-    if (connection.scoped) return;
-    let live = true;
+    const generation = ++requests.current;
+    const latest = () => generation === requests.current;
+    setRows(null);
+    if (scoped) return;
     api
-      .syncPreview(connection.id)
-      .then((next) => live && setRows(Array.isArray(next) ? next : []))
+      .syncPreview(id)
+      .then((next) => {
+        if (latest()) setRows(Array.isArray(next) ? next : []);
+      })
       .catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, [api, connection.id, connection.scoped]);
+  }, [api, id, scoped, revision, lastCheckedAt]);
 
   const tunnelled = (rows ?? []).filter((row) => row.tunnel);
   if (!tunnelled.length) return null;

@@ -603,3 +603,116 @@ describe("connections view under concurrent requests", () => {
     expect(await within(tab).findByText(L.badges.ok)).toBeTruthy();
   });
 });
+
+describe("the SSH Terminal check follows the saved connection", () => {
+  const tunnelRow = (cause: string) =>
+    syncRow(
+      syncServer("vps1", "vps1", "vps1.example.test", { isTunnel: true }),
+      { status: "blocked", cause },
+    );
+  // A saved failure keeps the setup form open, so it can be saved again.
+  const saved = (overrides: Record<string, unknown>) => ({
+    data: {
+      ...scopedConnection,
+      scoped: false,
+      steps: [],
+      lastError: "unreachable",
+      revision: "rev-a",
+      ...overrides,
+    },
+  });
+
+  /**
+   * Saves a connection in the setup step, then changes its URL and saves it
+   * again, answering the update with `second`. `previews` answers each sync
+   * preview request in turn.
+   */
+  async function saveThenRetarget(
+    second: Record<string, unknown>,
+    previews: (call: number) => Promise<unknown>,
+  ) {
+    const api = stubApi([]);
+    let calls = 0;
+    api.get.mockImplementation(async (url: string) => ({
+      data: url === "/connections/1/servers" ? await previews(++calls) : [],
+    }));
+    api.post.mockResolvedValue(saved({}) as never);
+    // A new target is probed again, so the update answers a new check time.
+    api.patch.mockResolvedValue(
+      saved({ lastCheckedAt: "2026-11-19T11:00:00.000Z", ...second }) as never,
+    );
+    rendered = await renderApp(api);
+    const el = rendered.renderOnboardingStep("connect").element;
+    fillConnectionForm(el);
+    await waitFor(() => expect(calls).toBe(1));
+    const retarget = async () => {
+      fireEvent.change(
+        within(el).getByPlaceholderText(L.form.baseUrlPlaceholder),
+        { target: { value: "https://coolify-new.example.test" } },
+      );
+      fireEvent.click(within(el).getByRole("button", { name: L.form.save }));
+      await waitFor(() => expect(api.patch).toHaveBeenCalled());
+      // The checklist stays on screen across the save.
+      await within(el).findByText(L.probe.title);
+    };
+    return { el, retarget, calls: () => calls };
+  }
+
+  it("a new revision reloads the checklist with the new target's rows", async () => {
+    let rows = [tunnelRow("needs-ssh-terminal")];
+    const { el, retarget } = await saveThenRetarget(
+      { revision: "rev-b" },
+      async () => rows,
+    );
+    expect(
+      await within(el).findByText(locales.sync.causes["needs-ssh-terminal"]),
+    ).toBeTruthy();
+
+    rows = [tunnelRow("ssh-terminal-too-old")];
+    await retarget();
+    expect(
+      await within(el).findByText(locales.sync.causes["ssh-terminal-too-old"]),
+    ).toBeTruthy();
+    expect(
+      within(el).queryByText(locales.sync.causes["needs-ssh-terminal"]),
+    ).toBeNull();
+  });
+
+  it("switching the connection to a scoped token clears the rows", async () => {
+    const { el, retarget } = await saveThenRetarget(
+      { revision: "rev-b", scoped: true },
+      async () => [tunnelRow("needs-ssh-terminal")],
+    );
+    expect(await within(el).findByText(L.probe.steps.sshTerminal)).toBeTruthy();
+
+    await retarget();
+    await waitFor(() =>
+      expect(within(el).queryByText(L.probe.steps.sshTerminal)).toBeNull(),
+    );
+  });
+
+  it("an older preview answer that lands late doesn't replace the newer one", async () => {
+    const first = deferred<unknown>();
+    const { el, retarget, calls } = await saveThenRetarget(
+      { revision: "rev-b" },
+      (call) =>
+        call === 1
+          ? first.promise
+          : Promise.resolve([tunnelRow("ssh-terminal-too-old")]),
+    );
+    await retarget();
+    expect(
+      await within(el).findByText(locales.sync.causes["ssh-terminal-too-old"]),
+    ).toBeTruthy();
+    expect(calls()).toBe(2);
+
+    first.resolve([tunnelRow("needs-ssh-terminal")]);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(
+      within(el).getByText(locales.sync.causes["ssh-terminal-too-old"]),
+    ).toBeTruthy();
+    expect(
+      within(el).queryByText(locales.sync.causes["needs-ssh-terminal"]),
+    ).toBeNull();
+  });
+});
