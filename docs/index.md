@@ -167,7 +167,7 @@ server.
   `POSTGRES_PASSWORD=…`, and private key blocks are masked.
 - Several matching containers answer with the list to choose from, as for shells.
 - Every run is written to Termix's audit log with the container, the host and the command's length, never
-  the command itself.
+  the command itself. The command is a secret input, so run history doesn't keep it either.
 
 Turning it on lets anyone with edit access to a Linked host run any command in its containers, which can read
 their secrets. See [the API](api.md#running-commands-in-containers).

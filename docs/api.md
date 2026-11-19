@@ -123,20 +123,21 @@ Each run also needs **Operate Coolify resources**, your own `edit` access to the
 Grant doesn't give it) and a confirm (`"confirmed": true`). Over the plugin's MCP endpoint it also needs
 **Allow changes over MCP**. Every refusal happens before any SSH.
 
-| Input        | Meaning                                                          |
-| ------------ | ---------------------------------------------------------------- |
-| `uuid`       | The resource                                                     |
-| `part`       | Optional. A part of the service in `uuid`                        |
-| `container`  | Optional. A container name from an earlier `choices` answer      |
-| `command`    | One shell command, run with `sh` in the container; at most 16 KB |
-| `timeoutSec` | 1 to 120, default 30. A larger value is cut to 120               |
+| Input        | Meaning                                                                                                                                            |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `uuid`       | The resource                                                                                                                                       |
+| `part`       | Optional. A part of the service in `uuid`                                                                                                          |
+| `container`  | Optional. A container name from an earlier `choices` answer                                                                                        |
+| `command`    | One shell command, run with `sh` in the container; at most 16 KB. A `secret` input: send it as a string (over MCP too); run history never keeps it |
+| `timeoutSec` | 1 to 120, default 30. A larger value is cut to 120                                                                                                 |
 
 The command goes to `sh -s` on standard input (`docker exec -i <container> sh -s`), so it is never pasted
 into another command line. The data is `{ hostId, container, exitCode, timedOut, truncated, stdout, stderr }`,
 or `{ choices }` when several containers match. Output is cut at 64 KB (stdout and stderr together) with
 `truncated: true`. Values of secret-looking names (`POSTGRES_PASSWORD=…`, `"client_secret": "…"`) and private
-key blocks are masked. Each run is written to the audit log with the command's length, never its text; the
-run's own history keeps its inputs like any other action.
+key blocks are masked. Each run is written to the audit log with the command's length, never its text.
+`command` is a Termix `secret` input, because commands often carry credentials (`PGPASSWORD=… psql`), so
+the run's history and the summary never hold it either.
 
 ### Action `coolify.connection-set-exec`
 

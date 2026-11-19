@@ -104,6 +104,10 @@ describe("coolify.exec", () => {
       "command",
       "timeoutSec",
     ]);
+    expect(action.inputs!.find((f) => f.key === "command")).toMatchObject({
+      type: "secret",
+      required: true,
+    });
     expect(action.inputs!.find((f) => f.key === "timeoutSec")).toMatchObject({
       type: "number",
       min: 1,
@@ -283,6 +287,46 @@ describe("coolify.exec", () => {
     });
     expect(JSON.stringify(audits)).not.toContain("rm -rf");
     expect(JSON.stringify(audits)).not.toContain("$(id)");
+  });
+
+  it("exec command is a secret input and never appears in run history", async () => {
+    const command = "PGPASSWORD=fake-pg-history-test psql -c 'select 1'";
+    const { runs, id, docker, h } = await start();
+    const outcome = await runs.run("coolify.exec", {
+      connectionId: id,
+      uuid: WEB,
+      command,
+    });
+    // The handler still gets the command, on stdin.
+    expect(execCalls(docker)[0].options?.stdin).toBe(command);
+    expect(outcome.status).toBe("success");
+    expect(runs.history).toHaveLength(1);
+    const kept = JSON.stringify(runs.history);
+    expect(kept).not.toContain("fake-pg-history-test");
+    expect(kept).not.toContain("psql");
+    expect((runs.history[0].input as Record<string, unknown>).command).toBe(
+      REDACTED_VALUE,
+    );
+
+    // MCP clients still send it as a plain string, never echoed back.
+    const listed = await handleMcp(h.mock.ctx, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+    });
+    const tools = (
+      listed!.result as {
+        tools: {
+          name: string;
+          inputSchema: { properties: Record<string, unknown> };
+        }[];
+      }
+    ).tools;
+    const schema = tools.find((t) => t.name === "coolify__exec")!.inputSchema;
+    expect(schema.properties.command).toMatchObject({
+      type: "string",
+      writeOnly: true,
+    });
   });
 
   it("output is redacted", async () => {

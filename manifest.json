@@ -682,7 +682,7 @@
             },
             {
               "key": "command",
-              "type": "string",
+              "type": "secret",
               "labelKey": "ops.fields.command.label",
               "descriptionKey": "ops.fields.command.description",
               "required": true
