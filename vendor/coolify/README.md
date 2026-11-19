@@ -2,7 +2,7 @@
 
 Copies of Coolify's `openapi.json`, kept byte for byte as fetched from
 `https://raw.githubusercontent.com/coollabsio/coolify/<ref>/openapi.json`. Don't edit them.
-`npm run gen:coolify` builds `src/backend/coolify/generated/` from them, and
+`npm run gen:coolify` builds `src/backend/coolify/generated/operations.ts` from them, and
 `tests/backend/coverage.test.ts` checks `docs/coverage.md` and the generated table against them.
 
 | File                  | Ref               | Commit                                     | Fetched    |
@@ -21,6 +21,3 @@ found identical.
 2. Run `npm run gen:coolify`.
 3. Run `npx vitest run tests/backend/coverage.test.ts` and add a `docs/coverage.md` row for each new
    operation it reports.
-
-The specs reference `#/components/responses/403` without defining it. The generator types it as a response
-without a body, in memory only.
