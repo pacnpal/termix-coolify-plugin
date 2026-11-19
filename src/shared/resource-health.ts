@@ -20,7 +20,7 @@ export interface ResourceCounts {
   deploying: number;
 }
 
-const DEGRADED = new Set(["degraded", "restarting", "dead"]);
+const DEGRADED = new Set(["degraded", "restarting", "dead", "unhealthy"]);
 const DEPLOYING = new Set([
   "starting",
   "deploying",

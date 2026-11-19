@@ -42,7 +42,8 @@ const notFound = () =>
  * to the connection first, so another user's connection is a 404 even when
  * the cache holds its rows. The cache and the in-flight fetches are keyed by
  * the connection's revision, so a changed address, token or TLS setting never
- * serves rows read with the old one.
+ * serves rows read with the old one, and by a generation that `invalidate`
+ * advances, so a fetch from before an invalidate is neither joined nor cached.
  */
 export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
   const cache = createCache(ctx, deps.tables);
@@ -50,6 +51,10 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
   // One fetch per connection revision at a time; callers that miss together
   // share it, and a caller after a change never joins a fetch from before it.
   const inflight = new Map<string, Promise<ResourceList>>();
+  // Advanced by invalidate(); a fetch commits only under the one it began in.
+  const generations = new Map<number, number>();
+  const generationOf = (connectionId: number) =>
+    generations.get(connectionId) ?? 0;
 
   /** The connection's current revision, or a 404. */
   async function reach(connectionId: number): Promise<string> {
@@ -61,6 +66,7 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
   async function fetchList(
     connectionId: number,
     revision: string,
+    generation: number,
   ): Promise<ResourceList> {
     const api = await deps.connections.api(connectionId);
     const [applications, services, databases] = await Promise.all([
@@ -73,10 +79,10 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
       fetchedAt: now(),
     };
     // Cached only while the connection still has the revision the fetch
-    // started under. The rows carry it too, so a change that lands after
-    // this check still never serves them.
+    // started under and nothing invalidated it since. The rows carry the
+    // revision too, so a change that lands after this check never serves them.
     const current = await deps.connections.revision(connectionId);
-    if (current === revision) {
+    if (current === revision && generationOf(connectionId) === generation) {
       const value: CachedRows = { revision, rows: list.rows };
       await cache.write(
         connectionId,
@@ -104,11 +110,14 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
         return { rows: hit.value.rows, fetchedAt: hit.fetchedAt };
       }
     }
-    const key = `${connectionId}:${revision}`;
+    const generation = generationOf(connectionId);
+    const key = `${connectionId}:${revision}:${generation}`;
     const pending = inflight.get(key);
     if (pending) return pending;
-    const started = fetchList(connectionId, revision).finally(() =>
-      inflight.delete(key),
+    const started = fetchList(connectionId, revision, generation).finally(
+      () => {
+        if (inflight.get(key) === started) inflight.delete(key);
+      },
     );
     inflight.set(key, started);
     return started;
@@ -157,6 +166,10 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
 
     /** Drops the cached list, after a change like a deploy or a stop. */
     async invalidate(connectionId: number): Promise<void> {
+      generations.set(connectionId, generationOf(connectionId) + 1);
+      for (const key of [...inflight.keys()]) {
+        if (key.startsWith(`${connectionId}:`)) inflight.delete(key);
+      }
       await cache.drop(connectionId, RESOURCES_CACHE_KIND);
     },
   };

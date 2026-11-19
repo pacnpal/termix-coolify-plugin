@@ -45,6 +45,10 @@ const RESOURCE_KEYS = [
 let db: TestDb;
 let mock: MockPluginContext;
 let fake: ReturnType<typeof healthyCoolify>;
+/** A second Coolify at MOVED_URL, which sees only the narrower list. */
+let moved: ReturnType<typeof healthyCoolify>;
+const BASE_URL = "https://coolify.example.test";
+const MOVED_URL = "https://coolify-moved.example.test";
 let connections: Connections;
 let resources: Resources;
 let clock: number;
@@ -59,7 +63,7 @@ const NARROWER = {
 
 let gate: { reached: () => void; released: Promise<void> } | null = null;
 
-/** Holds the next `/applications` read until `release` is called. */
+/** Holds the next `/applications` answer until `release` is called. */
 function holdNextApplications() {
   let reached = () => {};
   let release = () => {};
@@ -89,6 +93,11 @@ beforeEach(async () => {
       .run(user, user);
   }
   fake = healthyCoolify(resourceLists());
+  moved = healthyCoolify({
+    "GET /applications": NARROWER,
+    "GET /services": { json: [] },
+    "GET /databases": { json: [] },
+  });
   mock = createMockCtx({
     pluginId: manifest.id,
     manifest,
@@ -96,13 +105,17 @@ beforeEach(async () => {
     capabilities: manifest.capabilities,
     db: db.database,
     fetch: async (url, init) => {
+      // Coolify answers now; a held answer reaches the plugin on release.
+      const response = url.startsWith(MOVED_URL)
+        ? await moved.fetch(BASE_URL + url.slice(MOVED_URL.length), init)
+        : await fake.fetch(url, init);
       const held = gate;
       if (held && new URL(url).pathname.endsWith("/applications")) {
         gate = null;
         held.reached();
         await held.released;
       }
-      return fake.fetch(url, init);
+      return response;
     },
     actor: "user-1",
   });
@@ -183,6 +196,11 @@ describe("resource service", () => {
     expect(resourceHealth("dead")).toBe("degraded");
   });
 
+  it("a bare unhealthy state is degraded", () => {
+    expect(resourceHealth("unhealthy")).toBe("degraded");
+    expect(resourceHealth("UNHEALTHY")).toBe("degraded");
+  });
+
   it("status degraded covers unhealthy, restarting and degraded", async () => {
     expect(resourceHealth("running:unhealthy")).toBe("degraded");
     expect(resourceHealth("degraded:unhealthy")).toBe("degraded");
@@ -241,6 +259,29 @@ describe("resource service", () => {
     expect(listCalls()).toHaveLength(6);
   });
 
+  it("a load after invalidate never joins or caches a fetch from before it", async () => {
+    const hold = holdNextApplications();
+    const before = resources.list(connectionId);
+    await hold.atFetch;
+    await resources.invalidate(connectionId);
+    fake.set("GET /applications", NARROWER);
+    const after = resources.list(connectionId);
+    // Callers after invalidate share one new fetch.
+    const alsoAfter = resources.list(connectionId);
+    hold.release();
+    const [, rows, sameRows] = await Promise.all([before, after, alsoAfter]);
+    expect(rows.map((r) => r.uuid)).toContain("app-only-uuid");
+    expect(sameRows).toBe(rows);
+    const applications = fake.calls.filter((c) => c.path === "/applications");
+    expect(applications).toHaveLength(2);
+
+    fake.calls.length = 0;
+    const cached = (await resources.list(connectionId)).map((r) => r.uuid);
+    expect(listCalls()).toHaveLength(0);
+    expect(cached).toContain("app-only-uuid");
+    expect(cached).not.toContain("app-web-uuid");
+  });
+
   it("a token change stops serving resources cached under the old token", async () => {
     await resources.list(connectionId);
     await connections.update(connectionId, { token: NEW_TOKEN });
@@ -253,6 +294,19 @@ describe("resource service", () => {
     for (const auth of authorizations()) {
       expect(auth).toBe(`Bearer ${NEW_TOKEN}`);
     }
+  });
+
+  it("a new address stops serving resources cached from the old one", async () => {
+    await resources.list(connectionId);
+    await connections.update(connectionId, { baseUrl: MOVED_URL });
+    fake.calls.length = 0;
+    moved.calls.length = 0;
+    const uuids = (await resources.list(connectionId)).map((r) => r.uuid);
+    expect(uuids).toEqual(["app-only-uuid"]);
+    expect(listCalls()).toHaveLength(0);
+    expect(moved.calls.filter((c) => c.path === "/applications")).toHaveLength(
+      1,
+    );
   });
 
   it("a fetch in flight during a token change does not repopulate the cache", async () => {

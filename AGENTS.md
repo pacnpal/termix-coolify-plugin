@@ -125,8 +125,9 @@ aren't obvious from the code, and anything that has bitten you before.
   is the hook for lifecycle actions. `ResourceDto.serverName` comes from `server.name` or `destination.server.name` in the payload.
   The MCP tool `list_resources` (`src/backend/mcp/server.ts`) runs `coolify.list-resources-all`.
 - Status words: `src/shared/resource-health.ts` (`resourceHealth`, `countResources`) is the one reading of a
-  Coolify status, imported by both the backend and the frontend. Exited is stopped; unhealthy is degraded; Parts
-  aren't counted (their service's status covers them).
+  Coolify status, imported by both the backend and the frontend. Exited is stopped, whatever its health
+  suffix. Degraded covers degraded, restarting, dead and unhealthy, as a state (`unhealthy`) or a suffix
+  (`running:unhealthy`). Parts aren't counted (their service's status covers them).
 - Frontend: `src/frontend/views/CoolifyTab.tsx` owns the SideNav, the selected connection and the shared
   resource list (`useResources`). The list is keyed by the connection's id and `revision` (the same
   non-secret hash, also on `ConnectionView`), and `ConnectionsView`'s `onSaved` puts a saved row back into

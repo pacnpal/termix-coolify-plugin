@@ -5,7 +5,8 @@ import type {
   PluginOperationOutcome,
 } from "@termix-ssh/plugin-sdk/backend";
 import { REDACTED_VALUE } from "@termix-ssh/plugin-sdk/operations";
-import { healthyCoolify } from "../helpers/fake-coolify.js";
+import { healthyCoolify, type FakeAnswer } from "../helpers/fake-coolify.js";
+import { resourceLists, SECRET } from "../helpers/resources.js";
 import {
   manifest,
   startPlugin,
@@ -37,8 +38,11 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-async function start(settings: Record<string, unknown> = {}) {
-  const fake = healthyCoolify();
+async function start(
+  settings: Record<string, unknown> = {},
+  routes: Record<string, FakeAnswer> = {},
+) {
+  const fake = healthyCoolify(routes);
   harness = await startPlugin({ fetch: fake.fetch, serve: false, settings });
   return { harness, fake, ctx: harness.mock.ctx };
 }
@@ -453,7 +457,9 @@ describe("the MCP endpoint", () => {
   });
 
   it("list_resources returns a connection's resources without secrets", async () => {
-    const { ctx } = await start({ allowMcpChanges: true });
+    // Coolify's lists as they come, with webhook secrets, passwords, env
+    // values and compose files in them.
+    const { ctx } = await start({ allowMcpChanges: true }, resourceLists());
     const created = parsed(
       await handleMcp(
         ctx,
@@ -469,10 +475,13 @@ describe("the MCP endpoint", () => {
       call(21, "list_resources", { connectionId: String(created.data.id) }),
     );
     expect(isError(answer)).toBe(false);
-    expect(parsed(answer).data.rows).toMatchObject([
-      { uuid: "app-web-uuid", kind: "application" },
-    ]);
+    expect(parsed(answer).data.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ uuid: "app-web-uuid", kind: "application" }),
+      ]),
+    );
     expect(JSON.stringify(answer)).not.toContain(TOKEN);
+    expect(JSON.stringify(answer)).not.toContain(SECRET);
   });
 
   it("refuses a message that is not JSON-RPC 2.0 with -32600", async () => {
