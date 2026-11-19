@@ -195,6 +195,49 @@
         "description": "A shell in the container, or the database's own console.",
         "shell": "Shell",
         "db": "Database console"
+      },
+      "metricsUuid": {
+        "description": "The resource's uuid in Coolify: letters and digits."
+      },
+      "minutes": {
+        "label": "Minutes",
+        "description": "How far back to read, up to 43,200 (30 days)."
+      },
+      "metricsServer": {
+        "description": "The uuid of a Coolify server. Without Coolify's MCP on, it needs a Linked host."
+      },
+      "trafficView": {
+        "label": "View",
+        "overview": "Overview",
+        "paths": "Top paths",
+        "series": "Requests over time",
+        "breakdown": "Breakdown"
+      },
+      "trafficDim": {
+        "label": "Breakdown by",
+        "description": "Needed for a breakdown. Client IPs show only when Coolify keeps them in full.",
+        "status": "Status codes",
+        "method": "Methods",
+        "country": "Countries",
+        "city": "Cities",
+        "referer": "Referrers",
+        "browser": "Browsers",
+        "os": "Operating systems",
+        "device": "Devices",
+        "protocol": "Protocols",
+        "scheme": "Schemes",
+        "tls": "TLS versions",
+        "cache": "Cache",
+        "bot": "Bots",
+        "agent": "Agents",
+        "ip": "Client IPs",
+        "useragent": "User agents"
+      },
+      "trafficRange": {
+        "label": "Range",
+        "24h": "Last 24 hours",
+        "7d": "Last 7 days",
+        "30d": "Last 30 days"
       }
     },
     "listConnections": {
@@ -240,6 +283,18 @@
     "shellCommand": {
       "title": "Coolify container shell command",
       "description": "The docker exec command that opens a shell or database console in a resource's container, run on its Linked host. It holds no password: a console reads its credentials inside the container. Needs connect access to the Linked host."
+    },
+    "resourceMetrics": {
+      "title": "Resource CPU and memory history",
+      "description": "Read a Coolify resource's container CPU and memory history from Sentinel on its server, over SSH. Needs the server's Linked host."
+    },
+    "resourceTraffic": {
+      "title": "Application traffic",
+      "description": "Read an application's traffic from Sentinel: requests over time, top paths, status codes, countries, browsers and bots. Client IPs are hidden unless Coolify keeps them in full."
+    },
+    "serverMetrics": {
+      "title": "Server metrics",
+      "description": "Read a Coolify server's CPU, memory, disk, load and network metrics, from Coolify's MCP when it's on, else from Sentinel over SSH."
     }
   },
   "connections": {

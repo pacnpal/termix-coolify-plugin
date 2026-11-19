@@ -612,6 +612,233 @@
             "assistant": true,
             "mcp": true
           }
+        },
+        {
+          "id": "coolify.resource-metrics",
+          "titleKey": "ops.resourceMetrics.title",
+          "descriptionKey": "ops.resourceMetrics.description",
+          "icon": "Activity",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.uuid.label",
+              "descriptionKey": "ops.fields.metricsUuid.description",
+              "pattern": "[A-Za-z0-9]{1,64}",
+              "required": true
+            },
+            {
+              "key": "minutes",
+              "type": "number",
+              "labelKey": "ops.fields.minutes.label",
+              "descriptionKey": "ops.fields.minutes.description",
+              "min": 1,
+              "max": 43200,
+              "default": 60
+            }
+          ],
+          "risk": "read",
+          "permission": "operate",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.resource-traffic",
+          "titleKey": "ops.resourceTraffic.title",
+          "descriptionKey": "ops.resourceTraffic.description",
+          "icon": "ChartColumn",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.uuid.label",
+              "descriptionKey": "ops.fields.metricsUuid.description",
+              "pattern": "[A-Za-z0-9]{1,64}",
+              "required": true
+            },
+            {
+              "key": "view",
+              "type": "select",
+              "labelKey": "ops.fields.trafficView.label",
+              "options": [
+                {
+                  "value": "overview",
+                  "labelKey": "ops.fields.trafficView.overview"
+                },
+                {
+                  "value": "paths",
+                  "labelKey": "ops.fields.trafficView.paths"
+                },
+                {
+                  "value": "series",
+                  "labelKey": "ops.fields.trafficView.series"
+                },
+                {
+                  "value": "breakdown",
+                  "labelKey": "ops.fields.trafficView.breakdown"
+                }
+              ],
+              "default": "overview"
+            },
+            {
+              "key": "dim",
+              "type": "select",
+              "labelKey": "ops.fields.trafficDim.label",
+              "descriptionKey": "ops.fields.trafficDim.description",
+              "options": [
+                {
+                  "value": "status",
+                  "labelKey": "ops.fields.trafficDim.status"
+                },
+                {
+                  "value": "method",
+                  "labelKey": "ops.fields.trafficDim.method"
+                },
+                {
+                  "value": "country",
+                  "labelKey": "ops.fields.trafficDim.country"
+                },
+                {
+                  "value": "city",
+                  "labelKey": "ops.fields.trafficDim.city"
+                },
+                {
+                  "value": "referer",
+                  "labelKey": "ops.fields.trafficDim.referer"
+                },
+                {
+                  "value": "browser",
+                  "labelKey": "ops.fields.trafficDim.browser"
+                },
+                {
+                  "value": "os",
+                  "labelKey": "ops.fields.trafficDim.os"
+                },
+                {
+                  "value": "device",
+                  "labelKey": "ops.fields.trafficDim.device"
+                },
+                {
+                  "value": "protocol",
+                  "labelKey": "ops.fields.trafficDim.protocol"
+                },
+                {
+                  "value": "scheme",
+                  "labelKey": "ops.fields.trafficDim.scheme"
+                },
+                {
+                  "value": "tls",
+                  "labelKey": "ops.fields.trafficDim.tls"
+                },
+                {
+                  "value": "cache",
+                  "labelKey": "ops.fields.trafficDim.cache"
+                },
+                {
+                  "value": "bot",
+                  "labelKey": "ops.fields.trafficDim.bot"
+                },
+                {
+                  "value": "agent",
+                  "labelKey": "ops.fields.trafficDim.agent"
+                },
+                {
+                  "value": "ip",
+                  "labelKey": "ops.fields.trafficDim.ip"
+                },
+                {
+                  "value": "useragent",
+                  "labelKey": "ops.fields.trafficDim.useragent"
+                }
+              ]
+            },
+            {
+              "key": "range",
+              "type": "select",
+              "labelKey": "ops.fields.trafficRange.label",
+              "options": [
+                {
+                  "value": "24h",
+                  "labelKey": "ops.fields.trafficRange.24h"
+                },
+                {
+                  "value": "7d",
+                  "labelKey": "ops.fields.trafficRange.7d"
+                },
+                {
+                  "value": "30d",
+                  "labelKey": "ops.fields.trafficRange.30d"
+                }
+              ],
+              "default": "24h"
+            }
+          ],
+          "risk": "read",
+          "permission": "operate",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.server-metrics",
+          "titleKey": "ops.serverMetrics.title",
+          "descriptionKey": "ops.serverMetrics.description",
+          "icon": "Gauge",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "serverUuid",
+              "type": "string",
+              "labelKey": "ops.fields.serverUuid.label",
+              "descriptionKey": "ops.fields.metricsServer.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            },
+            {
+              "key": "minutes",
+              "type": "number",
+              "labelKey": "ops.fields.minutes.label",
+              "descriptionKey": "ops.fields.minutes.description",
+              "min": 1,
+              "max": 43200,
+              "default": 60
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
         }
       ]
     },

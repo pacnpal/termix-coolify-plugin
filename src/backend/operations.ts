@@ -7,12 +7,15 @@ import type { Sync } from "./sync/service.js";
 import { registerResourceOperations } from "./ops/resources.js";
 import { registerContainerOperations } from "./ops/containers.js";
 import type { Containers } from "./containers/service.js";
+import { registerMetricsOperations } from "./ops/metrics.js";
+import type { Metrics } from "./metrics/service.js";
 
 export interface Services {
   connections: Connections;
   sync: Sync;
   resources: Resources;
   containers: Containers;
+  metrics: Metrics;
 }
 
 /**
@@ -27,4 +30,5 @@ export function registerOperations(
   registerSyncOperations(ctx, services.sync);
   registerResourceOperations(ctx, services.resources);
   registerContainerOperations(ctx, services.containers);
+  registerMetricsOperations(ctx, services.metrics);
 }

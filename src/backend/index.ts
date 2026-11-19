@@ -34,7 +34,13 @@ export async function activate(ctx: PluginContext): Promise<void> {
   registerStatsSocket(ctx, { connections, containers });
   const metrics = createMetrics(ctx, { connections, resources, sync });
   registerMetricsRoutes(router, ctx, metrics);
-  registerOperations(ctx, { connections, sync, resources, containers });
+  registerOperations(ctx, {
+    connections,
+    sync,
+    resources,
+    containers,
+    metrics,
+  });
 }
 
 export async function deactivate(): Promise<void> {
