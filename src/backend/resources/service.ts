@@ -46,8 +46,13 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
     if (!(await deps.connections.access(connectionId))) throw notFound();
   }
 
-  async function fetchList(connectionId: number): Promise<ResourceList> {
-    const api = await deps.connections.api(connectionId);
+  async function fetchList(
+    connectionId: number,
+    unattended = false,
+  ): Promise<ResourceList> {
+    const api = unattended
+      ? await deps.connections.unattendedApi(connectionId)
+      : await deps.connections.api(connectionId);
     const [applications, services, databases] = await Promise.all([
       api.applications(),
       api.services(),
@@ -135,6 +140,38 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
     /** Drops the cached list, after a change like a deploy or a stop. */
     async invalidate(connectionId: number): Promise<void> {
       await cache.drop(connectionId, RESOURCES_CACHE_KIND);
+    },
+
+    /**
+     * Background refresh with no actor (the status pages): fetches with the
+     * connection's own token and writes the cache. Returns nothing, so no
+     * rows reach a caller that hasn't had its access checked.
+     */
+    async refreshUnattended(connectionId: number): Promise<void> {
+      const pending = inflight.get(connectionId);
+      if (pending) {
+        await pending;
+        return;
+      }
+      const started = fetchList(connectionId, true).finally(() =>
+        inflight.delete(connectionId),
+      );
+      inflight.set(connectionId, started);
+      await started;
+    },
+
+    /**
+     * The cached list at any age, without an access check or a fetch. Only
+     * for the public status page, which shows a filtered view of it.
+     */
+    async peekCached(connectionId: number): Promise<ResourceList | null> {
+      const hit = await cache.read<ResourceDto[]>(
+        connectionId,
+        RESOURCES_CACHE_KIND,
+      );
+      return hit && Array.isArray(hit.value)
+        ? { rows: hit.value, fetchedAt: hit.fetchedAt }
+        : null;
     },
   };
 }

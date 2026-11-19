@@ -78,12 +78,38 @@ The plugin serves its own MCP endpoint at `/plugin-api/coolify/mcp`. The Connect
 and a client config under **Use with an MCP client**; put a Termix API key with the scope `operations:read`
 (read tools only) or `operations:run` where the config says `<your Termix API key>`.
 
-Every action is a tool, plus `list_connections`, `list_hosts` and `list_resources`. Each call runs as the
+Every action is a tool, plus `list_connections`, `list_hosts`, `list_resources` and `take_status_page_url`. Each call runs as the
 key's user through Termix's operations, so permissions, approvals and history apply. Read tools always work;
 tools that change something answer "changes over MCP are turned off" until an admin turns on **Allow changes
 over MCP**. Output never carries tokens, passwords, keys, env values or compose files, and long output is cut
 at 8,000 characters. [API and MCP reference](api.md) lists every action with its route, run path, key scope,
 MCP tool and a `curl` example.
+
+## Public status pages
+
+A status page is a public, read-only web page for the resources you pick, for people with no Termix account.
+In **Connections**, choose **Status pages** on a connection you own, give the page a title, tick the
+resources and choose **Publish**.
+
+- **The link is shown once.** Copy it straight away: it carries the page's secret token, which the plugin
+  doesn't store (it keeps only a hash). To get a link again, choose **New link**; the old link stops working
+  at once. **Revoke** takes the page down.
+- **What it shows:** each chosen resource's name, its status (running, degraded, stopped or deploying) and
+  when it was last deployed, and "Updated" with the time of the last check. Never uuids, servers, domains,
+  logs or anything secret. Uptime appears only when the Uptime plugin is installed.
+- **How fresh it is:** a page view never calls Coolify. While a page is published the plugin checks Coolify
+  every minute in the background, with the connection's own token; after errors it waits 1, 2, 5, then 15
+  minutes. When the status is more than 5 minutes old the page says "Status may be out of date". The page
+  reloads itself every 30 seconds, with no script.
+- **Turning it off:** an admin can turn off **Allow public status pages**. New pages are then refused and
+  every existing page answers "not found" until it is turned on again.
+- **Addresses:** the page is `/plugin-api/coolify/status/<token>`, and `…/status/<token>.json` gives the same
+  as JSON.
+
+The same is available as actions: `coolify.status-page-list`, `coolify.status-page-create`,
+`coolify.status-page-rotate` and `coolify.status-page-revoke`. Run history never holds a page's link: create
+and rotate answer a `handoffId`, and the link is taken once with it. See [Status page URLs](api.md#status-page-urls).
+Listing needs **View Coolify**; the rest need **Configure Coolify**.
 
 ## Permissions
 

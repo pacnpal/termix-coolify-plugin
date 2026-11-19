@@ -136,6 +136,33 @@
       "uuid": {
         "label": "Resource",
         "description": "The uuid of an application, service, database or service part."
+      },
+      "title": {
+        "label": "Title",
+        "description": "Shown at the top of the public page."
+      },
+      "resources": {
+        "label": "Resources",
+        "description": "The applications, services or databases the page shows, by uuid."
+      },
+      "statusPageId": {
+        "label": "Status page",
+        "description": "One of your status pages."
+      },
+      "statusPageConnection": {
+        "label": "Connection",
+        "description": "Only this connection's pages. Leave empty for all of yours."
+      },
+      "statusPageUrl": {
+        "label": "Page URL",
+        "description": "The public link. Shown once and never stored."
+      },
+      "handoffId": {
+        "label": "Handoff id",
+        "description": "Takes the URL once, with the status page handoff route or the MCP tool take_status_page_url."
+      },
+      "statusPageResult": {
+        "label": "Status page"
       }
     },
     "listConnections": {
@@ -165,6 +192,22 @@
     "resourceGet": {
       "title": "Read a Coolify resource",
       "description": "One application, service, database or service part, without secrets."
+    },
+    "statusPageList": {
+      "title": "List status pages",
+      "description": "Your public status pages: title, connection and the resources each shows. Never their links."
+    },
+    "statusPageCreate": {
+      "title": "Publish a status page",
+      "description": "A public, read-only page with the chosen resources' status. The link is handed over once and never stored."
+    },
+    "statusPageRotate": {
+      "title": "Give a status page a new link",
+      "description": "The old link stops working at once. The new one is handed over once."
+    },
+    "statusPageRevoke": {
+      "title": "Revoke a status page",
+      "description": "The link stops working and the page is removed."
     }
   },
   "connections": {
@@ -377,5 +420,64 @@
     },
     "parts": "Parts",
     "missing": "This resource is no longer in Coolify."
+  },
+  "statusPages": {
+    "open": "Status pages",
+    "title": "Status pages for {{name}}",
+    "description": "A public, read-only page that shows the status of the resources you pick: their names, status and last deploy. No addresses, servers, logs or secrets. Anyone with the link can open it.",
+    "loading": "Loading status pages",
+    "loadFailed": "The status pages could not be loaded.",
+    "off": "An admin has turned off public status pages. Existing pages answer \"not found\" until they are turned on again.",
+    "empty": "No status pages yet.",
+    "meta": "{{count}} resources · created {{date}}",
+    "form": {
+      "heading": "New status page",
+      "title": "Title",
+      "titlePlaceholder": "Shop status",
+      "resources": "Resources to show",
+      "noResources": "This connection has no resources to show.",
+      "create": "Publish",
+      "creating": "Publishing",
+      "needsTitle": "Give the page a title.",
+      "needsResources": "Pick at least one resource."
+    },
+    "created": {
+      "title": "Copy the link now",
+      "description": "This link is shown once and is not stored anywhere. To get a link again, give the page a new link.",
+      "copy": "Copy link",
+      "copied": "Copied",
+      "done": "Done"
+    },
+    "rotate": {
+      "action": "New link",
+      "title": "Give {{name}} a new link?",
+      "description": "The current link stops working at once.",
+      "confirm": "New link"
+    },
+    "revoke": {
+      "action": "Revoke",
+      "title": "Revoke {{name}}?",
+      "description": "The link stops working and the page is removed.",
+      "confirm": "Revoke"
+    },
+    "cancel": "Cancel"
+  },
+  "statusPage": {
+    "public": {
+      "updated": "Updated {{time}}",
+      "stale": "Status may be out of date",
+      "noData": "No status yet.",
+      "lastDeploy": "Last deploy {{time}}",
+      "neverDeployed": "Not deployed yet",
+      "deployOk": "succeeded",
+      "deployFailed": "failed",
+      "uptime": "{{percent}}% uptime",
+      "statuses": {
+        "running": "Running",
+        "degraded": "Degraded",
+        "stopped": "Stopped",
+        "deploying": "Deploying"
+      }
+    }
   }
 }

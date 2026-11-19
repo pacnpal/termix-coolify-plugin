@@ -643,6 +643,17 @@ export function createConnections(
       return (await cachedClient((await reach(id)).row)).api;
     },
 
+    /**
+     * The client for background work with no actor (the status page
+     * refresh): it skips the access check, so never hand what it reads to a
+     * caller without checking their access first.
+     */
+    async unattendedApi(id: number): Promise<CoolifyApi> {
+      const found = await row(id);
+      if (!found) throw notFound();
+      return (await cachedClient(found)).api;
+    },
+
     /** Runs the probe again and stores what it found. Any access level may. */
     async probe(
       id: number,

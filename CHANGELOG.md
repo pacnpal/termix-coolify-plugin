@@ -37,3 +37,14 @@
 - "Use with an MCP client" in the Connections view, with the endpoint and a client config to copy
 - An API and MCP reference (`docs/api.md`) with every action's route, run path, key scope, MCP tool and a
   `curl` example
+- Public, read-only status pages: in Connections, publish a page for the resources you pick. It shows each
+  one's name, status and last deploy (and uptime when the Uptime plugin is installed), never uuids, servers,
+  domains, logs or secrets. The link is shown once and only its hash is stored; give a page a new link or
+  revoke it at any time. Pages are served from the plugin's cache with a strict Content-Security-Policy and
+  no scripts, refresh every 30 seconds, and say "Status may be out of date" when the status is over 5
+  minutes old. While a page is published the plugin checks Coolify every minute, backing off after errors
+- Turning off "Allow public status pages" refuses new pages, and existing pages answer "not found"
+- Actions to list, publish, rotate and revoke status pages (`coolify.status-page-list`,
+  `coolify.status-page-create`, `coolify.status-page-rotate`, `coolify.status-page-revoke`). Run history
+  never holds a page's link: create and rotate answer a handoff id, and the link is taken once over MCP,
+  with the MCP tool `take_status_page_url`, or with `POST /plugin-api/coolify/status-pages/handoff/:id`

@@ -66,7 +66,12 @@
     "alerts": "^1.0.0"
   },
   "sandbox": {
-    "schedules": [],
+    "schedules": [
+      {
+        "id": "status-refresh",
+        "every": 60000
+      }
+    ],
     "events": ["host.deleted", "host.updated"]
   },
   "contributes": {
@@ -464,6 +469,152 @@
           "surfaces": {
             "assistant": true,
             "mcp": true
+          }
+        },
+        {
+          "id": "coolify.status-page-list",
+          "titleKey": "ops.statusPageList.title",
+          "descriptionKey": "ops.statusPageList.description",
+          "icon": "Globe",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.statusPageConnection.label",
+              "descriptionKey": "ops.fields.statusPageConnection.description",
+              "optionsFrom": "coolify.list-connections"
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.status-page-create",
+          "titleKey": "ops.statusPageCreate.title",
+          "descriptionKey": "ops.statusPageCreate.description",
+          "icon": "Globe",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "title",
+              "type": "string",
+              "labelKey": "ops.fields.title.label",
+              "descriptionKey": "ops.fields.title.description",
+              "required": true
+            },
+            {
+              "key": "resources",
+              "type": "multiselect",
+              "labelKey": "ops.fields.resources.label",
+              "descriptionKey": "ops.fields.resources.description",
+              "optionsFrom": "coolify.list-resources-all",
+              "required": true
+            }
+          ],
+          "outputs": [
+            {
+              "key": "id",
+              "type": "number",
+              "labelKey": "ops.fields.statusPageResult.label"
+            },
+            {
+              "key": "handoffId",
+              "type": "string",
+              "labelKey": "ops.fields.handoffId.label",
+              "descriptionKey": "ops.fields.handoffId.description"
+            },
+            {
+              "key": "url",
+              "type": "string",
+              "labelKey": "ops.fields.statusPageUrl.label",
+              "descriptionKey": "ops.fields.statusPageUrl.description",
+              "sensitive": true
+            }
+          ],
+          "risk": "change",
+          "permission": "configure",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.status-page-rotate",
+          "titleKey": "ops.statusPageRotate.title",
+          "descriptionKey": "ops.statusPageRotate.description",
+          "icon": "RefreshCw",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "id",
+              "type": "select",
+              "labelKey": "ops.fields.statusPageId.label",
+              "descriptionKey": "ops.fields.statusPageId.description",
+              "optionsFrom": "coolify.status-page-list",
+              "required": true
+            }
+          ],
+          "outputs": [
+            {
+              "key": "id",
+              "type": "number",
+              "labelKey": "ops.fields.statusPageResult.label"
+            },
+            {
+              "key": "handoffId",
+              "type": "string",
+              "labelKey": "ops.fields.handoffId.label",
+              "descriptionKey": "ops.fields.handoffId.description"
+            },
+            {
+              "key": "url",
+              "type": "string",
+              "labelKey": "ops.fields.statusPageUrl.label",
+              "descriptionKey": "ops.fields.statusPageUrl.description",
+              "sensitive": true
+            }
+          ],
+          "risk": "destructive",
+          "permission": "configure",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.status-page-revoke",
+          "titleKey": "ops.statusPageRevoke.title",
+          "descriptionKey": "ops.statusPageRevoke.description",
+          "icon": "Trash2",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "id",
+              "type": "select",
+              "labelKey": "ops.fields.statusPageId.label",
+              "descriptionKey": "ops.fields.statusPageId.description",
+              "optionsFrom": "coolify.status-page-list",
+              "required": true
+            }
+          ],
+          "risk": "destructive",
+          "permission": "configure",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
           }
         }
       ]

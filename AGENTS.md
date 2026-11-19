@@ -68,7 +68,8 @@ aren't obvious from the code, and anything that has bitten you before.
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
   Where things stand: identity, permissions, admin settings, the vendored API and the tables exist,
   Connections work (routes, operations, the Connections view and the "Connect Coolify" onboarding step),
-  and Resources can be browsed (Overview tiles, the Resources list, a resource's Overview detail).
+  Resources can be browsed (Overview tiles, the Resources list, a resource's Overview detail), the MCP
+  endpoint works, and owners can publish public status pages.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
 - Coolify calls: `src/backend/coolify/http.ts` is the only way to Coolify (ctx.fetch, Bearer and CF Access
@@ -101,6 +102,22 @@ aren't obvious from the code, and anything that has bitten you before.
   `src/backend/cache.ts`. It checks `connections.access()` before reading the cache, so another user never
   gets a cached row. Concurrent misses share one fetch. `invalidate(connectionId)` is the hook for lifecycle
   actions. `ResourceDto.serverName` comes from `server.name` or `destination.server.name` in the payload.
+- Status pages: `src/backend/status/` (service, render, routes, base-url) and `src/backend/ops/status-pages.ts`.
+  Tokens are 32 random bytes (base64url); only the sha256 is stored (`tokenHash`, unique), checked again with
+  `crypto.timingSafeEqual`. Revoke sets `revokedAt`; unknown, revoked or switched-off (`allowStatusPages`)
+  pages answer 404. The public routes are the router's `public` paths and read only the resource cache
+  (`resources.peekCached`), never Coolify. The `status-refresh` job (60 s, jitter, in `sandbox.schedules`)
+  refreshes that cache with `resources.refreshUnattended` / `connections.unattendedApi`, which skip the actor
+  check: never return what they read to a caller. It calls `keepAwake("status pages", active)` and backs off
+  1, 2, 5, 15 minutes per connection. Operations have no request, so the page URL's base comes from
+  `base-url.ts`, which notes `ctx.http.baseUrl(req)` from signed-in requests only (a public request's Host is
+  the caller's to pick); with none seen yet the URL is relative. The URL never enters run history: create and
+  rotate return `{ id, handoffId, url }` with `url` a `sensitive` output, and stash it in memory
+  (`stashOnceUrl`, 5 minutes, once, per user and run id) for the MCP `tools/call` answer,
+  `take_status_page_url` or `POST /status-pages/handoff/:handoffId`. The MCP endpoint applies
+  `redactFields(action.outputs)` to every action's data, as core does. Uptime is a `deps.uptime` hook,
+  not wired until companion detection exists. The resource list has no deploy result yet, so
+  `lastDeployOk` is null.
 - Status words: `src/shared/resource-health.ts` (`resourceHealth`, `countResources`) is the one reading of a
   Coolify status, imported by both the backend and the frontend. Exited and unhealthy are degraded; Parts
   aren't counted (their service's status covers them).

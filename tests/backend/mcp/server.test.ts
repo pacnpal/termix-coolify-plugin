@@ -23,6 +23,7 @@ import {
 const TOKEN = "fake-token-mcp-test";
 const ACTIONS = manifest.contributes!.operations!.actions!;
 const LIST_TOOLS = ["list_connections", "list_hosts", "list_resources"];
+const EXTRA = [...LIST_TOOLS, "take_status_page_url"];
 
 type Run = (
   actionId: string,
@@ -113,7 +114,7 @@ describe("the MCP endpoint", () => {
     const names = tools.map((t) => t.name).sort();
     const expected = [
       ...ACTIONS.map((a) => "coolify__" + a.id.slice("coolify.".length)),
-      ...LIST_TOOLS,
+      ...EXTRA,
     ]
       .map((n) => n.replace(/[.-]/g, "_"))
       .sort();
@@ -122,7 +123,7 @@ describe("the MCP endpoint", () => {
     expect(toolName("coolify.connection-probe")).toBe(
       "coolify__connection_probe",
     );
-    expect(EXTRA_TOOLS.map((t) => t.name).sort()).toEqual(LIST_TOOLS);
+    expect(EXTRA_TOOLS.map((t) => t.name).sort()).toEqual([...EXTRA].sort());
   });
 
   it("read tool annotations set readOnlyHint, destructive set destructiveHint", async () => {
