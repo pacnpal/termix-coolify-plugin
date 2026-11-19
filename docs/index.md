@@ -142,7 +142,8 @@ deletes them when you ask it to.
 
 Syncs, unlinks and removing a connection run one at a time for each connection, so two people (or two
 tabs) syncing at once never make two hosts for one server. If a host was made but its link couldn't be
-saved, the host is deleted again rather than left locked.
+saved, the host is deleted again rather than left locked. A sync that was waiting while its connection
+was removed finds the connection gone and creates nothing.
 
 Syncing and unlinking need **Configure Coolify** and only the connection's owner can do them; the preview
 needs **View Coolify**. They are also actions: `coolify.sync-preview` (offered to the assistant and MCP),

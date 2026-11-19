@@ -53,7 +53,8 @@
   behind a Cloudflare tunnel are shown but not synced yet
 - A picked credential that was deleted, or couldn't be checked, shows the credential picker again
 - Syncs, unlinks and connection removals of one connection run one at a time, so overlapping syncs never
-  make two hosts for one server, and a host whose link can't be saved is removed instead of left locked
+  make two hosts for one server, a sync waiting behind a removal creates nothing, and a host whose link
+  can't be saved is removed instead of left locked
 - Linked hosts are read only while Coolify manages them, with a Coolify badge, a status dot, a Coolify card
   on the host page, and Resources, Sync and Unlink in their menu. Unlink makes a host ordinary again;
   deleting a Linked host keeps its address and credential choice for the next sync

@@ -146,8 +146,12 @@ aren't obvious from the code, and anything that has bitten you before.
   `releaseLinkedHosts` hook calls `sync.releaseConnection`. `apply`, `unlink` and `releaseConnection`
   run through `serialized(connectionId, ...)`, one queue per connection (`locks.ts` is the host lock
   provider, not a mutex); the `host.deleted` handler stays outside it because `release()` deletes hosts
-  while holding it. A host `apply` created whose link row fails to save is unlocked and deleted
-  (`discardHost`). Key material comes only from
+  while holding it. Removing a connection is one step of that queue: `releaseLinkedHosts` gets the row
+  deletion as a `deleteRows` continuation and `releaseConnection` runs it after releasing the hosts. Lock
+  order is always the connections service's `withLock` first, then the sync queue; sync never takes
+  `withLock`. `apply` also re-checks `ownedConnection` before its first host write and ends with the
+  `ConnectionError` if the connection is gone. A host `apply` created whose link row fails to save is
+  unlocked and deleted (`discardHost`). Key material comes only from
   `api.keyForCopy()` (not a DTO) and goes only to `ctx.credentials.createSshKey`; reuse is by fingerprint
   among the connection's `credentialMode = "coolify"` rows, and only while the id is still in
   `ctx.credentials.listSshKeys()` (a deleted copy is made again; an unreadable list blocks the server with
