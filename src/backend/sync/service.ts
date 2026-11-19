@@ -24,6 +24,13 @@ import {
 
 export type SyncMode = "coolify" | "termix";
 
+/**
+ * Stored as a row's credentialMode when copying its Coolify key failed: the
+ * preview then asks for a picked credential. A pick, or a later copy that
+ * works, replaces it.
+ */
+const COPY_FAILED = "copy-failed";
+
 /** One Coolify server and the Termix host it is or would become. */
 export interface SyncRow {
   server: ServerDto;
@@ -161,6 +168,50 @@ export async function createSync(
 
   const locks: Locks = createLocks(ctx, await linkedIds());
 
+  // Every change to a connection's Linked hosts and link rows (apply, unlink,
+  // releaseConnection) runs one at a time per connection. Two syncs that both
+  // read "no host yet" would otherwise both create and lock one, and the
+  // second link row would fail the (connection, server) unique constraint.
+  const queues = new Map<number, Promise<void>>();
+  function serialized<T>(
+    connectionId: number,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    const before = queues.get(connectionId) ?? Promise.resolve();
+    const run = before.then(work);
+    const tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    queues.set(connectionId, tail);
+    void tail.then(() => {
+      if (queues.get(connectionId) === tail) queues.delete(connectionId);
+    });
+    return run;
+  }
+
+  /**
+   * A host this sync created whose link row could not be saved: nothing would
+   * track it, so it is unlocked and deleted (or, if that fails, released).
+   */
+  async function discardHost(hostId: number): Promise<void> {
+    locks.remove(hostId);
+    try {
+      if (await ctx.hosts.delete(hostId)) return;
+    } catch (err) {
+      ctx.log.warn(
+        `coolify could not delete an unlinked host: ${errorName(err)}`,
+      );
+    }
+    try {
+      await ctx.hosts.update(hostId, RELEASED);
+    } catch (err) {
+      ctx.log.warn(
+        `coolify could not release an unlinked host: ${errorName(err)}`,
+      );
+    }
+  }
+
   async function rowsOf(connectionId: number): Promise<ServerRow[]> {
     return (await (
       await db()
@@ -280,6 +331,7 @@ export async function createSync(
     row: ServerRow | undefined,
   ): SyncMode {
     if (row?.credentialMode === "termix" && row.credentialId) return "termix";
+    if (row?.credentialMode === COPY_FAILED) return "termix";
     return copy && server.privateKeyId !== null ? "coolify" : "termix";
   }
 
@@ -377,7 +429,9 @@ export async function createSync(
   }
 
   // A deleted host only unlinks its row: the address override and the
-  // credential choice stay for the next sync.
+  // credential choice stay for the next sync. It doesn't take the connection
+  // lock: release() deletes hosts while holding it, and this only clears the
+  // id of a host that no longer exists, which no sync step can undo.
   ctx.events.on("host.deleted", async (payload: unknown) => {
     const hostId = Number((payload as { hostId?: unknown } | null)?.hostId);
     if (!Number.isSafeInteger(hostId) || hostId <= 0) return;
@@ -394,6 +448,278 @@ export async function createSync(
       ctx.log.warn(`coolify host.deleted cleanup failed: ${errorName(err)}`);
     }
   });
+
+  async function applyNow(
+    connectionId: number,
+    choices: SyncChoice[] | null,
+  ): Promise<SyncResult[]> {
+    const view = await ownedConnection(connectionId);
+    const api = await connections.api(connectionId);
+    const servers = await api.servers();
+    const rows = await rowsOf(connectionId);
+    const byUuid = new Map(rows.map((r) => [r.serverUuid, r]));
+    const wanted = choices && new Map(choices.map((c) => [c.uuid, c]));
+    const copy = await copyAllowed(view);
+    const known: KnownCopy[] = rows
+      .filter((r) => r.credentialMode === "coolify" && r.credentialId)
+      .map((r) => ({
+        credentialId: r.credentialId!,
+        fingerprint: r.keyFingerprint,
+      }));
+    // The actor's own SSH keys, read once, to check earlier copies still exist.
+    let ownKeys: Promise<Set<number> | null> | null = null;
+    const copier = createKeyCopier(ctx, {
+      api,
+      connectionId,
+      connectionName: view.name,
+      known,
+      ownKeys: () =>
+        (ownKeys ??= ctx.credentials.listSshKeys().then(
+          (list) => new Set(list.map((k) => k.id)),
+          () => null,
+        )),
+    });
+    const folder = folderName(view.name, (await connections.list()).length);
+    const { docker, sshTerminal } = await companions();
+    // The Access token is unsealed once, and only when a tunnelled host is
+    // about to be written. It goes into that host's SSH Terminal settings
+    // and nowhere else: never a result, a log or an audit entry.
+    let cfAccess: Promise<PlanContext["cfAccess"]> | null = null;
+    const accessToken = () =>
+      (cfAccess ??= connections
+        .target(connectionId)
+        .then((target) => target.cfAccess));
+    let folderReady = false;
+    const results: SyncResult[] = [];
+    const checkCredential = ownCredentialCheck();
+
+    for (const server of servers) {
+      const choice: SyncChoice | undefined = wanted
+        ? wanted.get(server.uuid)
+        : { uuid: server.uuid, include: true };
+      const row = byUuid.get(server.uuid);
+      const base = { uuid: server.uuid, name: server.name };
+      if (!choice?.include) {
+        results.push({
+          ...base,
+          status: "skipped",
+          hostId: row?.hostId ?? null,
+        });
+        continue;
+      }
+      const override =
+        choice.addressOverride !== undefined
+          ? choice.addressOverride
+          : (row?.addressOverride ?? null);
+      const picked =
+        choice.credentialId !== undefined
+          ? choice.credentialId
+          : row?.credentialMode === "termix"
+            ? row.credentialId
+            : null;
+      // A picked credential, new or stored, must be one of the actor's own
+      // before anything is written for this server.
+      const credentialCause = picked ? await checkCredential(picked) : null;
+      if (credentialCause) {
+        results.push({
+          ...base,
+          status: "blocked",
+          cause: credentialCause,
+          hostId: row?.hostId ?? null,
+        });
+        continue;
+      }
+      const remember: Partial<ServerRow> = { addressOverride: override };
+      if (choice.credentialId !== undefined) {
+        remember.credentialMode = picked ? "termix" : null;
+        remember.credentialId = picked;
+      }
+
+      try {
+        // Refusals that need no credential come first, so no key is copied
+        // for a server that can't sync anyway.
+        const precheck = planHost(server, {
+          connectionId,
+          connectionName: view.name,
+          baseUrl: view.baseUrl,
+          override,
+          credentialId: 0,
+          folder,
+          dockerRunning: docker,
+          sshTerminal,
+          cfAccess: null,
+        });
+        if (!precheck.ok) {
+          await saveRow(connectionId, server.uuid, row, remember);
+          results.push({
+            ...base,
+            status: "blocked",
+            cause: precheck.cause,
+            hostId: row?.hostId ?? null,
+          });
+          continue;
+        }
+
+        let credentialId: number | null = picked ?? null;
+        let mode: SyncMode = "termix";
+        let fingerprint: string | null = null;
+        let copyFailed = false;
+        if (!credentialId && copy) {
+          const copied = await copier.credentialFor(server.privateKeyId);
+          if (copied && "cause" in copied) {
+            await saveRow(connectionId, server.uuid, row, remember);
+            results.push({
+              ...base,
+              status: "blocked",
+              cause: copied.cause,
+              hostId: row?.hostId ?? null,
+            });
+            continue;
+          }
+          if (copied && "credentialId" in copied) {
+            credentialId = copied.credentialId;
+            fingerprint = copied.fingerprint;
+            mode = "coolify";
+          } else {
+            copyFailed = server.privateKeyId !== null;
+          }
+        }
+        if (!credentialId) {
+          // A failed copy is remembered, so the preview asks for a credential.
+          const failed: Partial<ServerRow> = {
+            credentialMode: COPY_FAILED,
+            credentialId: null,
+            keyFingerprint: null,
+          };
+          await saveRow(
+            connectionId,
+            server.uuid,
+            row,
+            copyFailed ? { ...remember, ...failed } : remember,
+          );
+          results.push({
+            ...base,
+            status: "blocked",
+            cause: "needs-credential",
+            hostId: row?.hostId ?? null,
+          });
+          continue;
+        }
+
+        const plan = planHost(server, {
+          connectionId,
+          connectionName: view.name,
+          baseUrl: view.baseUrl,
+          override,
+          credentialId,
+          folder,
+          dockerRunning: docker,
+          sshTerminal,
+          cfAccess: server.isTunnel ? await accessToken() : null,
+        });
+        if (!plan.ok) throw new Error("plan changed");
+        if (!folderReady) {
+          // Fail closed before the first host write: the connection must
+          // still exist and be the actor's. Throws, ending the whole sync.
+          await ownedConnection(connectionId);
+          await ctx.hosts.folders.ensure(folder, { icon: "Rocket" });
+          folderReady = true;
+        }
+
+        let hostId: number | null = null;
+        let status: SyncResult["status"] = "created";
+        if (row?.hostId) {
+          const updated = await ctx.hosts.update(row.hostId, plan.input);
+          if (updated) {
+            hostId = updated.id;
+            status = "updated";
+          } else {
+            locks.remove(row.hostId);
+          }
+        }
+        let created: number | null = null;
+        if (hostId === null) {
+          hostId = (await ctx.hosts.create(plan.input)).id;
+          created = hostId;
+        }
+        locks.add(hostId);
+        try {
+          await saveRow(connectionId, server.uuid, row, {
+            ...remember,
+            hostId,
+            credentialMode: mode,
+            credentialId,
+            keyFingerprint: mode === "coolify" ? fingerprint : null,
+            lastSyncedAt: new Date().toISOString(),
+          });
+        } catch (err) {
+          // Fail closed: a host no link row tracks must not stay locked.
+          if (created !== null) await discardHost(created);
+          throw err;
+        }
+        results.push({ ...base, status, hostId });
+      } catch (err) {
+        // A connection gone or no longer the actor's ends the sync.
+        if (err instanceof ConnectionError) throw err;
+        ctx.log.warn(`coolify sync of one server failed: ${errorName(err)}`);
+        results.push({
+          ...base,
+          status: "failed",
+          cause: err instanceof CoolifyError ? err.cause : "host-write-failed",
+          hostId: row?.hostId ?? null,
+        });
+      }
+    }
+
+    const present = new Set(servers.map((s) => s.uuid));
+    for (const row of rows) {
+      if (row.hostId !== null && !present.has(row.serverUuid)) {
+        results.push({
+          uuid: row.serverUuid,
+          name: row.serverUuid,
+          status: "gone",
+          hostId: row.hostId,
+        });
+      }
+    }
+    const count = (s: SyncResult["status"]) =>
+      results.filter((r) => r.status === s).length;
+    ctx.log.info(
+      `coolify sync: ${count("created")} created, ${count("updated")} updated, ` +
+        `${count("blocked")} blocked, ${count("failed")} failed`,
+    );
+    return results;
+  }
+
+  /** Makes a Linked host ordinary again, or deletes it with removeHost. */
+  async function unlinkNow(
+    connectionId: number,
+    serverUuid: string,
+    opts: { removeHost: boolean },
+  ): Promise<{ hostId: number; removed: boolean }> {
+    await ownedConnection(connectionId);
+    const [row] = (await (
+      await db()
+    )
+      .select()
+      .from(t.servers)
+      .where(
+        and(
+          eq(t.servers.connectionId, connectionId),
+          eq(t.servers.serverUuid, serverUuid),
+        ),
+      )
+      .limit(1)) as ServerRow[];
+    if (!row?.hostId) {
+      throw new ConnectionError(
+        "not-linked",
+        "This Coolify server has no Linked host",
+      );
+    }
+    const hostId = row.hostId;
+    const removed = await release(row, opts.removeHost);
+    return { hostId, removed };
+  }
 
   return {
     /** Refuses (403, or 404 for another user's) unless the actor owns it. */
@@ -436,205 +762,14 @@ export async function createSync(
      * Creates or updates a Linked host for each included server, then locks
      * it. A row that can't sync yet is reported and the others carry on.
      * Servers gone from Coolify are reported, never deleted. Null choices
-     * include every server, with its stored address and credential.
+     * include every server, with its stored address and credential. Runs
+     * after any other change to this connection's hosts has finished.
      */
     async apply(
       connectionId: number,
       choices: SyncChoice[] | null,
     ): Promise<SyncResult[]> {
-      const view = await ownedConnection(connectionId);
-      const api = await connections.api(connectionId);
-      const servers = await api.servers();
-      const rows = await rowsOf(connectionId);
-      const byUuid = new Map(rows.map((r) => [r.serverUuid, r]));
-      const wanted = choices && new Map(choices.map((c) => [c.uuid, c]));
-      const copy = await copyAllowed(view);
-      const known: KnownCopy[] = rows
-        .filter((r) => r.credentialMode === "coolify" && r.credentialId)
-        .map((r) => ({
-          credentialId: r.credentialId!,
-          fingerprint: r.keyFingerprint,
-        }));
-      const copier = createKeyCopier(ctx, {
-        api,
-        connectionId,
-        connectionName: view.name,
-        known,
-      });
-      const folder = folderName(view.name, (await connections.list()).length);
-      const { docker, sshTerminal } = await companions();
-      // The Access token is unsealed once, and only when a tunnelled host is
-      // about to be written. It goes into that host's SSH Terminal settings
-      // and nowhere else: never a result, a log or an audit entry.
-      let cfAccess: Promise<PlanContext["cfAccess"]> | null = null;
-      const accessToken = () =>
-        (cfAccess ??= connections
-          .target(connectionId)
-          .then((target) => target.cfAccess));
-      let folderReady = false;
-      const results: SyncResult[] = [];
-      const checkCredential = ownCredentialCheck();
-
-      for (const server of servers) {
-        const choice: SyncChoice | undefined = wanted
-          ? wanted.get(server.uuid)
-          : { uuid: server.uuid, include: true };
-        const row = byUuid.get(server.uuid);
-        const base = { uuid: server.uuid, name: server.name };
-        if (!choice?.include) {
-          results.push({
-            ...base,
-            status: "skipped",
-            hostId: row?.hostId ?? null,
-          });
-          continue;
-        }
-        const override =
-          choice.addressOverride !== undefined
-            ? choice.addressOverride
-            : (row?.addressOverride ?? null);
-        const picked =
-          choice.credentialId !== undefined
-            ? choice.credentialId
-            : row?.credentialMode === "termix"
-              ? row.credentialId
-              : null;
-        // A picked credential, new or stored, must be one of the actor's own
-        // before anything is written for this server.
-        const credentialCause = picked ? await checkCredential(picked) : null;
-        if (credentialCause) {
-          results.push({
-            ...base,
-            status: "blocked",
-            cause: credentialCause,
-            hostId: row?.hostId ?? null,
-          });
-          continue;
-        }
-        const remember: Partial<ServerRow> = { addressOverride: override };
-        if (choice.credentialId !== undefined) {
-          remember.credentialMode = picked ? "termix" : null;
-          remember.credentialId = picked;
-        }
-
-        try {
-          // Refusals that need no credential come first, so no key is copied
-          // for a server that can't sync anyway.
-          const precheck = planHost(server, {
-            connectionId,
-            connectionName: view.name,
-            baseUrl: view.baseUrl,
-            override,
-            credentialId: 0,
-            folder,
-            dockerRunning: docker,
-            sshTerminal,
-            cfAccess: null,
-          });
-          if (!precheck.ok) {
-            await saveRow(connectionId, server.uuid, row, remember);
-            results.push({
-              ...base,
-              status: "blocked",
-              cause: precheck.cause,
-              hostId: row?.hostId ?? null,
-            });
-            continue;
-          }
-
-          let credentialId: number | null = picked ?? null;
-          let mode: SyncMode = "termix";
-          let fingerprint: string | null = null;
-          if (!credentialId && copy) {
-            const copied = await copier.credentialFor(server.privateKeyId);
-            if (copied) {
-              credentialId = copied.credentialId;
-              fingerprint = copied.fingerprint;
-              mode = "coolify";
-            }
-          }
-          if (!credentialId) {
-            await saveRow(connectionId, server.uuid, row, remember);
-            results.push({
-              ...base,
-              status: "blocked",
-              cause: "needs-credential",
-              hostId: row?.hostId ?? null,
-            });
-            continue;
-          }
-
-          const plan = planHost(server, {
-            connectionId,
-            connectionName: view.name,
-            baseUrl: view.baseUrl,
-            override,
-            credentialId,
-            folder,
-            dockerRunning: docker,
-            sshTerminal,
-            cfAccess: server.isTunnel ? await accessToken() : null,
-          });
-          if (!plan.ok) throw new Error("plan changed");
-          if (!folderReady) {
-            await ctx.hosts.folders.ensure(folder, { icon: "Rocket" });
-            folderReady = true;
-          }
-
-          let hostId: number | null = null;
-          let status: SyncResult["status"] = "created";
-          if (row?.hostId) {
-            const updated = await ctx.hosts.update(row.hostId, plan.input);
-            if (updated) {
-              hostId = updated.id;
-              status = "updated";
-            } else {
-              locks.remove(row.hostId);
-            }
-          }
-          if (hostId === null) {
-            hostId = (await ctx.hosts.create(plan.input)).id;
-          }
-          locks.add(hostId);
-          await saveRow(connectionId, server.uuid, row, {
-            ...remember,
-            hostId,
-            credentialMode: mode,
-            credentialId,
-            keyFingerprint: mode === "coolify" ? fingerprint : null,
-            lastSyncedAt: new Date().toISOString(),
-          });
-          results.push({ ...base, status, hostId });
-        } catch (err) {
-          ctx.log.warn(`coolify sync of one server failed: ${errorName(err)}`);
-          results.push({
-            ...base,
-            status: "failed",
-            cause:
-              err instanceof CoolifyError ? err.cause : "host-write-failed",
-            hostId: row?.hostId ?? null,
-          });
-        }
-      }
-
-      const present = new Set(servers.map((s) => s.uuid));
-      for (const row of rows) {
-        if (row.hostId !== null && !present.has(row.serverUuid)) {
-          results.push({
-            uuid: row.serverUuid,
-            name: row.serverUuid,
-            status: "gone",
-            hostId: row.hostId,
-          });
-        }
-      }
-      const count = (s: SyncResult["status"]) =>
-        results.filter((r) => r.status === s).length;
-      ctx.log.info(
-        `coolify sync: ${count("created")} created, ${count("updated")} updated, ` +
-          `${count("blocked")} blocked, ${count("failed")} failed`,
-      );
-      return results;
+      return serialized(connectionId, () => applyNow(connectionId, choices));
     },
 
     /** Makes a Linked host ordinary again, or deletes it with removeHost. */
@@ -643,28 +778,9 @@ export async function createSync(
       serverUuid: string,
       opts: { removeHost: boolean },
     ): Promise<{ hostId: number; removed: boolean }> {
-      await ownedConnection(connectionId);
-      const [row] = (await (
-        await db()
-      )
-        .select()
-        .from(t.servers)
-        .where(
-          and(
-            eq(t.servers.connectionId, connectionId),
-            eq(t.servers.serverUuid, serverUuid),
-          ),
-        )
-        .limit(1)) as ServerRow[];
-      if (!row?.hostId) {
-        throw new ConnectionError(
-          "not-linked",
-          "This Coolify server has no Linked host",
-        );
-      }
-      const hostId = row.hostId;
-      const removed = await release(row, opts.removeHost);
-      return { hostId, removed };
+      return serialized(connectionId, () =>
+        unlinkNow(connectionId, serverUuid, opts),
+      );
     },
 
     /** The Linked host of a server, or null. */
@@ -688,23 +804,31 @@ export async function createSync(
     },
 
     /**
-     * Connections' releaseLinkedHosts hook: before a connection is removed,
-     * unlinks its Linked hosts, or deletes them with removeHosts. One host
-     * that can't be changed doesn't stop the others.
+     * Connections' releaseLinkedHosts hook: unlinks the connection's Linked
+     * hosts, or deletes them with removeHosts, then runs `deleteRows` (the
+     * connection's own removal). One host that can't be changed doesn't stop
+     * the others.
      */
     async releaseConnection(
       connectionId: number,
       opts: { removeHosts: boolean },
+      deleteRows: () => Promise<void>,
     ): Promise<void> {
-      for (const row of await rowsOf(connectionId)) {
-        if (row.hostId === null) continue;
-        try {
-          await release(row, opts.removeHosts);
-        } catch (err) {
-          locks.remove(row.hostId);
-          ctx.log.warn(`coolify could not release a host: ${errorName(err)}`);
+      // Releasing and deleting run as one step of this connection's queue: a
+      // sync queued before waits for it to finish, and one queued after starts
+      // only once the connection is gone, so it finds nothing to sync.
+      await serialized(connectionId, async () => {
+        for (const row of await rowsOf(connectionId)) {
+          if (row.hostId === null) continue;
+          try {
+            await release(row, opts.removeHosts);
+          } catch (err) {
+            locks.remove(row.hostId);
+            ctx.log.warn(`coolify could not release a host: ${errorName(err)}`);
+          }
         }
-      }
+        await deleteRows();
+      });
     },
   };
 }

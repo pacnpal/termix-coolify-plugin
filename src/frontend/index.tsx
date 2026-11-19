@@ -2,37 +2,16 @@ import { Boxes, Download, RefreshCw, Rocket, Unlink } from "lucide-react";
 import type {
   HostDot,
   PluginHostRecord,
-  TabProps,
   TermixApp,
 } from "@termix-ssh/plugin-sdk/frontend";
-import { PanelFrame } from "@termix-ssh/plugin-sdk/ui";
 import { createApi } from "./api";
 import { forgetPreview, linkOf, useLinkedRow } from "./linked";
-import { ConnectionsView, type SyncTarget } from "./views/ConnectionsView";
 import { ConnectStep } from "./views/ConnectStep";
+import { CoolifyTab } from "./views/CoolifyTab";
 import { HostSection, openCoolify } from "./views/HostSection";
 
 const TAB_ID = "coolify";
 const IMPORT_ACTION = "coolify.import-from-coolify";
-
-/**
- * What the tab was opened for, from its data: the sync preview of one
- * connection, or of the only one there is ("any", from the import menu).
- */
-function syncTargetOf(props: TabProps): SyncTarget {
-  const data = props.tab?.data ?? {};
-  if (data.section !== "sync") return null;
-  const id = Number(data.connectionId);
-  return Number.isSafeInteger(id) && id > 0 ? id : "any";
-}
-
-function CoolifyTab(props: TabProps) {
-  return (
-    <PanelFrame>
-      <ConnectionsView syncTarget={syncTargetOf(props)} />
-    </PanelFrame>
-  );
-}
 
 const isLinked = (host: PluginHostRecord) => linkOf(host) !== null;
 

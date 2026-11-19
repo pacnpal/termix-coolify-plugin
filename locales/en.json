@@ -8,6 +8,10 @@
     "empty": {
       "title": "No Coolify connections yet",
       "hint": "Coolify connections and their servers and resources will show here."
+    },
+    "noConnection": {
+      "title": "No Coolify connection",
+      "hint": "Add a connection under Connections to see its resources."
     }
   },
   "shellTab": {
@@ -137,13 +141,21 @@
         "label": "Also delete the Linked hosts",
         "description": "Off: the hosts made for this connection's servers stay as ordinary, editable hosts."
       },
+      "serverUuid": {
+        "label": "Coolify server",
+        "description": "Only resources on this Coolify server (its uuid). Leave empty for all."
+      },
+      "linkedServerUuid": {
+        "label": "Coolify server",
+        "description": "The uuid of a Coolify server that has a Linked host."
+      },
+      "uuid": {
+        "label": "Resource",
+        "description": "The uuid of an application, service, database or service part."
+      },
       "choices": {
         "label": "Servers",
         "description": "Optional. A JSON list of { uuid, include, addressOverride, credentialId }. Leave empty to sync every server with its saved address and credential."
-      },
-      "serverUuid": {
-        "label": "Coolify server",
-        "description": "The uuid of a Coolify server that has a Linked host."
       }
     },
     "listConnections": {
@@ -165,6 +177,14 @@
     "connectionDelete": {
       "title": "Remove a Coolify connection",
       "description": "Removes the connection from Termix. Nothing changes in Coolify, and Linked hosts become ordinary hosts."
+    },
+    "listResourcesAll": {
+      "title": "List Coolify resources",
+      "description": "A connection's applications, services with their parts, and databases, with status, server, project, environment and domains. No secrets."
+    },
+    "resourceGet": {
+      "title": "Read a Coolify resource",
+      "description": "One application, service, database or service part, without secrets."
     },
     "syncPreview": {
       "title": "Preview Coolify host sync",
@@ -237,8 +257,11 @@
         "projects": "Projects (scoped token)",
         "keys": "Read private keys",
         "logs": "Read logs",
-        "root": "Instance settings (root)",
+        "settings": "Instance settings (root team admin)",
         "sshTerminal": "SSH Terminal carries the Cloudflare tunnels"
+      },
+      "skipped": {
+        "nothing-to-probe": "Not checked: this token sees nothing to try it on yet, so it may still have this ability. Check again after adding one."
       },
       "scoped": "This token is scoped to some projects or resources. It can't see servers, so there is no host sync, no shells and no keys, and it can't set up notifications. Applications, services, databases, deploys and logs still work."
     },
@@ -252,6 +275,23 @@
       "invalid-input": "Check the fields: {{message}}",
       "forbidden": "Only the connection's owner can change it.",
       "not-found": "This connection no longer exists."
+    },
+    "mcp": {
+      "title": "Use with an MCP client",
+      "description": "Point an MCP client at this address to use the Coolify actions as tools. Each call runs as the key's user, with that user's permissions, approvals and history.",
+      "endpoint": "Endpoint",
+      "config": "Client config",
+      "copy": "Copy",
+      "copied": "Copied",
+      "loading": "Loading the MCP endpoint",
+      "loadFailed": "The MCP endpoint could not be loaded.",
+      "keyPlaceholder": "<your Termix API key>",
+      "steps": {
+        "title": "Set it up",
+        "key": "In Termix, create an API key with the scope operations:read (read tools only) or operations:run.",
+        "paste": "Paste the client config into your MCP client and put the key in place of the placeholder.",
+        "changes": "Changes over MCP stay off until an admin turns on \"Allow changes over MCP\" in the plugin's settings. Read tools work either way."
+      }
     }
   },
   "causes": {
@@ -285,6 +325,97 @@
       "done": "Connected to {{name}}."
     }
   },
+  "nav": {
+    "label": "Coolify sections",
+    "overview": "Overview",
+    "resources": "Resources",
+    "servers": "Servers",
+    "connections": "Connections"
+  },
+  "picker": {
+    "label": "Coolify connection"
+  },
+  "overview": {
+    "title": "Overview",
+    "refresh": "Refresh",
+    "loading": "Loading resources",
+    "updated": "Updated {{time}}",
+    "tiles": {
+      "running": "Running",
+      "degraded": "Degraded",
+      "stopped": "Stopped",
+      "deploying": "Deploying",
+      "open": "Show in Resources"
+    }
+  },
+  "resources": {
+    "title": "Resources",
+    "refresh": "Refresh",
+    "loading": "Loading resources",
+    "loadFailed": "The resources could not be loaded.",
+    "search": "Search names, domains, projects and servers",
+    "filters": {
+      "kind": "Type",
+      "health": "Status",
+      "allKinds": "All types",
+      "applications": "Applications",
+      "services": "Services",
+      "databases": "Databases",
+      "allHealth": "All statuses"
+    },
+    "kinds": {
+      "application": "Application",
+      "service": "Service",
+      "database": "Database",
+      "service-application": "Service app",
+      "service-database": "Service database"
+    },
+    "health": {
+      "running": "Running",
+      "degraded": "Degraded",
+      "stopped": "Stopped",
+      "deploying": "Deploying"
+    },
+    "columns": {
+      "name": "Name",
+      "type": "Type",
+      "status": "Status",
+      "server": "Coolify server",
+      "place": "Project / environment",
+      "domains": "Domains",
+      "lastDeploy": "Last deploy"
+    },
+    "place": "{{project}} / {{environment}}",
+    "none": "None",
+    "empty": {
+      "title": "No resources",
+      "hint": "This connection has no applications, services or databases yet."
+    },
+    "noMatch": {
+      "title": "Nothing matches",
+      "hint": "Change the search or the filters."
+    }
+  },
+  "detail": {
+    "tabs": {
+      "overview": "Overview"
+    },
+    "fields": {
+      "type": "Type",
+      "status": "Status",
+      "coolifyStatus": "Coolify status",
+      "server": "Coolify server",
+      "project": "Project",
+      "environment": "Environment",
+      "engine": "Engine or image",
+      "domains": "Domains",
+      "lastDeploy": "Last deploy",
+      "uuid": "UUID",
+      "service": "Service"
+    },
+    "parts": "Parts",
+    "missing": "This resource is no longer in Coolify."
+  },
   "sync": {
     "title": "Sync servers from {{name}}",
     "intro": "Each Coolify server becomes a Linked host in the Coolify folder. Linked hosts stay read only while Coolify manages them; unlink one to edit it.",
@@ -293,11 +424,14 @@
     "empty": "This Coolify connection has no servers the token can see.",
     "pickConnection": "Pick the connection to sync servers from.",
     "noConnections": "Add a Coolify connection first, then sync its servers.",
-    "back": "Back",
+    "needsConfigure": "Syncing servers into hosts needs the Coolify configure permission.",
+    "notOwner": "Only the owner of this connection can sync its servers into hosts.",
+    "scopedToken": "This connection uses a scoped token, which can't see servers, so there is no host sync. Use a token that isn't scoped to sync servers.",
     "refresh": "Refresh",
     "include": "Include",
     "address": "Address Termix uses",
     "addressHint": "Coolify reaches this server as {{ip}}, which Termix can't use. Enter the address Termix should connect to.",
+    "addressOptionalHint": "Optional. Leave empty to connect to {{ip}}, the address Coolify uses.",
     "useSuggested": "Use {{address}}",
     "credential": "Termix credential",
     "credentialHint": "Coolify's key for this server can't be copied, so pick one of your Termix credentials.",
