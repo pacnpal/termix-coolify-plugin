@@ -128,6 +128,8 @@ aren't obvious from the code, and anything that has bitten you before.
   Coolify status, imported by both the backend and the frontend. Exited is stopped; unhealthy is degraded; Parts
   aren't counted (their service's status covers them).
 - Frontend: `src/frontend/views/CoolifyTab.tsx` owns the SideNav, the selected connection and the shared
-  resource list (`useResources`). `ResourceDetail.tsx` lists its views in `DETAIL_TABS`; later views (shell,
+  resource list (`useResources`). The list is keyed by the connection's id and `revision` (the same
+  non-secret hash, also on `ConnectionView`), and `ConnectionsView`'s `onSaved` puts a saved row back into
+  the tab, so editing the selected connection's target clears and reloads it. `ResourceDetail.tsx` lists its views in `DETAIL_TABS`; later views (shell,
   logs, stats) add an id there. Filtering and grouping are pure functions in `resource-model.ts`.
   `contributes.mobile` lists only `coolify` until the `coolify-shell` tab is registered.

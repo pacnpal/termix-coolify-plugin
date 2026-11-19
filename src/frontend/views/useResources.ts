@@ -13,19 +13,23 @@ export interface ResourcesState {
 
 /**
  * One connection's resources, shared by the Overview and Resources sections
- * so switching between them doesn't fetch again.
+ * so switching between them doesn't fetch again. The list belongs to the
+ * connection's id and revision: a new address, token or TLS setting clears it
+ * and loads it again.
  */
 export function useResources(
   api: Api,
   connectionId: number | null,
+  revision: string | null = null,
 ): ResourcesState {
   const { t } = useTranslation();
   const [list, setList] = useState<ResourceList | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Drops answers for a connection that is no longer selected.
-  const current = useRef(connectionId);
-  current.current = connectionId;
+  // Drops answers for a connection, or a revision of it, no longer selected.
+  const key = connectionId === null ? null : `${connectionId}:${revision}`;
+  const current = useRef(key);
+  current.current = key;
 
   const reload = useCallback(
     async (refresh = false) => {
@@ -33,19 +37,19 @@ export function useResources(
       setLoading(true);
       try {
         const answer = await api.listResources(connectionId, { refresh });
-        if (current.current !== connectionId) return;
+        if (current.current !== key) return;
         setList(answer);
         setError(null);
       } catch (err) {
-        if (current.current !== connectionId) return;
+        if (current.current !== key) return;
         setError(
           failureOf(err) ? describeFailure(t, err) : t("resources.loadFailed"),
         );
       } finally {
-        if (current.current === connectionId) setLoading(false);
+        if (current.current === key) setLoading(false);
       }
     },
-    [api, connectionId, t],
+    [api, connectionId, key, t],
   );
 
   useEffect(() => {

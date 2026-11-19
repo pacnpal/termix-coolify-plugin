@@ -92,7 +92,12 @@ function metaLine(
 }
 
 /** The Connections section: the list, add, edit, check again and remove. */
-export function ConnectionsView() {
+export function ConnectionsView({
+  onSaved,
+}: {
+  /** Told about each saved connection, so the tab can drop stale resources. */
+  onSaved?: (saved: Connection) => void;
+} = {}) {
   const { t } = useTranslation();
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
@@ -135,6 +140,7 @@ export function ConnectionsView() {
 
   const upsert = (saved: Connection) => {
     changes.current += 1;
+    onSaved?.(saved);
     setRows((prev) => {
       const list = prev ?? [];
       return list.some((c) => c.id === saved.id)

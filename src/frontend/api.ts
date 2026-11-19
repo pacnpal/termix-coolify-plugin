@@ -34,6 +34,8 @@ export interface Connection {
   cfAccess: boolean;
   lastCheckedAt: string | null;
   steps: ProbeStep[];
+  /** Changes when the connection's address, token or TLS settings change. */
+  revision: string;
 }
 
 export interface ConnectionInput {

@@ -48,6 +48,11 @@ export interface ConnectionView {
   lastCheckedAt: string | null;
   /** The last probe's checklist. */
   steps: ProbeStep[];
+  /**
+   * Changes whenever the address, token, Cloudflare Access values or TLS
+   * settings do: a hash of the stored (sealed) values, so it holds no secret.
+   */
+  revision: string;
 }
 
 export interface ConnectionInput {
@@ -336,6 +341,22 @@ function parseStored(text: string | null): StoredProbe {
   return { abilities: NO_ABILITIES, scoped: false, teamId: null, steps: [] };
 }
 
+/** Everything that decides where calls go and with which credentials. */
+function targetKey(found: ConnectionRow): string {
+  return JSON.stringify([
+    found.baseUrl,
+    found.tokenSealed,
+    found.cfAccessIdSealed,
+    found.cfAccessSecretSealed,
+    found.allowPrivate === true,
+    found.caCert,
+  ]);
+}
+
+function revisionOf(found: ConnectionRow): string {
+  return createHash("sha256").update(targetKey(found)).digest("hex");
+}
+
 function toView(row: ConnectionRow, access: AccessLevel): ConnectionView {
   const stored = parseStored(row.abilities);
   return {
@@ -354,6 +375,7 @@ function toView(row: ConnectionRow, access: AccessLevel): ConnectionView {
     cfAccess: Boolean(row.cfAccessIdSealed && row.cfAccessSecretSealed),
     lastCheckedAt: row.lastCheckedAt,
     steps: stored.steps,
+    revision: revisionOf(row),
   };
 }
 
@@ -538,18 +560,6 @@ export function createConnections(
   }
 
   /** One client per connection, so the request budget is shared. */
-  /** Everything that decides where calls go and with which credentials. */
-  function targetKey(found: ConnectionRow): string {
-    return JSON.stringify([
-      found.baseUrl,
-      found.tokenSealed,
-      found.cfAccessIdSealed,
-      found.cfAccessSecretSealed,
-      found.allowPrivate === true,
-      found.caCert,
-    ]);
-  }
-
   async function cachedClient(found: ConnectionRow) {
     const key = targetKey(found);
     const hit = clients.get(found.id);
@@ -858,7 +868,7 @@ export function createConnections(
     async revision(id: number): Promise<string | null> {
       const found = await row(id);
       if (!found || !(await accessTo(found, actor()))) return null;
-      return createHash("sha256").update(targetKey(found)).digest("hex");
+      return revisionOf(found);
     },
 
     async api(id: number): Promise<CoolifyApi> {

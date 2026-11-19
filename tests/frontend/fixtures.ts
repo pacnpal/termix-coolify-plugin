@@ -23,6 +23,7 @@ export const connection = {
   cfAccess: false,
   lastCheckedAt: null,
   steps: [],
+  revision: "rev-before",
 };
 
 function row(

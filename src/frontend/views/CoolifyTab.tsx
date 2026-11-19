@@ -55,7 +55,21 @@ export function CoolifyTab(_props: TabProps) {
 
   const connection =
     connections?.find((c) => c.id === selectedId) ?? connections?.[0] ?? null;
-  const resources = useResources(api, connection?.id ?? null);
+  // Keyed by the revision too, so a changed address or token reloads.
+  const resources = useResources(
+    api,
+    connection?.id ?? null,
+    connection?.revision ?? null,
+  );
+
+  /** A saved connection replaces its row; a new target reloads resources. */
+  const saved = useCallback((next: Connection) => {
+    setConnections((prev) =>
+      prev?.some((c) => c.id === next.id)
+        ? prev.map((c) => (c.id === next.id ? next : c))
+        : [...(prev ?? []), next],
+    );
+  }, []);
 
   function select(next: string) {
     setSection(next as Section);
@@ -90,7 +104,7 @@ export function CoolifyTab(_props: TabProps) {
   if (section === null) {
     body = <LoadingState label={t("connections.loading")} />;
   } else if (section === "connections") {
-    body = <ConnectionsView />;
+    body = <ConnectionsView onSaved={saved} />;
   } else if (!connection) {
     body = (
       <EmptyState
