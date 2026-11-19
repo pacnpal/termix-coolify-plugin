@@ -204,7 +204,9 @@ describe("open shell from a resource", () => {
 
   it("a database opens its console in a coolify-shell tab", async () => {
     const r = await openDetail(OPERATE, "main-db");
-    expect(screen.getByRole("button", { name: locales.detail.actions.shell }));
+    expect(
+      screen.getByRole("button", { name: locales.detail.actions.shell }),
+    ).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", { name: locales.detail.actions.console }),
     );
