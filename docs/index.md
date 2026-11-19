@@ -124,7 +124,9 @@ on the server's Linked host, running `docker exec` into the container.
 - **Database consoles** start the engine's own client: `psql`, `mysql` or `mariadb`, `mongosh`, `redis-cli`
   (Redis and Dragonfly), `keydb-cli`, `clickhouse-client` or `sqlite3`. The credentials are the ones Coolify
   set in the container's environment, and they are read inside the container when the console starts. No
-  password is in the command, sent to the browser or logged. An engine with no known console opens a shell
+  password is in the command, sent to the browser or logged. Consoles also keep passwords out of process
+  arguments, which any user on the server can list with `ps`: each client gets its password from an
+  environment variable (`mongosh` reads it in JavaScript from `process.env`). An engine with no known console opens a shell
   instead, with a note.
 - **Several containers** (a service with parts, say): pick one from the list.
 - **Not running**: start the resource first.

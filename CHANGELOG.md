@@ -48,7 +48,7 @@
   `sudo` when the SSH user needs it. A picker when several containers match
 - Database consoles with psql, mysql or mariadb, mongosh, redis-cli, keydb-cli, clickhouse-client and
   sqlite3. Credentials are read inside the container from its own environment; no password is in the
-  command, the browser or a log
+  command, the browser, a log or the client's process arguments
 - Clear answers when the server isn't linked, the container isn't running, or Termix hasn't trusted the
   host's key yet (with Coolify's fingerprint and a button to open a server terminal). Without SSH Terminal,
   the command to copy

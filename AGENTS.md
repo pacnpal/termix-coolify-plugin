@@ -132,6 +132,9 @@ aren't obvious from the code, and anything that has bitten you before.
   A Grant level doesn't matter for shells; host access does. Container names are refused outside
   `[A-Za-z0-9_.-]` or with a leading `-`; every other value goes through `shellQuote`. Console scripts only
   name the container's own variables and are one quoted `sh -c` argument, so `$` expands in the container.
+  A password reaches a client only through an env variable (PGPASSWORD, MYSQL_PWD, REDISCLI_AUTH,
+  clickhouse-client's own CLICKHOUSE_PASSWORD; mongosh reads `process.env` in `--eval`), never argv,
+  which `ps` on the host shows to every user.
   Several matches answer HTTP 300 `{ choices }`; the frontend reads choices from a rejected axios call too.
   `ContainerError` has its own statuses (409 for `not-linked`), unlike `ConnectionError`'s 404.
 - Shell tab: `src/frontend/views/ShellTab.tsx` reads its tab data `{ connectionId, uuid, part?, container?,
