@@ -406,7 +406,12 @@
       "record": "{{fqdn}} {{type}} {{content}}",
       "remove": "Remove",
       "failed": "The DNS record could not be created.",
-      "removeFailed": "The DNS record could not be removed."
+      "removeFailed": "The DNS record could not be removed.",
+      "removeConfirm": {
+        "title": "Remove the DNS record for {{fqdn}}?",
+        "description": "The DNS plugin deletes the record from your DNS provider.",
+        "confirm": "Remove record"
+      }
     },
     "uptime": {
       "title": "Uptime",

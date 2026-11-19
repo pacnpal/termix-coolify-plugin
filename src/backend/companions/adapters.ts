@@ -2,15 +2,19 @@ import type {
   PluginContext,
   PluginOperationOutcome,
 } from "@termix-ssh/plugin-sdk/backend";
-import { CompanionError, missing } from "./detect.js";
+import { CompanionError } from "./detect.js";
 
-// Calls into the companion plugins. Each one asks for the service or action
-// at the time of the call (a companion can stop at any time), sends only plain
-// values the feature needs (never a token, key or password), and picks the
-// fields it returns by name, the way the Coolify DTOs do.
+// Calls into the companion plugins. Every call is one of their documented
+// actions (docs.termix.site/plugins/<id>/reference), by the id and input names
+// the reference gives, run with ctx.operations.invoke and listed in the
+// manifest's operations.invokes. The references list no service methods, so
+// no service is called. Each call sends only plain values the feature needs
+// (never a token, key or password).
 //
-// The service and action shapes follow the design's "Companion plugins"
-// section. Answers are read loosely, since those plugins are not released yet.
+// The references don't describe what the actions answer. Answers are read in
+// the operations convention (`{ rows }` for lists, `{ value, status, label }`
+// for host status reads) and fields are picked by name; an answer with
+// nothing usable is companion-failed.
 
 type Raw = Record<string, unknown>;
 
@@ -52,52 +56,26 @@ function first(raw: Raw, keys: string[]): unknown {
   return undefined;
 }
 
-/**
- * Another plugin's service, or companion-missing when it isn't offered or
- * lacks `method`. A missing provider reads as an empty handle.
- */
-async function service(
-  ctx: PluginContext,
-  name: string,
-  method: string,
-  plugin: string,
-): Promise<Record<string, (...args: unknown[]) => Promise<unknown>>> {
-  let handle: unknown;
-  try {
-    handle = await ctx.services.get<object>(name);
-  } catch {
-    throw missing(plugin);
-  }
-  const usable =
-    !!handle &&
-    (typeof handle === "object" || typeof handle === "function") &&
-    method in (handle as object);
-  if (!usable) throw missing(plugin);
-  return handle as Record<string, (...args: unknown[]) => Promise<unknown>>;
-}
-
-/** Runs a companion call; any failure of its own is companion-failed. */
-async function attempt<T>(plugin: string, call: () => Promise<T>): Promise<T> {
-  try {
-    return await call();
-  } catch (err) {
-    if (err instanceof CompanionError) throw err;
-    throw new CompanionError("companion-failed", plugin);
-  }
-}
-
 const FAILED_STATUS = /fail|error|denied|reject|cancel/i;
 
-/** Runs another plugin's action, listed in the manifest's operations.invokes. */
+/**
+ * Runs a companion's action. A throw, an error, a run waiting for approval or
+ * a failed status is companion-failed; the companion's own message is never
+ * passed on.
+ */
 async function invoke(
   ctx: PluginContext,
   actionId: string,
   plugin: string,
   options: { hostId?: number; input?: Record<string, unknown> },
+  extra: { confirmed?: boolean } = {},
 ): Promise<unknown> {
-  const outcome: PluginOperationOutcome = await attempt(plugin, () =>
-    ctx.operations.invoke(actionId, options),
-  );
+  let outcome: PluginOperationOutcome;
+  try {
+    outcome = await ctx.operations.invoke(actionId, { ...options, ...extra });
+  } catch {
+    throw new CompanionError("companion-failed", plugin);
+  }
   if (
     !outcome ||
     outcome.error ||
@@ -110,50 +88,81 @@ async function invoke(
   return outcome.data;
 }
 
-// --- DNS ---------------------------------------------------------------
+// --- DNS (dns.list-zones, dns.upsert-record, dns.delete-record) ---------
 
 export type DnsType = "A" | "AAAA" | "CNAME";
 
-export interface DnsRecordInput {
-  fqdn: string;
+/** The inputs dns.upsert-record and dns.delete-record share; kept to remove the record. */
+export interface DnsRecordKey {
+  zone: string;
   type: DnsType;
+  name: string;
   content: string;
 }
 
-/** Creates a record through dns.records; answers the DNS plugin's handle. */
+/**
+ * The zone a name belongs to, from dns.list-zones: the zone whose name is
+ * the longest suffix of `fqdn`. Answers its id (or its name, when the list
+ * gives no id), or no-dns-zone.
+ */
+async function zoneFor(ctx: PluginContext, fqdn: string): Promise<string> {
+  const data = await invoke(ctx, "dns.list-zones", "dns", {});
+  let best: { value: string; length: number } | null = null;
+  for (const entry of listOf(data, ["rows", "zones", "items"])) {
+    const raw = obj(entry);
+    const name = str(first(raw, ["name", "zone", "domain"]))
+      ?.toLowerCase()
+      .replace(/\.$/, "");
+    if (!name || (fqdn !== name && !fqdn.endsWith(`.${name}`))) continue;
+    const value = str(raw.id) ?? name;
+    if (!best || name.length > best.length) {
+      best = { value, length: name.length };
+    }
+  }
+  if (!best) throw new CompanionError("no-dns-zone", "dns");
+  return best.value;
+}
+
+/** Sets a record with dns.upsert-record; answers what removing it takes. */
 export async function dnsCreate(
   ctx: PluginContext,
-  input: DnsRecordInput,
-): Promise<unknown> {
-  const dns = await service(ctx, "dns.records", "setRecord", "dns");
-  if (!("findZone" in dns)) throw missing("dns");
-  const zone = obj(await attempt("dns", () => dns.findZone(input.fqdn)));
-  const zoneId = str(first(zone, ["id", "zoneId"]));
-  if (!zoneId) throw new CompanionError("no-dns-zone", "dns");
-  const handle = await attempt("dns", () =>
-    dns.setRecord({
-      zone: zoneId,
-      name: input.fqdn,
-      type: input.type,
-      content: input.content,
-    }),
-  );
-  if (handle === undefined || handle === null) {
-    throw new CompanionError("companion-failed", "dns");
-  }
-  return handle;
+  input: { fqdn: string; type: DnsType; content: string },
+): Promise<DnsRecordKey> {
+  const key: DnsRecordKey = {
+    zone: await zoneFor(ctx, input.fqdn),
+    type: input.type,
+    name: input.fqdn,
+    content: input.content,
+  };
+  await invoke(ctx, "dns.upsert-record", "dns", { input: { ...key } });
+  return key;
 }
 
-/** Removes a record by the handle the DNS plugin gave when it was made. */
+/**
+ * Deletes a record made here with dns.delete-record. The action is
+ * destructive; the person asked for this removal.
+ */
 export async function dnsRemove(
   ctx: PluginContext,
-  handle: unknown,
+  key: DnsRecordKey,
 ): Promise<void> {
-  const dns = await service(ctx, "dns.records", "deleteRecord", "dns");
-  await attempt("dns", () => dns.deleteRecord(handle));
+  await invoke(
+    ctx,
+    "dns.delete-record",
+    "dns",
+    {
+      input: {
+        zone: key.zone,
+        type: key.type,
+        name: key.name,
+        content: key.content,
+      },
+    },
+    { confirmed: true },
+  );
 }
 
-// --- Uptime ------------------------------------------------------------
+// --- Uptime (uptime.monitors, uptime.pause, uptime.resume) --------------
 
 export type MonitorStatus = "up" | "down" | "paused" | "pending" | "unknown";
 
@@ -167,7 +176,7 @@ export interface Monitor {
 function monitorStatus(value: unknown): MonitorStatus {
   const text = String(value ?? "").toLowerCase();
   if (["up", "ok", "online", "healthy"].includes(text)) return "up";
-  if (["down", "offline", "failing", "unhealthy"].includes(text)) {
+  if (["down", "offline", "failing", "unhealthy", "fail"].includes(text)) {
     return "down";
   }
   if (["paused", "maintenance"].includes(text)) return "paused";
@@ -175,11 +184,10 @@ function monitorStatus(value: unknown): MonitorStatus {
   return "unknown";
 }
 
-/** Every monitor uptime.access.summary() reports. */
+/** Every monitor uptime.monitors lists. */
 export async function uptimeMonitors(ctx: PluginContext): Promise<Monitor[]> {
-  const uptime = await service(ctx, "uptime.access", "summary", "uptime");
-  const answer = await attempt("uptime", () => uptime.summary());
-  return listOf(answer, ["monitors", "items", "rows"]).flatMap((entry) => {
+  const data = await invoke(ctx, "uptime.monitors", "uptime", {});
+  return listOf(data, ["rows", "monitors", "items"]).flatMap((entry) => {
     const raw = obj(entry);
     const id = str(raw.id);
     const url = str(first(raw, ["url", "target", "address"]));
@@ -195,18 +203,18 @@ export async function uptimeMonitors(ctx: PluginContext): Promise<Monitor[]> {
   });
 }
 
-/** Pauses or resumes one monitor through the uptime.pause/resume actions. */
+/** Pauses or resumes one monitor; both actions take `monitor`. */
 export async function uptimeSetPaused(
   ctx: PluginContext,
-  monitorId: string,
+  monitor: string,
   paused: boolean,
 ): Promise<void> {
   await invoke(ctx, paused ? "uptime.pause" : "uptime.resume", "uptime", {
-    input: { monitorId },
+    input: { monitor },
   });
 }
 
-// --- Log Search --------------------------------------------------------
+// --- Log Search (log-search.search) ------------------------------------
 
 export interface LogLine {
   time: string | null;
@@ -218,15 +226,15 @@ export interface LogLine {
 const MAX_LINES = 200;
 const MAX_LINE = 2000;
 
-/** Runs log-search.search over Docker logs for one query. */
+/** log-search.search over Docker logs, with `query`, `source` and `limit`. */
 export async function logSearch(
   ctx: PluginContext,
   query: string,
 ): Promise<LogLine[]> {
   const data = await invoke(ctx, "log-search.search", "log-search", {
-    input: { source: "docker", query },
+    input: { source: "docker", query, limit: MAX_LINES },
   });
-  return listOf(data, ["results", "lines", "rows", "hits"])
+  return listOf(data, ["results", "rows", "lines", "hits"])
     .slice(0, MAX_LINES)
     .flatMap((entry) => {
       const raw = obj(entry);
@@ -243,78 +251,91 @@ export async function logSearch(
     });
 }
 
-// --- Security Center ---------------------------------------------------
+// --- Security Center (security-center.status, .critical-vulns) ----------
 
 export interface SecuritySummary {
   score: number | null;
   critical: number | null;
-  checkedAt: string | null;
 }
 
-/** security-center.access.check(hostId): the score and critical findings. */
+/** A host status read's number: its `value`, or a named field. */
+function valueOf(data: unknown, keys: string[]): number | null {
+  const raw = obj(data);
+  return num(raw.value) ?? num(first(raw, keys));
+}
+
+/** The Linked host's security score and critical vulnerability count. */
 export async function securityCheck(
   ctx: PluginContext,
   hostId: number,
 ): Promise<SecuritySummary> {
-  const security = await service(
+  const status = await invoke(
     ctx,
-    "security-center.access",
-    "check",
+    "security-center.status",
     "security-center",
+    {
+      hostId,
+    },
   );
-  const raw = obj(
-    await attempt("security-center", () => security.check(hostId)),
+  const critical = await invoke(
+    ctx,
+    "security-center.critical-vulns",
+    "security-center",
+    { hostId },
   );
   return {
-    score: num(raw.score),
-    critical: num(
-      first(raw, ["critical", "criticalVulnerabilities"]) ??
-        obj(raw.vulnerabilities).critical,
-    ),
-    checkedAt: str(first(raw, ["checkedAt", "scannedAt", "at"])),
+    score: valueOf(status, ["score"]),
+    critical:
+      valueOf(critical, ["critical", "count"]) ??
+      (Array.isArray(obj(critical).rows)
+        ? (obj(critical).rows as unknown[]).length
+        : null),
   };
 }
 
-// --- Databases ---------------------------------------------------------
+// --- Databases (databases.list-connections) ----------------------------
 
 /** A saved login, without its password or any other secret. */
 export interface SavedLogin {
   id: string | number;
-  hostId: number | null;
   name: string | null;
   engine: string | null;
   database: string | null;
   username: string | null;
 }
 
-/** The saved logins databases.logins.list() reports for one host. */
+/** The saved logins databases.list-connections lists for one host. */
 export async function databaseLogins(
   ctx: PluginContext,
   hostId: number,
 ): Promise<SavedLogin[]> {
-  const logins = await service(ctx, "databases.logins", "list", "databases");
-  const answer = await attempt("databases", () => logins.list({ hostId }));
-  return listOf(answer, ["logins", "items", "rows"]).flatMap((entry) => {
-    const raw = obj(entry);
-    const id =
-      typeof raw.id === "number" && Number.isFinite(raw.id)
-        ? raw.id
-        : str(raw.id);
-    if (id === null) return [];
-    const login: SavedLogin = {
-      id,
-      hostId: num(raw.hostId),
-      name: str(raw.name),
-      engine: str(first(raw, ["engine", "type"])),
-      database: str(first(raw, ["database", "databaseName"])),
-      username: str(first(raw, ["username", "user"])),
-    };
-    // Only this host's logins, whatever the plugin answered.
-    return login.hostId === hostId ? [login] : [];
+  const data = await invoke(ctx, "databases.list-connections", "databases", {
+    hostId,
   });
+  return listOf(data, ["rows", "logins", "connections", "items"]).flatMap(
+    (entry) => {
+      const raw = obj(entry);
+      const id =
+        typeof raw.id === "number" && Number.isFinite(raw.id)
+          ? raw.id
+          : str(raw.id);
+      // A row for another host is not this host's, whatever was answered.
+      const other = num(raw.hostId);
+      if (id === null || (other !== null && other !== hostId)) return [];
+      return [
+        {
+          id,
+          name: str(raw.name),
+          engine: str(first(raw, ["engine", "type"])),
+          database: str(first(raw, ["database", "databaseName"])),
+          username: str(first(raw, ["username", "user"])),
+        },
+      ];
+    },
+  );
 }
 
-// --- Backups -----------------------------------------------------------
+// --- Backups (backups.failed) ------------------------------------------
 
 export interface FailedBackup {
   id: string;
@@ -322,13 +343,13 @@ export interface FailedBackup {
   failedAt: string | null;
 }
 
-/** Failed Termix backup jobs for one host, from the backups.failed action. */
+/** Failed Termix backup jobs for one host, from backups.failed. */
 export async function backupsFailed(
   ctx: PluginContext,
   hostId: number,
 ): Promise<FailedBackup[]> {
   const data = await invoke(ctx, "backups.failed", "backups", { hostId });
-  return listOf(data, ["jobs", "failed", "rows", "items"]).flatMap((entry) => {
+  return listOf(data, ["rows", "jobs", "failed", "items"]).flatMap((entry) => {
     const raw = obj(entry);
     const id = str(raw.id);
     const other = num(raw.hostId);

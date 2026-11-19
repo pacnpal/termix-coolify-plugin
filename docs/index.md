@@ -82,7 +82,8 @@ and `coolify.unlink`.
 
 ## Other Termix plugins
 
-When one of these Termix plugins is installed and running, its Coolify feature appears. When it isn't, that
+Built for DNS 1.1, Uptime 1.0.1, Log Search 1.1, Security Center 1.1, Host Metrics 1.4.1, Databases 1.3 and
+Backups 1.1. When one of these Termix plugins is installed and running, its Coolify feature appears. When it isn't, that
 feature hides and nothing else changes. The plugin checks every minute.
 
 | Plugin          | What appears                                                                                 |
@@ -96,7 +97,8 @@ feature hides and nothing else changes. The plugin checks every minute.
 | Backups         | Failed Termix backup jobs on a Linked host                                                   |
 
 - **DNS records.** The name must be one of the resource's domains. Leave **Points to** empty to use the
-  server's address. Records made here are remembered, listed with the resource and can be removed again.
+  Only records made here can be removed from here, after you confirm. The DNS plugin needs a zone for the
+  name, and your own DNS permissions apply.
   Only records made here can be removed from here.
 - **Uptime.** Uptime can't create HTTP monitors for another plugin, so **Create monitor in Uptime** opens the
   Uptime tab. A resource's monitors can be paused and resumed with the `coolify.companion` action.

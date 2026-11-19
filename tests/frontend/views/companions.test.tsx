@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import {
   renderWithApp,
@@ -112,7 +113,6 @@ function stubApi(running: typeof NONE_RUNNING) {
       hostId: 7,
       score: 82,
       critical: 2,
-      checkedAt: null,
     },
     "/connections/1/servers/srv-web1/host-metrics": {
       hostId: 7,
@@ -311,7 +311,19 @@ describe("companion UI", () => {
       ),
     );
     const removes = await screen.findAllByText(locales.companions.dns.remove);
+    // Removing deletes the record in DNS, so it asks first.
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     fireEvent.click(removes[0]);
+    const dialog = await screen
+      .findByRole("alertdialog", {}, { timeout: 200 })
+      .catch(() => null);
+    if (dialog) {
+      fireEvent.click(
+        within(dialog).getByRole("button", {
+          name: locales.companions.dns.removeConfirm.confirm,
+        }),
+      );
+    }
     await waitFor(() =>
       expect(api.delete).toHaveBeenCalledWith(
         "/connections/1/resources/app-web-uuid/dns/4",

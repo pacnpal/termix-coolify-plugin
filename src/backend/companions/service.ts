@@ -17,6 +17,7 @@ import {
   securityCheck,
   uptimeMonitors,
   uptimeSetPaused,
+  type DnsRecordKey,
   type DnsType,
   type FailedBackup,
   type LogLine,
@@ -49,7 +50,7 @@ const IPV4 =
 const IPV6 = /^(?=.*:)[0-9a-f:.]{2,45}$/i;
 const DNS_TYPES: ReadonlySet<string> = new Set(["A", "AAAA", "CNAME"]);
 
-/** A DNS record made here, as routes return it. Never holds the DNS plugin's handle. */
+/** A DNS record made here, as routes return it. */
 export interface DnsRecordView {
   id: number;
   fqdn: string;
@@ -65,13 +66,6 @@ interface DnsRow {
   handle: unknown;
   fqdn: string;
   createdAt: string | Date;
-}
-
-/** What the handle column holds: the DNS plugin's handle, and what was asked for. */
-interface StoredHandle {
-  record: unknown;
-  type: DnsType;
-  content: string;
 }
 
 export interface DnsCreateBody {
@@ -120,7 +114,11 @@ function hostnameOfUrl(text: string): string | null {
   }
 }
 
-function parseHandle(value: unknown): StoredHandle | null {
+/**
+ * The handle column: the zone, type, name and content dns.delete-record needs
+ * to remove the record. Null when any is missing, so nothing is guessed.
+ */
+function parseHandle(value: unknown): DnsRecordKey | null {
   let raw = value;
   if (typeof raw === "string") {
     try {
@@ -130,13 +128,17 @@ function parseHandle(value: unknown): StoredHandle | null {
     }
   }
   if (!raw || typeof raw !== "object") return null;
-  const stored = raw as Partial<StoredHandle>;
-  if (!("record" in stored)) return null;
-  return {
-    record: stored.record,
-    type: (DNS_TYPES.has(String(stored.type)) ? stored.type : "A") as DnsType,
-    content: typeof stored.content === "string" ? stored.content : "",
-  };
+  const stored = raw as Partial<Record<keyof DnsRecordKey, unknown>>;
+  const { zone, type, name, content } = stored;
+  if (
+    typeof zone !== "string" ||
+    typeof name !== "string" ||
+    typeof content !== "string" ||
+    !DNS_TYPES.has(String(type))
+  ) {
+    return null;
+  }
+  return { zone, type: type as DnsType, name, content };
 }
 
 function toDnsView(row: DnsRow): DnsRecordView {
@@ -177,16 +179,6 @@ function loginMatches(login: SavedLogin, resource: ResourceDto): boolean {
   return names.some(
     (name) => name === resource.name || name.includes(resource.uuid),
   );
-}
-
-function withoutHost(login: SavedLogin) {
-  return {
-    id: login.id,
-    name: login.name,
-    engine: login.engine,
-    database: login.database,
-    username: login.username,
-  };
 }
 
 /**
@@ -335,8 +327,8 @@ export function createCompanions(
     },
 
     /**
-     * Creates a record for one of the resource's domains through the DNS
-     * plugin and stores its handle, so it can be removed later. Without
+     * Creates a record for one of the resource's domains with dns.upsert-record
+     * and stores its zone, type, name and content, so it can be removed later. Without
      * content, points the name at the resource's server address.
      */
     async dnsCreate(
@@ -373,14 +365,14 @@ export function createCompanions(
         throw invalid("content does not fit the record type");
       }
 
-      const record = await dnsCreate(ctx, { fqdn, type, content });
-      const stored: StoredHandle = { record, type, content };
+      const key = await dnsCreate(ctx, { fqdn, type, content });
+
       const db = await dbClient(ctx);
       await db.insert(t.dnsRecords).values({
         connectionId,
         resourceUuid: resource.uuid,
         // Stored as JSON text, like the other json columns.
-        handle: JSON.stringify(stored),
+        handle: JSON.stringify(key),
         fqdn,
       });
       await ctx.db.persist();
@@ -414,7 +406,7 @@ export function createCompanions(
       const row = await storedRecord(connectionId, uuid, recordId);
       const handle = parseHandle(row.handle);
       if (!handle) throw new CompanionError("companion-failed", "dns");
-      await dnsRemove(ctx, handle.record);
+      await dnsRemove(ctx, handle);
       await (
         await dbClient(ctx)
       )
@@ -520,7 +512,7 @@ export function createCompanions(
     ): Promise<{
       hostId: number;
       saved: boolean;
-      logins: ReturnType<typeof withoutHost>[];
+      logins: SavedLogin[];
     }> {
       await need(connectionId, "view");
       await requireCompanion(ctx, "databases");
@@ -535,7 +527,7 @@ export function createCompanions(
       return {
         hostId,
         saved: logins.length > 0,
-        logins: logins.map(withoutHost),
+        logins,
       };
     },
 

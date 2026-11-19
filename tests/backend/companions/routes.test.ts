@@ -134,18 +134,23 @@ describe("companion detection", () => {
     expect(res.body.plugin).toBe("security-center");
   });
 
-  it("a running companion without its service counts as missing", async () => {
-    const { harness: h, connectionId } = await start();
-    h.mock.services.delete("security-center.access");
+  it("a companion action that fails answers companion-failed naming the plugin", async () => {
+    const { harness: h, connectionId, companions } = await start();
+    companions.actions["security-center.status"] = () => {
+      throw new Error("scan backend down");
+    };
     const res = await h.request(
       "GET",
       `/connections/${connectionId}/servers/srv-web1/security`,
     );
-    expect(res.status).toBe(404);
-    expect(res.body).toMatchObject({
-      cause: "companion-missing",
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({
+      error: expect.any(String),
+      cause: "companion-failed",
       plugin: "security-center",
     });
+    // The companion's own message never reaches the answer.
+    expect(JSON.stringify(res.body)).not.toContain("scan backend down");
   });
 });
 
@@ -168,13 +173,14 @@ describe("DNS records", () => {
       createdAt: expect.any(String),
     });
     expect(companions.calls.map((c) => c.name)).toEqual([
-      "dns.findZone",
-      "dns.setRecord",
+      "dns.list-zones",
+      "dns.upsert-record",
     ]);
+    // dns.upsert-record's documented inputs: zone, type, name, content, ttl.
     expect(companions.calls[1].args[0]).toEqual({
       zone: "zone-1",
-      name: "a.example.test",
       type: "A",
+      name: "a.example.test",
       content: "203.0.113.11",
     });
     const rows = h.db.sqlite
@@ -186,9 +192,11 @@ describe("DNS records", () => {
       resource_uuid: "app-web-uuid",
       fqdn: "a.example.test",
     });
+    // What dns.delete-record takes: zone, type, name and content.
     expect(JSON.parse(String(rows[0].handle))).toEqual({
-      record: { zoneId: "zone-1", recordId: "rec-1" },
+      zone: "zone-1",
       type: "A",
+      name: "a.example.test",
       content: "203.0.113.11",
     });
 
@@ -207,18 +215,20 @@ describe("DNS records", () => {
     expect(elsewhere.status).toBe(404);
     expect(elsewhere.body.cause).toBe("dns-record-not-found");
     expect(companions.calls.map((c) => c.name)).not.toContain(
-      "dns.deleteRecord",
+      "dns.delete-record",
     );
 
     const removed = await h.request("DELETE", `${base}/${created.body.id}`);
     expect(removed.status).toBe(200);
     expect(removed.body).toEqual({ id: created.body.id, removed: true });
     const deleteCall = companions.calls.find(
-      (c) => c.name === "dns.deleteRecord",
+      (c) => c.name === "dns.delete-record",
     );
     expect(deleteCall?.args[0]).toEqual({
-      zoneId: "zone-1",
-      recordId: "rec-1",
+      zone: "zone-1",
+      type: "A",
+      name: "a.example.test",
+      content: "203.0.113.11",
     });
     expect(
       h.db.sqlite.prepare("SELECT * FROM p_coolify_dns_records").all(),
@@ -294,7 +304,11 @@ describe("Uptime and Log Search", () => {
     );
     expect(res.status).toBe(200);
     const call = companions.calls.find((c) => c.name === "log-search.search");
-    expect(call?.args[0]).toEqual({ source: "docker", query: "app-web-uuid" });
+    expect(call?.args[0]).toEqual({
+      source: "docker",
+      query: "app-web-uuid",
+      limit: 200,
+    });
     expect(res.body).toEqual({
       source: "docker",
       query: "app-web-uuid",
@@ -339,11 +353,20 @@ describe("Linked host companions", () => {
       hostId: HOST_ID,
       score: 82,
       critical: 2,
-      checkedAt: "2026-11-19T10:00:00.000Z",
     });
-    expect(
-      companions.calls.find((x) => x.name === "security.check")?.args,
-    ).toEqual([HOST_ID]);
+    // Two host reads from the reference, each run on the Linked host.
+    for (const name of [
+      "security-center.status",
+      "security-center.critical-vulns",
+    ]) {
+      expect(companions.calls.find((x) => x.name === name)?.args[1]).toEqual({
+        hostId: HOST_ID,
+      });
+    }
+    const dbCall = companions.calls.find(
+      (x) => x.name === "databases.list-connections",
+    );
+    expect(dbCall).toBeUndefined();
 
     const backups = await h.request("GET", `${c}/backups-failed`);
     expect(backups.status).toBe(200);

@@ -116,12 +116,17 @@ aren't obvious from the code, and anything that has bitten you before.
   `kind` per route). Every service method checks, in order: the Termix permission (`ctx.rbac.has`), the
   connection grant rank (view < operate < configure < owner), that the companion runs, then for Linked hosts
   `ctx.hosts.checkAccess(hostId, "view")`, failing closed. A missing companion is a `CompanionError`
-  (`companion-missing`, 404, with `plugin`), which `sendError` answers. Services are read with `"method" in
-handle`, since a missing provider is an empty handle. Log search is `operate` (it shows log output); DNS is
-  `configure`. The companion service and action shapes come from the design, not from the companions' code,
-  which wasn't readable when this was written: the adapters read their answers loosely and pick fields by
-  name. The `dns_records.handle` column holds JSON text `{ record, type, content }`, where `record` is the DNS
-  plugin's own handle; removal looks the row up by id, connection and resource, so only a record made here
+  (`companion-missing`, 404, with `plugin`), which `sendError` answers. Log search is `operate` (it shows
+  log output); DNS is `configure`. Every companion call is a documented action from the companions' published
+  references (docs.termix.site/plugins/<id>/reference), by its id and input names, through
+  `ctx.operations.invoke`; `operations.invokes` lists exactly those ids and `optionalDependencies` pins each
+  companion to `~` the version its reference documents. The references list no service methods, so no
+  service is called and there is no `requires`. They don't describe outputs either: answers are read as
+  `{ rows }` lists or `{ value }` host reads, fields picked by name, and a failed run is `companion-failed`
+  with a fixed message. DNS: `dns.list-zones` (longest matching zone, its `id` or else its `name`),
+  `dns.upsert-record` and `dns.delete-record` take `zone`, `type`, `name`, `content`; the
+  `dns_records.handle` column holds exactly those four as JSON text, and removal looks the row up by id,
+  connection and resource, so only a record made here
   can be removed. `setMonitorsPaused` is the hook for pausing Uptime during deploys (ticket #10 decides
   when). Files, Tunnels and Reverse Proxy are ticket #19. Frontend: `src/frontend/companions.ts`
   (`useCompanions`), `views/CompanionActions.tsx` (for the resource view to mount) and

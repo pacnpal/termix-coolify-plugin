@@ -151,7 +151,6 @@ export interface SecurityAnswer {
   hostId: number;
   score: number | null;
   critical: number | null;
-  checkedAt: string | null;
 }
 
 export interface BackupsFailedAnswer {

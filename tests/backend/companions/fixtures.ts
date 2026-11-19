@@ -105,95 +105,57 @@ export function companionCoolify() {
 export type CompanionCall = { name: string; args: unknown[] };
 
 /**
- * Fakes of the companion plugins' services and actions. Every call is
- * recorded, so tests can check what reached a companion.
+ * Fakes of the companion plugins' actions, by the ids and inputs their
+ * published references give (docs.termix.site/plugins/<id>/reference). Every
+ * call is recorded as `{ name: <action id>, args: [input, { hostId }] }`, so
+ * tests can check what reached a companion. The references don't describe
+ * outputs; these answer in the operations convention: `{ rows }` for lists and
+ * `{ value, status, label }` for host status reads.
  */
 export function fakeCompanions() {
   const calls: CompanionCall[] = [];
-  let next = 1;
-  const record = (name: string, args: unknown[]) => calls.push({ name, args });
-  const services = {
-    "dns.records": {
-      findZone: async (fqdn: string) => {
-        record("dns.findZone", [fqdn]);
-        return { id: "zone-1", name: "example.test" };
-      },
-      setRecord: async (input: unknown) => {
-        record("dns.setRecord", [input]);
-        return { zoneId: "zone-1", recordId: `rec-${next++}` };
-      },
-      deleteRecord: async (handle: unknown) => {
-        record("dns.deleteRecord", [handle]);
-        return true;
-      },
-    },
-    "uptime.access": {
-      summary: async () => {
-        record("uptime.summary", []);
-        return {
-          monitors: [
-            {
-              id: "mon-a",
-              name: "web",
-              url: "https://A.example.test/",
-              status: "up",
-            },
-            {
-              id: "mon-b",
-              name: "web app",
-              url: "https://b.example.test/app/health",
-              status: "down",
-            },
-            {
-              id: "mon-other",
-              name: "elsewhere",
-              url: "https://other.example.test",
-              status: "up",
-            },
-          ],
-        };
-      },
-    },
-    "security-center.access": {
-      check: async (hostId: number) => {
-        record("security.check", [hostId]);
-        return {
-          score: 82,
-          vulnerabilities: { critical: 2, high: 5 },
-          checkedAt: "2026-11-19T10:00:00.000Z",
-        };
-      },
-    },
-    "databases.logins": {
-      list: async (input?: unknown) => {
-        record("databases.list", input === undefined ? [] : [input]);
-        return [
-          {
-            id: 1,
-            hostId: HOST_ID,
-            name: "main-db",
-            engine: "postgresql",
-            database: "postgres",
-            username: "postgres",
-            password: DB_PASSWORD,
-          },
-          {
-            id: 2,
-            hostId: 3,
-            name: "main-db",
-            engine: "postgresql",
-            database: "postgres",
-            username: "postgres",
-            password: DB_PASSWORD,
-          },
-        ];
-      },
-    },
-  };
   const actions: Record<
     string,
     (input: Record<string, unknown>, hostId?: number) => unknown
   > = {
+    "dns.list-zones": () => ({
+      summary: "2 zones",
+      data: {
+        rows: [
+          { id: "zone-1", name: "example.test" },
+          { id: "zone-2", name: "elsewhere.test" },
+        ],
+      },
+    }),
+    "dns.upsert-record": () => ({ summary: "record set", changed: true }),
+    "dns.delete-record": () => ({ summary: "record deleted", changed: true }),
+    "uptime.monitors": () => ({
+      summary: "3 monitors",
+      data: {
+        rows: [
+          {
+            id: "mon-a",
+            name: "web",
+            url: "https://A.example.test/",
+            status: "up",
+          },
+          {
+            id: "mon-b",
+            name: "web app",
+            url: "https://b.example.test/app/health",
+            status: "down",
+          },
+          {
+            id: "mon-other",
+            name: "elsewhere",
+            url: "https://other.example.test",
+            status: "up",
+          },
+        ],
+      },
+    }),
+    "uptime.pause": () => ({ summary: "paused", changed: true }),
+    "uptime.resume": () => ({ summary: "resumed", changed: true }),
     "log-search.search": (input) => ({
       summary: "2 lines",
       data: {
@@ -222,10 +184,31 @@ export function fakeCompanions() {
         ],
       },
     }),
-    "uptime.pause": () => ({ summary: "paused", changed: true }),
-    "uptime.resume": () => ({ summary: "resumed", changed: true }),
+    "databases.list-connections": () => ({
+      summary: "1 login",
+      data: {
+        rows: [
+          {
+            id: 1,
+            name: "main-db",
+            engine: "postgresql",
+            database: "postgres",
+            username: "postgres",
+            password: DB_PASSWORD,
+          },
+        ],
+      },
+    }),
+    "security-center.status": () => ({
+      summary: "Score 82",
+      data: { value: 82, status: "warn", label: "Score 82" },
+    }),
+    "security-center.critical-vulns": () => ({
+      summary: "2 critical",
+      data: { value: 2, status: "fail", label: "2 critical" },
+    }),
   };
-  return { calls, services, actions };
+  return { calls, actions };
 }
 
 /**
@@ -255,7 +238,6 @@ export async function startCompanions(
       options.present ?? COMPANION_IDS,
       options.state,
     ),
-    services: companions.services,
     hosts: [
       {
         id: HOST_ID,
@@ -270,14 +252,15 @@ export async function startCompanions(
       } as never,
     ],
   });
-  for (const [id, action] of Object.entries(companions.actions)) {
+  for (const id of Object.keys(companions.actions)) {
     harness.mock.ctx.operations.register(id, {
       run: async (input, context) => {
         companions.calls.push({
           name: id,
           args: [input, { hostId: context.hostId }],
         });
-        return action(input, context.hostId) as never;
+        // Looked up per call, so a test can swap one action's answer.
+        return companions.actions[id](input, context.hostId) as never;
       },
     });
   }

@@ -130,7 +130,7 @@ describe("companion operations", () => {
     });
     expect(
       companions.calls.find((c) => c.name === "log-search.search")?.args[0],
-    ).toEqual({ source: "docker", query: "app-web-uuid" });
+    ).toEqual({ source: "docker", query: "app-web-uuid", limit: 200 });
     expect((outcome.data as { source: string }).source).toBe("docker");
   });
 
@@ -157,7 +157,7 @@ describe("companion operations", () => {
     });
     expect(removed.data).toEqual({ id: recordId, removed: true });
     expect(
-      companions.calls.filter((c) => c.name === "dns.deleteRecord"),
+      companions.calls.filter((c) => c.name === "dns.delete-record"),
     ).toHaveLength(1);
   });
 
@@ -176,13 +176,14 @@ describe("companion operations", () => {
     });
     const invoked = companions.calls
       .filter((c) => c.name.startsWith("uptime."))
-      .filter((c) => c.name !== "uptime.summary")
+      .filter((c) => c.name !== "uptime.monitors")
       .map((c) => [c.name, c.args[0]]);
     expect(invoked).toEqual([
-      ["uptime.pause", { monitorId: "mon-a" }],
-      ["uptime.pause", { monitorId: "mon-b" }],
-      ["uptime.resume", { monitorId: "mon-a" }],
-      ["uptime.resume", { monitorId: "mon-b" }],
+      // The reference's input for both is `monitor`.
+      ["uptime.pause", { monitor: "mon-a" }],
+      ["uptime.pause", { monitor: "mon-b" }],
+      ["uptime.resume", { monitor: "mon-a" }],
+      ["uptime.resume", { monitor: "mon-b" }],
     ]);
   });
 

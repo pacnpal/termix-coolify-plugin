@@ -12,6 +12,7 @@ import {
   SelectField,
   StatusBadge,
   TextField,
+  useConfirm,
   type StatusTone,
 } from "@termix-ssh/plugin-sdk/ui";
 import {
@@ -72,6 +73,7 @@ function DnsRecords({
   const { t } = useTranslation();
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
+  const confirm = useConfirm();
   const domains = domainsOf(resource.fqdns);
   const [records, setRecords] = useState<DnsRecord[]>([]);
   const [open, setOpen] = useState(false);
@@ -105,7 +107,15 @@ function DnsRecords({
     }
   }
 
-  async function remove(id: number) {
+  async function remove(record: DnsRecord) {
+    const ok = await confirm({
+      title: t("companions.dns.removeConfirm.title", { fqdn: record.fqdn }),
+      description: t("companions.dns.removeConfirm.description"),
+      confirmLabel: t("companions.dns.removeConfirm.confirm"),
+      destructive: true,
+    });
+    if (!ok) return;
+    const id = record.id;
     setError(null);
     try {
       await api.removeDnsRecord(connectionId, resource.uuid, id);
@@ -133,7 +143,7 @@ function DnsRecords({
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => void remove(r.id)}
+                  onClick={() => void remove(r)}
                 >
                   <Trash2 className="size-3.5" />
                   {t("companions.dns.remove")}

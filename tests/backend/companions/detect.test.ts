@@ -66,46 +66,50 @@ describe("companions(ctx)", () => {
 describe("manifest", () => {
   it("manifest operations.invokes has only exact ids", () => {
     const invokes = manifest.contributes?.operations?.invokes ?? [];
-    expect([...invokes].sort()).toEqual([
-      "backups.failed",
-      "log-search.search",
-      "uptime.pause",
-      "uptime.resume",
-    ]);
+    // Every id the adapters invoke, spelled as the companions' references
+    // spell them, and nothing else.
+    expect([...invokes].sort()).toEqual(
+      [
+        "backups.failed",
+        "databases.list-connections",
+        "dns.delete-record",
+        "dns.list-zones",
+        "dns.upsert-record",
+        "log-search.search",
+        "security-center.critical-vulns",
+        "security-center.status",
+        "uptime.monitors",
+        "uptime.pause",
+        "uptime.resume",
+      ].sort(),
+    );
     for (const id of invokes) {
       expect(id).toMatch(/^[a-z0-9-]+\.[a-z0-9-]+$/);
       expect(id).not.toContain("*");
     }
   });
 
-  it("requires the companions' services as optional, and pins their plugin ranges", () => {
-    const requires = (manifest.requires ?? []) as {
-      service: string;
-      versionRange: string;
-      optional?: boolean;
-    }[];
-    const services = Object.fromEntries(requires.map((r) => [r.service, r]));
-    for (const service of [
-      "dns.records",
-      "uptime.access",
-      "security-center.access",
-      "databases.logins",
-    ]) {
-      expect(services[service], service).toBeDefined();
-      expect(services[service].optional, service).toBe(true);
-    }
+  it("uses no other plugin's service and pins each companion to its referenced version", () => {
+    // Every companion call is a documented action; the references list no
+    // service methods to call.
+    expect(manifest.requires ?? []).toEqual([]);
     const deps = manifest.optionalDependencies ?? {};
-    for (const plugin of [
-      "dns",
-      "uptime",
-      "log-search",
-      "security-center",
-      "host-metrics",
-      "databases",
-      "backups",
-    ]) {
-      // A tilde range: patch releases of the tested version only.
-      expect(deps[plugin], plugin).toMatch(/^~\d+\.\d+\.\d+$/);
-    }
+    expect({
+      dns: deps.dns,
+      uptime: deps.uptime,
+      "log-search": deps["log-search"],
+      "security-center": deps["security-center"],
+      "host-metrics": deps["host-metrics"],
+      databases: deps.databases,
+      backups: deps.backups,
+    }).toEqual({
+      dns: "~1.1.0",
+      uptime: "~1.0.1",
+      "log-search": "~1.1.0",
+      "security-center": "~1.1.0",
+      "host-metrics": "~1.4.1",
+      databases: "~1.3.0",
+      backups: "~1.1.0",
+    });
   });
 });

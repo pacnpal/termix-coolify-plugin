@@ -52,41 +52,19 @@
     "homepage": "^1.0.0",
     "file-manager": "^1.0.0",
     "tunnels": "^1.0.0",
-    "dns": "~1.0.0",
+    "dns": "~1.1.0",
     "reverse-proxy": "^1.0.0",
-    "security-center": "~1.0.0",
-    "uptime": "~1.0.0",
-    "log-search": "~1.0.0",
+    "security-center": "~1.1.0",
+    "uptime": "~1.0.1",
+    "log-search": "~1.1.0",
     "package-manager": "^1.0.0",
-    "host-metrics": "~1.0.0",
-    "databases": "~1.0.0",
-    "backups": "~1.0.0",
+    "host-metrics": "~1.4.1",
+    "databases": "~1.3.0",
+    "backups": "~1.1.0",
     "automations": "^1.0.0",
     "operations-center": "^1.0.0",
     "alerts": "^1.0.0"
   },
-  "requires": [
-    {
-      "service": "dns.records",
-      "versionRange": "^1.0.0",
-      "optional": true
-    },
-    {
-      "service": "uptime.access",
-      "versionRange": "^1.0.0",
-      "optional": true
-    },
-    {
-      "service": "security-center.access",
-      "versionRange": "^1.0.0",
-      "optional": true
-    },
-    {
-      "service": "databases.logins",
-      "versionRange": "^1.0.0",
-      "optional": true
-    }
-  ],
   "sandbox": {
     "schedules": [],
     "events": ["host.deleted", "host.updated"]
@@ -643,9 +621,16 @@
         }
       ],
       "invokes": [
-        "log-search.search",
+        "dns.list-zones",
+        "dns.upsert-record",
+        "dns.delete-record",
+        "uptime.monitors",
         "uptime.pause",
         "uptime.resume",
+        "log-search.search",
+        "security-center.status",
+        "security-center.critical-vulns",
+        "databases.list-connections",
         "backups.failed"
       ]
     }
