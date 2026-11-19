@@ -174,6 +174,60 @@ export function normalizeBaseUrl(raw: string): string | null {
   return `${url.protocol}//${url.host.toLowerCase()}${path}`;
 }
 
+/**
+ * Where a URL's host is, from its name alone (the plugin can't resolve it):
+ * loopback, a private network (private and link-local ranges, a bare name or
+ * a local suffix), or anywhere else.
+ */
+function hostReach(url: URL): "loopback" | "private" | "public" {
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host.endsWith(".localhost")) return "loopback";
+  const v4 = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(host);
+  if (v4) {
+    const a = Number(v4[1]);
+    const b = Number(v4[2]);
+    if (a === 127) return "loopback";
+    if (
+      a === 10 ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 169 && b === 254) ||
+      (a === 100 && b >= 64 && b <= 127)
+    ) {
+      return "private";
+    }
+    return "public";
+  }
+  if (host.includes(":")) {
+    if (host === "::1") return "loopback";
+    return /^(f[cd]|fe[89ab])/.test(host) ? "private" : "public";
+  }
+  if (
+    !host.includes(".") ||
+    /\.(local|lan|internal|localdomain|home\.arpa)$/.test(host)
+  ) {
+    return "private";
+  }
+  return "public";
+}
+
+/**
+ * Plain http would send the token and Cloudflare Access secret in the clear,
+ * so it is allowed only to loopback, or to a private-network host when the
+ * connection allows private hosts. Throws before anything is sent.
+ */
+export function checkTransport(baseUrl: string, allowPrivate: boolean): void {
+  const url = new URL(baseUrl);
+  if (url.protocol === "https:") return;
+  const reach = hostReach(url);
+  if (reach === "loopback" || (reach === "private" && allowPrivate)) return;
+  throw invalid(
+    reach === "private"
+      ? 'baseUrl must use https; plain http to a local network address needs "On my local network"'
+      : "baseUrl must use https; plain http is only for localhost or a local network address",
+  );
+}
+
 /** Groups connections to the same Coolify team; null when the team is unknown. */
 export function instanceKeyOf(
   baseUrl: string,
@@ -411,7 +465,9 @@ export function createConnections(
     };
   }
 
+  /** Every Coolify client is built here, after the transport check. */
   function clientFor(target: CoolifyTarget) {
+    checkTransport(target.baseUrl, target.allowPrivate);
     const http = createCoolifyHttp(ctx.fetch, target);
     return { http, api: createCoolifyApi(http) };
   }

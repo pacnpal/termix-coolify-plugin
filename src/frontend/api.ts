@@ -45,7 +45,12 @@ export interface ConnectionInput {
   caCert?: string | null;
 }
 
-export type ConnectionPatch = Partial<ConnectionInput> & {
+/** null for both Cloudflare Access values clears them, as the backend allows. */
+export type ConnectionPatch = Partial<
+  Omit<ConnectionInput, "cfAccessId" | "cfAccessSecret">
+> & {
+  cfAccessId?: string | null;
+  cfAccessSecret?: string | null;
   autoSync?: boolean;
 };
 

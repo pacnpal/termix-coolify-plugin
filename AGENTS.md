@@ -90,6 +90,11 @@ aren't obvious from the code, and anything that has bitten you before.
   slow probe can't overwrite a newer change; an update that lost that race answers 409 `conflict`. Update
   reads a stored secret only when the change keeps it and needs a probe; an unreadable one is refused
   (400), and a replacement token or Cloudflare Access value repairs it.
+- Transport: `checkTransport` runs in `clientFor`, before any client exists. https is required; plain http
+  only for loopback, or a private-network host (by name: private ranges, bare names, local suffixes) with
+  `allowPrivate`. In `http.ts`, an HTML answer to a 4xx is `not-coolify` (never a token ability), and every
+  body read goes through `readText`, so a failed read is a typed `CoolifyError`.
+- Service logs are read per Part; `get-service-logs-by-uuid` needs a `sub_service_name` and is skipped.
 - Operation tests: the mock ctx records no run history, so `tests/backend/helpers/run-history.ts` applies
   the SDK's own `parseOperationInput` and `redactFields` around `ctx.operations.run`, as core does.
 - Coolify API: `vendor/coolify/` holds the v4.7.5, `main` and `next` specs as fetched (see its README).

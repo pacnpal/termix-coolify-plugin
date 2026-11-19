@@ -166,7 +166,7 @@ export function registerConnectionRoutes(
    *       400:
    *         description: Missing or invalid fields
    *       403:
-   *         description: Missing coolify.configure
+   *         description: Missing coolify.view or coolify.configure
    *       409:
    *         description: Coolify is older than 4.4
    */
@@ -267,7 +267,7 @@ export function registerConnectionRoutes(
    *           Invalid fields, or the change needs a stored token or Cloudflare
    *           Access value that can't be read and wasn't sent again
    *       403:
-   *         description: Missing coolify.configure, or not the owner
+   *         description: Missing coolify.view or coolify.configure, or not the owner
    *       404:
    *         description: No such connection, or another user's
    *       409:
@@ -310,7 +310,7 @@ export function registerConnectionRoutes(
    *       200:
    *         description: The removed connection
    *       403:
-   *         description: Missing coolify.configure, or not the owner
+   *         description: Missing coolify.view or coolify.configure, or not the owner
    *       404:
    *         description: No such connection, or another user's
    */

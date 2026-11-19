@@ -93,7 +93,13 @@ function logsOp(kind: ResourceKind, uuid: string, parentUuid?: string) {
     case "database":
       return op("get-database-logs-by-uuid", { uuid });
     case "service":
-      return op("get-service-logs-by-uuid", { uuid });
+      // Coolify needs a sub_service_name here and answers 400 without one;
+      // the per-Part endpoints below take the Part's uuid instead.
+      throw new CoolifyError(
+        "validation",
+        0,
+        "A service's logs are read through one of its parts",
+      );
     case "service-application":
       return op("get-service-application-logs-by-service-and-app-uuid", {
         uuid: parentUuid,
@@ -262,7 +268,7 @@ export function createCoolifyApi(http: CoolifyHttp) {
         op("list-deployments-by-app-uuid", { uuid: appUuid }),
         { query: { skip: opts.skip, take: opts.take } },
       );
-      return rows(body, "deployments").map(toDeployment);
+      return rows(body, "deployments").map((d) => toDeployment(d, appUuid));
     },
 
     async deployment(uuid: string): Promise<DeploymentDto> {

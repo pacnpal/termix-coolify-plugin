@@ -89,6 +89,53 @@ describe("Coolify HTTP layer", () => {
     expect(local.calls[0].init?.tls?.ca).toContain("BEGIN CERTIFICATE");
   });
 
+  it("maps an HTML error page to not-coolify, never to a token ability", async () => {
+    for (const status of [401, 403, 404, 405, 422]) {
+      const fake = scripted(
+        () =>
+          new Response("<!doctype html><title>Forbidden</title>", {
+            status,
+            headers: { "content-type": "text/html" },
+          }),
+      );
+      const err = await caught(
+        createCoolifyHttp(fake.fetch, target, noSleep).request("GET", "/team"),
+      );
+      expect(err.cause, String(status)).toBe("not-coolify");
+      expect(err.status).toBe(status);
+    }
+  });
+
+  it("maps a body that can't be read to a typed error", async () => {
+    const broken = (status: number) => () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.error(new Error("connection reset"));
+          },
+        }),
+        { status, headers: { "content-type": "application/json" } },
+      );
+    for (const text of [false, true]) {
+      const err = await caught(
+        createCoolifyHttp(scripted(broken(200)).fetch, target, noSleep).request(
+          "GET",
+          "/version",
+          { text },
+        ),
+      );
+      expect(err.cause).toBe("unreachable");
+      expect(err.status).toBe(200);
+    }
+    const refused = await caught(
+      createCoolifyHttp(scripted(broken(403)).fetch, target, noSleep).request(
+        "GET",
+        "/team",
+      ),
+    );
+    expect(refused.cause).toBe("forbidden-ability");
+  });
+
   it("maps 401 to unauthorized", async () => {
     const fake = scripted(() => json(401, { message: "Unauthenticated." }));
     const err = await caught(

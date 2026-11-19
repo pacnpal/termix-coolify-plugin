@@ -370,6 +370,75 @@ describe("connection service", () => {
     expect((await service.target(view.id)).token).toBe("fake-newer-token");
   });
 
+  it("an update checked against older settings does not restore them", async () => {
+    const view = await service.create(input);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const reachedTeam = holdAfterTeam("Bearer fake-older-token", held);
+
+    const older = service.update(view.id, { token: "fake-older-token" });
+    const olderDone = older.then(
+      () => "saved",
+      (err: { status?: number }) => err.status,
+    );
+    await reachedTeam;
+    await service.update(view.id, { allowPrivate: true });
+
+    release();
+    expect(await olderDone).toBe(409);
+    expect(rawRows()[0].allow_private).toBeTruthy();
+    expect((await service.target(view.id)).token).toBe(TOKEN);
+  });
+
+  it("refuses plain http to a public host before sending anything", async () => {
+    for (const baseUrl of [
+      "http://coolify.example.test",
+      "http://203.0.113.5:8000",
+      "http://192.168.1.10:8000",
+    ]) {
+      await expect(
+        service.create({ ...input, baseUrl }),
+        baseUrl,
+      ).rejects.toMatchObject({
+        status: 400,
+        message: expect.stringContaining("https"),
+      });
+    }
+    expect(fake.calls).toHaveLength(0);
+    expect(rawRows()).toHaveLength(0);
+
+    const view = await service.create(input);
+    const calls = fake.calls.length;
+    await expect(
+      service.update(view.id, { baseUrl: "http://coolify.example.test" }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(fake.calls.length).toBe(calls);
+    expect(rawRows()[0].base_url).toBe("https://coolify.example.test");
+  });
+
+  it("allows plain http to loopback, and to a private host only with allowPrivate", async () => {
+    for (const baseUrl of [
+      "http://localhost:8000",
+      "http://127.0.0.1:8000",
+      "http://[::1]:8000",
+    ]) {
+      const saved = await service.create({ ...input, baseUrl });
+      expect(saved.baseUrl, baseUrl).toBe(baseUrl);
+    }
+    for (const baseUrl of [
+      "http://192.168.1.10:8000",
+      "http://10.0.0.5",
+      "http://coolify.lan",
+    ]) {
+      const saved = await service.create({
+        ...input,
+        baseUrl,
+        allowPrivate: true,
+      });
+      expect(saved.baseUrl, baseUrl).toBe(baseUrl);
+    }
+  });
+
   it("lists only the actor's own connections", async () => {
     await service.create(input);
     mock.setActor("user-2");

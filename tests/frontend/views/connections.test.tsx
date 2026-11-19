@@ -7,6 +7,7 @@ import {
 import type { PluginManifest } from "@termix-ssh/plugin-sdk/manifest";
 import type { PluginApiClient } from "@termix-ssh/plugin-sdk/frontend";
 import * as plugin from "../../../src/frontend/index";
+import { createApi, type ConnectionPatch } from "../../../src/frontend/api";
 import manifestJson from "../../../manifest.json";
 import locales from "../../../locales/en.json";
 
@@ -235,5 +236,185 @@ describe("connections view", () => {
       await within(step.element).findByText(locales.onboarding.connect.intro),
     ).toBeTruthy();
     expect(step.canContinue()).toBe(true);
+  });
+});
+
+/** A promise the test settles by hand, to hold a request in flight. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+async function confirmDelete(tab: HTMLElement) {
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  fireEvent.click(within(tab).getByRole("button", { name: L.actions.delete }));
+  const card = await screen
+    .findByRole("alertdialog", {}, { timeout: 200 })
+    .catch(() => null);
+  if (card) {
+    fireEvent.click(
+      within(card).getByRole("button", { name: L.delete.confirm }),
+    );
+  }
+}
+
+async function fillAddForm(scope: ReturnType<typeof within>) {
+  fireEvent.change(await scope.findByPlaceholderText(L.form.namePlaceholder), {
+    target: { value: "Prod" },
+  });
+  fireEvent.change(scope.getByPlaceholderText(L.form.baseUrlPlaceholder), {
+    target: { value: "https://coolify.example.test" },
+  });
+  fireEvent.change(scope.getByPlaceholderText(L.form.tokenPlaceholder), {
+    target: { value: "fake-token-ui" },
+  });
+}
+
+describe("connections view under concurrent requests", () => {
+  it("lets the typed api clear the Cloudflare Access token", async () => {
+    const api = stubApi([scopedConnection]);
+    const patch: ConnectionPatch = { cfAccessId: null, cfAccessSecret: null };
+    await createApi(api).updateConnection(1, patch);
+    expect(api.patch).toHaveBeenCalledWith("/connections/1", patch);
+  });
+
+  it("keeps what was typed while a save was pending", async () => {
+    const api = stubApi([scopedConnection]);
+    const pending = deferred<{ data: unknown }>();
+    api.patch.mockReturnValueOnce(pending.promise as never);
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions: ALL,
+    });
+    rendered.renderTab("coolify", { isVisible: true });
+    await screen.findByText("Prod");
+    fireEvent.click(screen.getByRole("button", { name: L.actions.edit }));
+    const name = await screen.findByPlaceholderText(L.form.namePlaceholder);
+    fireEvent.change(name, { target: { value: "Renamed" } });
+    fireEvent.click(screen.getByRole("button", { name: L.form.save }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalled());
+    fireEvent.change(screen.getByPlaceholderText(L.form.tokenKeep), {
+      target: { value: "fake-typed-later" },
+    });
+    pending.resolve({ data: { ...scopedConnection, name: "Renamed" } });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(
+      (screen.getByPlaceholderText(L.form.tokenKeep) as HTMLInputElement).value,
+    ).toBe("fake-typed-later");
+  });
+
+  it("a second save after a create changes the saved connection", async () => {
+    const api = stubApi([]);
+    const failed = { ...scopedConnection, id: 5, lastError: "unreachable" };
+    api.post.mockResolvedValueOnce({ data: failed } as never);
+    api.patch.mockResolvedValueOnce({ data: failed } as never);
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions: ALL,
+    });
+    rendered.renderTab("coolify", { isVisible: true });
+    fireEvent.click((await screen.findAllByRole("button", { name: L.add }))[0]);
+    await fillAddForm(within(document.body));
+    fireEvent.click(screen.getByRole("button", { name: L.form.save }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    // The saved failure keeps its checklist, and the form now edits it.
+    expect(await screen.findByText(L.probe.title)).toBeTruthy();
+    fireEvent.change(await screen.findByPlaceholderText(L.form.tokenKeep), {
+      target: { value: "fake-token-retry" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: L.form.save }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalled());
+    expect(api.post).toHaveBeenCalledTimes(1);
+    const [url] = api.patch.mock.calls[0] as unknown as [string];
+    expect(url).toBe("/connections/5");
+  });
+
+  it("a list answer requested before a removal doesn't bring the row back", async () => {
+    const api = stubApi([scopedConnection]);
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions: ALL,
+    });
+    const tab = rendered.renderTab("coolify", { isVisible: true });
+    await screen.findByText("Prod");
+    const stale = deferred<{ data: unknown }>();
+    api.get.mockReturnValueOnce(stale.promise as never);
+    fireEvent.click(within(tab).getByRole("button", { name: L.refresh }));
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    await confirmDelete(tab);
+    await waitFor(() => expect(within(tab).queryByText("Prod")).toBeNull());
+    stale.resolve({ data: [scopedConnection] });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(within(tab).queryByText("Prod")).toBeNull();
+  });
+
+  it("a probe answer that arrives after a removal doesn't bring the row back", async () => {
+    const api = stubApi([scopedConnection]);
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions: ALL,
+    });
+    const tab = rendered.renderTab("coolify", { isVisible: true });
+    await screen.findByText("Prod");
+    const late = deferred<{ data: unknown }>();
+    api.post.mockReturnValueOnce(late.promise as never);
+    fireEvent.click(within(tab).getByRole("button", { name: L.actions.probe }));
+    await confirmDelete(tab);
+    await waitFor(() => expect(within(tab).queryByText("Prod")).toBeNull());
+    late.resolve({
+      data: {
+        connection: scopedConnection,
+        probe: { ok: true, version: "v4.7.5", scoped: true, steps: [] },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(within(tab).queryByText("Prod")).toBeNull();
+  });
+
+  it("onboarding shows success only for a working connection, and retries the same one", async () => {
+    const api = stubApi([]);
+    const failed = {
+      ...scopedConnection,
+      id: 5,
+      name: "Prod",
+      lastError: "unreachable",
+    };
+    api.post.mockResolvedValueOnce({ data: failed } as never);
+    api.patch.mockResolvedValueOnce({
+      data: { ...failed, lastError: null },
+    } as never);
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions: ALL,
+    });
+    const step = rendered.renderOnboardingStep("connect");
+    const inStep = within(step.element);
+    await fillAddForm(inStep);
+    fireEvent.click(inStep.getByRole("button", { name: L.form.save }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    const done = locales.onboarding.connect.done.replace("{{name}}", "Prod");
+    expect(await inStep.findByText(L.probe.title)).toBeTruthy();
+    expect(inStep.queryByText(done)).toBeNull();
+
+    fireEvent.change(inStep.getByPlaceholderText(L.form.tokenKeep), {
+      target: { value: "fake-token-retry" },
+    });
+    fireEvent.click(inStep.getByRole("button", { name: L.form.save }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalled());
+    expect(api.post).toHaveBeenCalledTimes(1);
+    const [url] = api.patch.mock.calls[0] as unknown as [string];
+    expect(url).toBe("/connections/5");
+    expect(await inStep.findByText(done)).toBeTruthy();
   });
 });

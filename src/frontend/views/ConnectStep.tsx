@@ -19,22 +19,29 @@ export function ConnectStep(_props: OnboardingStepProps) {
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
   const form = useConnectionForm(api, null, () => {});
+  // Done only when the saved connection's check passed. A saved failure stays
+  // editable, and saving again changes that same connection.
+  const connected = form.result && !form.result.lastError ? form.result : null;
   return (
     <div className="flex flex-col">
       <p className={cn(PANEL.body, "text-[12px] text-muted-foreground")}>
         {t("onboarding.connect.intro")}
       </p>
       <FormError message={form.error} />
-      {form.result ? (
+      {connected ? (
         <>
           <NoticePanel
-            title={t("onboarding.connect.done", { name: form.result.name })}
+            title={t("onboarding.connect.done", { name: connected.name })}
           />
-          <ProbeChecklist connection={form.result} />
+          <ProbeChecklist connection={connected} />
         </>
       ) : (
         <>
-          <ConnectionFields form={form} hasCfAccess={false} />
+          {form.result && <ProbeChecklist connection={form.result} />}
+          <ConnectionFields
+            form={form}
+            hasCfAccess={form.current?.cfAccess ?? false}
+          />
           <div className={PANEL.body}>
             <Button
               size="sm"

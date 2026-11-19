@@ -13,7 +13,9 @@
 - The plugin's tables (connections, grants, webhooks, servers, cache, events, onboardings, status pages, DNS
   records and recent items) with migrations for SQLite, PostgreSQL and MySQL
 - Connect Coolify instances: name, URL and API token, with an optional Cloudflare Access service token,
-  local network address and CA certificate. The token is stored encrypted and never shown again
+  local network address and CA certificate. The token is stored encrypted and never shown again. The
+  address must use https; plain http is accepted only for localhost, or a local network address with "On
+  my local network" on
 - A check of each connection: Coolify 4.4 or newer, the team, scoped tokens, and whether the token can read
   keys, logs and instance settings, with a plain cause and fix when something fails
 - The Connections view and a "Connect Coolify" setup step
