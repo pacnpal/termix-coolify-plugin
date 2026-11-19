@@ -1027,7 +1027,9 @@ REST API (Termix API keys) and through Termix's MCP. Nothing may exist only as a
        open the shell.
    - The full Coolify REST API is reachable through two generic operations:
      - `coolify.api-read`: GET only, read.
-     - `coolify.api-call`: any operation, destructive, with a confirm.
+     - `coolify.api-call`: any operation, destructive, with a confirm. Its `params` and `body` use Termix's
+       `secret` input type, so request bodies carrying keys, env values or storage credentials never enter run
+       history. The run records the method, operation and path, plus the redacted request.
      - Both take `connectionId`, `operationId` (with `optionsFrom` reads listing the vendored operations,
        hiding ones newer than the connection's version), `params` and `body`.
      - Both return redacted output (see Redaction).
