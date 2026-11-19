@@ -149,7 +149,12 @@ aren't obvious from the code, and anything that has bitten you before.
   while holding it. A host `apply` created whose link row fails to save is unlocked and deleted
   (`discardHost`). Key material comes only from
   `api.keyForCopy()` (not a DTO) and goes only to `ctx.credentials.createSshKey`; reuse is by fingerprint
-  among the connection's `credentialMode = "coolify"` rows. `ssh-keys` from the SDK needs `ssh2`, which only
+  among the connection's `credentialMode = "coolify"` rows, and only while the id is still in
+  `ctx.credentials.listSshKeys()` (a deleted copy is made again; an unreadable list blocks the server with
+  `credential-check-failed`). A failed copy stores `credentialMode = "copy-failed"` (`COPY_FAILED`), which
+  the preview reads as termix mode with `needs-credential`. Every stored id is checked before use:
+  `hostId` by `ctx.hosts.update` answering null (then a new host is made), picked credential ids by
+  `ctx.credentials.list()`, copied ones by `listSshKeys()`. `ssh-keys` from the SDK needs `ssh2`, which only
   Termix supplies, so it is imported lazily and only when Coolify sends no `public_key`. Tunnelled servers
   are refused in `planTunnel` with `TUNNEL_CAUSE` (`needs-tunnel-support`); ticket #9 replaces that seam
   with SSH Terminal's tunnel settings. The SDK tsconfig has no strict null checks, so a boolean `ok` does

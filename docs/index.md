@@ -119,10 +119,14 @@ see servers, so the section says so instead.
      **Allow copying Coolify SSH keys**, pick one of your Termix credentials for the server. Only your own
      credentials are accepted. A picked credential you no longer have blocks the server and shows the picker
      again until you pick another; one that couldn't be checked can be picked again or tried as it is.
+     When copying a server's key fails (Coolify refuses to send it, or sends no key), the server asks for a
+     credential the same way until you pick one or a later sync copies the key.
    - **Behind a Cloudflare tunnel**: tunnelled servers are listed but can't be synced yet.
 3. With keys readable, each Coolify key is copied once into a Termix credential named
    **Coolify: <connection> / <key>** and shared by every server that uses it. It is reused on later syncs
-   and replaced only when the key's fingerprint changes. Every copy is written to the audit log. The key is
+   and replaced when the key's fingerprint changes, or when you deleted that credential in Termix (the
+   key is copied again). When your credentials can't be read to check, the server isn't synced and says
+   so. Every copy is written to the audit log. The key is
    never stored by the plugin, logged or sent back to the browser.
 
 Syncing again updates the same hosts in place, so pins, shares and history stay. A server removed from

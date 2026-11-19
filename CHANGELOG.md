@@ -45,8 +45,9 @@
   with several connections), tagged `coolify`, with a note linking back to Coolify. A preview shows every
   server first; re-sync updates hosts in place, and servers gone from Coolify are flagged, never deleted
 - Each Coolify SSH key is copied once into a Termix credential named "Coolify: <connection> / <key>", reused
-  until the key's fingerprint changes. Every copy is audited. When the token can't read keys, or an admin
-  turned key copying off, you pick a Termix credential instead
+  until the key's fingerprint changes or you delete that credential. Every copy is audited. When the token
+  can't read keys, an admin turned key copying off, or a key copy fails, you pick a Termix credential
+  instead
 - The server Coolify runs on (`host.docker.internal`, `localhost` or `127.*`) waits for the address Termix
   should use, while the other servers sync. Any other server can be given its own address too. Servers
   behind a Cloudflare tunnel are shown but not synced yet
