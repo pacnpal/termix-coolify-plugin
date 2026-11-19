@@ -62,9 +62,11 @@
   make two hosts for one server, a sync waiting behind a removal creates nothing, and a host whose link
   can't be saved is removed instead of left locked
 - A sync uses one snapshot of its connection. If the connection's address, token or Access token changes
-  while it runs, it stops before changing any host and says so, so no host gets settings from two targets
+  while it runs, it stops before saving or changing anything and says so, so no host gets settings from two targets
 - Re-syncing clears tunnel settings that no longer apply: a removed Access token is cleared from tunnelled
-  hosts, and a server that is no longer behind a tunnel has SSH Terminal's tunnel turned off
+  hosts, and a server that is no longer behind a tunnel has SSH Terminal's tunnel turned off. That needs
+  SSH Terminal on; until then the server says so and its host is left as it is. Hosts that were never
+  tunnelled don't need SSH Terminal
 - Linked hosts are read only while Coolify manages them, with a Coolify badge, a status dot, a Coolify card
   on the host page, and Resources, Sync and Unlink in their menu. Unlink makes a host ordinary again;
   deleting a Linked host keeps its address and credential choice for the next sync

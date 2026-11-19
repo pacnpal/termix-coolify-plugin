@@ -35,7 +35,10 @@ export interface SshTerminalState {
 }
 
 export type PlanCause =
-  "needs-address" | "needs-ssh-terminal" | "ssh-terminal-too-old";
+  | "needs-address"
+  | "needs-ssh-terminal"
+  | "ssh-terminal-too-old"
+  | "needs-ssh-terminal-to-clear-tunnel";
 
 // Both sides name both fields, so `cause` reads the same with or without
 // strict null checks.
@@ -62,6 +65,11 @@ export interface PlanContext {
    * hosts only. Null when none is set, and always null for a preview.
    */
   cfAccess: { id: string; secret: string } | null;
+  /**
+   * Whether this sync wrote SSH Terminal's tunnel settings on the server's
+   * current Linked host and hasn't cleared them since.
+   */
+  tunnelApplied: boolean;
 }
 
 const MAX_ADDRESS = 253;
@@ -203,21 +211,25 @@ export function planHost(server: ServerDto, ctx: PlanContext): HostPlan {
       : { coolify: true },
   };
   if (server.isTunnel) return planTunnel(input, ctx);
-  // A Linked host keeps settings an update leaves out, so a server that was
-  // tunnelled before has its tunnel turned off and cleared here. Only the
-  // tunnel keys are written, and only while SSH Terminal runs: core skips
-  // settings for a plugin that doesn't.
-  if (ctx.sshTerminal.running) {
-    input.pluginSettings = {
-      ...input.pluginSettings,
-      // SSH Terminal's tunnel switched off, its hostname and token cleared.
-      [SSH_TERMINAL.id]: {
-        [SSH_TERMINAL_KEYS.enabled]: false,
-        [SSH_TERMINAL_KEYS.hostname]: "",
-        [SSH_TERMINAL_KEYS.clientId]: "",
-        [SSH_TERMINAL_KEYS.clientSecret]: "",
-      },
-    };
+  // A host that never had tunnel settings needs nothing of SSH Terminal.
+  if (!ctx.tunnelApplied) return { ok: true, input };
+  // A Linked host keeps settings an update leaves out, so a host this sync
+  // tunnelled before has its tunnel turned off and cleared, once. Core skips
+  // settings for a plugin that isn't running, so without a running SSH
+  // Terminal the host is left as it is rather than given a direct address
+  // beside a stale tunnel. Only the tunnel keys are written.
+  if (!ctx.sshTerminal.running) {
+    return { ok: false, cause: "needs-ssh-terminal-to-clear-tunnel" };
   }
+  input.pluginSettings = {
+    ...input.pluginSettings,
+    // SSH Terminal's tunnel switched off, its hostname and token cleared.
+    [SSH_TERMINAL.id]: {
+      [SSH_TERMINAL_KEYS.enabled]: false,
+      [SSH_TERMINAL_KEYS.hostname]: "",
+      [SSH_TERMINAL_KEYS.clientId]: "",
+      [SSH_TERMINAL_KEYS.clientSecret]: "",
+    },
+  };
   return { ok: true, input };
 }

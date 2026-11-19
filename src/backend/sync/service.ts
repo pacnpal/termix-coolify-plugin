@@ -37,7 +37,8 @@ export interface SyncRow {
   status: "new" | "linked" | "gone" | "blocked";
   /**
    * needs-address, needs-credential, needs-ssh-terminal,
-   * ssh-terminal-too-old, credential-not-found or credential-check-failed.
+   * ssh-terminal-too-old, needs-ssh-terminal-to-clear-tunnel,
+   * credential-not-found or credential-check-failed.
    */
   cause?: string;
   /** coolify: the key is copied from Coolify. termix: a picked credential. */
@@ -77,6 +78,12 @@ interface ServerRow {
   credentialMode: string | null;
   credentialId: number | null;
   keyFingerprint: string | null;
+  tunnelApplied: boolean;
+}
+
+/** Whether the row's current Linked host carries tunnel settings sync wrote. */
+function tunnelOn(row: ServerRow | undefined): boolean {
+  return Boolean(row?.hostId && row.tunnelApplied);
 }
 
 const UUID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -382,6 +389,7 @@ export async function createSync(
       sshTerminal,
       // A preview never reads the Access token: its rows don't carry it.
       cfAccess: null,
+      tunnelApplied: tunnelOn(row),
     });
     const hostId = row?.hostId ?? null;
     let cause: string | undefined;
@@ -439,7 +447,7 @@ export async function createSync(
     const client = await db();
     await client
       .update(t.servers)
-      .set({ hostId: null })
+      .set({ hostId: null, tunnelApplied: false })
       .where(eq(t.servers.id, row.id));
     await ctx.db.persist();
     return removed;
@@ -458,7 +466,7 @@ export async function createSync(
         await db()
       )
         .update(t.servers)
-        .set({ hostId: null })
+        .set({ hostId: null, tunnelApplied: false })
         .where(eq(t.servers.hostId, hostId));
       await ctx.db.persist();
     } catch (err) {
@@ -511,6 +519,16 @@ export async function createSync(
     // entry.
     const accessToken = target.cfAccess;
     let folderReady = false;
+    // Fail closed before the first write of any kind (a row save, a key copy,
+    // a folder or a host): the connection must still exist, be the actor's
+    // and point at the snapshot's target. Throws, ending the whole sync with
+    // nothing written.
+    let writesChecked = false;
+    const beforeFirstWrite = async () => {
+      if (writesChecked) return;
+      await assertSnapshotHolds(connectionId, view.revision);
+      writesChecked = true;
+    };
     const results: SyncResult[] = [];
     const checkCredential = ownCredentialCheck();
 
@@ -569,8 +587,10 @@ export async function createSync(
           dockerRunning: docker,
           sshTerminal,
           cfAccess: null,
+          tunnelApplied: tunnelOn(row),
         });
         if (!precheck.ok) {
+          await beforeFirstWrite();
           await saveRow(connectionId, server.uuid, row, remember);
           results.push({
             ...base,
@@ -586,6 +606,7 @@ export async function createSync(
         let fingerprint: string | null = null;
         let copyFailed = false;
         if (!credentialId && copy) {
+          await beforeFirstWrite();
           const copied = await copier.credentialFor(server.privateKeyId);
           if (copied && "cause" in copied) {
             await saveRow(connectionId, server.uuid, row, remember);
@@ -612,6 +633,7 @@ export async function createSync(
             credentialId: null,
             keyFingerprint: null,
           };
+          await beforeFirstWrite();
           await saveRow(
             connectionId,
             server.uuid,
@@ -637,13 +659,11 @@ export async function createSync(
           dockerRunning: docker,
           sshTerminal,
           cfAccess: server.isTunnel ? await accessToken() : null,
+          tunnelApplied: tunnelOn(row),
         });
         if (!plan.ok) throw new Error("plan changed");
+        await beforeFirstWrite();
         if (!folderReady) {
-          // Fail closed before the first host write: the connection must
-          // still exist, be the actor's and point at the snapshot's target.
-          // Throws, ending the whole sync.
-          await assertSnapshotHolds(connectionId, view.revision);
           await ctx.hosts.folders.ensure(folder, { icon: "Rocket" });
           folderReady = true;
         }
@@ -672,6 +692,9 @@ export async function createSync(
             credentialMode: mode,
             credentialId,
             keyFingerprint: mode === "coolify" ? fingerprint : null,
+            // Written by planTunnel, or turned off by planHost (which only
+            // plans that write while SSH Terminal runs).
+            tunnelApplied: server.isTunnel,
             lastSyncedAt: new Date().toISOString(),
           });
         } catch (err) {
@@ -765,7 +788,9 @@ export async function createSync(
         ? goneRows(rows, present, await hostNames())
         : [];
       const check = ownCredentialCheck();
-      const sshTerminal = servers.some((s) => s.isTunnel)
+      const sshTerminal = servers.some(
+        (s) => s.isTunnel || tunnelOn(byUuid.get(s.uuid)),
+      )
         ? (await companions()).sshTerminal
         : NO_SSH_TERMINAL;
       const previewed: SyncRow[] = [];

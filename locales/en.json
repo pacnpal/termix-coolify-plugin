@@ -466,6 +466,7 @@
       "needs-credential": "The token can't read this server's key, or copying keys is turned off. Pick a Termix credential.",
       "needs-ssh-terminal": "Turn on the SSH Terminal plugin to reach servers behind Cloudflare tunnels.",
       "ssh-terminal-too-old": "Update SSH Terminal to 1.2.0 or newer; older versions tunnel only the terminal.",
+      "needs-ssh-terminal-to-clear-tunnel": "This server is no longer behind a Cloudflare tunnel, but its host still has SSH Terminal's tunnel settings. Turn on SSH Terminal so the next sync can clear them; until then the host is left as it is.",
       "host-write-failed": "Termix refused the host. Check your permissions to create and edit hosts.",
       "credential-not-found": "The picked credential isn't one of your Termix credentials any more. Pick another one.",
       "credential-check-failed": "Your Termix credentials could not be read, so the picked credential can't be checked. Try again, or ask an admin for the permission to view credentials."

@@ -148,7 +148,7 @@ was removed finds the connection gone and creates nothing.
 A sync works on one snapshot of the connection: the server list, the Coolify address in host notes and
 the Cloudflare Access token written on tunnelled hosts all come from the same read. If someone changes
 the connection's address, token, Access token or TLS settings while a sync runs, the sync stops before
-its first host change with **The connection's address, token or Cloudflare Access settings changed
+it saves, copies or changes anything with **The connection's address, token or Cloudflare Access settings changed
 during the sync** (`target-changed`), and no host gets the new settings. Sync again.
 
 Syncing and unlinking need **Configure Coolify** and only the connection's owner can do them; the preview
@@ -169,9 +169,11 @@ Docker and this plugin. Sync sets:
   results, run history, logs or the audit log.
 
 Each sync writes these settings in full, so nothing stale stays behind: when you remove the connection's
-Access token, the next sync clears it from tunnelled hosts, and when a server is no longer behind a tunnel,
-the next sync turns SSH Terminal's tunnel off on its host and clears the tunnel hostname and token (while
-SSH Terminal is on; Termix only takes its settings then).
+Access token, the next sync clears it from tunnelled hosts. When a server is no longer behind a tunnel, the
+next sync turns SSH Terminal's tunnel off on its host and clears the tunnel hostname and token. Termix only
+takes SSH Terminal's settings while it is on, so until then that server says **This server is no longer
+behind a Cloudflare tunnel, but its host still has SSH Terminal's tunnel settings**, with **Open Plugins**,
+and its host is left as it is. Hosts that were never tunnelled don't need SSH Terminal.
 
 This needs **SSH Terminal 1.2.0 or newer**, turned on. Version 1.0.3 tunnelled only its own terminal tab.
 Until then a tunnelled server can't sync and says why, with an **Open Plugins** button that opens Termix's

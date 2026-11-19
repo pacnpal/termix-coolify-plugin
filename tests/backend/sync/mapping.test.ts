@@ -48,6 +48,7 @@ const base: PlanContext = {
   dockerRunning: false,
   sshTerminal: { running: true, version: "1.2.0" },
   cfAccess: null,
+  tunnelApplied: false,
 };
 
 // Obviously fake Access service token values.
@@ -82,12 +83,6 @@ describe("planHost", () => {
       coolify: {
         coolifyConnectionId: "4",
         coolifyServerUuid: "srv-web-uuid",
-      },
-      "ssh-terminal": {
-        cloudflareTunnelEnabled: false,
-        cloudflareTunnelHostname: "",
-        cloudflareTunnelClientId: "",
-        cloudflareTunnelClientSecret: "",
       },
     });
     expect(plan.input.pluginEnable).toEqual({ coolify: true });
@@ -160,8 +155,19 @@ describe("planHost", () => {
     });
   });
 
-  it("a plain server gets SSH Terminal's tunnel turned off, never the Access token", () => {
+  it("a plain server that was never tunnelled gets nothing of SSH Terminal", () => {
     const plan = planHost(plain, { ...base, cfAccess: FAKE_ACCESS });
+    if (!plan.ok) throw new Error("expected a plan");
+    expect(JSON.stringify(plan)).not.toContain("ssh-terminal");
+    expect(JSON.stringify(plan)).not.toContain(FAKE_ACCESS.secret);
+  });
+
+  it("a plain server that was tunnelled gets the tunnel turned off, never the Access token", () => {
+    const plan = planHost(plain, {
+      ...base,
+      cfAccess: FAKE_ACCESS,
+      tunnelApplied: true,
+    });
     if (!plan.ok) throw new Error("expected a plan");
     expect(plan.input.pluginSettings?.["ssh-terminal"]).toEqual({
       cloudflareTunnelEnabled: false,
@@ -172,12 +178,16 @@ describe("planHost", () => {
     expect(JSON.stringify(plan)).not.toContain(FAKE_ACCESS.secret);
     expect(JSON.stringify(plan)).not.toContain(FAKE_ACCESS.id);
 
-    // Without SSH Terminal running there is nothing of its to write.
+    // Without SSH Terminal running its settings can't be cleared: refused.
     const without = planHost(plain, {
       ...base,
+      tunnelApplied: true,
       sshTerminal: { running: false, version: null },
     });
-    expect(JSON.stringify(without)).not.toContain("ssh-terminal");
+    expect(without).toEqual({
+      ok: false,
+      cause: "needs-ssh-terminal-to-clear-tunnel",
+    });
   });
 
   it("refuses a tunnelled server without a running SSH Terminal 1.2.0 or newer", () => {

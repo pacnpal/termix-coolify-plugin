@@ -112,6 +112,10 @@ export const servers = defineTable(
     credentialId: integer(),
     keyFingerprint: text(),
     lastSyncedAt: timestamp(),
+    // Whether sync wrote SSH Terminal's tunnel settings on the Linked host.
+    // Cleared only by a write that turned the tunnel off while SSH Terminal
+    // was running, so stale tunnel settings are never left behind.
+    tunnelApplied: boolean().notNull().default(false),
   },
   {
     uniques: [
