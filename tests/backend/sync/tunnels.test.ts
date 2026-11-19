@@ -4,6 +4,7 @@ import type { PluginHarness } from "../helpers/plugin.js";
 import { withRunHistory } from "../helpers/run-history.js";
 import {
   server,
+  TUNNEL,
   serverRows,
   startWithConnection,
   syncCoolify,
@@ -677,5 +678,70 @@ describe("hosts linked before the tunnelApplied migration", () => {
     });
     const row = serverRows(h).find((r) => r.server_uuid === "srv-web1");
     expect(row?.tunnel_applied).toBe(0);
+  });
+});
+
+describe("the tunnelApplied flag never lags the host", () => {
+  it("a sync that ends during the update turning a tunnel on still leaves the flag set", async () => {
+    const VPS_ONLY = [{ uuid: "srv-vps1", include: true }];
+    const PLAIN_VPS = server("srv-vps1", "vps1", "203.0.113.40");
+    const {
+      harness: h,
+      fake,
+      connectionId,
+    } = await start({
+      sshTerminal: "1.2.0",
+      cfAccess: FAKE_ACCESS,
+    });
+    const id = String(connectionId);
+    const flag = () =>
+      serverRows(h).find((r) => r.server_uuid === "srv-vps1")?.tunnel_applied;
+
+    // An existing plain host...
+    fake.set("GET /servers", { json: [PLAIN_VPS] });
+    const first = await apply(h, connectionId, VPS_ONLY);
+    const hostId = byUuid(first, "srv-vps1").hostId as number;
+    expect(flag()).toBe(0);
+
+    // ...whose server is now tunnelled. The connection changes while the
+    // update that turns the tunnel on runs, so the sync ends after it.
+    fake.set("GET /servers", { json: [TUNNEL] });
+    const hosts = h.mock.ctx.hosts;
+    const original = hosts.update.bind(hosts);
+    const update = vi
+      .spyOn(hosts, "update")
+      .mockImplementationOnce(async (target, input) => {
+        const written = await original(target, input);
+        const changed = await h.request("PATCH", `/connections/${id}`, {
+          cfAccessId: NEW_ACCESS.id,
+          cfAccessSecret: NEW_ACCESS.secret,
+        });
+        expect(changed.status).toBe(200);
+        return written;
+      });
+    const res = await h.request("POST", `/connections/${id}/sync`, {
+      choices: VPS_ONLY,
+    });
+    expect(res.status).toBe(409);
+    expect(sshTerminalOf(update.mock.calls[0][1] as never)).toMatchObject({
+      cloudflareTunnelEnabled: true,
+    });
+    // The host has tunnel settings, so the row says so.
+    expect(flag()).toBe(1);
+
+    // A later plain sync, with SSH Terminal running, clears the tunnel.
+    fake.set("GET /servers", { json: [PLAIN_VPS] });
+    const results = await apply(h, connectionId, VPS_ONLY);
+    expect(byUuid(results, "srv-vps1")).toMatchObject({
+      status: "updated",
+      hostId,
+    });
+    expect(sshTerminalOf(update.mock.calls.at(-1)![1] as never)).toEqual({
+      cloudflareTunnelEnabled: false,
+      cloudflareTunnelHostname: "",
+      cloudflareTunnelClientId: "",
+      cloudflareTunnelClientSecret: "",
+    });
+    expect(flag()).toBe(0);
   });
 });

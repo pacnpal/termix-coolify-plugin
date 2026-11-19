@@ -667,6 +667,15 @@ export async function createSync(
         let hostId: number | null = null;
         let status: SyncResult["status"] = "created";
         if (row?.hostId) {
+          if (server.isTunnel && !row.tunnelApplied) {
+            // Write-ahead: the flag is set before the update that turns the
+            // tunnel on, so it never says false while the host has a tunnel.
+            // An abort after this only costs one redundant clear later.
+            await beforeWrite();
+            await saveRow(connectionId, server.uuid, row, {
+              tunnelApplied: true,
+            });
+          }
           await beforeWrite();
           const updated = await ctx.hosts.update(row.hostId, plan.input);
           if (updated) {
@@ -693,8 +702,10 @@ export async function createSync(
             credentialMode: mode,
             credentialId,
             keyFingerprint: mode === "coolify" ? fingerprint : null,
-            // Written by planTunnel, or turned off by planHost (which only
-            // plans that write while SSH Terminal runs).
+            // True after planTunnel's write (an updated host had it set
+            // ahead; a created one gets it with its hostId here). False only
+            // now that the write turning the tunnel off has succeeded:
+            // planHost plans that only while SSH Terminal runs.
             tunnelApplied: server.isTunnel,
             lastSyncedAt: new Date().toISOString(),
           });

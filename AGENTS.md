@@ -166,8 +166,10 @@ aren't obvious from the code, and anything that has bitten you before.
   only in `apply`, unsealed once from the snapshot (empty strings when the connection has none). Host
   updates merge the keys they are given and keep the rest, so `planHost` never leaves a key it once wrote
   out. `servers.tunnelApplied` (migration 0002) records that sync wrote tunnel settings on the row's
-  current host: set by every tunnelled write, cleared only by the write that turns the tunnel off, and
-  reset when the host is released or deleted. 0002 backfills it to true on every row with a host:
+  current host. It must never lag the host: it is saved true before the update that turns an existing
+  host's tunnel on (write-ahead), and in the same save that records a created host's id; it is cleared
+  only in the link save after a tunnel-off write succeeded. An abort leaves it true, which costs at most
+  one redundant clear. It is reset when the host is released or deleted (no host to track). 0002 backfills it to true on every row with a host:
   for hosts linked before it, unknown counts as tunnelled (fail closed). A plain server whose row has it gets the tunnel switched
   off and its hostname and token cleared once, and only while SSH Terminal runs (core skips settings for
   a plugin that doesn't); otherwise `planHost` blocks it with `needs-ssh-terminal-to-clear-tunnel` and
