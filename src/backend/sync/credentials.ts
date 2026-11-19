@@ -3,6 +3,7 @@ import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import type { CoolifyApi, KeyForCopy } from "../coolify/api.js";
 import { CoolifyError } from "../coolify/http.js";
 import type { KeyDto } from "../coolify/dto.js";
+import { trimTrailing } from "../text.js";
 
 /** A Termix credential holding a copy of a Coolify key. */
 export interface CopiedCredential {
@@ -27,9 +28,8 @@ export function publicKeyFingerprint(publicKey: string): string | null {
   if (!blob || !/^[A-Za-z0-9+/]+={0,2}$/.test(blob)) return null;
   const digest = createHash("sha256")
     .update(Buffer.from(blob, "base64"))
-    .digest("base64")
-    .replace(/=+$/, "");
-  return `SHA256:${digest}`;
+    .digest("base64");
+  return `SHA256:${trimTrailing(digest, "=")}`;
 }
 
 /**
