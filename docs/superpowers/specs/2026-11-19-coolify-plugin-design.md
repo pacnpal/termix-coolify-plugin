@@ -509,12 +509,23 @@ Not used, deliberately:
 - **Grant:** the owner may share a connection with individual Termix users (picked with
   `ctx.hosts.listUsers`) at a level:
   - `view`: read everything except secret reveals.
-  - `operate`: view plus start, stop, restart, deploy, cancel, run tasks and backups, and shells. Shells
-    still need Termix host `connect` access.
+  - `operate`: view plus start, stop, restart, deploy, cancel, and run tasks and backups. **It does not
+    include shells.**
   - `configure`: operate plus edits, envs and creates.
-  - Grantees never see the token. Every call is made with the owner's token, so a grant is the owner
-    lending their Coolify rights through Termix's permission checks. The UI says so when granting.
-  - Linked hosts can be shared to the same people with `ctx.hosts.share` in the same step.
+  - Grantees never see the token. Every Coolify API call is made with the owner's token, so a grant is
+    the owner lending their Coolify rights through Termix's permission checks. The UI says so when
+    granting.
+- **Server access is a separate, explicit grant, not a grant level.** Container shells, database consoles,
+  live logs and stats run over SSH on the linked host. Whoever can SSH there can read every container's
+  environment, whatever the Coolify token allows. So:
+  - Shells and other SSH features need Termix host `connect` access on the linked host, and nothing else
+    gives it.
+  - Granting a connection never shares hosts. Host access is a separate checkbox per grantee, off by
+    default: "Also give server access (full shell on <servers>: can read every container's secrets)". It
+    calls `ctx.hosts.share` at `connect` level only after the owner ticks it, and is audited.
+  - Removing the grant offers to revoke the host shares it made.
+  - The three-way minimum (see Permissions) governs Coolify API actions. SSH features are governed by
+    Termix host access alone, and the docs and grant UI say so plainly.
 - **Linked server:** a Coolify server mapped to a Termix host this plugin created and manages.
 - **Resource:** an application, service, service part (app or database) or standalone database.
 
@@ -623,29 +634,54 @@ history), then locked.
 
 From an unlinked host's context menu or the Servers section ("Add a Termix host"):
 
+All questions come first. Nothing is changed on the host or in Coolify until the person confirms a summary
+of every step.
+
 1. Pick the host and connection. Check `edit` access to the host.
-2. Choose a key:
-   - Generate a new ed25519 pair (`ssh-keys`).
-   - Or pick an existing Coolify private key, which needs its public key; the API returns `public_key`.
-3. Over `ctx.ssh.exec`, append the public key to the SSH user's `~/.ssh/authorized_keys`, idempotently and
-   with correct permissions. The key is sent on stdin, never in argv.
-4. `POST /security/keys` with the generated private key, which is held in memory only.
-5. Ask "Is this host reached through a Cloudflare tunnel?" **before** creating anything in Coolify. The
-   plugin can't read SSH Terminal's tunnel settings on the host (a plugin only sees its own host
-   settings), so the person answers. When the host's address looks like a tunnel hostname, prefill "yes".
-6. `POST /servers` with name, ip (the tunnel hostname when tunnelled), port, user, private key uuid and
+2. Ask "Is this host reached through a Cloudflare tunnel?" The plugin can't read SSH Terminal's tunnel
+   settings on the host (a plugin only sees its own host settings), so the person answers. When the host's
+   address looks like a tunnel hostname, prefill "yes".
+3. Choose a key:
+   - **Generate** a new ed25519 pair (`ssh-keys`).
+   - Or **reuse an existing Coolify key**: use its uuid and `public_key` from the API. Nothing is posted to
+     `/security/keys` in this branch. A Termix credential for mode A can only be made if the token can
+     read the key material; otherwise fall back to mode B for this host's Termix side.
+4. Confirm the summary. From here, every step records its progress (see "Partial onboarding" below).
+5. Over `ctx.ssh.exec`, append the public key to the SSH user's `~/.ssh/authorized_keys`, idempotently and
+   with correct permissions.
+   - The line carries a marker comment `coolify-termix:<onboarding id>`, so it can be found and removed
+     later.
+   - The key is sent on stdin, never in argv.
+6. Generate branch only: `POST /security/keys` with the generated private key, which is held in memory
+   only.
+7. `POST /servers` with name, ip (the tunnel hostname when tunnelled), port, user, private key uuid and
    `instant_validate: false`.
-7. If tunnelled, turn on Coolify's tunnel mode for the server (`PATCH /servers/{uuid}/cloudflare-tunnel` with
+8. If tunnelled, turn on Coolify's tunnel mode for the server (`PATCH /servers/{uuid}/cloudflare-tunnel` with
    `is_cloudflare_tunnel: true`, or `POST …/cloudflare-tunnel/enable` where that fits the setup).
    - This must happen before validation: plain SSH validation can't reach a tunnel-only host.
    - Warn that Coolify runs `cloudflared access ssh` without a service token, so the tunnel hostname must
      not sit behind a Cloudflare Access app that needs one.
    - Coolify's managed tunnel creation needs a Cloudflare integration token on the Coolify side, which is
      linked from the DNS section.
-8. `POST /servers/{uuid}/validate`, then poll `GET /servers/{uuid}` until `is_reachable` and `is_usable`. On
+9. `POST /servers/{uuid}/validate`, then poll `GET /servers/{uuid}` until `is_reachable` and `is_usable`. On
    failure, show the validation logs, with the tunnel warning above when tunnelled.
-9. Link: the existing Termix host becomes a linked host. It isn't recreated, and it isn't locked unless the
-   user opts in. Store the credential as mode A.
+10. Link: the existing Termix host becomes a linked host. It isn't recreated, and it isn't locked unless
+    the user opts in. Store the credential as mode A where possible.
+
+**Partial onboarding.** Each run is a row in `onboardings`: `id`, `userId`, `connectionId`, `hostId`,
+`keyMode` (generated or existing), `step`, `authorizedKeyMarker`, `coolifyKeyUuid` (when we created it),
+`serverUuid`, `lastError` and `updatedAt`. Each step records its effect before moving on.
+
+- **Failure or abandonment:** the host shows "Coolify onboarding unfinished" with two choices.
+  - **Resume:** reuses whatever already exists (the same authorized key, Coolify key and server) and
+    re-runs only the steps that haven't finished, usually tunnel setup and validation.
+  - **Clean up:** undoes, in reverse order, only what this run created:
+    - deletes the Coolify server, if it was created by this run and still has no resources
+    - deletes the Coolify key, if it was generated by this run and no other server uses it
+    - removes the `authorized_keys` line by its marker
+    - Each undo is confirmed and audited. A step that fails to undo is reported, never silently skipped.
+- **Starting again on a host with an unfinished run:** the person must resume or clean up first. A second
+  set of keys and servers is never created silently.
 
 ### The Coolify tab
 
@@ -823,8 +859,17 @@ Both sources feed one pipeline, deduped by `deployment_uuid` or `(event, resourc
    - `POST /plugin-api/coolify/webhook/:token` with a 32-byte random token, stored as a sha256 hash and
      constant-time compared.
    - Coolify allows one webhook per team, so there is **one webhook per Coolify team per Termix install**
-     (`webhooks` table, keyed by `instanceKey`), not one per connection. An event fans out to every
-     connection with that `instanceKey`. Each connection then applies its own alert preferences and grants.
+     (`webhooks` table, keyed by `instanceKey`), not one per connection. An event fans out only to the
+     connections with that `instanceKey` **whose token can see the event's subject**:
+     - Resource events (deploys, restarts, backups, tasks): the resource uuid must be in that connection's
+       cached resource list. If it isn't, refresh the list once (rate limited), then check again.
+     - Server events: only connections whose token can read `/servers` and sees that server.
+     - Team-wide events (API token expiring, vulnerability digest, test): only connections with an
+       unscoped token.
+     - An event whose subject can't be established for a connection is dropped for that connection. It's
+       never stored or emitted there.
+     - Each remaining connection then applies its own alert preferences and grants.
+     - Polled events are naturally scoped, because each connection polls with its own token.
    - Body limit 64 KB, strict shape. It answers 200 fast and never echoes input.
    - One-click setup reads the team's current webhook first.
      - Unset, or already ours: it writes it.
@@ -865,6 +910,7 @@ Both sources feed one pipeline, deduped by `deployment_uuid` or `(event, resourc
 - **`cache`:** `connectionId`, `kind`, `json` (stripped DTOs only), `fetchedAt`.
 - **`events`:** `id`, `connectionId`, `kind`, `resourceUuid`, `deploymentUuid`, `hostId`, `title`, `detail`
   (json, no secrets), `createdAt`. Indexed on (`connectionId`, `createdAt`).
+- **`onboardings`:** see "Partial onboarding" under Reverse onboarding.
 - **`recent`:** `userId` (refUser), `connectionId`, `resourceUuid`, `usedAt`, for palette ranking.
 
 Everything goes through `ctx.db.persist()`, lazily for cache, events and recent.
