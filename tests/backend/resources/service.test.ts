@@ -282,6 +282,39 @@ describe("resource service", () => {
     expect(cached).not.toContain("app-web-uuid");
   });
 
+  it("a cache write held past an invalidate is never served", async () => {
+    // Hold the cache write until invalidate has run to completion, as a slow
+    // database would: the write then lands after the drop.
+    const db = mock.ctx.db;
+    const batch = db.batch.bind(db);
+    let reached = () => {};
+    let release = () => {};
+    const atWrite = new Promise<void>((resolve) => (reached = resolve));
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let armed = true;
+    db.batch = (async (...args: Parameters<typeof batch>) => {
+      if (armed) {
+        armed = false;
+        reached();
+        await released;
+      }
+      return batch(...args);
+    }) as typeof db.batch;
+
+    const stale = resources.list(connectionId);
+    await atWrite;
+    await resources.invalidate(connectionId);
+    release();
+    await stale;
+
+    fake.set("GET /applications", NARROWER);
+    fake.calls.length = 0;
+    const uuids = (await resources.list(connectionId)).map((r) => r.uuid);
+    expect(listCalls().length).toBeGreaterThan(0);
+    expect(uuids).toContain("app-only-uuid");
+    expect(uuids).not.toContain("app-web-uuid");
+  });
+
   it("a token change stops serving resources cached under the old token", async () => {
     await resources.list(connectionId);
     await connections.update(connectionId, { token: NEW_TOKEN });

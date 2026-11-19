@@ -122,7 +122,10 @@ aren't obvious from the code, and anything that has bitten you before.
   values and TLS settings. The cached rows carry that revision and in-flight fetches are keyed by it, so a
   changed target never serves old rows, a caller after a change never joins an older fetch, and a fetch
   that finishes after a change is not cached. Concurrent misses share one fetch. `invalidate(connectionId)`
-  is the hook for lifecycle actions. `ResourceDto.serverName` comes from `server.name` or `destination.server.name` in the payload.
+  is the hook for lifecycle actions: it advances an in-memory per-connection generation, drops the
+  in-flight fetches and the cached row. Cached rows carry their generation too, and a hit needs both the
+  revision and the generation to be current, so a write that lands after the drop is never served.
+  `ResourceDto.serverName` comes from `server.name` or `destination.server.name` in the payload.
   The MCP tool `list_resources` (`src/backend/mcp/server.ts`) runs `coolify.list-resources-all`.
 - Status words: `src/shared/resource-health.ts` (`resourceHealth`, `countResources`) is the one reading of a
   Coolify status, imported by both the backend and the frontend. Exited is stopped, whatever its health

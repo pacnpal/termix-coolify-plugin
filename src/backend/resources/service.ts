@@ -26,9 +26,13 @@ export interface ResourceList {
   fetchedAt: number;
 }
 
-/** The cached value: the rows and the connection revision they came from. */
+/**
+ * The cached value: the rows, the connection revision they came from and the
+ * invalidate generation they were fetched in. A hit needs both to be current.
+ */
 interface CachedRows {
   revision: string;
+  generation: number;
   rows: ResourceDto[];
 }
 
@@ -40,10 +44,11 @@ const notFound = () =>
  * databases as one list of stripped DTOs, read from Coolify's per-type lists
  * and never from the heavy `/resources`. Every call checks the actor's access
  * to the connection first, so another user's connection is a 404 even when
- * the cache holds its rows. The cache and the in-flight fetches are keyed by
- * the connection's revision, so a changed address, token or TLS setting never
- * serves rows read with the old one, and by a generation that `invalidate`
- * advances, so a fetch from before an invalidate is neither joined nor cached.
+ * the cache holds its rows. The in-flight fetches are keyed by the
+ * connection's revision and by a generation that `invalidate` advances, and
+ * the cached rows carry both. A cache hit counts only when both are current,
+ * so rows read before a changed address, token or TLS setting, or before an
+ * invalidate, are never served, even when their write lands after the drop.
  */
 export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
   const cache = createCache(ctx, deps.tables);
@@ -79,11 +84,12 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
       fetchedAt: now(),
     };
     // Cached only while the connection still has the revision the fetch
-    // started under and nothing invalidated it since. The rows carry the
-    // revision too, so a change that lands after this check never serves them.
+    // started under and nothing invalidated it since. The rows carry both, so
+    // a change or an invalidate that lands after this check (even one whose
+    // drop finishes before this write does) never serves them.
     const current = await deps.connections.revision(connectionId);
     if (current === revision && generationOf(connectionId) === generation) {
-      const value: CachedRows = { revision, rows: list.rows };
+      const value: CachedRows = { revision, generation, rows: list.rows };
       await cache.write(
         connectionId,
         RESOURCES_CACHE_KIND,
@@ -106,8 +112,14 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
         RESOURCE_TTL_MS,
         now(),
       );
-      if (hit?.value?.revision === revision && Array.isArray(hit.value.rows)) {
-        return { rows: hit.value.rows, fetchedAt: hit.fetchedAt };
+      const value = hit?.value;
+      if (
+        hit &&
+        value?.revision === revision &&
+        value.generation === generationOf(connectionId) &&
+        Array.isArray(value.rows)
+      ) {
+        return { rows: value.rows, fetchedAt: hit.fetchedAt };
       }
     }
     const generation = generationOf(connectionId);
