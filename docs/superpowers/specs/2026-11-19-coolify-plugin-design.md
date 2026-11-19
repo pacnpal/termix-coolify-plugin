@@ -1044,7 +1044,10 @@ REST API (Termix API keys) and through Termix's MCP. Nothing may exist only as a
    - **Calls** go through `ctx.operations.run` with `via: "mcp"`. The gate, approvals, risk rules, dry runs,
      history and audit all apply exactly as in the UI.
      - A key with only `operations:read` can call only `read` tools.
-     - **Changes over MCP:** read tools, `deploy` and `restart` always work, within the key's scope.
+     - **Changes over MCP:** read tools, deploy and restart always work, within the key's scope. Deploy and
+       restart work through both their resource-scope actions (`coolify.deploy`, `coolify.restart`) and
+       their server-scope ones (`coolify.resource-deploy`, `coolify.resource-restart`), so they also work
+       for resources with no Linked host.
        Every other change or destructive tool answers "changes over MCP are turned off" unless the admin
        setting "Allow changes over MCP" (`allowMcpChanges`, default off) is on. This switch applies to the MCP
        endpoint only. REST API-key calls follow normal permissions, key scope and approvals.
