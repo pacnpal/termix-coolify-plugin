@@ -1,15 +1,9 @@
-import type { Router } from "express";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
-import { notes } from "./tables.js";
-import { registerOperations } from "./operations.js";
-import { registerRoutes } from "./routes.js";
 
-export async function activate(ctx: PluginContext) {
-  const notesTable = await ctx.db.define(notes);
-  registerRoutes(ctx.http.router<Router>(), ctx, notesTable);
-  registerOperations(ctx, notesTable);
+export async function activate(_ctx: PluginContext): Promise<void> {
+  // Connections, host sync, resources and the rest are wired here by later work.
 }
 
-export async function deactivate() {
+export async function deactivate(): Promise<void> {
   // Everything registered through ctx is disposed by core.
 }

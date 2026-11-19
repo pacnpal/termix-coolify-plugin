@@ -12,19 +12,6 @@ https://docs.termix.site/develop instead.
 
 If the guide and the SDK's TypeScript types disagree, the types are right.
 
-## First time setup
-
-If `manifest.json` still has the id `hello-world`, this plugin was just made from the template. Ask the
-user for the plugin's id, name and description, then:
-
-1. In `manifest.json`, set `id`, `name`, `description`, `author`, `repository`, `docs`, `category`,
-   `icon` and `features`. The id is lowercase with dashes and can't change after the first release.
-2. Rename every `hello-world`, `hello_world` and `Hello World` to match: `package.json`,
-   `locales/en.json`, the index name in `src/backend/tables.ts`, the API paths in `src/backend/routes.ts`,
-   the tab id in `src/frontend/index.tsx`, the tests, `docs/index.md`, `CONTRIBUTING.md` and `README.md`.
-3. Delete `migrations/` and run `npm run migrations` so the tables use the new id.
-4. Replace the example notes feature with the real one, and fill in "About this plugin" below.
-
 ## Commands
 
 ```bash
@@ -78,4 +65,8 @@ file per theme scoped under `.<id>`). A theme only plugin has no `src/`: just `m
 Keep this section current when the plugin changes: what it does, how it is put together, decisions that
 aren't obvious from the code, and anything that has bitten you before.
 
-- What it does: a template example that keeps short notes per user. Replace this.
+- What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
+  Where things stand: the identity, permissions and admin settings are declared and the Coolify tab shows
+  an empty state; no routes or features yet. The design is in
+  `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
+  `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.

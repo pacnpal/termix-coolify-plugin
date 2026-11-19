@@ -4,6 +4,7 @@
 
 ### Added
 
-- A tab with notes
-- One admin setting
-- One table with migrations for SQLite, PostgreSQL and MySQL
+- The Coolify tab, opened from the sidebar
+- Five permissions: view, operate, configure, administer and MCP
+- Admin settings for polling, SSH key copying, sharing, cloud provisioning, status pages, changes over MCP
+  and running commands in containers
