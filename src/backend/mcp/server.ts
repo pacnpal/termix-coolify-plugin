@@ -25,7 +25,12 @@ export const MAX_DATA_CHARS = 8000;
  * action is declared in manifest.json; a test checks every id is a declared
  * change action.
  */
-export const MCP_CHANGES_EXEMPT: readonly string[] = [];
+export const MCP_CHANGES_EXEMPT: readonly string[] = [
+  "coolify.deploy",
+  "coolify.restart",
+  "coolify.resource-deploy",
+  "coolify.resource-restart",
+];
 
 export interface JsonRpcMessage {
   jsonrpc: "2.0";
