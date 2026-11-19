@@ -124,6 +124,14 @@
       "removeHosts": {
         "label": "Also delete the Linked hosts",
         "description": "Off: the hosts made for this connection's servers stay as ordinary, editable hosts."
+      },
+      "serverUuid": {
+        "label": "Coolify server",
+        "description": "Only resources on this Coolify server (its uuid). Leave empty for all."
+      },
+      "uuid": {
+        "label": "Resource",
+        "description": "The uuid of an application, service, database or service part."
       }
     },
     "listConnections": {
@@ -145,6 +153,14 @@
     "connectionDelete": {
       "title": "Remove a Coolify connection",
       "description": "Removes the connection from Termix. Nothing changes in Coolify, and Linked hosts become ordinary hosts."
+    },
+    "listResourcesAll": {
+      "title": "List Coolify resources",
+      "description": "A connection's applications, services with their parts, and databases, with status, server, project, environment and domains. No secrets."
+    },
+    "resourceGet": {
+      "title": "Read a Coolify resource",
+      "description": "One application, service, database or service part, without secrets."
     }
   },
   "connections": {

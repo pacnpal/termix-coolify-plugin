@@ -169,6 +169,13 @@ describe("Coolify DTO strippers", () => {
     expectClean(dto);
   });
 
+  it("resources carry their Coolify server's name, and Parts their service's", () => {
+    expect(toApplication(application).serverName).toBe("vps1");
+    expect(toDatabase(database).serverName).toBe("vps1");
+    for (const dto of toService(n8n)) expect(dto.serverName).toBe("vps1");
+    expect(toApplication({ uuid: "a" }).serverName).toBeNull();
+  });
+
   it("toDeployment drops the build log", () => {
     const dto = toDeployment(deployment);
     expect(dto).toEqual({

@@ -10,7 +10,9 @@
         "baseUrl": "https://coolify.invalid",
         "token": "authz-fake-token"
       },
-      "capture": { "coolify.connection": "id" }
+      "capture": {
+        "coolify.connection": "id"
+      }
     }
   ],
   "routes": {
@@ -31,28 +33,77 @@
     "GET /plugin-api/coolify/connections/:id": {
       "access": "user",
       "permission": "coolify.view",
-      "resource": { "kind": "own", "fixture": "coolify.connection" },
-      "params": { "id": "coolify.connection" }
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      }
     },
     "PATCH /plugin-api/coolify/connections/:id": {
       "access": "user",
       "permission": "coolify.configure",
-      "resource": { "kind": "own", "fixture": "coolify.connection" },
-      "params": { "id": "coolify.connection" },
-      "body": { "name": "authz-own-renamed" }
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      },
+      "body": {
+        "name": "authz-own-renamed"
+      }
     },
     "DELETE /plugin-api/coolify/connections/:id": {
       "access": "user",
       "permission": "coolify.configure",
-      "resource": { "kind": "own", "fixture": "coolify.connection" },
-      "params": { "id": "coolify.connection" },
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      },
       "destructive": true
     },
     "POST /plugin-api/coolify/connections/:id/probe": {
       "access": "user",
       "permission": "coolify.view",
-      "resource": { "kind": "own", "fixture": "coolify.connection" },
-      "params": { "id": "coolify.connection" }
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      }
+    },
+    "GET /plugin-api/coolify/connections/:id/resources": {
+      "access": "user",
+      "permission": "coolify.view",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify; there is no reachable Coolify in the authz run."
+    },
+    "GET /plugin-api/coolify/connections/:id/resources/:uuid": {
+      "access": "user",
+      "permission": "coolify.view",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-resource-uuid"
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify; there is no reachable Coolify in the authz run."
     }
   }
 }
