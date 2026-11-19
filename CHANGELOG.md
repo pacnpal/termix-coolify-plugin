@@ -25,7 +25,14 @@
   until the key's fingerprint changes. Every copy is audited. When the token can't read keys, or an admin
   turned key copying off, you pick a Termix credential instead
 - The server Coolify runs on (`host.docker.internal`, `localhost` or `127.*`) waits for the address Termix
-  should use, while the other servers sync. Servers behind a Cloudflare tunnel are shown but not synced yet
+  should use, while the other servers sync
+- Servers behind a Cloudflare tunnel become Linked hosts reached through SSH Terminal's own tunnel: the host
+  address is the tunnel hostname, and SSH Terminal's tunnel settings are set (port 443, plus the connection's
+  Cloudflare Access service token when one is set). This needs SSH Terminal 1.2.0 or newer to be on; until
+  then those servers say "Turn on the SSH Terminal plugin" or "Update SSH Terminal to 1.2.0 or newer", with
+  a button to Termix's Plugins tab. Connection setup shows the same check once when Coolify has tunnelled
+  servers, and a tunnelled Linked host shows "Tunnel: through SSH Terminal (Cloudflare)" with "Open tunnel
+  settings". The service token is never shown in previews, results, run history, logs or the audit log
 - Linked hosts are read only while Coolify manages them, with a Coolify badge, a status dot, a Coolify card
   on the host page, and Resources, Sync and Unlink in their menu. Unlink makes a host ordinary again;
   deleting a Linked host keeps its address and credential choice for the next sync

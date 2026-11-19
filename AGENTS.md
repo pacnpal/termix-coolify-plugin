@@ -102,10 +102,19 @@ aren't obvious from the code, and anything that has bitten you before.
   `api.keyForCopy()` (not a DTO) and goes only to `ctx.credentials.createSshKey`; reuse is by fingerprint
   among the connection's `credentialMode = "coolify"` rows. `ssh-keys` from the SDK needs `ssh2`, which only
   Termix supplies, so it is imported lazily and only when Coolify sends no `public_key`. Tunnelled servers
-  are refused in `planTunnel` with `TUNNEL_CAUSE` (`needs-tunnel-support`); ticket #9 replaces that seam
-  with SSH Terminal's tunnel settings. The SDK tsconfig has no strict null checks, so a boolean `ok` does
+  go through `planTunnel`: the host address is the tunnel hostname and `pluginSettings["ssh-terminal"]`
+  gets SSH Terminal's own setting names from `SSH_TERMINAL_KEYS` (checked against SSH Terminal's
+  `src/backend/settings.ts`; keep them in that one constant), port 443, and the connection's Access token
+  only in `apply`, unsealed once via `connections.target()`. Previews pass `cfAccess: null`. SSH Terminal
+  must be active at 1.2.0+ (`SSH_TERMINAL.minVersion`, semver order, pre-releases of 1.2.0 are below);
+  `ctx.plugins.list()` is read once per preview (only when a server is tunnelled) or apply and fails
+  closed: an unreadable list blocks tunnelled rows with `needs-ssh-terminal`. The SDK tsconfig has no strict null checks, so a boolean `ok` does
   not narrow a union: `HostPlan` names both fields on both sides. The mock ctx's `hosts.create` drops
   `pluginSettings` and `pluginEnable`, so tests spy on the calls to check them.
 - Frontend host surfaces: `src/frontend/linked.ts` reads a host's link from its own settings and shares one
-  sync preview per connection (five minutes) between badge dots and the host card. The tab opens the sync
+  sync preview per connection (five minutes) between badge dots and the host card. The host card shows the
+  tunnel line from the row's `tunnel` flag and opens the host editor with `shell.editHost`.
+  `views/SshTerminalCheck.tsx` has the Open Plugins button (`useTabs().openSingletonTab("plugins")`) used
+  by blocked sync rows, and the single SSH Terminal line `ProbeChecklist` adds when Coolify has tunnelled
+  servers (it reads the sync preview; scoped tokens get none). The tab opens the sync
   preview from `tab.data` `{ section: "sync", connectionId? }`; `section: "resources"` is for ticket #7.

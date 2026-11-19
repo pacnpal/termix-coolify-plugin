@@ -58,7 +58,7 @@ menu, or **Sync from Coolify** on a Linked host.
    - **No key to copy**: when the token can't read keys (it lacks `read:sensitive`) or an admin turned off
      **Allow copying Coolify SSH keys**, pick one of your Termix credentials for the server. Only your own credentials are accepted; a picked
      credential you no longer have blocks the server until you pick another.
-   - **Behind a Cloudflare tunnel**: tunnelled servers are listed but can't be synced yet.
+   - **Behind a Cloudflare tunnel**: see [Servers behind Cloudflare tunnels](#servers-behind-cloudflare-tunnels).
 3. With keys readable, each Coolify key is copied once into a Termix credential named
    **Coolify: <connection> / <key>** and shared by every server that uses it. It is reused on later syncs
    and replaced only when the key's fingerprint changes. Every copy is written to the audit log. The key is
@@ -79,6 +79,33 @@ Syncing and unlinking need **Configure Coolify** and only the connection's owner
 needs **View Coolify**. They are also actions: `coolify.sync-preview` (offered to the assistant and MCP),
 `coolify.sync-apply` (without a server list it syncs every server with its saved address and credential)
 and `coolify.unlink`.
+
+### Servers behind Cloudflare tunnels
+
+When Coolify reaches a server through a Cloudflare tunnel, its Linked host uses the **SSH Terminal**
+plugin's own Cloudflare tunnel, which then carries every SSH connection to that host: the terminal, files,
+Docker and this plugin. Sync sets:
+
+- the host address to the tunnel hostname (Coolify's address for the server), with Coolify's port and user;
+- SSH Terminal's tunnel settings on the host: tunnel on, the tunnel hostname, and port 443;
+- the connection's Cloudflare Access service token, when one is set, as SSH Terminal's service token ID and
+  secret. The token is written only into those host settings. It never appears in the preview, sync
+  results, run history, logs or the audit log.
+
+This needs **SSH Terminal 1.2.0 or newer**, turned on. Version 1.0.3 tunnelled only its own terminal tab.
+Until then a tunnelled server can't sync and says why, with an **Open Plugins** button that opens Termix's
+Plugins tab:
+
+- **Turn on the SSH Terminal plugin to reach servers behind Cloudflare tunnels**: SSH Terminal isn't
+  installed or is turned off. It is also shown when the plugin list can't be read, so a tunnelled host is
+  never made without a tunnel.
+- **Update SSH Terminal to 1.2.0 or newer; older versions tunnel only the terminal.**
+
+When you add a connection and Coolify has tunnelled servers, the setup checklist shows the same check once.
+
+A tunnelled Linked host's Coolify card says **Tunnel: through SSH Terminal (Cloudflare)** and has **Open
+tunnel settings**, which opens the host editor. SSH Terminal's tunnel fields there stay read only while the
+host is linked; unlink it to change them by hand.
 
 ## Permissions
 
