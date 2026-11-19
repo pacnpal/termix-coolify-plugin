@@ -512,6 +512,134 @@
             "assistant": false,
             "mcp": false
           }
+        },
+        {
+          "id": "coolify.companion-read",
+          "titleKey": "ops.companionRead.title",
+          "descriptionKey": "ops.companionRead.description",
+          "icon": "Puzzle",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "kind",
+              "type": "select",
+              "labelKey": "ops.fields.kind.label",
+              "descriptionKey": "ops.fields.kind.description",
+              "options": [
+                {
+                  "value": "companions",
+                  "labelKey": "ops.kinds.companions"
+                },
+                {
+                  "value": "uptime",
+                  "labelKey": "ops.kinds.uptime"
+                },
+                {
+                  "value": "log-search",
+                  "labelKey": "ops.kinds.logSearch"
+                },
+                {
+                  "value": "security",
+                  "labelKey": "ops.kinds.security"
+                },
+                {
+                  "value": "db-login",
+                  "labelKey": "ops.kinds.dbLogin"
+                },
+                {
+                  "value": "db-logins",
+                  "labelKey": "ops.kinds.dbLogins"
+                },
+                {
+                  "value": "backups-failed",
+                  "labelKey": "ops.kinds.backupsFailed"
+                },
+                {
+                  "value": "host-metrics",
+                  "labelKey": "ops.kinds.hostMetrics"
+                },
+                {
+                  "value": "dns-list",
+                  "labelKey": "ops.kinds.dnsList"
+                }
+              ],
+              "required": true
+            },
+            {
+              "key": "params",
+              "type": "json",
+              "labelKey": "ops.fields.params.label",
+              "descriptionKey": "ops.fields.params.readDescription"
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.companion",
+          "titleKey": "ops.companion.title",
+          "descriptionKey": "ops.companion.description",
+          "icon": "Puzzle",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "kind",
+              "type": "select",
+              "labelKey": "ops.fields.kind.label",
+              "descriptionKey": "ops.fields.kind.description",
+              "options": [
+                {
+                  "value": "dns",
+                  "labelKey": "ops.kinds.dns"
+                },
+                {
+                  "value": "dns-remove",
+                  "labelKey": "ops.kinds.dnsRemove"
+                },
+                {
+                  "value": "uptime-pause",
+                  "labelKey": "ops.kinds.uptimePause"
+                },
+                {
+                  "value": "uptime-resume",
+                  "labelKey": "ops.kinds.uptimeResume"
+                }
+              ],
+              "required": true
+            },
+            {
+              "key": "params",
+              "type": "json",
+              "labelKey": "ops.fields.params.label",
+              "descriptionKey": "ops.fields.params.changeDescription"
+            }
+          ],
+          "risk": "change",
+          "permission": "operate",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
         }
       ],
       "invokes": [

@@ -141,6 +141,15 @@
       "serverUuid": {
         "label": "Coolify server",
         "description": "The uuid of a Coolify server that has a Linked host."
+      },
+      "kind": {
+        "label": "What to do",
+        "description": "The companion feature to use. Each one needs its plugin installed."
+      },
+      "params": {
+        "label": "Details",
+        "readDescription": "A JSON object: uuid for a resource (uptime, log-search, db-login, dns-list) or serverUuid for a server (security, backups-failed, host-metrics, db-logins).",
+        "changeDescription": "A JSON object with uuid, the resource. For dns also fqdn and optional type (A, AAAA or CNAME) and content; for dns-remove, recordId."
       }
     },
     "listConnections": {
@@ -174,6 +183,29 @@
     "unlink": {
       "title": "Unlink a Coolify host",
       "description": "Releases the lock on a Linked host and makes it an ordinary host. The host is kept."
+    },
+    "companionRead": {
+      "title": "Read from a companion plugin",
+      "description": "Reads what a companion plugin knows about a Coolify resource or server: Uptime monitors, Log Search results, Security Center score, failed backups, saved database logins, and DNS records made here."
+    },
+    "companion": {
+      "title": "Use a companion plugin",
+      "description": "Creates or removes a DNS record for a resource's domain, or pauses and resumes its Uptime monitors."
+    },
+    "kinds": {
+      "companions": "Which companion plugins run",
+      "uptime": "Uptime monitors of a resource",
+      "logSearch": "Search a resource's logs across servers",
+      "security": "Security Center score of a server",
+      "dbLogin": "Saved logins for a database",
+      "dbLogins": "Saved logins for a server's databases",
+      "backupsFailed": "Failed backups on a server",
+      "hostMetrics": "Coolify resources on a server",
+      "dnsList": "DNS records made for a resource",
+      "dns": "Create a DNS record",
+      "dnsRemove": "Remove a DNS record made here",
+      "uptimePause": "Pause a resource's Uptime monitors",
+      "uptimeResume": "Resume a resource's Uptime monitors"
     }
   },
   "connections": {
