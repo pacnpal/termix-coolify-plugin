@@ -18,3 +18,12 @@
   keys, logs and instance settings, with a plain cause and fix when something fails
 - The Connections view and a "Connect Coolify" setup step
 - Actions to list, check, add, change and remove connections; token fields never appear in run history
+- An MCP endpoint at `/plugin-api/coolify/mcp` for Termix API keys scoped to `operations:read` or
+  `operations:run`: one tool per action plus `list_connections`, `list_hosts` and `list_resources`, run
+  through Termix's operations with approvals and history. Changes over MCP stay off until an admin turns on
+  "Allow changes over MCP"
+- MCP output masks tokens, passwords, keys, env values and compose files at any depth, and cuts long output
+  at 8,000 characters
+- "Use with an MCP client" in the Connections view, with the endpoint and a client config to copy
+- An API and MCP reference (`docs/api.md`) with every action's route, run path, key scope, MCP tool and a
+  `curl` example
