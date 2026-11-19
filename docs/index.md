@@ -113,10 +113,12 @@ see servers, so the section says so instead.
    and the others sync anyway:
    - **The server Coolify runs on** (Coolify calls it `host.docker.internal`, `localhost` or `127.x`): enter
      the address Termix should use. The connection's own host name is offered with one click. The address is
-     kept for later syncs. You can set an address for any server the same way.
+     kept for later syncs. Every server still in Coolify has the same **Address Termix uses** field, so
+     you can give any of them another address; leave it empty to use the one Coolify has.
    - **No key to copy**: when the token can't read keys (it lacks `read:sensitive`) or an admin turned off
-     **Allow copying Coolify SSH keys**, pick one of your Termix credentials for the server. Only your own credentials are accepted; a picked
-     credential you no longer have blocks the server until you pick another.
+     **Allow copying Coolify SSH keys**, pick one of your Termix credentials for the server. Only your own
+     credentials are accepted. A picked credential you no longer have blocks the server and shows the picker
+     again until you pick another; one that couldn't be checked can be picked again or tried as it is.
    - **Behind a Cloudflare tunnel**: tunnelled servers are listed but can't be synced yet.
 3. With keys readable, each Coolify key is copied once into a Termix credential named
    **Coolify: <connection> / <key>** and shared by every server that uses it. It is reused on later syncs
@@ -133,6 +135,10 @@ Coolify** and **Unlink**, which are also in the host's menu. **Unlink** makes th
 host and keeps it. If you delete a Linked host yourself, the plugin forgets the link but keeps its address
 and credential choice, so the next sync creates it again. Removing a connection unlinks its hosts, or
 deletes them when you ask it to.
+
+Syncs, unlinks and removing a connection run one at a time for each connection, so two people (or two
+tabs) syncing at once never make two hosts for one server. If a host was made but its link couldn't be
+saved, the host is deleted again rather than left locked.
 
 Syncing and unlinking need **Configure Coolify** and only the connection's owner can do them; the preview
 needs **View Coolify**. They are also actions: `coolify.sync-preview` (offered to the assistant and MCP),

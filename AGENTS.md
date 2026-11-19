@@ -143,7 +143,11 @@ aren't obvious from the code, and anything that has bitten you before.
 - Host sync: `src/backend/sync/` (`mapping.ts` pure `planHost`, `credentials.ts` key copy, `locks.ts`,
   `service.ts` `createSync`, `routes.ts`) and `src/backend/ops/sync.ts`. `createSync` is async (it loads the
   lock set from `servers.hostId` before providing locks) and is made right after `createConnections`, whose
-  `releaseLinkedHosts` hook calls `sync.releaseConnection`. Key material comes only from
+  `releaseLinkedHosts` hook calls `sync.releaseConnection`. `apply`, `unlink` and `releaseConnection`
+  run through `serialized(connectionId, ...)`, one queue per connection (`locks.ts` is the host lock
+  provider, not a mutex); the `host.deleted` handler stays outside it because `release()` deletes hosts
+  while holding it. A host `apply` created whose link row fails to save is unlocked and deleted
+  (`discardHost`). Key material comes only from
   `api.keyForCopy()` (not a DTO) and goes only to `ctx.credentials.createSshKey`; reuse is by fingerprint
   among the connection's `credentialMode = "coolify"` rows. `ssh-keys` from the SDK needs `ssh2`, which only
   Termix supplies, so it is imported lazily and only when Coolify sends no `public_key`. Tunnelled servers
@@ -158,4 +162,8 @@ aren't obvious from the code, and anything that has bitten you before.
   Servers section (`SyncView` for the selected connection, shown with `coolify.configure`); a connection's
   Sync servers row action calls `ConnectionsView`'s `onSync`, which selects it there. `CoolifyTab` reads
   `tab.data` `{ section, connectionId? }`: `"sync"` opens Servers (no id: the first connection the actor
-  owns with an unscoped token), and any section name opens that section on that connection.
+  owns with an unscoped token), and any section name opens that section on that connection. The request
+  is tracked by the `tab.data` object (the shell sets a new one on every opening), not by its values, so
+  the same action twice still applies. `SyncView` shows the address field on every row still in Coolify,
+  and the credential picker for `CREDENTIAL_CAUSES` (needs-credential, credential-not-found,
+  credential-check-failed).

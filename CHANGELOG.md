@@ -48,11 +48,15 @@
   until the key's fingerprint changes. Every copy is audited. When the token can't read keys, or an admin
   turned key copying off, you pick a Termix credential instead
 - The server Coolify runs on (`host.docker.internal`, `localhost` or `127.*`) waits for the address Termix
-  should use, while the other servers sync. Servers behind a Cloudflare tunnel are shown but not synced yet
+  should use, while the other servers sync. Any other server can be given its own address too. Servers
+  behind a Cloudflare tunnel are shown but not synced yet
+- A picked credential that was deleted, or couldn't be checked, shows the credential picker again
+- Syncs, unlinks and connection removals of one connection run one at a time, so overlapping syncs never
+  make two hosts for one server, and a host whose link can't be saved is removed instead of left locked
 - Linked hosts are read only while Coolify manages them, with a Coolify badge, a status dot, a Coolify card
   on the host page, and Resources, Sync and Unlink in their menu. Unlink makes a host ordinary again;
   deleting a Linked host keeps its address and credential choice for the next sync
 - "Import from Coolify" in the hosts import menu, and a Sync servers button on each connection, both
-  opening the Servers section
+  opening the Servers section, also when the tab is already open on another section
 - Actions `coolify.sync-preview`, `coolify.sync-apply` and `coolify.unlink`; only the preview is offered to
   the assistant and MCP
