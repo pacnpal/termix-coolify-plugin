@@ -534,13 +534,26 @@ Not used, deliberately:
 | Permission           | Allows                                                                                                             | Default roles |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------- |
 | `coolify.view`       | Open the plugin, read connections you own or were granted                                                          | admin, user   |
-| `coolify.operate`    | Lifecycle actions, deploys, tasks, backups, shells, logs                                                           | admin, user   |
+| `coolify.operate`    | Lifecycle actions, deploys, tasks, backups, Coolify API logs; also the role switch for SSH features (see below)    | admin, user   |
 | `coolify.configure`  | Edits, envs, creates, imports, keys, sources, storage, DNS, notifications                                          | admin, user   |
 | `coolify.administer` | Deletes, server create, delete and transfer, cloud provisioning, instance settings, MCP toggle, connection sharing | admin, user   |
 
-The effective right on a connection is the minimum of three things: the Termix permission, the grant
-level (or owner), and the Coolify token's ability, which is checked by Coolify itself and translated when it
-says no. Admins can tighten the defaults per role in Termix.
+There are two kinds of access, checked differently.
+
+- **Coolify API actions** (everything that calls Coolify's REST API, including logs read through Coolify's
+  `/logs` endpoints): the effective right is the minimum of three things. Those are the Termix
+  permission, the grant level (or owner), and the Coolify token's ability, which Coolify checks itself
+  and the plugin translates when it says no.
+- **SSH features** (container shells, database consoles, logs read with `docker logs` over SSH, live log
+  follow and stats): these need two things only. One is the Termix permission `coolify.operate`, the
+  admin's per-role switch for these features. The other is Termix host `connect` access on the linked
+  host. The connection grant level and the Coolify token's abilities don't apply, because SSH reaches the
+  server directly. Host access is given only through the separate, explicit server-access grant
+  described under Concepts.
+- In the Logs view, the source is labelled ("from Coolify" or "from the server over SSH"), so it's clear
+  which rule applied.
+
+Admins can tighten the defaults per role in Termix.
 
 ### Capabilities
 
