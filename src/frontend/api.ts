@@ -64,6 +64,11 @@ export interface ProbeAnswer {
   };
 }
 
+/** GET /mcp: where the plugin's MCP endpoint is. */
+export interface McpInfo {
+  endpoint: string;
+}
+
 /** What a failed call answers: a plain message and a cause the UI translates. */
 export interface ApiFailure {
   error: string;
@@ -103,6 +108,13 @@ export function createApi(api: PluginApiClient) {
     },
     async probeConnection(id: number): Promise<ProbeAnswer> {
       return (await api.post<ProbeAnswer>(`/connections/${id}/probe`)).data;
+    },
+    /** Only the endpoint: the panel writes its own snippet, with a placeholder key. */
+    async getMcpInfo(): Promise<McpInfo | null> {
+      const data = (await api.get<{ endpoint?: unknown }>("/mcp")).data;
+      return typeof data?.endpoint === "string"
+        ? { endpoint: data.endpoint }
+        : null;
     },
   };
 }

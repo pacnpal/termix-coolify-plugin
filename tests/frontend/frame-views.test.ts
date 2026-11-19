@@ -33,9 +33,18 @@ describe("sandboxed frame views", () => {
     const { refused, errors, rendered } = await checkFrameViews(plugin, {
       manifest: manifest as unknown as Record<string, unknown>,
       locales,
-      permissions: ["coolify.view", "coolify.configure"],
-      respond: (method, path) =>
-        method === "GET" && /\/connections$/.test(path) ? [connection] : {},
+      permissions: ["coolify.view", "coolify.configure", "coolify.mcp"],
+      respond: (method, path) => {
+        if (method === "GET" && /\/connections$/.test(path)) {
+          return [connection];
+        }
+        if (method === "GET" && /\/mcp$/.test(path)) {
+          return {
+            endpoint: "https://termix.example.test/plugin-api/coolify/mcp",
+          };
+        }
+        return {};
+      },
     });
     expect(refused).toEqual([]);
     expect(errors).toEqual([]);

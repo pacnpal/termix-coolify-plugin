@@ -29,6 +29,7 @@ import {
   describeFailure,
   useConnectionForm,
 } from "./ConnectionForm";
+import { McpPanel } from "./McpPanel";
 
 function ConnectionEditor({
   api,
@@ -97,6 +98,7 @@ export function ConnectionsView() {
   const api = useMemo(() => createApi(client), [client]);
   const confirm = useConfirm();
   const canConfigure = usePermission("configure");
+  const canUseMcp = usePermission("mcp");
   const [rows, setRows] = useState<Connection[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -257,6 +259,7 @@ export function ConnectionsView() {
           ))}
         </PanelList>
       )}
+      {canUseMcp && <McpPanel api={api} />}
       {editing !== null && (
         <ConnectionEditor
           api={api}

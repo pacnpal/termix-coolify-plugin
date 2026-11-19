@@ -77,6 +77,19 @@
       "params": {
         "id": "coolify.connection"
       }
+    },
+    "POST /plugin-api/coolify/mcp": {
+      "access": "user",
+      "permission": "coolify.mcp",
+      "body": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "ping"
+      }
+    },
+    "GET /plugin-api/coolify/mcp": {
+      "access": "user",
+      "permission": "coolify.mcp"
     }
   }
 }
