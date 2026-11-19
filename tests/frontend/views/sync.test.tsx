@@ -251,3 +251,70 @@ describe("sync view", () => {
     ).toBeTruthy();
   });
 });
+
+describe("the Servers section", () => {
+  async function openTab(
+    data: Record<string, unknown>,
+    api = stubApi(),
+    permissions = ALL,
+  ) {
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions,
+    });
+    const tab = rendered.renderTab("coolify", {
+      tab: { id: "t1", type: "coolify", label: "Coolify", data },
+    });
+    return { api, tab };
+  }
+
+  it("Sync servers on a connection opens the Servers section on it", async () => {
+    const { tab } = await openTab({});
+    fireEvent.click(
+      await within(tab).findByRole("button", { name: locales.nav.connections }),
+    );
+    fireEvent.click(
+      await within(tab).findByRole("button", {
+        name: locales.connections.actions.sync,
+      }),
+    );
+    expect(await within(tab).findByText("web-1")).toBeTruthy();
+    expect(
+      within(tab).getByText(S.title.replace("{{name}}", connection.name)),
+    ).toBeTruthy();
+  });
+
+  it("the import menu, with no connection id, syncs the one connection", async () => {
+    const { tab } = await openTab({ section: "sync" });
+    expect(await within(tab).findByText("web-1")).toBeTruthy();
+  });
+
+  it("a scoped token's Servers section says why it can't sync", async () => {
+    const api = stubApi();
+    const scoped = { ...connection, scoped: true };
+    api.get.mockImplementation(async (url: string) => ({
+      data: url === "/connections" ? [scoped] : scoped,
+    }));
+    const { tab } = await openTab({ section: "sync", connectionId: 1 }, api);
+    expect(await within(tab).findByText(S.scopedToken)).toBeTruthy();
+    expect(api.get).not.toHaveBeenCalledWith("/connections/1/servers");
+  });
+
+  it("without configure there is no Servers section and no Sync action", async () => {
+    const { tab } = await openTab({}, stubApi(), ["coolify.view"]);
+    fireEvent.click(
+      await within(tab).findByRole("button", { name: locales.nav.connections }),
+    );
+    await within(tab).findByText(connection.name);
+    expect(
+      within(tab).queryByRole("button", { name: locales.nav.servers }),
+    ).toBeNull();
+    expect(
+      within(tab).queryByRole("button", {
+        name: locales.connections.actions.sync,
+      }),
+    ).toBeNull();
+  });
+});
