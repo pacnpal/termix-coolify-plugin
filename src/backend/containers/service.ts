@@ -126,6 +126,11 @@ export function readShellRequest(body: unknown): ShellRequest {
 
 /** coolify.exec output, stdout and stderr together, is cut at this many bytes. */
 export const EXEC_MAX_OUTPUT = 64 * 1024;
+/**
+ * Each stream is cut to this many bytes before it is redacted: 64 KB plus a
+ * margin, so the redactor's input is always bounded.
+ */
+export const EXEC_RAW_CAP = 128 * 1024;
 /** The longest coolify.exec may run, in seconds. */
 export const EXEC_MAX_TIMEOUT_SEC = 120;
 export const EXEC_DEFAULT_TIMEOUT_SEC = 30;
@@ -497,16 +502,22 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
           run(hostId, `${dockerPrefix(sudo)} exec -i ${container} sh -s`, {
             stdin: request.command,
             timeoutMs: request.timeoutSec * 1000,
-            maxOutputBytes: EXEC_MAX_OUTPUT,
+            maxOutputBytes: EXEC_RAW_CAP,
           }),
         );
       } catch (err) {
         await audit({ hostId, container }, details, false);
         throw err;
       }
-      // Redacted before the cut, so a cut can't split a secret out of its name.
-      const fullOut = redactText(result.stdout ?? "");
-      const fullErr = redactText(result.stderr ?? "");
+      // Bound each stream first, whatever SSH handed back, so the redactor
+      // never sees more than EXEC_RAW_CAP. Then redact, then cut to 64 KB:
+      // the margin keeps a secret near the 64 KB line whole for the redactor.
+      const rawOut = result.stdout ?? "";
+      const rawErr = result.stderr ?? "";
+      const cappedOut = cutBytes(rawOut, EXEC_RAW_CAP);
+      const cappedErr = cutBytes(rawErr, EXEC_RAW_CAP);
+      const fullOut = redactText(cappedOut);
+      const fullErr = redactText(cappedErr);
       const stdout = cutBytes(fullOut, EXEC_MAX_OUTPUT);
       const stderr = cutBytes(
         fullErr,
@@ -514,6 +525,8 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
       );
       const truncated =
         result.truncated === true ||
+        cappedOut.length < rawOut.length ||
+        cappedErr.length < rawErr.length ||
         stdout.length < fullOut.length ||
         stderr.length < fullErr.length;
       await audit(

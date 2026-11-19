@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { REDACTED_VALUE } from "@termix-ssh/plugin-sdk/operations";
-import { redact } from "../../src/backend/redact.js";
+import { redact, redactText } from "../../src/backend/redact.js";
 
 const FAKES = [
   "fake-token-redact",
@@ -101,5 +101,62 @@ describe("redact", () => {
     expect(redact("plain")).toBe("plain");
     expect(redact(3)).toBe(3);
     expect(redact(null)).toBeNull();
+  });
+});
+
+describe("redactText", () => {
+  it("masks secret-looking names, JSON pairs and private key blocks", () => {
+    const out = redactText(
+      [
+        "PATH=/usr/bin",
+        "  export API_TOKEN = fake-token-text",
+        "DB_PASSWORD: fake-pass-text",
+        '{"client_secret": "fake-json-text", "name": "web"}',
+        "-----BEGIN RSA PRIVATE KEY-----",
+        "fake-key-body-text",
+        "-----END RSA PRIVATE KEY-----",
+        "after",
+      ].join("\n"),
+    );
+    for (const fake of [
+      "fake-token-text",
+      "fake-pass-text",
+      "fake-json-text",
+      "fake-key-body-text",
+    ]) {
+      expect(out).not.toContain(fake);
+    }
+    expect(out).toContain("PATH=/usr/bin");
+    expect(out).toContain(`API_TOKEN = ${REDACTED_VALUE}`);
+    expect(out).toContain('"name": "web"');
+    expect(out).toContain("-----END RSA PRIVATE KEY-----\nafter");
+  });
+
+  it("masks a private key block whose END was cut off", () => {
+    const out = redactText(
+      "ok\n-----BEGIN OPENSSH PRIVATE KEY-----\nfake-cut-key-body\nmore",
+    );
+    expect(out).not.toContain("fake-cut-key-body");
+    expect(out).not.toContain("more");
+    expect(out.startsWith("ok\n")).toBe(true);
+  });
+
+  it("redactText stays linear on 1 MB of whitespace and blank lines", () => {
+    const MB = 1024 * 1024;
+    const inputs = [
+      " \t \n\n\n".repeat(MB / 6),
+      `A${" ".repeat(MB)}`,
+      `${" ".repeat(MB / 2)}\n${"\n".repeat(MB / 2)}x=`,
+      `${" \n".repeat(MB / 2)}=`,
+      `export ${"\t".repeat(MB)}`,
+      `"a": ${" ".repeat(MB)}`,
+      `"${"a".repeat(MB)}`,
+      "-----BEGIN ".repeat(MB / 11),
+    ];
+    for (const input of inputs) {
+      const started = performance.now();
+      redactText(input);
+      expect(performance.now() - started).toBeLessThan(200);
+    }
   });
 });

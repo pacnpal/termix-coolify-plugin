@@ -133,7 +133,7 @@ Grant doesn't give it) and a confirm (`"confirmed": true`). Over the plugin's MC
 
 The command goes to `sh -s` on standard input (`docker exec -i <container> sh -s`), so it is never pasted
 into another command line. The data is `{ hostId, container, exitCode, timedOut, truncated, stdout, stderr }`,
-or `{ choices }` when several containers match. Output is cut at 64 KB (stdout and stderr together) with
+or `{ choices }` when several containers match. Each stream is read up to 128 KB and masked, then output is cut at 64 KB (stdout and stderr together) with
 `truncated: true`. Values of secret-looking names (`POSTGRES_PASSWORD=…`, `"client_secret": "…"`) and private
 key blocks are masked. Each run is written to the audit log with the command's length, never its text.
 `command` is a Termix `secret` input, because commands often carry credentials (`PGPASSWORD=… psql`), so

@@ -257,7 +257,7 @@ describe("coolify.exec", () => {
     ).toBeLessThanOrEqual(64 * 1024);
     expect(data.stdout).toBe("a".repeat(64 * 1024));
     expect(data.truncated).toBe(true);
-    expect(execCalls(docker)[0].options?.maxOutputBytes).toBe(64 * 1024);
+    expect(execCalls(docker)[0].options?.maxOutputBytes).toBe(128 * 1024);
   });
 
   it("command is passed quoted or on stdin, never interpolated", async () => {
