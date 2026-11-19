@@ -26,6 +26,12 @@ export interface ResourceList {
   fetchedAt: number;
 }
 
+/** The cached value: the rows and the connection revision they came from. */
+interface CachedRows {
+  revision: string;
+  rows: ResourceDto[];
+}
+
 const notFound = () =>
   new ConnectionError("not-found", "Coolify connection not found");
 
@@ -34,19 +40,28 @@ const notFound = () =>
  * databases as one list of stripped DTOs, read from Coolify's per-type lists
  * and never from the heavy `/resources`. Every call checks the actor's access
  * to the connection first, so another user's connection is a 404 even when
- * the cache holds its rows.
+ * the cache holds its rows. The cache and the in-flight fetches are keyed by
+ * the connection's revision, so a changed address, token or TLS setting never
+ * serves rows read with the old one.
  */
 export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
   const cache = createCache(ctx, deps.tables);
   const now = deps.now ?? Date.now;
-  // One fetch per connection at a time; callers that miss together share it.
-  const inflight = new Map<number, Promise<ResourceList>>();
+  // One fetch per connection revision at a time; callers that miss together
+  // share it, and a caller after a change never joins a fetch from before it.
+  const inflight = new Map<string, Promise<ResourceList>>();
 
-  async function reach(connectionId: number): Promise<void> {
-    if (!(await deps.connections.access(connectionId))) throw notFound();
+  /** The connection's current revision, or a 404. */
+  async function reach(connectionId: number): Promise<string> {
+    const revision = await deps.connections.revision(connectionId);
+    if (!revision) throw notFound();
+    return revision;
   }
 
-  async function fetchList(connectionId: number): Promise<ResourceList> {
+  async function fetchList(
+    connectionId: number,
+    revision: string,
+  ): Promise<ResourceList> {
     const api = await deps.connections.api(connectionId);
     const [applications, services, databases] = await Promise.all([
       api.applications(),
@@ -57,12 +72,19 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
       rows: [...applications, ...services, ...databases],
       fetchedAt: now(),
     };
-    await cache.write(
-      connectionId,
-      RESOURCES_CACHE_KIND,
-      list.rows,
-      list.fetchedAt,
-    );
+    // Cached only while the connection still has the revision the fetch
+    // started under. The rows carry it too, so a change that lands after
+    // this check still never serves them.
+    const current = await deps.connections.revision(connectionId);
+    if (current === revision) {
+      const value: CachedRows = { revision, rows: list.rows };
+      await cache.write(
+        connectionId,
+        RESOURCES_CACHE_KIND,
+        value,
+        list.fetchedAt,
+      );
+    }
     return list;
   }
 
@@ -70,24 +92,25 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
     connectionId: number,
     opts: { refresh?: boolean } = {},
   ): Promise<ResourceList> {
-    await reach(connectionId);
+    const revision = await reach(connectionId);
     if (!opts.refresh) {
-      const hit = await cache.fresh<ResourceDto[]>(
+      const hit = await cache.fresh<Partial<CachedRows>>(
         connectionId,
         RESOURCES_CACHE_KIND,
         RESOURCE_TTL_MS,
         now(),
       );
-      if (hit && Array.isArray(hit.value)) {
-        return { rows: hit.value, fetchedAt: hit.fetchedAt };
+      if (hit?.value?.revision === revision && Array.isArray(hit.value.rows)) {
+        return { rows: hit.value.rows, fetchedAt: hit.fetchedAt };
       }
     }
-    const pending = inflight.get(connectionId);
+    const key = `${connectionId}:${revision}`;
+    const pending = inflight.get(key);
     if (pending) return pending;
-    const started = fetchList(connectionId).finally(() =>
-      inflight.delete(connectionId),
+    const started = fetchList(connectionId, revision).finally(() =>
+      inflight.delete(key),
     );
-    inflight.set(connectionId, started);
+    inflight.set(key, started);
     return started;
   }
 

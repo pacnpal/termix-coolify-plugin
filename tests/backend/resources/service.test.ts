@@ -50,6 +50,31 @@ let resources: Resources;
 let clock: number;
 let connectionId: number;
 
+const NEW_TOKEN = "fake-token-resources-new";
+
+/** A narrower token's view: one application the old token's list lacks. */
+const NARROWER = {
+  json: [{ id: 99, uuid: "app-only-uuid", name: "only", status: "running" }],
+};
+
+let gate: { reached: () => void; released: Promise<void> } | null = null;
+
+/** Holds the next `/applications` read until `release` is called. */
+function holdNextApplications() {
+  let reached = () => {};
+  let release = () => {};
+  const atFetch = new Promise<void>((resolve) => (reached = resolve));
+  const released = new Promise<void>((resolve) => (release = resolve));
+  gate = { reached, released };
+  return { atFetch, release };
+}
+
+function authorizations(): (string | null)[] {
+  return listCalls().map((c) =>
+    new Headers(c.init?.headers as Record<string, string>).get("authorization"),
+  );
+}
+
 function listCalls() {
   return fake.calls.filter((c) =>
     ["/applications", "/services", "/databases", "/resources"].includes(c.path),
@@ -70,7 +95,15 @@ beforeEach(async () => {
     sandbox: true,
     capabilities: manifest.capabilities,
     db: db.database,
-    fetch: (url, init) => fake.fetch(url, init),
+    fetch: async (url, init) => {
+      const held = gate;
+      if (held && new URL(url).pathname.endsWith("/applications")) {
+        gate = null;
+        held.reached();
+        await held.released;
+      }
+      return fake.fetch(url, init);
+    },
     actor: "user-1",
   });
   const tables = await defineTables(mock.ctx);
@@ -91,7 +124,10 @@ beforeEach(async () => {
   fake.calls.length = 0;
 });
 
-afterEach(() => db.close());
+afterEach(() => {
+  gate = null;
+  db.close();
+});
 
 describe("resource service", () => {
   it("merges apps, services with parts, and databases", async () => {
@@ -203,6 +239,40 @@ describe("resource service", () => {
     await resources.invalidate(connectionId);
     await resources.list(connectionId);
     expect(listCalls()).toHaveLength(6);
+  });
+
+  it("a token change stops serving resources cached under the old token", async () => {
+    await resources.list(connectionId);
+    await connections.update(connectionId, { token: NEW_TOKEN });
+    fake.set("GET /applications", NARROWER);
+    fake.calls.length = 0;
+    const uuids = (await resources.list(connectionId)).map((r) => r.uuid);
+    expect(uuids).toContain("app-only-uuid");
+    expect(uuids).not.toContain("app-web-uuid");
+    expect(authorizations().length).toBeGreaterThan(0);
+    for (const auth of authorizations()) {
+      expect(auth).toBe(`Bearer ${NEW_TOKEN}`);
+    }
+  });
+
+  it("a fetch in flight during a token change does not repopulate the cache", async () => {
+    const hold = holdNextApplications();
+    const stale = resources.list(connectionId);
+    await hold.atFetch;
+    await connections.update(connectionId, { token: NEW_TOKEN });
+    fake.set("GET /applications", NARROWER);
+    // A caller after the change gets its own fetch, not the old one.
+    const fresh = (await resources.list(connectionId)).map((r) => r.uuid);
+    expect(fresh).toContain("app-only-uuid");
+    hold.release();
+    await stale;
+    fake.calls.length = 0;
+    const uuids = (await resources.list(connectionId)).map((r) => r.uuid);
+    expect(uuids).toContain("app-only-uuid");
+    expect(uuids).not.toContain("app-web-uuid");
+    for (const auth of authorizations()) {
+      expect(auth).toBe(`Bearer ${NEW_TOKEN}`);
+    }
   });
 
   it("other user 404", async () => {

@@ -117,12 +117,15 @@ aren't obvious from the code, and anything that has bitten you before.
 - Resources: `src/backend/resources/` (service, routes) and `src/backend/ops/resources.ts`. The service
   merges `/applications`, `/services` (each service followed by its Parts) and `/databases`, never
   `/resources`, and caches the merged DTO list in the `cache` table (kind `resources`, 20 seconds) through
-  `src/backend/cache.ts`. It checks `connections.access()` before reading the cache, so another user never
-  gets a cached row. Concurrent misses share one fetch. `invalidate(connectionId)` is the hook for lifecycle
-  actions. `ResourceDto.serverName` comes from `server.name` or `destination.server.name` in the payload.
+  `src/backend/cache.ts`. Every read first asks `connections.revision(id)`, which checks access (so another
+  user never gets a cached row) and answers a hash of the address, sealed token, sealed Cloudflare Access
+  values and TLS settings. The cached rows carry that revision and in-flight fetches are keyed by it, so a
+  changed target never serves old rows, a caller after a change never joins an older fetch, and a fetch
+  that finishes after a change is not cached. Concurrent misses share one fetch. `invalidate(connectionId)`
+  is the hook for lifecycle actions. `ResourceDto.serverName` comes from `server.name` or `destination.server.name` in the payload.
   The MCP tool `list_resources` (`src/backend/mcp/server.ts`) runs `coolify.list-resources-all`.
 - Status words: `src/shared/resource-health.ts` (`resourceHealth`, `countResources`) is the one reading of a
-  Coolify status, imported by both the backend and the frontend. Exited and unhealthy are degraded; Parts
+  Coolify status, imported by both the backend and the frontend. Exited is stopped; unhealthy is degraded; Parts
   aren't counted (their service's status covers them).
 - Frontend: `src/frontend/views/CoolifyTab.tsx` owns the SideNav, the selected connection and the shared
   resource list (`useResources`). `ResourceDetail.tsx` lists its views in `DETAIL_TABS`; later views (shell,

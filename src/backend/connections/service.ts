@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { trimTrailing } from "../text.js";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
@@ -537,15 +538,20 @@ export function createConnections(
   }
 
   /** One client per connection, so the request budget is shared. */
-  async function cachedClient(found: ConnectionRow) {
-    const key = JSON.stringify([
+  /** Everything that decides where calls go and with which credentials. */
+  function targetKey(found: ConnectionRow): string {
+    return JSON.stringify([
       found.baseUrl,
       found.tokenSealed,
       found.cfAccessIdSealed,
       found.cfAccessSecretSealed,
-      found.allowPrivate,
+      found.allowPrivate === true,
       found.caCert,
     ]);
+  }
+
+  async function cachedClient(found: ConnectionRow) {
+    const key = targetKey(found);
     const hit = clients.get(found.id);
     if (hit && hit.key === key) return hit;
     const made = { key, ...clientFor(await targetOf(found)) };
@@ -842,6 +848,17 @@ export function createConnections(
     /** The unsealed target. Only for calling Coolify; never return or log it. */
     async target(id: number): Promise<CoolifyTarget> {
       return targetOf((await reach(id)).row);
+    },
+
+    /**
+     * A hash of the connection's target: its address, sealed token, sealed
+     * Cloudflare Access values and TLS settings. It changes whenever any of
+     * them does, and holds no secret. Null when the actor can't reach it.
+     */
+    async revision(id: number): Promise<string | null> {
+      const found = await row(id);
+      if (!found || !(await accessTo(found, actor()))) return null;
+      return createHash("sha256").update(targetKey(found)).digest("hex");
     },
 
     async api(id: number): Promise<CoolifyApi> {
