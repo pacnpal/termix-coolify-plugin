@@ -110,7 +110,7 @@ export function registerSyncRoutes(
    *       400:
    *         description: Invalid choices
    *       403:
-   *         description: Missing coolify.configure, or not the owner
+   *         description: Missing coolify.view or coolify.configure, or not the owner
    *       404:
    *         description: No such connection, or another user's
    *       502:
@@ -162,7 +162,7 @@ export function registerSyncRoutes(
    *       200:
    *         description: The host id and whether it was deleted
    *       403:
-   *         description: Missing coolify.configure, or not the owner
+   *         description: Missing coolify.view or coolify.configure, or not the owner
    *       404:
    *         description: No such connection, or the server has no Linked host
    */

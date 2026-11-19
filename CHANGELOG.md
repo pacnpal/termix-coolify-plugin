@@ -13,12 +13,35 @@
 - The plugin's tables (connections, grants, webhooks, servers, cache, events, onboardings, status pages, DNS
   records and recent items) with migrations for SQLite, PostgreSQL and MySQL
 - Connect Coolify instances: name, URL and API token, with an optional Cloudflare Access service token,
-  local network address and CA certificate. The token is stored encrypted and never shown again
+  local network address and CA certificate. The token is stored encrypted and never shown again. The
+  address must use https, except plain http to localhost, or to a private IP address with "On my local
+  network" on (the token then travels in the clear on that network)
 - A check of each connection: Coolify 4.4 or newer, the team, scoped tokens, and whether the token can read
   keys, logs and instance settings, with a plain cause and fix when something fails
 - The Connections view and a "Connect Coolify" setup step
 - Actions to list, check, add, change and remove connections; token fields never appear in run history
-- Sync servers: each Coolify server becomes a Linked host in a "Coolify" folder (or "Coolify / <connection>"
+- An MCP endpoint at `/plugin-api/coolify/mcp` for Termix API keys scoped to `operations:read` or
+  `operations:run`: one tool per action plus `list_connections`, `list_hosts` and `list_resources`, run
+  through Termix's operations with approvals and history. Changes over MCP stay off until an admin turns on
+  "Allow changes over MCP"
+- MCP output masks tokens, passwords, keys, env values and compose files at any depth, and cuts long output
+  at 8,000 characters
+- "Use with an MCP client" in the Connections view, with the endpoint and a client config to copy
+- An API and MCP reference (`docs/api.md`) with every action's route, run path, key scope, MCP tool and a
+  `curl` example
+- The Coolify tab's Overview, Resources and Connections sections. Overview counts running, degraded, stopped
+  and deploying resources; a tile opens the Resources list filtered to it
+- A resource Coolify reports as exited counts as stopped, not degraded, since that is how Coolify reports
+  one you stopped yourself
+- The Resources list: every application, service and database of a connection, with each service's parts
+  under it, its status, Coolify server, project and environment, domains and last deploy. Search and filter
+  by type and status. A resource opens its Overview in place
+- Resources come from Coolify's per-type lists without environment values, keys, tokens or compose files,
+  and statuses are cached for 20 seconds; Refresh fetches them again
+- Actions to list a connection's resources and read one (`coolify.list-resources-all`,
+  `coolify.resource-get`), offered to the assistant and MCP; the MCP tool `list_resources` runs the first
+- The Coolify tab in the Termix phone app, with a phone layout for the Resources list
+- Sync servers, in the Coolify tab's Servers section: each Coolify server becomes a Linked host in a "Coolify" folder (or "Coolify / <connection>"
   with several connections), tagged `coolify`, with a note linking back to Coolify. A preview shows every
   server first; re-sync updates hosts in place, and servers gone from Coolify are flagged, never deleted
 - Each Coolify SSH key is copied once into a Termix credential named "Coolify: <connection> / <key>", reused
@@ -29,6 +52,7 @@
 - Linked hosts are read only while Coolify manages them, with a Coolify badge, a status dot, a Coolify card
   on the host page, and Resources, Sync and Unlink in their menu. Unlink makes a host ordinary again;
   deleting a Linked host keeps its address and credential choice for the next sync
-- "Import from Coolify" in the hosts import menu, and a Sync servers button on each connection
+- "Import from Coolify" in the hosts import menu, and a Sync servers button on each connection, both
+  opening the Servers section
 - Actions `coolify.sync-preview`, `coolify.sync-apply` and `coolify.unlink`; only the preview is offered to
   the assistant and MCP

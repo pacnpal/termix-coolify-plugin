@@ -17,6 +17,11 @@ export interface Abilities {
   sensitive: boolean;
   /** Private keys are readable (needs an unscoped token with read:sensitive). */
   keys: boolean;
+  /**
+   * Not probed: no read-only call shows the `root` ability (instance
+   * settings answer any root-team admin's token), so it stays false and a
+   * root-only action is checked on first use.
+   */
   root: boolean;
   /** Coolify's own MCP endpoint answers (set by the MCP client, later). */
   mcp: boolean;
@@ -26,6 +31,11 @@ export interface ProbeStep {
   id: string;
   ok: boolean;
   cause?: CoolifyCause;
+  /**
+   * The check could not run: the token sees nothing to try it on. The
+   * ability is then unknown, not missing, though the summary keeps it false.
+   */
+  skipped?: "nothing-to-probe";
 }
 
 export interface ProbeResult {
@@ -131,10 +141,12 @@ export async function runProbe(
   } else {
     try {
       const [first] = await api.keys();
-      result.abilities.keys = first
-        ? (await api.key(first.uuid)).privateKeyReadable
-        : false;
-      steps.push({ id: "keys", ok: result.abilities.keys });
+      if (first) {
+        result.abilities.keys = (await api.key(first.uuid)).privateKeyReadable;
+        steps.push({ id: "keys", ok: result.abilities.keys });
+      } else {
+        steps.push({ id: "keys", ok: false, skipped: "nothing-to-probe" });
+      }
     } catch (err) {
       fail("keys", causeOf(err));
     }
@@ -144,36 +156,56 @@ export async function runProbe(
   try {
     const target = await firstResource(api);
     if (target) {
-      await api.logs(target.kind, target.uuid, { lines: 1 });
+      await api.logs(target.kind, target.uuid, {
+        lines: 1,
+        parentUuid: target.parentUuid,
+      });
       logsReadable = true;
+      steps.push({ id: "logs", ok: true });
+    } else {
+      steps.push({ id: "logs", ok: false, skipped: "nothing-to-probe" });
     }
-    steps.push({ id: "logs", ok: logsReadable });
   } catch (err) {
     fail("logs", causeOf(err));
   }
-  // Key material and logs both need read:sensitive (or root).
+  // Key material and logs both need read:sensitive (or root). Nothing else
+  // the probe reads proves either ability.
   result.abilities.sensitive = logsReadable || result.abilities.keys;
 
+  // Instance settings answer any root-team admin's token, so this is its own
+  // step and sets no ability.
   if (result.scoped) {
-    fail("root", "forbidden-ability");
+    fail("settings", "forbidden-ability");
   } else {
     try {
-      result.abilities.root = await api.rootCheck();
-      steps.push({ id: "root", ok: true });
+      await api.instanceSettingsCheck();
+      steps.push({ id: "settings", ok: true });
     } catch (err) {
-      fail("root", causeOf(err));
+      fail("settings", causeOf(err));
     }
   }
-  if (result.abilities.root) result.abilities.sensitive = true;
   return result;
 }
 
+/**
+ * One resource whose logs the token can be asked for: an application, a
+ * database, or else a service part (a token may see only compose services).
+ */
 async function firstResource(
   api: CoolifyApi,
-): Promise<{ kind: ResourceKind; uuid: string } | null> {
+): Promise<{ kind: ResourceKind; uuid: string; parentUuid?: string } | null> {
   const [app] = await api.applications();
   if (app) return { kind: "application", uuid: app.uuid };
   const [db] = await api.databases();
   if (db) return { kind: "database", uuid: db.uuid };
+  for (const part of await api.services()) {
+    if (
+      (part.kind === "service-application" ||
+        part.kind === "service-database") &&
+      part.parentUuid
+    ) {
+      return { kind: part.kind, uuid: part.uuid, parentUuid: part.parentUuid };
+    }
+  }
   return null;
 }

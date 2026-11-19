@@ -408,6 +408,65 @@
           }
         },
         {
+          "id": "coolify.list-resources-all",
+          "titleKey": "ops.listResourcesAll.title",
+          "descriptionKey": "ops.listResourcesAll.description",
+          "icon": "Boxes",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "serverUuid",
+              "type": "string",
+              "labelKey": "ops.fields.serverUuid.label",
+              "descriptionKey": "ops.fields.serverUuid.description"
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.resource-get",
+          "titleKey": "ops.resourceGet.title",
+          "descriptionKey": "ops.resourceGet.description",
+          "icon": "Box",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.uuid.label",
+              "descriptionKey": "ops.fields.uuid.description",
+              "required": true
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
           "id": "coolify.sync-preview",
           "titleKey": "ops.syncPreview.title",
           "descriptionKey": "ops.syncPreview.description",
@@ -478,8 +537,8 @@
             {
               "key": "serverUuid",
               "type": "string",
-              "labelKey": "ops.fields.serverUuid.label",
-              "descriptionKey": "ops.fields.serverUuid.description",
+              "labelKey": "ops.fields.linkedServerUuid.label",
+              "descriptionKey": "ops.fields.linkedServerUuid.description",
               "pattern": "[A-Za-z0-9_-]{1,64}",
               "required": true
             }
@@ -492,6 +551,10 @@
           }
         }
       ]
+    },
+    "mobile": {
+      "mode": "webview",
+      "views": ["coolify"]
     }
   },
   "locales": "locales",

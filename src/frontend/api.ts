@@ -1,4 +1,5 @@
 import type { PluginApiClient } from "@termix-ssh/plugin-sdk/frontend";
+import { countResources, type ResourceCounts } from "../shared/resource-health";
 
 export interface Abilities {
   read: boolean;
@@ -12,6 +13,8 @@ export interface ProbeStep {
   id: string;
   ok: boolean;
   cause?: string;
+  /** Set when the check had nothing to try: the ability is unknown. */
+  skipped?: "nothing-to-probe";
 }
 
 /** A connection as the backend returns it. It never carries a token. */
@@ -31,6 +34,8 @@ export interface Connection {
   cfAccess: boolean;
   lastCheckedAt: string | null;
   steps: ProbeStep[];
+  /** Changes when the connection's address, token or TLS settings change. */
+  revision: string;
 }
 
 export interface ConnectionInput {
@@ -43,7 +48,12 @@ export interface ConnectionInput {
   caCert?: string | null;
 }
 
-export type ConnectionPatch = Partial<ConnectionInput> & {
+/** null for both Cloudflare Access values clears them, as the backend allows. */
+export type ConnectionPatch = Partial<
+  Omit<ConnectionInput, "cfAccessId" | "cfAccessSecret">
+> & {
+  cfAccessId?: string | null;
+  cfAccessSecret?: string | null;
   autoSync?: boolean;
 };
 
@@ -55,6 +65,43 @@ export interface ProbeAnswer {
     scoped: boolean;
     steps: ProbeStep[];
   };
+}
+
+export type ResourceKind =
+  | "application"
+  | "service"
+  | "database"
+  | "service-application"
+  | "service-database";
+
+/** A resource or service Part as the backend returns it, without secrets. */
+export interface Resource {
+  uuid: string;
+  id: number | null;
+  name: string;
+  kind: ResourceKind;
+  /** Coolify's own status, like "running:healthy". */
+  status: string;
+  serverUuid: string | null;
+  serverName: string | null;
+  projectName: string | null;
+  environmentName: string | null;
+  fqdns: string[];
+  /** Set on a service Part: its service's uuid. */
+  parentUuid: string | null;
+  engine: string | null;
+  lastDeployAt: string | null;
+}
+
+export interface ResourceList {
+  rows: Resource[];
+  counts: ResourceCounts;
+  fetchedAt: string | null;
+}
+
+/** GET /mcp: where the plugin's MCP endpoint is. */
+export interface McpInfo {
+  endpoint: string;
 }
 
 /** A Coolify server as host sync shows it. Never carries a key. */
@@ -138,6 +185,38 @@ export function createApi(api: PluginApiClient) {
     },
     async probeConnection(id: number): Promise<ProbeAnswer> {
       return (await api.post<ProbeAnswer>(`/connections/${id}/probe`)).data;
+    },
+    /** Served from a 20 second cache unless refresh is set. */
+    async listResources(
+      id: number,
+      opts: { refresh?: boolean } = {},
+    ): Promise<ResourceList> {
+      const query = opts.refresh ? "?refresh=true" : "";
+      const data = (
+        await api.get<Partial<ResourceList>>(
+          `/connections/${id}/resources${query}`,
+        )
+      ).data;
+      const rows = Array.isArray(data?.rows) ? data.rows : [];
+      return {
+        rows,
+        counts: countResources(rows),
+        fetchedAt: typeof data?.fetchedAt === "string" ? data.fetchedAt : null,
+      };
+    },
+    async getResource(id: number, uuid: string): Promise<Resource> {
+      return (
+        await api.get<Resource>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}`,
+        )
+      ).data;
+    },
+    /** Only the endpoint: the panel writes its own snippet, with a placeholder key. */
+    async getMcpInfo(): Promise<McpInfo | null> {
+      const data = (await api.get<{ endpoint?: unknown }>("/mcp")).data;
+      return typeof data?.endpoint === "string"
+        ? { endpoint: data.endpoint }
+        : null;
     },
     async syncPreview(id: number): Promise<SyncRow[]> {
       const rows = (await api.get<SyncRow[]>(`/connections/${id}/servers`))
