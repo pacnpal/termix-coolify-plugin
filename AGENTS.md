@@ -167,16 +167,19 @@ aren't obvious from the code, and anything that has bitten you before.
   updates merge the keys they are given and keep the rest, so `planHost` never leaves a key it once wrote
   out. `servers.tunnelApplied` (migration 0002) records that sync wrote tunnel settings on the row's
   current host: set by every tunnelled write, cleared only by the write that turns the tunnel off, and
-  reset when the host is released or deleted. A plain server whose row has it gets the tunnel switched
+  reset when the host is released or deleted. 0002 backfills it to true on every row with a host:
+  for hosts linked before it, unknown counts as tunnelled (fail closed). A plain server whose row has it gets the tunnel switched
   off and its hostname and token cleared once, and only while SSH Terminal runs (core skips settings for
   a plugin that doesn't); otherwise `planHost` blocks it with `needs-ssh-terminal-to-clear-tunnel` and
   the host is left untouched. Plain hosts that were never tunnelled get no SSH Terminal settings. `pluginEnable.docker` is only ever true and only
   while Docker runs, which is also the only time core would take a write. `apply` and `preview` read the
   connection once with `connections.snapshot()`: view (name, address, abilities, `revision`), client and
   a lazy Access token from one row, so nothing is read again from the connection later. `apply` checks
-  `connections.revision()` against the snapshot after `api.servers()` and before the first write of
-  any kind, row save, key copy or host (`beforeFirstWrite` runs `assertSnapshotHolds`, with the owner
-  check) and ends with `target-changed` (409) when they differ:
+  `connections.revision()` against the snapshot after `api.servers()` and right before every write:
+  each row save, each key copy (the copier's `beforeWrite`, after the key reads), the folder, and each
+  host update or create (`beforeWrite` runs `assertSnapshotHolds`, with the owner check). It ends with
+  `target-changed` (409) when they differ; a host created just before is discarded, since its link row
+  is not saved. `discardHost` itself is not checked: it only undoes this sync's own write.
   connection updates take #23's `withLock`, not the sync queue. Previews pass `cfAccess: null`. SSH Terminal
   must be active at 1.2.0+ (`SSH_TERMINAL.minVersion`, semver order, pre-releases of 1.2.0 are below);
   `ctx.plugins.list()` is read once per preview (only when a server is tunnelled) or apply and fails

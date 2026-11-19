@@ -500,6 +500,11 @@ export async function createSync(
       }));
     // The actor's own SSH keys, read once, to check earlier copies still exist.
     let ownKeys: Promise<Set<number> | null> | null = null;
+    // Fail closed right before every write (a row save, a key copy, the
+    // folder, a host update or create): the connection must still exist, be
+    // the actor's and point at the snapshot's target. Throws, ending the
+    // whole sync with nothing more written. One cheap read per write.
+    const beforeWrite = () => assertSnapshotHolds(connectionId, view.revision);
     const copier = createKeyCopier(ctx, {
       api,
       connectionId,
@@ -510,6 +515,7 @@ export async function createSync(
           (list) => new Set(list.map((k) => k.id)),
           () => null,
         )),
+      beforeWrite,
     });
     const folder = folderName(view.name, (await connections.list()).length);
     const { docker, sshTerminal } = await companions();
@@ -519,16 +525,6 @@ export async function createSync(
     // entry.
     const accessToken = target.cfAccess;
     let folderReady = false;
-    // Fail closed before the first write of any kind (a row save, a key copy,
-    // a folder or a host): the connection must still exist, be the actor's
-    // and point at the snapshot's target. Throws, ending the whole sync with
-    // nothing written.
-    let writesChecked = false;
-    const beforeFirstWrite = async () => {
-      if (writesChecked) return;
-      await assertSnapshotHolds(connectionId, view.revision);
-      writesChecked = true;
-    };
     const results: SyncResult[] = [];
     const checkCredential = ownCredentialCheck();
 
@@ -590,7 +586,7 @@ export async function createSync(
           tunnelApplied: tunnelOn(row),
         });
         if (!precheck.ok) {
-          await beforeFirstWrite();
+          await beforeWrite();
           await saveRow(connectionId, server.uuid, row, remember);
           results.push({
             ...base,
@@ -606,9 +602,9 @@ export async function createSync(
         let fingerprint: string | null = null;
         let copyFailed = false;
         if (!credentialId && copy) {
-          await beforeFirstWrite();
           const copied = await copier.credentialFor(server.privateKeyId);
           if (copied && "cause" in copied) {
+            await beforeWrite();
             await saveRow(connectionId, server.uuid, row, remember);
             results.push({
               ...base,
@@ -633,7 +629,7 @@ export async function createSync(
             credentialId: null,
             keyFingerprint: null,
           };
-          await beforeFirstWrite();
+          await beforeWrite();
           await saveRow(
             connectionId,
             server.uuid,
@@ -662,8 +658,8 @@ export async function createSync(
           tunnelApplied: tunnelOn(row),
         });
         if (!plan.ok) throw new Error("plan changed");
-        await beforeFirstWrite();
         if (!folderReady) {
+          await beforeWrite();
           await ctx.hosts.folders.ensure(folder, { icon: "Rocket" });
           folderReady = true;
         }
@@ -671,6 +667,7 @@ export async function createSync(
         let hostId: number | null = null;
         let status: SyncResult["status"] = "created";
         if (row?.hostId) {
+          await beforeWrite();
           const updated = await ctx.hosts.update(row.hostId, plan.input);
           if (updated) {
             hostId = updated.id;
@@ -681,11 +678,15 @@ export async function createSync(
         }
         let created: number | null = null;
         if (hostId === null) {
+          await beforeWrite();
           hostId = (await ctx.hosts.create(plan.input)).id;
           created = hostId;
         }
         locks.add(hostId);
         try {
+          // A change since the host write ends the sync here; a host this
+          // sync just created is then discarded below, not left unlinked.
+          await beforeWrite();
           await saveRow(connectionId, server.uuid, row, {
             ...remember,
             hostId,
