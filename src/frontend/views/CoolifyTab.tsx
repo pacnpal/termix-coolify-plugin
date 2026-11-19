@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -143,23 +144,30 @@ export function CoolifyTab({ tab }: TabProps) {
   }, [loadConnections]);
 
   // A Linked host or the import menu asks for a section and a connection.
-  // Reopening the singleton tab with new data asks again.
-  const asked = requestOf(tab?.data);
-  const askedSection = asked?.section ?? null;
-  const askedId = asked?.connectionId ?? null;
+  // Each opening hands the tab a new data object, so the request is tracked
+  // by that object: the same action again, after the user moved on, applies
+  // again even with the same section and connection.
+  const data = tab?.data;
+  // A request naming no connection (the import menu) waits for the list.
+  const pickFirst = useRef(false);
   useEffect(() => {
-    if (askedSection === null) return;
-    setSection(askedSection);
+    const asked = requestOf(data);
+    if (!asked) return;
+    setSection(asked.section);
     setOpenUuid(null);
-    if (askedId !== null) setSelectedId(askedId);
-  }, [askedSection, askedId]);
+    if (asked.connectionId !== null) setSelectedId(asked.connectionId);
+    pickFirst.current =
+      asked.section === "servers" && asked.connectionId === null;
+  }, [data]);
 
-  // "Import from Coolify" names no connection: take the first syncable one.
+  // "Import from Coolify" names no connection: take the first syncable one,
+  // once per request, so a later pick in the header sticks.
   useEffect(() => {
-    if (askedSection !== "servers" || askedId !== null || !connections) return;
+    if (!pickFirst.current || !connections) return;
+    pickFirst.current = false;
     const first = connections.find(syncable);
     if (first) setSelectedId(first.id);
-  }, [askedSection, askedId, connections]);
+  }, [data, connections]);
 
   const connection =
     connections?.find((c) => c.id === selectedId) ?? connections?.[0] ?? null;

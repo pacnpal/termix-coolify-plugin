@@ -1,12 +1,23 @@
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import {
   renderWithApp,
   type RenderedPluginApp,
 } from "@termix-ssh/plugin-sdk/testing";
 import type { PluginManifest } from "@termix-ssh/plugin-sdk/manifest";
-import type { PluginApiClient } from "@termix-ssh/plugin-sdk/frontend";
+import type {
+  PluginApiClient,
+  TabProps,
+} from "@termix-ssh/plugin-sdk/frontend";
 import * as plugin from "../../../src/frontend/index";
+import { CoolifyTab } from "../../../src/frontend/views/CoolifyTab";
 import manifestJson from "../../../manifest.json";
 import locales from "../../../locales/en.json";
 
@@ -373,5 +384,51 @@ describe("the Servers section", () => {
         name: locales.connections.actions.sync,
       }),
     ).toBeNull();
+  });
+
+  it("the same action again returns the open tab to its section", async () => {
+    // A test-only tab type that wraps the real tab, so its data can change.
+    const contributes = manifest.contributes ?? {};
+    const withProbe = {
+      ...manifest,
+      contributes: {
+        ...contributes,
+        tabs: [
+          ...(contributes.tabs ?? []),
+          { id: "coolify-reopen", titleKey: "tab.title", icon: "Rocket" },
+        ],
+      },
+    } as PluginManifest;
+    rendered = await renderWithApp(plugin, {
+      manifest: withProbe,
+      locales,
+      api: stubApi(),
+      permissions: ALL,
+    });
+    // Stands in for the shell: reopening the singleton tab hands it new data.
+    let reopen: (data: Record<string, unknown>) => void = () => {};
+    function Shell(props: TabProps) {
+      const [data, setData] = useState<Record<string, unknown>>({
+        section: "sync",
+        connectionId: 1,
+      });
+      reopen = setData;
+      return <CoolifyTab {...props} tab={{ ...props.tab, data }} />;
+    }
+    rendered.app.registerTab("coolify-reopen", Shell, {
+      titleKey: "tab.title",
+    });
+    const tab = rendered.renderTab("coolify-reopen", {
+      tab: { id: "t1", type: "coolify-reopen", label: "Coolify" },
+    });
+    expect(await within(tab).findByText("web-1")).toBeTruthy();
+
+    fireEvent.click(
+      within(tab).getByRole("button", { name: locales.nav.connections }),
+    );
+    await waitFor(() => expect(within(tab).queryByText("web-1")).toBeNull());
+
+    act(() => reopen({ section: "sync", connectionId: 1 }));
+    expect(await within(tab).findByText("web-1")).toBeTruthy();
   });
 });
