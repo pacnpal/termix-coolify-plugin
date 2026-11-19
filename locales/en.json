@@ -325,7 +325,9 @@
       "needs-address": "This is the server Coolify runs on. Enter the address Termix should use for it.",
       "needs-credential": "The token can't read this server's key, or copying keys is turned off. Pick a Termix credential.",
       "needs-tunnel-support": "This server is behind a Cloudflare tunnel. Tunnelled servers can't be synced yet.",
-      "host-write-failed": "Termix refused the host. Check your permissions to create and edit hosts."
+      "host-write-failed": "Termix refused the host. Check your permissions to create and edit hosts.",
+      "credential-not-found": "The picked credential isn't one of your Termix credentials any more. Pick another one.",
+      "credential-check-failed": "Your Termix credentials could not be read, so the picked credential can't be checked. Try again, or ask an admin for the permission to view credentials."
     },
     "results": {
       "title": "Sync finished"

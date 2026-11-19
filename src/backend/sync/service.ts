@@ -223,6 +223,25 @@ export async function createSync(
     }
   }
 
+  /**
+   * Checks picked (termix-mode) credentials against the actor's own
+   * credentials, with one ctx.credentials.list() call per preview or apply.
+   * Fails closed: when the list can't be read, every picked credential is
+   * refused. Copied Coolify keys are the plugin's own and aren't checked.
+   */
+  function ownCredentialCheck() {
+    let ids: Promise<Set<number> | null> | null = null;
+    return async (credentialId: number): Promise<string | null> => {
+      ids ??= ctx.credentials.list().then(
+        (list) => new Set(list.map((c) => c.id)),
+        () => null,
+      );
+      const owned = await ids;
+      if (!owned) return "credential-check-failed";
+      return owned.has(credentialId) ? null : "credential-not-found";
+    };
+  }
+
   function modeOf(
     copy: boolean,
     server: ServerDto,
@@ -237,6 +256,8 @@ export async function createSync(
     copy: boolean,
     server: ServerDto,
     row: ServerRow | undefined,
+    /** Why the stored picked credential can't be used, or null. */
+    credentialCause: string | null,
   ): SyncRow {
     const mode = modeOf(copy, server, row);
     const override = row?.addressOverride ?? null;
@@ -261,6 +282,7 @@ export async function createSync(
     let cause: string | undefined;
     if (!plan.ok) cause = plan.cause;
     else if (mode === "termix" && !credentialId) cause = "needs-credential";
+    else if (mode === "termix" && credentialCause) cause = credentialCause;
     return {
       server,
       hostId,
@@ -357,10 +379,16 @@ export async function createSync(
       )
         ? goneRows(rows, present, await hostNames())
         : [];
-      return [
-        ...servers.map((s) => previewRow(view, copy, s, byUuid.get(s.uuid))),
-        ...gone,
-      ];
+      const check = ownCredentialCheck();
+      const previewed: SyncRow[] = [];
+      for (const s of servers) {
+        const row = byUuid.get(s.uuid);
+        const picked =
+          row?.credentialMode === "termix" ? row.credentialId : null;
+        const credentialCause = picked ? await check(picked) : null;
+        previewed.push(previewRow(view, copy, s, row, credentialCause));
+      }
+      return [...previewed, ...gone];
     },
 
     /**
@@ -396,6 +424,7 @@ export async function createSync(
       const docker = await dockerRunning();
       let folderReady = false;
       const results: SyncResult[] = [];
+      const checkCredential = ownCredentialCheck();
 
       for (const server of servers) {
         const choice: SyncChoice | undefined = wanted
@@ -421,6 +450,18 @@ export async function createSync(
             : row?.credentialMode === "termix"
               ? row.credentialId
               : null;
+        // A picked credential, new or stored, must be one of the actor's own
+        // before anything is written for this server.
+        const credentialCause = picked ? await checkCredential(picked) : null;
+        if (credentialCause) {
+          results.push({
+            ...base,
+            status: "blocked",
+            cause: credentialCause,
+            hostId: row?.hostId ?? null,
+          });
+          continue;
+        }
         const remember: Partial<ServerRow> = { addressOverride: override };
         if (choice.credentialId !== undefined) {
           remember.credentialMode = picked ? "termix" : null;

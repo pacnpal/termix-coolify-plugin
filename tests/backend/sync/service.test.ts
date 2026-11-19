@@ -160,7 +160,10 @@ describe("host sync", () => {
         json: { id: 1, uuid: "key-local", name: "localhost key" },
       },
     });
-    const { harness: h, connectionId } = await start({ fake });
+    const { harness: h, connectionId } = await start({
+      fake,
+      ownCredentials: [42],
+    });
     const rows = await preview(h, connectionId);
     expect(byUuid(rows, "srv-web1")).toMatchObject({
       status: "blocked",
@@ -201,6 +204,78 @@ describe("host sync", () => {
       status: "blocked",
       cause: "needs-credential",
     });
+  });
+
+  it("a picked credential that isn't one of the actor's own is refused and nothing is stored", async () => {
+    const { harness: h, connectionId } = await start({
+      settings: { allowKeyCopy: false },
+      ownCredentials: [42],
+    });
+    const create = vi.spyOn(h.mock.ctx.hosts, "create");
+    const list = vi.spyOn(h.mock.ctx.credentials, "list");
+    const results = await apply(h, connectionId, [
+      { uuid: "srv-web1", include: true, credentialId: 99 },
+      { uuid: "srv-web2", include: true, credentialId: 42 },
+    ]);
+    expect(byUuid(results, "srv-web1")).toMatchObject({
+      status: "blocked",
+      cause: "credential-not-found",
+      hostId: null,
+    });
+    expect(byUuid(results, "srv-web2").status).toBe("created");
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0][0].credentialId).toBe(42);
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(serverRows(h).map((r) => r.server_uuid)).toEqual(["srv-web2"]);
+  });
+
+  it("a stored termix credential that is gone blocks the row in apply and preview", async () => {
+    const { harness: h, connectionId } = await start({
+      settings: { allowKeyCopy: false },
+      ownCredentials: [42],
+    });
+    await apply(h, connectionId, [
+      { uuid: "srv-web1", include: true, credentialId: 42 },
+    ]);
+    const [host] = await h.mock.ctx.hosts.listOwned();
+    vi.spyOn(h.mock.ctx.credentials, "list").mockResolvedValue([]);
+    expect(byUuid(await preview(h, connectionId), "srv-web1")).toMatchObject({
+      status: "blocked",
+      cause: "credential-not-found",
+    });
+    const update = vi.spyOn(h.mock.ctx.hosts, "update");
+    const create = vi.spyOn(h.mock.ctx.hosts, "create");
+    const results = await apply(h, connectionId, only("srv-web1"));
+    expect(byUuid(results, "srv-web1")).toMatchObject({
+      status: "blocked",
+      cause: "credential-not-found",
+      hostId: host.id,
+    });
+    expect(update).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("when the credential list can't be read, every termix-mode row is blocked", async () => {
+    const { harness: h, connectionId } = await start({
+      ownCredentials: [42],
+    });
+    vi.spyOn(h.mock.ctx.credentials, "list").mockRejectedValue(
+      new Error("no credentials.view"),
+    );
+    const create = vi.spyOn(h.mock.ctx.hosts, "create");
+    const results = await apply(h, connectionId, [
+      { uuid: "srv-web1", include: true, credentialId: 42 },
+      { uuid: "srv-web2", include: true },
+    ]);
+    expect(byUuid(results, "srv-web1")).toMatchObject({
+      status: "blocked",
+      cause: "credential-check-failed",
+    });
+    // A copied Coolify key is the plugin's own credential: not checked.
+    expect(byUuid(results, "srv-web2").status).toBe("created");
+    expect(create).toHaveBeenCalledTimes(1);
+    // Nothing was stored for the refused server.
+    expect(serverRows(h).map((r) => r.server_uuid)).toEqual(["srv-web2"]);
   });
 
   it("admin setting allowKeyCopy=false forces mode B", async () => {

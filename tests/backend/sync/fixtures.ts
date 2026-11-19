@@ -91,6 +91,8 @@ export async function startWithConnection(
     settings?: Record<string, unknown>;
     permissions?: string[];
     dockerRunning?: boolean;
+    /** The actor's own credential ids, for picked credentials. */
+    ownCredentials?: number[];
   } = {},
 ): Promise<{ harness: PluginHarness; fake: Fake; connectionId: number }> {
   const fake = options.fake ?? syncCoolify();
@@ -98,6 +100,13 @@ export async function startWithConnection(
     fetch: fake.fetch,
     settings: options.settings,
     permissions: options.permissions,
+    credentialSummaries: (options.ownCredentials ?? []).map((id) => ({
+      id,
+      name: `own credential ${id}`,
+      username: "root",
+      authType: "key",
+      folder: null,
+    })),
     installedPlugins: options.dockerRunning
       ? [
           { id: "coolify", version: "1.0.0", source: "user", state: "active" },

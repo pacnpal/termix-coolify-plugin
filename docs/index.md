@@ -56,7 +56,8 @@ menu, or **Sync from Coolify** on a Linked host.
      the address Termix should use. The connection's own host name is offered with one click. The address is
      kept for later syncs. You can set an address for any server the same way.
    - **No key to copy**: when the token can't read keys (it lacks `read:sensitive`) or an admin turned off
-     **Allow copying Coolify SSH keys**, pick one of your Termix credentials for the server.
+     **Allow copying Coolify SSH keys**, pick one of your Termix credentials for the server. Only your own credentials are accepted; a picked
+     credential you no longer have blocks the server until you pick another.
    - **Behind a Cloudflare tunnel**: tunnelled servers are listed but can't be synced yet.
 3. With keys readable, each Coolify key is copied once into a Termix credential named
    **Coolify: <connection> / <key>** and shared by every server that uses it. It is reused on later syncs
