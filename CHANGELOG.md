@@ -27,3 +27,11 @@
 - "Use with an MCP client" in the Connections view, with the endpoint and a client config to copy
 - An API and MCP reference (`docs/api.md`) with every action's route, run path, key scope, MCP tool and a
   `curl` example
+- The full Coolify API through Termix: `coolify.api-read` runs any Coolify read and `coolify.api-call` any
+  operation after a confirm, each checked against the permission, connection access and token that
+  operation needs (deletes and instance settings need **Administer Coolify**, logs need **Operate Coolify resources**).
+  Request parameters and bodies never enter run history, and answers are masked. Coolify's "turn the API
+  off" is never run, and operations newer than the connection's Coolify are hidden
+- The API console in the Coolify tab: a form for every Coolify operation. Reads run at once, changes ask
+  first and a delete asks you to type the operation id. Masked values can be revealed one at a time with
+  **Configure Coolify** and a token with `read:sensitive`; each reveal is audited

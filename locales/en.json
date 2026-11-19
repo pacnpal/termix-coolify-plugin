@@ -8,6 +8,10 @@
     "empty": {
       "title": "No Coolify connections yet",
       "hint": "Coolify connections and their servers and resources will show here."
+    },
+    "sections": {
+      "label": "Coolify sections",
+      "connections": "Connections"
     }
   },
   "shellTab": {
@@ -278,7 +282,16 @@
     "validation": "Coolify refused the values sent.",
     "upstream": "Coolify answered with an error.",
     "unsupported-by-instance": "This Coolify doesn't have this feature.",
-    "unsupported-version": "This plugin needs Coolify 4.4 or newer."
+    "unsupported-version": "This plugin needs Coolify 4.4 or newer.",
+    "excluded": "The plugin never runs this operation.",
+    "upload-unsupported": "File uploads can't go through the plugin; import from a server path or S3.",
+    "unknown-operation": "The plugin doesn't know this operation.",
+    "not-a-read": "This operation is not a read.",
+    "forbidden": "You don't have the permission or access this needs.",
+    "invalid-input": "Some values are missing or not valid.",
+    "confirm-required": "This needs a confirm first.",
+    "not-masked": "That value is not a masked one.",
+    "secrets-unreadable": "The token can't read secrets."
   },
   "fixes": {
     "unreachable": "Check the URL. If Coolify is on your local network, turn on \"On my local network\" under Advanced.",
@@ -296,5 +309,38 @@
       "intro": "Add your Coolify URL and an API token. You can skip this and add connections later from the Coolify tab.",
       "done": "Connected to {{name}}."
     }
+  },
+  "apiConsole": {
+    "title": "API console",
+    "description": "Every Coolify API operation as a form. Reads run at once; anything else asks first. Secrets in answers are masked.",
+    "connection": "Connection",
+    "search": "Search operations",
+    "loading": "Loading operations",
+    "loadFailed": "The operations could not be loaded.",
+    "noConnections": "Add a Coolify connection first.",
+    "empty": "No operations match.",
+    "parameters": "Parameters",
+    "bodyFields": "Body",
+    "noInputs": "This operation takes no input.",
+    "required": "required",
+    "run": "Run",
+    "running": "Running",
+    "result": "Answer",
+    "masked": "Masked values",
+    "maskedHint": "Secrets are masked. Reveal shows one value at a time; each reveal is recorded in the audit log and nothing is kept.",
+    "reveal": "Reveal",
+    "hide": "Hide",
+    "revealNeedsSensitive": "This connection's token can't read secrets (read:sensitive), so values can't be revealed.",
+    "revealNeedsConfigure": "Revealing a value needs permission to configure Coolify and configure access to this connection.",
+    "revealFailed": "The value could not be revealed.",
+    "needsPermission": "You don't have the permission this operation needs.",
+    "confirmTitle": "Run {{operation}}?",
+    "confirmDescription": "{{method}} {{path}} changes Coolify.",
+    "confirmLabel": "Call Coolify",
+    "typeToConfirm": "Type {{operation}} to confirm this delete",
+    "typeToConfirmPlaceholder": "Operation id",
+    "invalidJson": "{{field}} must be valid JSON.",
+    "failed": "The call failed.",
+    "waiting": "Waiting for the answer"
   }
 }

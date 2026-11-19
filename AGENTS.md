@@ -87,9 +87,20 @@ aren't obvious from the code, and anything that has bitten you before.
   the SDK's own `parseOperationInput` and `redactFields` around `ctx.operations.run`, as core does.
 - Coolify API: `vendor/coolify/` holds the v4.7.5, `main` and `next` specs as fetched (see its README).
   `npm run gen:coolify` writes `src/backend/coolify/generated/operations.ts` (`OPERATIONS`,
-  `EXCLUDED_OPERATIONS`). `docs/coverage.md` must list every operation; `tests/backend/coverage.test.ts`
-  enforces it. There are no generated schema types: openapi-typescript needs a TypeScript 5 alias, and the
-  registry CI's lockfile-lint (`--validate-package-names`) rejects npm aliases. DTOs are written by hand.
+  `EXCLUDED_OPERATIONS`) and `schemas.ts` (each operation's parameters and top-level body fields, from the
+  newest spec that has it, for the generic API and the console's forms). `docs/coverage.md` must list every
+  operation; `tests/backend/coverage.test.ts` enforces it. There are no generated schema types:
+  openapi-typescript needs a TypeScript 5 alias, and the registry CI's lockfile-lint
+  (`--validate-package-names`) rejects npm aliases. DTOs are written by hand.
+- Generic API: `src/backend/ops/api-generic.ts`. `requiredAccess(operationId)` gives the Termix permission
+  and grant level by path and method rules, first match wins: excluded (throws), administer, operate
+  (including reads with log or command output), other GET is view, the rest configure. `createGenericApi`
+  (`dispatch`, `list`, `reveal`) applies permission, grant and the known token ability before calling
+  Coolify; Coolify checks the rest of the token itself. The `upload-*` imports are refused (`ctx.fetch` only
+  sends strings). A 404 from a Coolify older than the spec that documents an operation becomes
+  `unsupported-by-instance`. The console routes (`src/backend/api/routes.ts`) call the same service; a
+  non-GET needs `confirmed`, a DELETE also `confirmText` equal to the operation id. Reveal re-reads Coolify,
+  is audited and answers `Cache-Control: no-store`.
 - Tables: `src/backend/tables.ts`, migrations in `migrations/`. Table names are snake_case
   (`p_coolify_status_pages`); the SDK refuses camelCase. `servers.hostId` is a plain nullable integer, not
   `refHost`: a cascade would delete the row and its `addressOverride` when the host goes. The `host.deleted`
