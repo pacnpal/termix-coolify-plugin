@@ -90,8 +90,11 @@ aren't obvious from the code, and anything that has bitten you before.
   the SDK's own `parseOperationInput` and `redactFields` around `ctx.operations.run`, as core does.
 - Coolify API: `vendor/coolify/` holds the v4.7.5, `main` and `next` specs as fetched (see its README).
   `npm run gen:coolify` writes `src/backend/coolify/generated/operations.ts` (`OPERATIONS`,
-  `EXCLUDED_OPERATIONS`) and `schemas.ts` (each operation's parameters and top-level body fields, from the
-  newest spec that has it, for the generic API and the console's forms). `docs/coverage.md` must list every
+  `EXCLUDED_OPERATIONS`) and `schemas.json` with its accessor `schemas.ts` (each operation's parameters
+  and top-level body fields, from the newest spec that has it, for the generic API and the console's
+  forms). The JSON stores each distinct parameter and body field once and operations refer to them by
+  index: as repeated TypeScript literals it was most of the bundle and failed SonarCloud's duplication
+  gate. `docs/coverage.md` must list every
   operation; `tests/backend/coverage.test.ts` enforces it. There are no generated schema types:
   openapi-typescript needs a TypeScript 5 alias, and the registry CI's lockfile-lint
   (`--validate-package-names`) rejects npm aliases. DTOs are written by hand.

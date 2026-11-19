@@ -1,0 +1,4682 @@
+{
+  "params": [
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "UUID of the application."
+    },
+    {
+      "name": "resource_type",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "enum": ["applications", "services", "databases"],
+      "description": "Resource type."
+    },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Resource UUID."
+    },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Deployment UUID"
+    },
+    {
+      "name": "server_uuid",
+      "in": "query",
+      "required": true,
+      "type": "string"
+    },
+    { "name": "ip", "in": "query", "required": true, "type": "string" },
+    { "name": "port", "in": "query", "required": false, "type": "integer" },
+    {
+      "name": "schema_version",
+      "in": "query",
+      "required": false,
+      "type": "integer"
+    },
+    {
+      "name": "system_github_apps[]",
+      "in": "query",
+      "required": false,
+      "type": "array",
+      "description": "UUIDs of system-wide GitHub Apps that the server uses. The response lists the ones this instance does not have."
+    },
+    {
+      "name": "system_gitlab_apps[]",
+      "in": "query",
+      "required": false,
+      "type": "array",
+      "description": "UUIDs of system-wide GitLab Apps that the server uses. The response lists the ones this instance does not have."
+    },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Server UUID"
+    },
+    {
+      "name": "registry",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Registry host, optionally with a port, for example registry.example.com:5000."
+    },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "UUID of the database."
+    },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "UUID of the service."
+    },
+    { "name": "uuid", "in": "path", "required": true, "type": "string" },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Application UUID."
+    },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Project UUID"
+    },
+    {
+      "name": "environment_name_or_uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Environment name or UUID"
+    },
+    {
+      "name": "server_uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Server UUID"
+    },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Service UUID."
+    },
+    {
+      "name": "database_uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Service database UUID."
+    },
+    {
+      "name": "delete_configurations",
+      "in": "query",
+      "required": false,
+      "type": "boolean",
+      "description": "Delete configurations."
+    },
+    {
+      "name": "delete_volumes",
+      "in": "query",
+      "required": false,
+      "type": "boolean",
+      "description": "Delete volumes."
+    },
+    {
+      "name": "docker_cleanup",
+      "in": "query",
+      "required": false,
+      "type": "boolean",
+      "description": "Run docker cleanup when the server disk usage is at or above its cleanup threshold. Skipped when a cleanup ran on the server in the last hour."
+    },
+    {
+      "name": "delete_connected_networks",
+      "in": "query",
+      "required": false,
+      "type": "boolean",
+      "description": "Delete connected networks."
+    },
+    {
+      "name": "storage_uuid",
+      "in": "path",
+      "required": true,
+      "type": "string"
+    },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "UUID of the database"
+    },
+    {
+      "name": "scheduled_backup_uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "UUID of the backup configuration to delete"
+    },
+    {
+      "name": "delete_s3",
+      "in": "query",
+      "required": false,
+      "type": "boolean",
+      "description": "Whether to delete all backup files from S3"
+    },
+    {
+      "name": "scheduled_backup_uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "UUID of the backup configuration"
+    },
+    {
+      "name": "execution_uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "UUID of the backup execution to delete"
+    },
+    {
+      "name": "delete_s3",
+      "in": "query",
+      "required": false,
+      "type": "boolean",
+      "description": "Whether to delete the backup from S3"
+    },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "UUID of the cloud provider token."
+    },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Destination UUID"
+    },
+    {
+      "name": "env_uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "UUID of the environment variable."
+    },
+    {
+      "name": "env_id",
+      "in": "path",
+      "required": true,
+      "type": "integer",
+      "description": "Shared env id (integer)."
+    },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Integration token UUID."
+    },
+    {
+      "name": "pull_request_id",
+      "in": "path",
+      "required": true,
+      "type": "integer",
+      "description": "Pull request ID of the preview to delete."
+    },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Private Key UUID"
+    },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "UUID of the S3 storage."
+    },
+    {
+      "name": "task_uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "UUID of the scheduled task."
+    },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "UUID of the server."
+    },
+    {
+      "name": "force",
+      "in": "query",
+      "required": false,
+      "type": "boolean",
+      "description": "Also delete all resources whose main destination is on the server. Applications that use the server only as an additional destination are not deleted. They are removed from the server and keep runnin…"
+    },
+    {
+      "name": "delete_from_provider",
+      "in": "query",
+      "required": false,
+      "type": "boolean",
+      "description": "Also delete the server from its cloud provider (Hetzner, Vultr or DigitalOcean). This cannot be undone. Needs the deploy permission."
+    },
+    {
+      "name": "remove_ssh_key",
+      "in": "query",
+      "required": false,
+      "type": "boolean",
+      "description": "Remove the public key of the server's SSH key from ~/.ssh/authorized_keys on the server before the server is deleted. The server must have no resources. If the key cannot be removed, the server is no…"
+    },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Service UUID"
+    },
+    {
+      "name": "storage_uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "UUID of the storage."
+    },
+    {
+      "name": "tag_uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "UUID of the tag."
+    },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Tag UUID"
+    },
+    {
+      "name": "github_app_id",
+      "in": "path",
+      "required": true,
+      "type": "integer",
+      "description": "GitHub App ID"
+    },
+    {
+      "name": "gitlab_app_id",
+      "in": "path",
+      "required": true,
+      "type": "integer",
+      "description": "GitLab App ID"
+    },
+    {
+      "name": "tag",
+      "in": "query",
+      "required": false,
+      "type": "string",
+      "description": "Tag name(s). Comma separated list is also accepted."
+    },
+    {
+      "name": "uuid",
+      "in": "query",
+      "required": false,
+      "type": "string",
+      "description": "Resource UUID(s). Comma separated list is also accepted."
+    },
+    {
+      "name": "force",
+      "in": "query",
+      "required": false,
+      "type": "boolean",
+      "description": "Force rebuild (without cache)"
+    },
+    {
+      "name": "pr",
+      "in": "query",
+      "required": false,
+      "type": "integer",
+      "description": "Pull Request Id for deploying specific PR builds. Cannot be used with tag parameter."
+    },
+    {
+      "name": "pull_request_id",
+      "in": "query",
+      "required": false,
+      "type": "integer",
+      "description": "Preview deployment identifier. Alias of pr."
+    },
+    {
+      "name": "docker_tag",
+      "in": "query",
+      "required": false,
+      "type": "string",
+      "description": "Docker image tag for Docker Image preview deployments. Requires pull_request_id. Opening a preview or changing its tag also needs the write permission."
+    },
+    {
+      "name": "cancel_previous",
+      "in": "query",
+      "required": false,
+      "type": "string",
+      "enum": ["none", "queued", "building"],
+      "description": "Cancel the older webhook, API, and MCP deployments of the same application, pull request, and server. `queued` cancels the ones that wait in the queue. `building` also stops the ones that are still b…"
+    },
+    {
+      "name": "lines",
+      "in": "query",
+      "required": false,
+      "type": "string",
+      "description": "Number of lines to show from the end of the logs. Use `all` to return all logs. `-1` remains available as a compatibility alias."
+    },
+    {
+      "name": "show_timestamps",
+      "in": "query",
+      "required": false,
+      "type": "boolean",
+      "description": "Show timestamps in the logs."
+    },
+    {
+      "name": "service_name",
+      "in": "query",
+      "required": false,
+      "type": "string",
+      "description": "Return logs only from the container of the Docker Compose service with this name. Returns 404 when no container matches. Stopped containers are included."
+    },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Application UUID"
+    },
+    {
+      "name": "state",
+      "in": "query",
+      "required": false,
+      "type": "string",
+      "description": "Comma-separated finding states: fixed, no_fix, ignored. All when not sent."
+    },
+    {
+      "name": "severity",
+      "in": "query",
+      "required": false,
+      "type": "string",
+      "description": "Comma-separated severities: critical, high, medium, low, unknown."
+    },
+    {
+      "name": "image",
+      "in": "query",
+      "required": false,
+      "type": "string",
+      "description": "Only the findings of this scanned image ref."
+    },
+    {
+      "name": "search",
+      "in": "query",
+      "required": false,
+      "type": "string",
+      "description": "Text in the vulnerability ID, an alias, the package, or the version."
+    },
+    { "name": "page", "in": "query", "required": false, "type": "integer" },
+    { "name": "per_page", "in": "query", "required": false, "type": "integer" },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Token UUID"
+    },
+    {
+      "name": "activity_id",
+      "in": "path",
+      "required": true,
+      "type": "integer",
+      "description": "Import activity ID."
+    },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Database UUID"
+    },
+    {
+      "name": "cloud_provider_token_uuid",
+      "in": "query",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "name": "cloud_provider_token_id",
+      "in": "query",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Server's UUID"
+    },
+    {
+      "name": "cloud_provider_token_uuid",
+      "in": "query",
+      "required": false,
+      "type": "string",
+      "description": "Cloud provider token UUID. Required if cloud_provider_token_id is not provided."
+    },
+    {
+      "name": "cloud_provider_token_id",
+      "in": "query",
+      "required": false,
+      "type": "string",
+      "description": "Deprecated: Use cloud_provider_token_uuid instead. Cloud provider token UUID."
+    },
+    {
+      "name": "location",
+      "in": "query",
+      "required": false,
+      "type": "string",
+      "description": "Return only the server types that can be ordered in this location, for example nbg1."
+    },
+    {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "type": "integer",
+      "description": "Team ID"
+    },
+    {
+      "name": "pull_request_id",
+      "in": "path",
+      "required": true,
+      "type": "integer",
+      "description": "Pull request ID of the preview deployment."
+    },
+    {
+      "name": "pull_request_id",
+      "in": "path",
+      "required": true,
+      "type": "integer",
+      "description": "Pull request ID of the preview."
+    },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "S3 Storage UUID"
+    },
+    {
+      "name": "app_uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Service application UUID."
+    },
+    {
+      "name": "database_uuid",
+      "in": "path",
+      "required": true,
+      "type": "string"
+    },
+    {
+      "name": "sub_service_name",
+      "in": "query",
+      "required": true,
+      "type": "string",
+      "description": "Sub-service name from `GET /services/{uuid}` under `applications[].name` or `databases[].name`. Do not use `human_name` or the Docker container name with the service UUID suffix."
+    },
+    {
+      "name": "tag",
+      "in": "query",
+      "required": false,
+      "type": "string",
+      "description": "Filter applications by tag name."
+    },
+    {
+      "name": "per_page",
+      "in": "query",
+      "required": false,
+      "type": "integer",
+      "description": "Items per page."
+    },
+    {
+      "name": "page",
+      "in": "query",
+      "required": false,
+      "type": "integer",
+      "description": "Page number."
+    },
+    {
+      "name": "search",
+      "in": "query",
+      "required": false,
+      "type": "string",
+      "description": "Search text."
+    },
+    {
+      "name": "action",
+      "in": "query",
+      "required": false,
+      "type": "string",
+      "description": "Filter by action. Use all for every action."
+    },
+    {
+      "name": "source",
+      "in": "query",
+      "required": false,
+      "type": "string",
+      "enum": ["all", "ui", "api", "mcp", "webhook", "system", "scheduler"],
+      "description": "Filter by source."
+    },
+    {
+      "name": "skip",
+      "in": "query",
+      "required": false,
+      "type": "integer",
+      "description": "Number of records to skip."
+    },
+    {
+      "name": "take",
+      "in": "query",
+      "required": false,
+      "type": "integer",
+      "description": "Number of records to take."
+    },
+    {
+      "name": "status",
+      "in": "query",
+      "required": false,
+      "type": "string",
+      "description": "Comma-separated statuses to return."
+    },
+    {
+      "name": "owner",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Repository owner"
+    },
+    {
+      "name": "repo",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Repository name"
+    },
+    {
+      "name": "force_domain_override",
+      "in": "query",
+      "required": false,
+      "type": "boolean",
+      "description": "When true, allow duplicate URLs in the request and proceed despite domain conflicts (same as service PATCH)."
+    },
+    { "name": "app_uuid", "in": "path", "required": true, "type": "string" },
+    { "name": "force", "in": "query", "required": false, "type": "boolean" },
+    { "name": "latest", "in": "query", "required": false, "type": "boolean" },
+    {
+      "name": "hostname",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "Hostname of the record."
+    },
+    {
+      "name": "delete_record",
+      "in": "query",
+      "required": false,
+      "type": "boolean",
+      "description": "Delete the record at Cloudflare. Default: true."
+    },
+    {
+      "name": "destination_uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "UUID of the destination."
+    },
+    {
+      "name": "latest",
+      "in": "query",
+      "required": false,
+      "type": "boolean",
+      "description": "Pull latest images."
+    },
+    {
+      "name": "storage_uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "UUID of the persistent volume or directory storage."
+    },
+    {
+      "name": "force",
+      "in": "query",
+      "required": false,
+      "type": "boolean",
+      "description": "Force rebuild."
+    },
+    {
+      "name": "instant_deploy",
+      "in": "query",
+      "required": false,
+      "type": "boolean",
+      "description": "Instant deploy (skip queuing)."
+    },
+    {
+      "name": "scheduled_backup_uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "UUID of the backup configuration."
+    },
+    {
+      "name": "pull_request_id",
+      "in": "path",
+      "required": true,
+      "type": "integer"
+    },
+    {
+      "name": "uuid",
+      "in": "path",
+      "required": true,
+      "type": "string",
+      "description": "UUID of the project."
+    }
+  ],
+  "fields": [
+    { "name": "destination_uuid", "type": "string", "required": true },
+    { "name": "key", "type": "string", "required": true },
+    {
+      "name": "destination_uuid",
+      "type": "string",
+      "required": true,
+      "description": "UUID of the destination to clone into."
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": false,
+      "description": "Optional name for the cloned application."
+    },
+    {
+      "name": "clone_volumes",
+      "type": "boolean",
+      "required": false,
+      "description": "Whether to clone volume data. Needs the deploy ability."
+    },
+    { "name": "name", "type": "string", "required": false },
+    { "name": "export_id", "type": "string", "required": false },
+    { "name": "target_instance_url", "type": "string", "required": false },
+    { "name": "integration_token_uuid", "type": "string", "required": true },
+    { "name": "settings", "type": "object", "required": false },
+    {
+      "name": "hostname",
+      "type": "string",
+      "required": true,
+      "description": "A saved domain of the resource."
+    },
+    {
+      "name": "integration_token_uuid",
+      "type": "string",
+      "required": false,
+      "description": "Cloudflare token to use. Required when several tokens manage the zone of the hostname."
+    },
+    {
+      "name": "address",
+      "type": "string",
+      "required": false,
+      "description": "A public address of the server. Default: default_address of the DNS status."
+    },
+    { "name": "name", "type": "string", "required": true },
+    {
+      "name": "script",
+      "type": "string",
+      "required": true,
+      "description": "Bash script (#!) or cloud-config YAML."
+    },
+    {
+      "name": "provider",
+      "type": "string",
+      "required": true,
+      "description": "The cloud provider."
+    },
+    {
+      "name": "token",
+      "type": "string",
+      "required": true,
+      "description": "The API token for the cloud provider."
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": true,
+      "description": "A friendly name for the token."
+    },
+    {
+      "name": "frequency",
+      "type": "string",
+      "required": true,
+      "description": "Backup frequency (cron expression or: every_minute, hourly, daily, weekly, monthly, yearly)"
+    },
+    {
+      "name": "enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Whether the backup is enabled"
+    },
+    {
+      "name": "save_s3",
+      "type": "boolean",
+      "required": false,
+      "description": "Whether to save backups to S3"
+    },
+    {
+      "name": "disable_local_backup",
+      "type": "boolean",
+      "required": false,
+      "description": "Delete the local backup file after the upload to S3. Only allowed when save_s3 is true."
+    },
+    {
+      "name": "s3_storage_uuid",
+      "type": "string",
+      "required": false,
+      "description": "Primary S3 storage UUID. Sent without s3_storage_uuids, it selects this storage as the only destination. Either field is required if save_s3 is true."
+    },
+    {
+      "name": "s3_storage_uuids",
+      "type": "array",
+      "required": false,
+      "description": "UUIDs of every S3 storage the backup is uploaded to. Replaces the current destinations. When s3_storage_uuid is also sent, it must be in this list and becomes the primary destination; otherwise the f…"
+    },
+    {
+      "name": "databases_to_backup",
+      "type": "string",
+      "required": false,
+      "description": "Comma separated list of databases to backup"
+    },
+    {
+      "name": "dump_all",
+      "type": "boolean",
+      "required": false,
+      "description": "Whether to dump all databases"
+    },
+    {
+      "name": "backup_now",
+      "type": "boolean",
+      "required": false,
+      "description": "Whether to trigger backup immediately after creation. Needs a token with the deploy permission."
+    },
+    {
+      "name": "database_backup_retention_amount_locally",
+      "type": "integer",
+      "required": false,
+      "description": "Number of backups to retain locally"
+    },
+    {
+      "name": "database_backup_retention_days_locally",
+      "type": "integer",
+      "required": false,
+      "description": "Number of days to retain backups locally"
+    },
+    {
+      "name": "database_backup_retention_max_storage_locally",
+      "type": "number",
+      "required": false,
+      "description": "Max storage (GB) for local backups"
+    },
+    {
+      "name": "database_backup_retention_amount_s3",
+      "type": "integer",
+      "required": false,
+      "description": "Number of backups to retain in S3"
+    },
+    {
+      "name": "database_backup_retention_days_s3",
+      "type": "integer",
+      "required": false,
+      "description": "Number of days to retain backups in S3"
+    },
+    {
+      "name": "database_backup_retention_max_storage_s3",
+      "type": "number",
+      "required": false,
+      "description": "Max storage (GB) for S3 backups"
+    },
+    {
+      "name": "timeout",
+      "type": "integer",
+      "required": false,
+      "description": "Backup job timeout in seconds (min: 60, max: 36000)"
+    },
+    {
+      "name": "missing_backup_notification_days",
+      "type": "integer",
+      "required": false,
+      "description": "Alert after this many days without an execution; 0 disables alerts"
+    },
+    {
+      "name": "server_uuid",
+      "type": "string",
+      "required": true,
+      "description": "UUID of the server"
+    },
+    {
+      "name": "project_uuid",
+      "type": "string",
+      "required": true,
+      "description": "UUID of the project"
+    },
+    {
+      "name": "environment_name",
+      "type": "string",
+      "required": false,
+      "description": "Name of the environment. You need to provide at least one of environment_name or environment_uuid."
+    },
+    {
+      "name": "environment_uuid",
+      "type": "string",
+      "required": false,
+      "description": "UUID of the environment. You need to provide at least one of environment_name or environment_uuid."
+    },
+    {
+      "name": "destination_uuid",
+      "type": "string",
+      "required": false,
+      "description": "UUID of the destination if the server has multiple destinations"
+    },
+    {
+      "name": "clickhouse_admin_user",
+      "type": "string",
+      "required": false,
+      "description": "Clickhouse admin user"
+    },
+    {
+      "name": "clickhouse_admin_password",
+      "type": "string",
+      "required": false,
+      "description": "Clickhouse admin password"
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": false,
+      "description": "Name of the database"
+    },
+    {
+      "name": "description",
+      "type": "string",
+      "required": false,
+      "description": "Description of the database"
+    },
+    {
+      "name": "image",
+      "type": "string",
+      "required": false,
+      "description": "Docker Image of the database"
+    },
+    {
+      "name": "is_public",
+      "type": "boolean",
+      "required": false,
+      "description": "Is the database public?"
+    },
+    {
+      "name": "public_port",
+      "type": "integer",
+      "required": false,
+      "description": "Public port of the database"
+    },
+    {
+      "name": "public_port_timeout",
+      "type": "integer",
+      "required": false,
+      "description": "Public port timeout in seconds (default: 3600)"
+    },
+    {
+      "name": "limits_memory",
+      "type": "string",
+      "required": false,
+      "description": "Memory limit of the database"
+    },
+    {
+      "name": "limits_memory_swap",
+      "type": "string",
+      "required": false,
+      "description": "Memory swap limit of the database"
+    },
+    {
+      "name": "limits_memory_swappiness",
+      "type": "integer",
+      "required": false,
+      "description": "Memory swappiness of the database"
+    },
+    {
+      "name": "limits_memory_reservation",
+      "type": "string",
+      "required": false,
+      "description": "Memory reservation of the database"
+    },
+    {
+      "name": "limits_cpus",
+      "type": "string",
+      "required": false,
+      "description": "CPU limit of the database"
+    },
+    {
+      "name": "limits_cpuset",
+      "type": "string",
+      "required": false,
+      "description": "CPU set of the database"
+    },
+    {
+      "name": "limits_cpu_shares",
+      "type": "integer",
+      "required": false,
+      "description": "CPU shares of the database"
+    },
+    {
+      "name": "instant_deploy",
+      "type": "boolean",
+      "required": false,
+      "description": "Instant deploy the database"
+    },
+    {
+      "name": "tags",
+      "type": "array",
+      "required": false,
+      "description": "Tags to assign to the database."
+    },
+    {
+      "name": "dragonfly_password",
+      "type": "string",
+      "required": false,
+      "description": "DragonFly password"
+    },
+    {
+      "name": "influxdb_admin_user",
+      "type": "string",
+      "required": false,
+      "description": "InfluxDB admin user."
+    },
+    {
+      "name": "influxdb_admin_password",
+      "type": "string",
+      "required": false,
+      "description": "InfluxDB admin password."
+    },
+    {
+      "name": "influxdb_admin_token",
+      "type": "string",
+      "required": false,
+      "description": "InfluxDB admin API token."
+    },
+    {
+      "name": "influxdb_org",
+      "type": "string",
+      "required": false,
+      "description": "InfluxDB initial organization."
+    },
+    {
+      "name": "influxdb_bucket",
+      "type": "string",
+      "required": false,
+      "description": "InfluxDB initial bucket."
+    },
+    {
+      "name": "keydb_password",
+      "type": "string",
+      "required": false,
+      "description": "KeyDB password"
+    },
+    {
+      "name": "keydb_conf",
+      "type": "string",
+      "required": false,
+      "description": "KeyDB conf"
+    },
+    {
+      "name": "mariadb_conf",
+      "type": "string",
+      "required": false,
+      "description": "MariaDB conf"
+    },
+    {
+      "name": "mariadb_root_password",
+      "type": "string",
+      "required": false,
+      "description": "MariaDB root password"
+    },
+    {
+      "name": "mariadb_user",
+      "type": "string",
+      "required": false,
+      "description": "MariaDB user"
+    },
+    {
+      "name": "mariadb_password",
+      "type": "string",
+      "required": false,
+      "description": "MariaDB password"
+    },
+    {
+      "name": "mariadb_database",
+      "type": "string",
+      "required": false,
+      "description": "MariaDB database"
+    },
+    {
+      "name": "mongo_conf",
+      "type": "string",
+      "required": false,
+      "description": "MongoDB conf"
+    },
+    {
+      "name": "mongo_initdb_root_username",
+      "type": "string",
+      "required": false,
+      "description": "MongoDB initdb root username"
+    },
+    {
+      "name": "mysql_root_password",
+      "type": "string",
+      "required": false,
+      "description": "MySQL root password"
+    },
+    {
+      "name": "mysql_password",
+      "type": "string",
+      "required": false,
+      "description": "MySQL password"
+    },
+    {
+      "name": "mysql_user",
+      "type": "string",
+      "required": false,
+      "description": "MySQL user"
+    },
+    {
+      "name": "mysql_database",
+      "type": "string",
+      "required": false,
+      "description": "MySQL database"
+    },
+    {
+      "name": "mysql_conf",
+      "type": "string",
+      "required": false,
+      "description": "MySQL conf"
+    },
+    {
+      "name": "postgres_user",
+      "type": "string",
+      "required": false,
+      "description": "PostgreSQL user"
+    },
+    {
+      "name": "postgres_password",
+      "type": "string",
+      "required": false,
+      "description": "PostgreSQL password"
+    },
+    {
+      "name": "postgres_db",
+      "type": "string",
+      "required": false,
+      "description": "PostgreSQL database"
+    },
+    {
+      "name": "postgres_initdb_args",
+      "type": "string",
+      "required": false,
+      "description": "PostgreSQL initdb args"
+    },
+    {
+      "name": "postgres_host_auth_method",
+      "type": "string",
+      "required": false,
+      "description": "PostgreSQL host auth method"
+    },
+    {
+      "name": "postgres_conf",
+      "type": "string",
+      "required": false,
+      "description": "PostgreSQL conf"
+    },
+    {
+      "name": "redis_password",
+      "type": "string",
+      "required": false,
+      "description": "Redis password"
+    },
+    {
+      "name": "redis_conf",
+      "type": "string",
+      "required": false,
+      "description": "Redis conf"
+    },
+    {
+      "name": "image",
+      "type": "string",
+      "required": false,
+      "description": "Docker image of the database. Default: valkey/valkey:9-alpine. For Redis, use a Redis image, for example redis:8."
+    },
+    {
+      "name": "sqlite_databases",
+      "type": "string",
+      "required": false,
+      "description": "Comma-separated SQLite database file names"
+    },
+    {
+      "name": "project_uuid",
+      "type": "string",
+      "required": true,
+      "description": "The project UUID."
+    },
+    {
+      "name": "server_uuid",
+      "type": "string",
+      "required": true,
+      "description": "The server UUID."
+    },
+    {
+      "name": "environment_name",
+      "type": "string",
+      "required": false,
+      "description": "The environment name. You need to provide at least one of environment_name or environment_uuid."
+    },
+    {
+      "name": "environment_uuid",
+      "type": "string",
+      "required": false,
+      "description": "The environment UUID. You need to provide at least one of environment_name or environment_uuid."
+    },
+    {
+      "name": "dockerfile",
+      "type": "string",
+      "required": true,
+      "description": "The Dockerfile content."
+    },
+    {
+      "name": "build_pack",
+      "type": "string",
+      "required": false,
+      "description": "The build pack type."
+    },
+    {
+      "name": "ports_exposes",
+      "type": "string",
+      "required": false,
+      "description": "The ports to expose."
+    },
+    {
+      "name": "destination_uuid",
+      "type": "string",
+      "required": false,
+      "description": "The destination UUID."
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": false,
+      "description": "The application name."
+    },
+    {
+      "name": "description",
+      "type": "string",
+      "required": false,
+      "description": "The application description."
+    },
+    {
+      "name": "domains",
+      "type": "string",
+      "required": false,
+      "description": "The application URLs in a comma-separated list."
+    },
+    {
+      "name": "noindex_domains",
+      "type": "array",
+      "required": false,
+      "description": "The subset of the application domains served with an X-Robots-Tag: noindex, nofollow response header, keeping them out of search engines. Entries that are not among the application domains are ignore…"
+    },
+    {
+      "name": "docker_registry_image_name",
+      "type": "string",
+      "required": false,
+      "description": "The docker registry image name."
+    },
+    {
+      "name": "docker_registry_image_tag",
+      "type": "string",
+      "required": false,
+      "description": "The docker registry image tag."
+    },
+    {
+      "name": "ports_mappings",
+      "type": "string",
+      "required": false,
+      "description": "The ports mappings."
+    },
+    {
+      "name": "base_directory",
+      "type": "string",
+      "required": false,
+      "description": "The base directory for all commands."
+    },
+    {
+      "name": "health_check_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Health check enabled."
+    },
+    {
+      "name": "health_check_path",
+      "type": "string",
+      "required": false,
+      "description": "Health check path."
+    },
+    {
+      "name": "health_check_port",
+      "type": "string",
+      "required": false,
+      "description": "Health check port."
+    },
+    {
+      "name": "health_check_host",
+      "type": "string",
+      "required": false,
+      "description": "Health check host."
+    },
+    {
+      "name": "health_check_method",
+      "type": "string",
+      "required": false,
+      "description": "Health check method."
+    },
+    {
+      "name": "health_check_return_code",
+      "type": "integer",
+      "required": false,
+      "description": "Health check return code."
+    },
+    {
+      "name": "health_check_scheme",
+      "type": "string",
+      "required": false,
+      "description": "Health check scheme."
+    },
+    {
+      "name": "health_check_response_text",
+      "type": "string",
+      "required": false,
+      "description": "Health check response text."
+    },
+    {
+      "name": "health_check_interval",
+      "type": "integer",
+      "required": false,
+      "description": "Health check interval in seconds."
+    },
+    {
+      "name": "health_check_timeout",
+      "type": "integer",
+      "required": false,
+      "description": "Health check timeout in seconds."
+    },
+    {
+      "name": "health_check_retries",
+      "type": "integer",
+      "required": false,
+      "description": "Health check retries count."
+    },
+    {
+      "name": "health_check_start_period",
+      "type": "integer",
+      "required": false,
+      "description": "Health check start period in seconds."
+    },
+    {
+      "name": "limits_memory",
+      "type": "string",
+      "required": false,
+      "description": "Memory limit."
+    },
+    {
+      "name": "limits_memory_swap",
+      "type": "string",
+      "required": false,
+      "description": "Memory swap limit."
+    },
+    {
+      "name": "limits_memory_swappiness",
+      "type": "integer",
+      "required": false,
+      "description": "Memory swappiness."
+    },
+    {
+      "name": "limits_memory_reservation",
+      "type": "string",
+      "required": false,
+      "description": "Memory reservation."
+    },
+    {
+      "name": "limits_cpus",
+      "type": "string",
+      "required": false,
+      "description": "CPU limit."
+    },
+    {
+      "name": "limits_cpuset",
+      "type": "string",
+      "required": false,
+      "description": "CPU set."
+    },
+    {
+      "name": "limits_cpu_shares",
+      "type": "integer",
+      "required": false,
+      "description": "CPU shares."
+    },
+    {
+      "name": "custom_labels",
+      "type": "string",
+      "required": false,
+      "description": "Custom labels."
+    },
+    {
+      "name": "custom_docker_run_options",
+      "type": "string",
+      "required": false,
+      "description": "Custom docker run options."
+    },
+    {
+      "name": "post_deployment_command",
+      "type": "string",
+      "required": false,
+      "description": "Post deployment command."
+    },
+    {
+      "name": "post_deployment_command_container",
+      "type": "string",
+      "required": false,
+      "description": "Post deployment command container."
+    },
+    {
+      "name": "pre_deployment_command",
+      "type": "string",
+      "required": false,
+      "description": "Pre deployment command."
+    },
+    {
+      "name": "pre_deployment_command_container",
+      "type": "string",
+      "required": false,
+      "description": "Pre deployment command container."
+    },
+    {
+      "name": "manual_webhook_secret_github",
+      "type": "string",
+      "required": false,
+      "description": "Manual webhook secret for Github. Needs the deploy ability."
+    },
+    {
+      "name": "manual_webhook_secret_gitlab",
+      "type": "string",
+      "required": false,
+      "description": "Manual webhook secret for Gitlab. Needs the deploy ability."
+    },
+    {
+      "name": "manual_webhook_secret_bitbucket",
+      "type": "string",
+      "required": false,
+      "description": "Manual webhook secret for Bitbucket. Needs the deploy ability."
+    },
+    {
+      "name": "manual_webhook_secret_gitea",
+      "type": "string",
+      "required": false,
+      "description": "Manual webhook secret for Gitea. Needs the deploy ability."
+    },
+    {
+      "name": "redirect",
+      "type": "string",
+      "required": false,
+      "description": "How to set redirect with Traefik / Caddy. www<->non-www."
+    },
+    {
+      "name": "instant_deploy",
+      "type": "boolean",
+      "required": false,
+      "description": "The flag to indicate if the application should be deployed instantly."
+    },
+    {
+      "name": "is_force_https_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "The flag to indicate if HTTPS is forced. Defaults to true."
+    },
+    {
+      "name": "is_preview_deployments_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Enable preview deployments for pull requests."
+    },
+    {
+      "name": "use_build_server",
+      "type": "boolean",
+      "required": false,
+      "description": "Use build server."
+    },
+    {
+      "name": "use_build_secrets",
+      "type": "boolean",
+      "required": false,
+      "description": "Use Docker Build Secrets for build-time environment variables."
+    },
+    {
+      "name": "is_git_submodules_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Clone Git submodules."
+    },
+    {
+      "name": "is_git_lfs_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Enable Git LFS."
+    },
+    {
+      "name": "is_git_shallow_clone_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Use a shallow Git clone."
+    },
+    {
+      "name": "is_auto_cancel_queued_deployments_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Cancel older queued webhook deployments when a newer push arrives. Default: true."
+    },
+    {
+      "name": "is_auto_cancel_building_deployments_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Also stop an older webhook deployment that is still building when a newer push arrives. A deployment that already started to replace containers always finishes. This also cancels queued webhook deplo…"
+    },
+    {
+      "name": "disable_build_cache",
+      "type": "boolean",
+      "required": false,
+      "description": "Disable the build cache."
+    },
+    {
+      "name": "inject_build_args_to_dockerfile",
+      "type": "boolean",
+      "required": false,
+      "description": "Inject build arguments into the Dockerfile build."
+    },
+    {
+      "name": "include_source_commit_in_build",
+      "type": "boolean",
+      "required": false,
+      "description": "Include the source commit in the build."
+    },
+    {
+      "name": "include_network_hosts_in_build",
+      "type": "boolean",
+      "required": false,
+      "description": "Add the containers of the destination network as build hosts."
+    },
+    {
+      "name": "is_env_sorting_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Sort environment variables."
+    },
+    {
+      "name": "redact_all_env_values_in_logs",
+      "type": "boolean",
+      "required": false,
+      "description": "Redact all environment variable values in logs. When false, only locked (shown once) values are redacted. Requires team admin permissions."
+    },
+    {
+      "name": "include_coolify_default_variables",
+      "type": "boolean",
+      "required": false,
+      "description": "Add the predefined COOLIFY_* variables (COOLIFY_URL, COOLIFY_FQDN, ...) to the environment. Requires team admin permissions. Redeploy to apply it."
+    },
+    {
+      "name": "is_pr_deployments_public_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Make pull request deployments public."
+    },
+    {
+      "name": "use_production_values_in_previews",
+      "type": "boolean",
+      "required": false,
+      "description": "Copy the value of a new production environment variable to its preview copy. When false, the preview copy is empty and previews do not get preview variables that still have the production value. Defa…"
+    },
+    {
+      "name": "stop_grace_period",
+      "type": "integer",
+      "required": false,
+      "description": "Container stop grace period in seconds."
+    },
+    {
+      "name": "rolling_update_drain_seconds",
+      "type": "integer",
+      "required": false,
+      "description": "Seconds to wait after the new container is healthy before old containers stop during a rolling update. 0 turns the wait off. Default: 5."
+    },
+    {
+      "name": "docker_images_to_keep",
+      "type": "integer",
+      "required": false,
+      "description": "Number of Docker images to retain."
+    },
+    {
+      "name": "is_gzip_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Enable gzip compression."
+    },
+    {
+      "name": "is_stripprefix_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Enable path prefix stripping."
+    },
+    {
+      "name": "is_permanent_redirect_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Use permanent redirects (301/308) instead of temporary (302/307) for the HTTP to HTTPS and www redirects. Defaults to false."
+    },
+    {
+      "name": "traefik_certificate_resolver",
+      "type": "string",
+      "required": false,
+      "description": "Traefik certificate resolver for this application. Null uses the server setting, \"none\" uses no resolver."
+    },
+    {
+      "name": "is_container_label_readonly_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Let Coolify manage the container labels. True regenerates custom_labels from domains, redirect, and proxy settings. False keeps custom_labels as you set them: domains, redirect, and basic auth change…"
+    },
+    {
+      "name": "is_raw_compose_deployment_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Deploy the raw Docker Compose definition."
+    },
+    {
+      "name": "is_log_drain_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Enable log drain for the application."
+    },
+    {
+      "name": "is_gpu_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Enable GPU support."
+    },
+    {
+      "name": "gpu_driver",
+      "type": "string",
+      "required": false,
+      "description": "GPU driver name."
+    },
+    {
+      "name": "gpu_count",
+      "type": "string",
+      "required": false,
+      "description": "Number of GPUs to allocate."
+    },
+    {
+      "name": "gpu_device_ids",
+      "type": "string",
+      "required": false,
+      "description": "Comma-separated GPU device IDs."
+    },
+    {
+      "name": "gpu_options",
+      "type": "string",
+      "required": false,
+      "description": "Additional GPU options."
+    },
+    {
+      "name": "is_consistent_container_name_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Use a consistent container name across deployments."
+    },
+    {
+      "name": "is_image_scan_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Scan the images of the application for vulnerabilities. Needs image scanning on the server. Default true."
+    },
+    {
+      "name": "custom_internal_name",
+      "type": "string",
+      "required": false,
+      "description": "Custom internal container name. Turns is_consistent_container_name_enabled on when that field is not sent; sending it as false together with a name returns 422."
+    },
+    {
+      "name": "custom_container_name_prefix",
+      "type": "string",
+      "required": false,
+      "description": "Prefix for generated container names (prefix-20260908T141530). Slugified and unique across the instance."
+    },
+    {
+      "name": "preview_url_template",
+      "type": "string",
+      "required": false,
+      "description": "Preview URL template."
+    },
+    {
+      "name": "max_restart_count",
+      "type": "integer",
+      "required": false,
+      "description": "Maximum container restart count before stopping."
+    },
+    {
+      "name": "is_http_basic_auth_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "HTTP Basic Authentication enabled."
+    },
+    {
+      "name": "http_basic_auth_username",
+      "type": "string",
+      "required": false,
+      "description": "Username for HTTP Basic Authentication"
+    },
+    {
+      "name": "http_basic_auth_password",
+      "type": "string",
+      "required": false,
+      "description": "Password for HTTP Basic Authentication"
+    },
+    {
+      "name": "http_basic_auth_hash_algorithm",
+      "type": "string",
+      "required": false,
+      "description": "Hash algorithm for the HTTP Basic Authentication password. Argon2id needs the Caddy proxy, version 2.11 or newer."
+    },
+    {
+      "name": "http_basic_auth_bcrypt_cost",
+      "type": "integer",
+      "required": false,
+      "description": "Bcrypt cost for the HTTP Basic Authentication password."
+    },
+    {
+      "name": "http_basic_auth_argon2id_memory_cost",
+      "type": "integer",
+      "required": false,
+      "description": "Argon2id memory cost in KiB for the HTTP Basic Authentication password."
+    },
+    {
+      "name": "http_basic_auth_argon2id_time_cost",
+      "type": "integer",
+      "required": false,
+      "description": "Argon2id time cost (iterations) for the HTTP Basic Authentication password."
+    },
+    {
+      "name": "connect_to_docker_network",
+      "type": "boolean",
+      "required": false,
+      "description": "The flag to connect the service to the predefined Docker network."
+    },
+    {
+      "name": "force_domain_override",
+      "type": "boolean",
+      "required": false,
+      "description": "Force domain usage even if conflicts are detected. Default is false."
+    },
+    {
+      "name": "autogenerate_domain",
+      "type": "boolean",
+      "required": false,
+      "description": "If true and domains is empty, auto-generate a domain using the server's wildcard domain or sslip.io fallback. Ignored for the dockercompose build pack, which uses docker_compose_domains. Default: tru…"
+    },
+    {
+      "name": "is_container_label_escape_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Escape special characters in labels. By default, $ (and other chars) is escaped. So if you write $ in the labels, it will be saved as $$. If you want to use env variables inside the labels, turn this…"
+    },
+    {
+      "name": "tags",
+      "type": "array",
+      "required": false,
+      "description": "Tags to assign to the application."
+    },
+    {
+      "name": "docker_registry_image_name",
+      "type": "string",
+      "required": true,
+      "description": "The docker registry image name."
+    },
+    {
+      "name": "key",
+      "type": "string",
+      "required": false,
+      "description": "The key of the environment variable."
+    },
+    {
+      "name": "value",
+      "type": "string",
+      "required": false,
+      "description": "The value of the environment variable."
+    },
+    {
+      "name": "is_preview",
+      "type": "boolean",
+      "required": false,
+      "description": "The flag to indicate if the environment variable is used in preview deployments."
+    },
+    {
+      "name": "is_literal",
+      "type": "boolean",
+      "required": false,
+      "description": "The flag to indicate if the environment variable is a literal, nothing espaced."
+    },
+    {
+      "name": "is_multiline",
+      "type": "boolean",
+      "required": false,
+      "description": "The flag to indicate if the environment variable is multiline."
+    },
+    {
+      "name": "is_shown_once",
+      "type": "boolean",
+      "required": false,
+      "description": "If true, the saved value is hidden in the UI and API responses. A lock is permanent: false does not unlock a locked variable, but a new value can still replace the locked one. MCP never returns envir…"
+    },
+    {
+      "name": "copy_value_to_preview",
+      "type": "boolean",
+      "required": false,
+      "description": "Only for a new production variable of an application: false leaves its preview copy empty. True or not set uses the use_production_values_in_previews setting of the application, so it cannot copy the…"
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": false,
+      "description": "The name of the environment."
+    },
+    { "name": "value", "type": "string", "required": false },
+    { "name": "is_literal", "type": "boolean", "required": false },
+    { "name": "is_multiline", "type": "boolean", "required": false },
+    { "name": "comment", "type": "string", "required": false },
+    {
+      "name": "name",
+      "type": "string",
+      "required": true,
+      "description": "Name of the GitHub app."
+    },
+    {
+      "name": "organization",
+      "type": "string",
+      "required": false,
+      "description": "Organization to associate the app with."
+    },
+    {
+      "name": "api_url",
+      "type": "string",
+      "required": false,
+      "description": "API URL for the GitHub app (e.g., https://api.github.com)."
+    },
+    {
+      "name": "html_url",
+      "type": "string",
+      "required": true,
+      "description": "HTML URL for the GitHub app (e.g., https://github.com)."
+    },
+    {
+      "name": "custom_user",
+      "type": "string",
+      "required": false,
+      "description": "Custom user for SSH access (default: git)."
+    },
+    {
+      "name": "custom_port",
+      "type": "integer",
+      "required": false,
+      "description": "Custom port for SSH access (default: 22)."
+    },
+    {
+      "name": "app_id",
+      "type": "integer",
+      "required": true,
+      "description": "GitHub App ID from GitHub."
+    },
+    {
+      "name": "installation_id",
+      "type": "integer",
+      "required": true,
+      "description": "GitHub Installation ID."
+    },
+    {
+      "name": "client_id",
+      "type": "string",
+      "required": true,
+      "description": "GitHub OAuth App Client ID."
+    },
+    {
+      "name": "client_secret",
+      "type": "string",
+      "required": true,
+      "description": "GitHub OAuth App Client Secret."
+    },
+    {
+      "name": "webhook_secret",
+      "type": "string",
+      "required": false,
+      "description": "Webhook secret for GitHub webhooks."
+    },
+    {
+      "name": "private_key_uuid",
+      "type": "string",
+      "required": true,
+      "description": "UUID of an existing private key for GitHub App authentication."
+    },
+    {
+      "name": "is_system_wide",
+      "type": "boolean",
+      "required": false,
+      "description": "Is this app system-wide (cloud only)."
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": true,
+      "description": "Name of the GitLab app."
+    },
+    {
+      "name": "html_url",
+      "type": "string",
+      "required": true,
+      "description": "GitLab instance URL (e.g., https://gitlab.com)."
+    },
+    {
+      "name": "api_url",
+      "type": "string",
+      "required": false,
+      "description": "GitLab API URL (defaults to {html_url}/api/v4)."
+    },
+    {
+      "name": "group_name",
+      "type": "string",
+      "required": false,
+      "description": "Optional comma-separated group names to filter repositories."
+    },
+    {
+      "name": "client_id",
+      "type": "string",
+      "required": false,
+      "description": "GitLab OAuth Application ID."
+    },
+    {
+      "name": "client_secret",
+      "type": "string",
+      "required": false,
+      "description": "GitLab OAuth Application Secret."
+    },
+    {
+      "name": "webhook_token",
+      "type": "string",
+      "required": false,
+      "description": "Webhook secret token (auto-generated when omitted)."
+    },
+    {
+      "name": "redirect_uri",
+      "type": "string",
+      "required": false,
+      "description": "OAuth redirect URI registered in GitLab."
+    },
+    {
+      "name": "is_system_wide",
+      "type": "boolean",
+      "required": false,
+      "description": "Is this app system-wide (non-cloud instances only)."
+    },
+    {
+      "name": "cloud_provider_token_uuid",
+      "type": "string",
+      "required": false,
+      "description": "Cloud provider token UUID. Required if cloud_provider_token_id is not provided."
+    },
+    {
+      "name": "cloud_provider_token_id",
+      "type": "string",
+      "required": false,
+      "description": "Deprecated: Use cloud_provider_token_uuid instead. Cloud provider token UUID."
+    },
+    {
+      "name": "location",
+      "type": "string",
+      "required": true,
+      "description": "Hetzner location name"
+    },
+    {
+      "name": "server_type",
+      "type": "string",
+      "required": true,
+      "description": "Hetzner server type name"
+    },
+    {
+      "name": "image",
+      "type": "integer",
+      "required": true,
+      "description": "Hetzner image ID"
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": false,
+      "description": "Server name (auto-generated if not provided)"
+    },
+    {
+      "name": "private_key_uuid",
+      "type": "string",
+      "required": true,
+      "description": "Private key UUID"
+    },
+    {
+      "name": "enable_ipv4",
+      "type": "boolean",
+      "required": false,
+      "description": "Enable IPv4 (default: true)"
+    },
+    {
+      "name": "enable_ipv6",
+      "type": "boolean",
+      "required": false,
+      "description": "Enable IPv6 (default: true)"
+    },
+    {
+      "name": "enable_backups",
+      "type": "boolean",
+      "required": false,
+      "description": "Enable Hetzner server backups after creation (adds 20% to the monthly server fee)"
+    },
+    {
+      "name": "hetzner_ssh_key_ids",
+      "type": "array",
+      "required": false,
+      "description": "Additional Hetzner SSH key IDs. Needs a token with the deploy permission."
+    },
+    {
+      "name": "hetzner_firewall_ids",
+      "type": "array",
+      "required": false,
+      "description": "Existing Hetzner firewall IDs to apply during server creation"
+    },
+    {
+      "name": "hetzner_network_ids",
+      "type": "array",
+      "required": false,
+      "description": "Existing Hetzner network IDs to attach during server creation"
+    },
+    {
+      "name": "cloud_init_script",
+      "type": "string",
+      "required": false,
+      "description": "Cloud-init YAML script (optional). Needs a token with the deploy permission."
+    },
+    {
+      "name": "instant_validate",
+      "type": "boolean",
+      "required": false,
+      "description": "Validate the server and install Docker when it is running. Defaults to true for tokens with the deploy permission, and needs that permission."
+    },
+    { "name": "pull_request_id", "type": "integer", "required": true },
+    { "name": "pull_request_html_url", "type": "string", "required": false },
+    {
+      "name": "git_type",
+      "type": "string",
+      "required": false,
+      "description": "Git provider that hosts the pull request. Sets the ref Coolify fetches (pull/{id}/head or merge-requests/{id}/head)."
+    },
+    {
+      "name": "commit",
+      "type": "string",
+      "required": false,
+      "description": "Commit SHA to deploy. Required for a new Bitbucket preview. Needs the write permission."
+    },
+    {
+      "name": "docker_tag",
+      "type": "string",
+      "required": false,
+      "description": "Docker image tag. Docker Image applications only."
+    },
+    {
+      "name": "force",
+      "type": "boolean",
+      "required": false,
+      "description": "Rebuild without cache."
+    },
+    {
+      "name": "instant_deploy",
+      "type": "boolean",
+      "required": false,
+      "description": "Queue a deployment. Set to false to only create the preview, for example to set its domains first."
+    },
+    {
+      "name": "private_key_uuid",
+      "type": "string",
+      "required": true,
+      "description": "The private key UUID."
+    },
+    {
+      "name": "git_repository",
+      "type": "string",
+      "required": true,
+      "description": "The git repository URL."
+    },
+    {
+      "name": "git_branch",
+      "type": "string",
+      "required": true,
+      "description": "The git branch."
+    },
+    {
+      "name": "build_pack",
+      "type": "string",
+      "required": true,
+      "description": "The build pack type."
+    },
+    {
+      "name": "git_commit_sha",
+      "type": "string",
+      "required": false,
+      "description": "The git commit SHA."
+    },
+    {
+      "name": "is_static",
+      "type": "boolean",
+      "required": false,
+      "description": "The flag to indicate if the application is static."
+    },
+    {
+      "name": "is_spa",
+      "type": "boolean",
+      "required": false,
+      "description": "The flag to indicate if the application is a single-page application (SPA). Only relevant when is_static is true."
+    },
+    {
+      "name": "is_auto_deploy_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "The flag to indicate if auto-deploy is enabled on git push. Defaults to true."
+    },
+    {
+      "name": "static_image",
+      "type": "string",
+      "required": false,
+      "description": "The static image."
+    },
+    {
+      "name": "install_command",
+      "type": "string",
+      "required": false,
+      "description": "The install command."
+    },
+    {
+      "name": "build_command",
+      "type": "string",
+      "required": false,
+      "description": "The build command."
+    },
+    {
+      "name": "start_command",
+      "type": "string",
+      "required": false,
+      "description": "The start command."
+    },
+    {
+      "name": "publish_directory",
+      "type": "string",
+      "required": false,
+      "description": "The publish directory."
+    },
+    {
+      "name": "dockerfile",
+      "type": "string",
+      "required": false,
+      "description": "The Dockerfile content."
+    },
+    {
+      "name": "dockerfile_location",
+      "type": "string",
+      "required": false,
+      "description": "The Dockerfile location in the repository."
+    },
+    {
+      "name": "dockerfile_target_build",
+      "type": "string",
+      "required": false,
+      "description": "The Docker build target (stage) in the Dockerfile."
+    },
+    {
+      "name": "docker_compose_location",
+      "type": "string",
+      "required": false,
+      "description": "The Docker Compose location."
+    },
+    {
+      "name": "docker_compose_custom_start_command",
+      "type": "string",
+      "required": false,
+      "description": "The Docker Compose custom start command."
+    },
+    {
+      "name": "docker_compose_custom_build_command",
+      "type": "string",
+      "required": false,
+      "description": "The Docker Compose custom build command."
+    },
+    {
+      "name": "docker_compose_domains",
+      "type": "array",
+      "required": false,
+      "description": "Array of URLs to be applied to containers of a dockercompose application."
+    },
+    {
+      "name": "watch_paths",
+      "type": "string",
+      "required": false,
+      "description": "Watch path patterns, one per line (newline-separated). Commas do not separate patterns."
+    },
+    {
+      "name": "is_preserve_repository_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Preserve repository during deployment."
+    },
+    {
+      "name": "gitea_app_uuid",
+      "type": "string",
+      "required": true,
+      "description": "The Gitea App UUID. The source must be connected."
+    },
+    {
+      "name": "git_repository",
+      "type": "string",
+      "required": true,
+      "description": "The repository as owner/name, or its URL on the Gitea instance."
+    },
+    {
+      "name": "dockerfile_location",
+      "type": "string",
+      "required": false,
+      "description": "The Dockerfile location in the repository"
+    },
+    {
+      "name": "github_app_uuid",
+      "type": "string",
+      "required": true,
+      "description": "The Github App UUID."
+    },
+    { "name": "description", "type": "string", "required": false },
+    { "name": "private_key", "type": "string", "required": true },
+    {
+      "name": "name",
+      "type": "string",
+      "required": false,
+      "description": "The name of the project."
+    },
+    {
+      "name": "description",
+      "type": "string",
+      "required": false,
+      "description": "The description of the project."
+    },
+    {
+      "name": "git_https_username",
+      "type": "string",
+      "required": false,
+      "description": "Username for HTTPS access to a private repository on a custom Git host (not github.com)."
+    },
+    {
+      "name": "git_https_password",
+      "type": "string",
+      "required": false,
+      "description": "Password or access token for HTTPS access to a private repository on a custom Git host (not github.com). It is stored encrypted and never returned."
+    },
+    {
+      "name": "type",
+      "type": "string",
+      "required": false,
+      "description": "The storage protocol. It cannot change later."
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": true,
+      "description": "A friendly name for the storage."
+    },
+    {
+      "name": "description",
+      "type": "string",
+      "required": false,
+      "description": "Optional description."
+    },
+    {
+      "name": "endpoint",
+      "type": "string",
+      "required": true,
+      "description": "S3: the S3-compatible endpoint URL. SFTP and FTPS: sftp://host:port/directory or ftps://host:port/directory (explicit TLS); the directory is an absolute path, and without one the login directory is u…"
+    },
+    {
+      "name": "bucket",
+      "type": "string",
+      "required": false,
+      "description": "S3 bucket name. Required for S3, not allowed for the other types."
+    },
+    {
+      "name": "region",
+      "type": "string",
+      "required": false,
+      "description": "S3 region. Required for S3, not allowed for the other types."
+    },
+    {
+      "name": "use_path_style_endpoint",
+      "type": "boolean",
+      "required": false,
+      "description": "Use path-style URLs (endpoint/bucket). Set to false for providers that only accept virtual-hosted-style URLs (bucket.endpoint). Default: false for Alibaba Cloud OSS, Tencent Cloud COS, and Volcengine…"
+    },
+    {
+      "name": "skip_tls_verification",
+      "type": "boolean",
+      "required": false,
+      "description": "S3 only. Do not check the TLS certificate of the endpoint. Use only for endpoints with a self-signed or private CA certificate. Default: false."
+    },
+    {
+      "name": "key",
+      "type": "string",
+      "required": true,
+      "description": "S3: the access key. Other types: the username."
+    },
+    {
+      "name": "secret",
+      "type": "string",
+      "required": false,
+      "description": "S3: the secret key. Other types: the password. SFTP: not needed with private_key_uuid."
+    },
+    {
+      "name": "private_key_uuid",
+      "type": "string",
+      "required": false,
+      "description": "SFTP only: the UUID of a private key of your team to log in with instead of a password."
+    },
+    {
+      "name": "is_usable",
+      "type": "boolean",
+      "required": false,
+      "description": "Whether the storage is marked usable."
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": true,
+      "description": "The name of the scheduled task."
+    },
+    {
+      "name": "command",
+      "type": "string",
+      "required": true,
+      "description": "The command to execute."
+    },
+    {
+      "name": "frequency",
+      "type": "string",
+      "required": true,
+      "description": "The frequency of the scheduled task."
+    },
+    {
+      "name": "container",
+      "type": "string",
+      "required": false,
+      "description": "The container where the command should be executed."
+    },
+    {
+      "name": "timeout",
+      "type": "integer",
+      "required": false,
+      "description": "The timeout of the scheduled task in seconds."
+    },
+    {
+      "name": "use_shell",
+      "type": "boolean",
+      "required": false,
+      "description": "Run the command with `sh -c` in the container. Set it to false for containers without a shell: the command is then split into arguments and run directly, without shell features such as variables, pip…"
+    },
+    {
+      "name": "enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "The flag to indicate if the scheduled task is enabled. An enabled task requires the deploy ability."
+    },
+    { "name": "provider", "type": "string", "required": true },
+    { "name": "token", "type": "string", "required": true },
+    {
+      "name": "capabilities",
+      "type": "array",
+      "required": false,
+      "description": "Cloudflare: dns, tunnel (tunnel needs dns). Default: dns. Secret managers: secrets."
+    },
+    {
+      "name": "automatic_dns",
+      "type": "boolean",
+      "required": false,
+      "description": "Cloudflare only. Create DNS records when a domain is added. Default: true."
+    },
+    {
+      "name": "proxied_dns",
+      "type": "boolean",
+      "required": false,
+      "description": "Cloudflare only. Create new records proxied (orange cloud). Default: false."
+    },
+    {
+      "name": "metadata",
+      "type": "object",
+      "required": false,
+      "description": "Secret managers only: base_url, client_id (Infisical), namespace (Vault), timeout."
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": false,
+      "description": "The name of the server. Must not contain control characters such as new lines."
+    },
+    {
+      "name": "description",
+      "type": "string",
+      "required": false,
+      "description": "The description of the server."
+    },
+    {
+      "name": "ip",
+      "type": "string",
+      "required": false,
+      "description": "The IP of the server."
+    },
+    {
+      "name": "port",
+      "type": "integer",
+      "required": false,
+      "description": "The port of the server."
+    },
+    {
+      "name": "user",
+      "type": "string",
+      "required": false,
+      "description": "The user of the server."
+    },
+    {
+      "name": "private_key_uuid",
+      "type": "string",
+      "required": false,
+      "description": "The UUID of the private key."
+    },
+    {
+      "name": "server_role",
+      "type": "string",
+      "required": false,
+      "description": "Server role."
+    },
+    {
+      "name": "is_build_server",
+      "type": "boolean",
+      "required": false,
+      "description": "Deprecated: use server_role instead. true sets server_role to build, false sets it to both. Must not conflict with server_role."
+    },
+    {
+      "name": "instant_validate",
+      "type": "boolean",
+      "required": false,
+      "description": "Instant validate."
+    },
+    {
+      "name": "proxy_type",
+      "type": "string",
+      "required": false,
+      "description": "The proxy type."
+    },
+    {
+      "name": "ssh_host_key",
+      "type": "string",
+      "required": false,
+      "description": "The SSH host key(s) of the server, as public key lines (for example the content of /etc/ssh/ssh_host_ed25519_key.pub) or known_hosts lines. Without it, Coolify trusts the key that the server sends on…"
+    },
+    {
+      "name": "network",
+      "type": "string",
+      "required": true,
+      "description": "Name of a new Docker network. Must not be bridge, host, none, or a network that already exists on the server."
+    },
+    { "name": "type", "type": "string", "required": false },
+    {
+      "name": "type",
+      "type": "string",
+      "required": false,
+      "description": "The one-click service type (e.g. \"actualbudget\", \"calibre-web\", \"gitea-with-mysql\" ...)"
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": false,
+      "description": "Name of the service."
+    },
+    {
+      "name": "description",
+      "type": "string",
+      "required": false,
+      "description": "Description of the service."
+    },
+    {
+      "name": "project_uuid",
+      "type": "string",
+      "required": true,
+      "description": "Project UUID."
+    },
+    {
+      "name": "environment_name",
+      "type": "string",
+      "required": false,
+      "description": "Environment name. You need to provide at least one of environment_name or environment_uuid."
+    },
+    {
+      "name": "environment_uuid",
+      "type": "string",
+      "required": false,
+      "description": "Environment UUID. You need to provide at least one of environment_name or environment_uuid."
+    },
+    {
+      "name": "server_uuid",
+      "type": "string",
+      "required": true,
+      "description": "Server UUID."
+    },
+    {
+      "name": "destination_uuid",
+      "type": "string",
+      "required": false,
+      "description": "Destination UUID. Required if server has multiple destinations."
+    },
+    {
+      "name": "instant_deploy",
+      "type": "boolean",
+      "required": false,
+      "description": "Start the service immediately after creation."
+    },
+    {
+      "name": "docker_compose_raw",
+      "type": "string",
+      "required": false,
+      "description": "The base64 encoded Docker Compose content."
+    },
+    {
+      "name": "connect_to_docker_network",
+      "type": "boolean",
+      "required": false,
+      "description": "Connect the service to the predefined docker network."
+    },
+    {
+      "name": "urls",
+      "type": "array",
+      "required": false,
+      "description": "Array of URLs to be applied to containers of a service."
+    },
+    {
+      "name": "force_domain_override",
+      "type": "boolean",
+      "required": false,
+      "description": "Force domain override even if conflicts are detected."
+    },
+    {
+      "name": "is_container_label_escape_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Escape special characters in labels. By default, $ (and other chars) is escaped. If you want to use env variables inside the labels, turn this off."
+    },
+    {
+      "name": "tags",
+      "type": "array",
+      "required": false,
+      "description": "Tags to assign to the service."
+    },
+    {
+      "name": "type",
+      "type": "string",
+      "required": true,
+      "description": "The type of storage."
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": false,
+      "description": "Volume name (persistent only, required for persistent)."
+    },
+    {
+      "name": "mount_path",
+      "type": "string",
+      "required": true,
+      "description": "The container mount path."
+    },
+    {
+      "name": "content",
+      "type": "string",
+      "required": false,
+      "description": "File content (file only, optional). Needs the deploy ability when set."
+    },
+    {
+      "name": "is_directory",
+      "type": "boolean",
+      "required": false,
+      "description": "Whether this is a directory mount (file only, default false)."
+    },
+    {
+      "name": "fs_path",
+      "type": "string",
+      "required": false,
+      "description": "Host path. Required for directory mounts and host file mounts. Optional for file mounts with content (default: inside the resource directory). An absolute path can be anywhere on the host; a relative…"
+    },
+    {
+      "name": "resource_uuid",
+      "type": "string",
+      "required": true,
+      "description": "UUID of the service application or database sub-resource."
+    },
+    {
+      "name": "tag_name",
+      "type": "string",
+      "required": false,
+      "description": "The tag name (min 2 characters). Required if tag_names is not provided."
+    },
+    {
+      "name": "tag_names",
+      "type": "array",
+      "required": false,
+      "description": "Array of tag names (each min 2 characters). Required if tag_name is not provided."
+    },
+    {
+      "name": "bundle",
+      "type": "object",
+      "required": false,
+      "description": "Transfer bundle"
+    },
+    { "name": "dry_run", "type": "boolean", "required": false },
+    { "name": "preserve_uuids", "type": "boolean", "required": false },
+    {
+      "name": "adopt_mode",
+      "type": "boolean",
+      "required": false,
+      "description": "Import without forcing redeploy; keep statuses for adoption"
+    },
+    {
+      "name": "registry",
+      "type": "string",
+      "required": true,
+      "description": "Registry host, optionally with a port. Use docker.io for Docker Hub."
+    },
+    { "name": "username", "type": "string", "required": true },
+    {
+      "name": "password",
+      "type": "string",
+      "required": true,
+      "description": "Password or access token. Never returned."
+    },
+    {
+      "name": "destination_uuid",
+      "type": "string",
+      "required": true,
+      "description": "UUID of the target destination."
+    },
+    {
+      "name": "migrate_volumes",
+      "type": "boolean",
+      "required": false,
+      "description": "Whether to transfer persistent volume data when migrating across servers."
+    },
+    { "name": "target_url", "type": "string", "required": true },
+    {
+      "name": "target_token",
+      "type": "string",
+      "required": true,
+      "description": "API token on the target instance (root or write)"
+    },
+    {
+      "name": "environment_uuid",
+      "type": "string",
+      "required": true,
+      "description": "UUID of the target environment."
+    },
+    {
+      "name": "url",
+      "type": "string",
+      "required": false,
+      "description": "Comma-separated list of URLs (e.g. \"http://app.example.com:8080,https://app2.example.com\"). Stored as fqdn."
+    },
+    {
+      "name": "noindex_domains",
+      "type": "array",
+      "required": false,
+      "description": "The subset of the service application domains served with an X-Robots-Tag: noindex, nofollow response header, keeping them out of search engines. Entries that are not among the domains are ignored."
+    },
+    { "name": "human_name", "type": "string", "required": false },
+    { "name": "image", "type": "string", "required": false },
+    { "name": "exclude_from_status", "type": "boolean", "required": false },
+    { "name": "is_log_drain_enabled", "type": "boolean", "required": false },
+    { "name": "is_gzip_enabled", "type": "boolean", "required": false },
+    {
+      "name": "traefik_certificate_resolver",
+      "type": "string",
+      "required": false,
+      "description": "Traefik certificate resolver for this service application. Null uses the server setting, \"none\" uses no resolver."
+    },
+    { "name": "is_stripprefix_enabled", "type": "boolean", "required": false },
+    { "name": "is_force_https_enabled", "type": "boolean", "required": false },
+    {
+      "name": "redirect",
+      "type": "string",
+      "required": false,
+      "description": "How to handle www and non-www domains. \"www\" redirects non-www to www, \"non-www\" redirects www to non-www. Both need a www and a non-www domain in url."
+    },
+    {
+      "name": "max_restart_count",
+      "type": "integer",
+      "required": false,
+      "description": "Maximum Docker restart count before Coolify stops the container. Set to 0 to disable the limit."
+    },
+    {
+      "name": "is_public",
+      "type": "boolean",
+      "required": false,
+      "description": "Changing it starts or stops the database proxy, so it needs a token with the deploy permission."
+    },
+    { "name": "public_port", "type": "integer", "required": false },
+    { "name": "public_port_timeout", "type": "integer", "required": false },
+    {
+      "name": "record_id",
+      "type": "string",
+      "required": true,
+      "description": "conflict.record_id from the 409 response of the create request."
+    },
+    {
+      "name": "current",
+      "type": "string",
+      "required": true,
+      "description": "conflict.current from the 409 response. The record is replaced only when it still has this value."
+    },
+    {
+      "name": "ssh_host_key",
+      "type": "string",
+      "required": false,
+      "description": "The SSH host key(s) to trust, as public key lines or known_hosts lines."
+    },
+    {
+      "name": "commit",
+      "type": "string",
+      "required": true,
+      "description": "Image tag / commit to roll back to. Must be a tag from the rollback images list or the commit of a successful production deployment."
+    },
+    { "name": "delete_unused_volumes", "type": "boolean", "required": false },
+    { "name": "delete_unused_networks", "type": "boolean", "required": false },
+    {
+      "name": "configuration",
+      "type": "string",
+      "required": true,
+      "description": "Proxy docker-compose YAML. Prefer base64 encoding for multi-line content."
+    },
+    { "name": "frequency", "type": "string", "required": true },
+    { "name": "enabled", "type": "boolean", "required": false },
+    { "name": "save_s3", "type": "boolean", "required": false },
+    { "name": "disable_local_backup", "type": "boolean", "required": false },
+    {
+      "name": "stop_during_backup",
+      "type": "boolean",
+      "required": false,
+      "description": "Stop the resource containers during the backup. Needs a token with the deploy permission."
+    },
+    {
+      "name": "s3_storage_uuid",
+      "type": "string",
+      "required": false,
+      "description": "Primary S3 storage UUID. Sent without s3_storage_uuids, it selects this storage as the only destination."
+    },
+    {
+      "name": "s3_storage_uuids",
+      "type": "array",
+      "required": false,
+      "description": "UUIDs of every S3 storage the backup is uploaded to. When s3_storage_uuid is also sent, it must be in this list and becomes the primary destination; otherwise the first entry is the primary destinati…"
+    },
+    {
+      "name": "retention_amount_locally",
+      "type": "integer",
+      "required": false
+    },
+    { "name": "retention_days_locally", "type": "integer", "required": false },
+    {
+      "name": "retention_max_storage_locally",
+      "type": "number",
+      "required": false
+    },
+    { "name": "retention_amount_s3", "type": "integer", "required": false },
+    { "name": "retention_days_s3", "type": "integer", "required": false },
+    { "name": "retention_max_storage_s3", "type": "number", "required": false },
+    { "name": "timeout", "type": "integer", "required": false },
+    {
+      "name": "settings",
+      "type": "object",
+      "required": false,
+      "description": "Doppler service account: project, config. Infisical: project_id, environment, secret_path. Vault: mount, path."
+    },
+    {
+      "name": "github_app_uuid",
+      "type": "string",
+      "required": false,
+      "description": "The Github App UUID."
+    },
+    {
+      "name": "gitea_app_uuid",
+      "type": "string",
+      "required": false,
+      "description": "The Gitea App UUID. The source must be connected. Do not send it together with github_app_uuid."
+    },
+    {
+      "name": "git_repository",
+      "type": "string",
+      "required": false,
+      "description": "The git repository URL."
+    },
+    {
+      "name": "git_branch",
+      "type": "string",
+      "required": false,
+      "description": "The git branch."
+    },
+    {
+      "name": "git_https_username",
+      "type": "string",
+      "required": false,
+      "description": "Username for HTTPS access to a private repository on a custom Git host. Send null to remove it."
+    },
+    {
+      "name": "git_https_password",
+      "type": "string",
+      "required": false,
+      "description": "Password or access token for HTTPS access to a private repository on a custom Git host. It is stored encrypted and never returned. Send null or an empty string to remove the credentials."
+    },
+    {
+      "name": "is_preserve_repository_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Preserve git repository during application update. If false, the existing repository will be removed and replaced with the new one. If true, the existing repository will be kept and the new one will …"
+    },
+    { "name": "script", "type": "string", "required": false },
+    {
+      "name": "name",
+      "type": "string",
+      "required": false,
+      "description": "The friendly name for the token."
+    },
+    {
+      "name": "save_s3",
+      "type": "boolean",
+      "required": false,
+      "description": "Whether data is saved in s3 or not"
+    },
+    {
+      "name": "disable_local_backup",
+      "type": "boolean",
+      "required": false,
+      "description": "Delete the local backup file after the upload to S3. Only allowed when save_s3 is true. Turning save_s3 off also turns this off."
+    },
+    {
+      "name": "s3_storage_uuid",
+      "type": "string",
+      "required": false,
+      "description": "Primary S3 storage UUID. Sent without s3_storage_uuids, it selects this storage as the only destination; when it is already a destination, it becomes the primary destination and the other destination…"
+    },
+    {
+      "name": "backup_now",
+      "type": "boolean",
+      "required": false,
+      "description": "Whether to take a backup now or not. Needs a token with the deploy permission."
+    },
+    {
+      "name": "enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Whether the backup is enabled or not"
+    },
+    {
+      "name": "dump_all",
+      "type": "boolean",
+      "required": false,
+      "description": "Whether all databases are dumped or not"
+    },
+    {
+      "name": "frequency",
+      "type": "string",
+      "required": false,
+      "description": "Frequency of the backup"
+    },
+    {
+      "name": "database_backup_retention_amount_locally",
+      "type": "integer",
+      "required": false,
+      "description": "Retention amount of the backup locally"
+    },
+    {
+      "name": "database_backup_retention_days_locally",
+      "type": "integer",
+      "required": false,
+      "description": "Retention days of the backup locally"
+    },
+    {
+      "name": "database_backup_retention_max_storage_locally",
+      "type": "number",
+      "required": false,
+      "description": "Max storage of the backup locally"
+    },
+    {
+      "name": "database_backup_retention_amount_s3",
+      "type": "integer",
+      "required": false,
+      "description": "Retention amount of the backup in s3"
+    },
+    {
+      "name": "database_backup_retention_days_s3",
+      "type": "integer",
+      "required": false,
+      "description": "Retention days of the backup in s3"
+    },
+    {
+      "name": "database_backup_retention_max_storage_s3",
+      "type": "number",
+      "required": false,
+      "description": "Max storage of the backup in S3"
+    },
+    {
+      "name": "is_public",
+      "type": "boolean",
+      "required": false,
+      "description": "Is the database public? Changing it starts or stops the database proxy, so it needs a token with the deploy permission."
+    },
+    {
+      "name": "public_port",
+      "type": "integer",
+      "required": false,
+      "description": "Public port of the database (1024-65535)"
+    },
+    {
+      "name": "instant_deploy",
+      "type": "boolean",
+      "required": false,
+      "description": "Restart the database after the update. Requires the deploy ability."
+    },
+    {
+      "name": "influxdb_admin_user",
+      "type": "string",
+      "required": false,
+      "description": "InfluxDB admin user. Only before the first start."
+    },
+    {
+      "name": "influxdb_admin_password",
+      "type": "string",
+      "required": false,
+      "description": "InfluxDB admin password. Only before the first start."
+    },
+    {
+      "name": "influxdb_admin_token",
+      "type": "string",
+      "required": false,
+      "description": "InfluxDB admin API token. Only before the first start."
+    },
+    {
+      "name": "influxdb_org",
+      "type": "string",
+      "required": false,
+      "description": "InfluxDB initial organization. Only before the first start."
+    },
+    {
+      "name": "influxdb_bucket",
+      "type": "string",
+      "required": false,
+      "description": "InfluxDB initial bucket. Only before the first start."
+    },
+    {
+      "name": "mongo_conf",
+      "type": "string",
+      "required": false,
+      "description": "Mongo conf"
+    },
+    {
+      "name": "mongo_initdb_root_username",
+      "type": "string",
+      "required": false,
+      "description": "Mongo initdb root username"
+    },
+    {
+      "name": "mongo_initdb_root_password",
+      "type": "string",
+      "required": false,
+      "description": "Mongo initdb root password"
+    },
+    {
+      "name": "mongo_initdb_database",
+      "type": "string",
+      "required": false,
+      "description": "Mongo initdb init database"
+    },
+    {
+      "name": "health_check_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Enable the database healthcheck probe."
+    },
+    {
+      "name": "health_check_interval",
+      "type": "integer",
+      "required": false,
+      "description": "Healthcheck interval in seconds."
+    },
+    {
+      "name": "health_check_timeout",
+      "type": "integer",
+      "required": false,
+      "description": "Healthcheck timeout in seconds."
+    },
+    {
+      "name": "health_check_retries",
+      "type": "integer",
+      "required": false,
+      "description": "Healthcheck retries count."
+    },
+    {
+      "name": "health_check_start_period",
+      "type": "integer",
+      "required": false,
+      "description": "Healthcheck start period in seconds."
+    },
+    {
+      "name": "redact_all_env_values_in_logs",
+      "type": "boolean",
+      "required": false,
+      "description": "Redact all environment variable values in logs. When false, only locked (shown once) values, database passwords, and remote secrets are redacted. Requires team admin permissions."
+    },
+    {
+      "name": "include_coolify_default_variables",
+      "type": "boolean",
+      "required": false,
+      "description": "Add the predefined COOLIFY_* variables (COOLIFY_URL, COOLIFY_FQDN, ...) to the environment. Requires team admin permissions. Restart the database to apply it."
+    },
+    {
+      "name": "is_log_drain_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Send the database logs to the log drain of the server. Log drain must be enabled on the server. Restart the database to apply it."
+    },
+    {
+      "name": "key",
+      "type": "string",
+      "required": true,
+      "description": "The key of the environment variable."
+    },
+    {
+      "name": "value",
+      "type": "string",
+      "required": true,
+      "description": "The value of the environment variable."
+    },
+    {
+      "name": "description",
+      "type": "string",
+      "required": false,
+      "description": "The description of the environment."
+    },
+    { "name": "key", "type": "string", "required": false },
+    { "name": "data", "type": "array", "required": true },
+    {
+      "name": "token",
+      "type": "string",
+      "required": false,
+      "description": "New secret. Required when base_url, client_id (Infisical), or namespace (Vault) changes."
+    },
+    { "name": "capabilities", "type": "array", "required": false },
+    {
+      "name": "automatic_dns",
+      "type": "boolean",
+      "required": false,
+      "description": "Cloudflare only."
+    },
+    {
+      "name": "proxied_dns",
+      "type": "boolean",
+      "required": false,
+      "description": "Cloudflare only."
+    },
+    {
+      "name": "metadata",
+      "type": "object",
+      "required": false,
+      "description": "Secret managers only. Fields to change: base_url, client_id, namespace, timeout. An empty value removes a field."
+    },
+    { "name": "domains", "type": "string", "required": false },
+    { "name": "docker_compose_domains", "type": "array", "required": false },
+    { "name": "force_domain_override", "type": "boolean", "required": false },
+    { "name": "private_key", "type": "string", "required": false },
+    {
+      "name": "name",
+      "type": "string",
+      "required": false,
+      "description": "A friendly name for the storage."
+    },
+    {
+      "name": "endpoint",
+      "type": "string",
+      "required": false,
+      "description": "The endpoint URL, in the format of the storage type (see Create S3 Storage)."
+    },
+    {
+      "name": "bucket",
+      "type": "string",
+      "required": false,
+      "description": "S3 bucket name. Only for S3 storages."
+    },
+    {
+      "name": "region",
+      "type": "string",
+      "required": false,
+      "description": "S3 region. Only for S3 storages."
+    },
+    {
+      "name": "use_path_style_endpoint",
+      "type": "boolean",
+      "required": false,
+      "description": "Use path-style URLs (endpoint/bucket). Set to false for providers that only accept virtual-hosted-style URLs (bucket.endpoint), such as Alibaba Cloud OSS."
+    },
+    {
+      "name": "key",
+      "type": "string",
+      "required": false,
+      "description": "S3: the access key. Other types: the username."
+    },
+    {
+      "name": "secret",
+      "type": "string",
+      "required": false,
+      "description": "S3: the secret key. Other types: the password. SFTP: sending a password switches the login to the password."
+    },
+    {
+      "name": "private_key_uuid",
+      "type": "string",
+      "required": false,
+      "description": "SFTP only: the UUID of a private key of your team to log in with. Null switches the login to the saved password."
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": false,
+      "description": "The name of the scheduled task."
+    },
+    {
+      "name": "command",
+      "type": "string",
+      "required": false,
+      "description": "The command to execute."
+    },
+    {
+      "name": "frequency",
+      "type": "string",
+      "required": false,
+      "description": "The frequency of the scheduled task."
+    },
+    {
+      "name": "is_build_server",
+      "type": "boolean",
+      "required": false,
+      "description": "Deprecated: use server_role instead. true sets server_role to build, false changes a build server to both and leaves other roles unchanged. Must not conflict with server_role."
+    },
+    {
+      "name": "proxy_type",
+      "type": "string",
+      "required": false,
+      "description": "The proxy type. Changing it starts the new proxy on the server and needs the deploy permission."
+    },
+    {
+      "name": "concurrent_builds",
+      "type": "integer",
+      "required": false,
+      "description": "Number of concurrent builds."
+    },
+    {
+      "name": "dynamic_timeout",
+      "type": "integer",
+      "required": false,
+      "description": "Deployment timeout in seconds."
+    },
+    {
+      "name": "deployment_queue_limit",
+      "type": "integer",
+      "required": false,
+      "description": "Maximum number of queued deployments."
+    },
+    {
+      "name": "server_disk_usage_notification_threshold",
+      "type": "integer",
+      "required": false,
+      "description": "Server disk usage notification threshold (%)."
+    },
+    {
+      "name": "server_disk_usage_check_frequency",
+      "type": "string",
+      "required": false,
+      "description": "Cron expression for disk usage check frequency."
+    },
+    {
+      "name": "server_disk_usage_notification_interval_hours",
+      "type": "integer",
+      "required": false,
+      "description": "Minimum hours between high disk usage notifications (1-720). Default: 24."
+    },
+    {
+      "name": "connection_timeout",
+      "type": "integer",
+      "required": false,
+      "description": "SSH connection timeout in seconds (1-300). Default: 10."
+    },
+    {
+      "name": "wildcard_domain",
+      "type": "string",
+      "required": false,
+      "description": "Wildcard domain (URL) used to generate domains for new resources on this server. Null removes it."
+    },
+    {
+      "name": "server_timezone",
+      "type": "string",
+      "required": false,
+      "description": "Timezone of the server, for example Europe/Berlin. Scheduled tasks and backups use it."
+    },
+    {
+      "name": "backup_compression_cpu_percentage",
+      "type": "integer",
+      "required": false,
+      "description": "Maximum CPU percentage that backup compression can use. Default: 25."
+    },
+    { "name": "is_cloudflare_tunnel", "type": "boolean", "required": false },
+    {
+      "name": "docker_cleanup_frequency",
+      "type": "string",
+      "required": false,
+      "description": "Cron / human frequency expression."
+    },
+    {
+      "name": "docker_cleanup_threshold",
+      "type": "integer",
+      "required": false
+    },
+    { "name": "force_docker_cleanup", "type": "boolean", "required": false },
+    {
+      "name": "disable_application_image_retention",
+      "type": "boolean",
+      "required": false
+    },
+    { "name": "is_image_scan_enabled", "type": "boolean", "required": false },
+    {
+      "name": "image_scan_memory_mb",
+      "type": "integer",
+      "required": false,
+      "description": "Memory limit of each scanner step, in MB. A value above the memory of the server is refused."
+    },
+    {
+      "name": "image_scan_syft_timeout",
+      "type": "integer",
+      "required": false,
+      "description": "Time limit of one Syft run (package list of an image), in seconds."
+    },
+    {
+      "name": "image_scan_grype_timeout",
+      "type": "integer",
+      "required": false,
+      "description": "Time limit of one Grype run (vulnerability match), in seconds."
+    },
+    {
+      "name": "image_scan_cpus",
+      "type": "number",
+      "required": false,
+      "description": "CPU limit of each scanner step. A value above the CPU count of the server is refused."
+    },
+    {
+      "name": "is_logdrain_newrelic_enabled",
+      "type": "boolean",
+      "required": false
+    },
+    {
+      "name": "logdrain_newrelic_license_key",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "logdrain_newrelic_base_uri",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "is_logdrain_axiom_enabled",
+      "type": "boolean",
+      "required": false
+    },
+    {
+      "name": "logdrain_axiom_dataset_name",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "logdrain_axiom_domain",
+      "type": "string",
+      "required": false,
+      "description": "Base domain of the Axiom edge deployment. Default: us-east-1.aws.edge.axiom.co. Use eu-central-1.aws.edge.axiom.co for EU datasets."
+    },
+    { "name": "logdrain_axiom_api_key", "type": "string", "required": false },
+    {
+      "name": "is_logdrain_custom_enabled",
+      "type": "boolean",
+      "required": false
+    },
+    { "name": "logdrain_custom_config", "type": "string", "required": false },
+    {
+      "name": "logdrain_custom_config_parser",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "is_logdrain_cloudwatch_enabled",
+      "type": "boolean",
+      "required": false
+    },
+    {
+      "name": "logdrain_cloudwatch_region",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "logdrain_cloudwatch_group",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "logdrain_cloudwatch_stream_prefix",
+      "type": "string",
+      "required": false,
+      "description": "Prepended to the container name to form the log stream name."
+    },
+    { "name": "redirect_enabled", "type": "boolean", "required": false },
+    {
+      "name": "redirect_url",
+      "type": "string",
+      "required": false,
+      "description": "Public http(s) redirect URL, or null to clear."
+    },
+    {
+      "name": "proxy_error_page",
+      "type": "string",
+      "required": false,
+      "description": "Custom HTML error page that the proxy shows for unknown hosts (when redirect_url is empty) and for resources in maintenance mode. Null restores the default page."
+    },
+    { "name": "generate_exact_labels", "type": "boolean", "required": false },
+    {
+      "name": "traefik_certificate_resolver",
+      "type": "string",
+      "required": false,
+      "description": "Traefik certificate resolver for generated HTTPS routers (letters, digits, _ and -). Null or empty to use your own certificates. Redeploy resources to apply."
+    },
+    {
+      "name": "proxy_type",
+      "type": "string",
+      "required": false,
+      "description": "Proxy type (case-insensitive). Changing it starts the new proxy on the server and needs the deploy permission."
+    },
+    { "name": "is_metrics_enabled", "type": "boolean", "required": false },
+    {
+      "name": "is_sentinel_debug_enabled",
+      "type": "boolean",
+      "required": false
+    },
+    { "name": "sentinel_token", "type": "string", "required": false },
+    {
+      "name": "sentinel_metrics_refresh_rate_seconds",
+      "type": "integer",
+      "required": false
+    },
+    {
+      "name": "sentinel_metrics_history_days",
+      "type": "integer",
+      "required": false
+    },
+    {
+      "name": "sentinel_push_interval_seconds",
+      "type": "integer",
+      "required": false
+    },
+    { "name": "sentinel_custom_url", "type": "string", "required": false },
+    { "name": "traffic_topn", "type": "integer", "required": false },
+    {
+      "name": "traffic_sample_threshold",
+      "type": "integer",
+      "required": false
+    },
+    {
+      "name": "traffic_retention_1h_days",
+      "type": "integer",
+      "required": false
+    },
+    {
+      "name": "traffic_retention_1d_days",
+      "type": "integer",
+      "required": false
+    },
+    { "name": "is_geoip_enabled", "type": "boolean", "required": false },
+    { "name": "geoip_refresh_days", "type": "integer", "required": false },
+    {
+      "name": "geoip_maxmind_license_key",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "traffic_ip_mode",
+      "type": "string",
+      "required": false,
+      "description": "How Sentinel stores client IPs: full, anonymized (IPv4 /24, IPv6 /48), or off."
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": false,
+      "description": "The service name."
+    },
+    {
+      "name": "description",
+      "type": "string",
+      "required": false,
+      "description": "The service description."
+    },
+    {
+      "name": "instant_deploy",
+      "type": "boolean",
+      "required": false,
+      "description": "The flag to indicate if the service should be deployed instantly."
+    },
+    {
+      "name": "uuid",
+      "type": "string",
+      "required": false,
+      "description": "The UUID of the storage (preferred)."
+    },
+    {
+      "name": "id",
+      "type": "integer",
+      "required": false,
+      "description": "The ID of the storage (deprecated, use uuid instead)."
+    },
+    {
+      "name": "type",
+      "type": "string",
+      "required": true,
+      "description": "The type of storage: persistent or file."
+    },
+    {
+      "name": "is_preview_suffix_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Whether to add -pr-N suffix for preview deployments."
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": false,
+      "description": "The volume name (persistent only, not allowed for read-only storages)."
+    },
+    {
+      "name": "mount_path",
+      "type": "string",
+      "required": false,
+      "description": "The container mount path (not allowed for read-only storages)."
+    },
+    {
+      "name": "content",
+      "type": "string",
+      "required": false,
+      "description": "The file content (file only, not allowed for read-only storages). Changing the content needs the deploy permission."
+    },
+    {
+      "name": "is_build_server_fallback_enabled",
+      "type": "boolean",
+      "required": false,
+      "description": "Whether deployments can fall back to the deployment server when no usable dedicated build server is available."
+    },
+    {
+      "name": "scan_images_on_new_servers",
+      "type": "boolean",
+      "required": false,
+      "description": "Whether image scanning is turned on for servers added to the team from now on."
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": false,
+      "description": "GitHub App name"
+    },
+    {
+      "name": "organization",
+      "type": "string",
+      "required": false,
+      "description": "GitHub organization"
+    },
+    {
+      "name": "api_url",
+      "type": "string",
+      "required": false,
+      "description": "GitHub API URL"
+    },
+    {
+      "name": "html_url",
+      "type": "string",
+      "required": false,
+      "description": "GitHub HTML URL"
+    },
+    {
+      "name": "custom_user",
+      "type": "string",
+      "required": false,
+      "description": "Custom user for SSH"
+    },
+    {
+      "name": "custom_port",
+      "type": "integer",
+      "required": false,
+      "description": "Custom port for SSH"
+    },
+    {
+      "name": "app_id",
+      "type": "integer",
+      "required": false,
+      "description": "GitHub App ID"
+    },
+    {
+      "name": "installation_id",
+      "type": "integer",
+      "required": false,
+      "description": "GitHub Installation ID"
+    },
+    {
+      "name": "client_id",
+      "type": "string",
+      "required": false,
+      "description": "GitHub Client ID"
+    },
+    {
+      "name": "client_secret",
+      "type": "string",
+      "required": false,
+      "description": "GitHub Client Secret"
+    },
+    {
+      "name": "webhook_secret",
+      "type": "string",
+      "required": false,
+      "description": "GitHub Webhook Secret"
+    },
+    {
+      "name": "private_key_uuid",
+      "type": "string",
+      "required": false,
+      "description": "Private key UUID"
+    },
+    {
+      "name": "is_system_wide",
+      "type": "boolean",
+      "required": false,
+      "description": "Is system wide (non-cloud instances only)"
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": false,
+      "description": "GitLab App name"
+    },
+    {
+      "name": "html_url",
+      "type": "string",
+      "required": false,
+      "description": "GitLab HTML URL"
+    },
+    {
+      "name": "api_url",
+      "type": "string",
+      "required": false,
+      "description": "GitLab API URL"
+    },
+    {
+      "name": "group_name",
+      "type": "string",
+      "required": false,
+      "description": "Optional group filter"
+    },
+    {
+      "name": "client_id",
+      "type": "string",
+      "required": false,
+      "description": "OAuth Application ID"
+    },
+    {
+      "name": "client_secret",
+      "type": "string",
+      "required": false,
+      "description": "OAuth Application Secret"
+    },
+    {
+      "name": "webhook_token",
+      "type": "string",
+      "required": false,
+      "description": "Webhook secret token"
+    },
+    {
+      "name": "redirect_uri",
+      "type": "string",
+      "required": false,
+      "description": "OAuth redirect URI"
+    },
+    {
+      "name": "install",
+      "type": "boolean",
+      "required": false,
+      "description": "Install missing prerequisites and Docker, then start the proxy. This can restart the Docker daemon. Needs the deploy permission."
+    }
+  ],
+  "operations": {
+    "add-application-destination": ["Add Destination", [0], [0]],
+    "add-secret-manager-reference": [
+      "Add Secret Manager Reference",
+      [1, 2],
+      [1]
+    ],
+    "cancel-deployment-by-uuid": ["Cancel", [3], null],
+    "check-server-import": ["Check server import", [4, 5, 6, 7, 8, 9], null],
+    "check-server-registry-login": [
+      "Check a registry login on a server",
+      [10, 11],
+      null
+    ],
+    "clone-application-by-uuid": ["Clone", [0], [2, 3, 4]],
+    "clone-database-by-uuid": ["Clone", [12], [0, 5, 4]],
+    "clone-service-by-uuid": ["Clone", [13], [0, 5, 4]],
+    "complete-server-transfer": ["Mark server transferred", [14], [6, 7]],
+    "configure-application-secret-manager": [
+      "Configure Application Secret Manager",
+      [14],
+      [8, 9]
+    ],
+    "create-application-dns-record": [
+      "Create Application DNS Record",
+      [15],
+      [10, 11, 12]
+    ],
+    "create-cloud-init-script": ["Create Cloud-init Script", [], [13, 14]],
+    "create-cloud-token": ["Create Cloud Provider Token", [], [15, 16, 17]],
+    "create-database-backup": [
+      "Create Backup",
+      [12],
+      [18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34]
+    ],
+    "create-database-clickhouse": [
+      "Create (Clickhouse)",
+      [],
+      [
+        35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
+        53, 54, 55, 56
+      ]
+    ],
+    "create-database-dragonfly": [
+      "Create (DragonFly)",
+      [],
+      [
+        35, 36, 37, 38, 39, 57, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53,
+        54, 55, 56
+      ]
+    ],
+    "create-database-import": ["Import database backup", [12], []],
+    "create-database-influxdb": [
+      "Create (InfluxDB)",
+      [],
+      [
+        35, 36, 37, 38, 39, 58, 59, 60, 61, 62, 42, 43, 44, 45, 46, 47, 48, 49,
+        50, 51, 52, 53, 54, 55, 56
+      ]
+    ],
+    "create-database-keydb": [
+      "Create (KeyDB)",
+      [],
+      [
+        35, 36, 37, 38, 39, 63, 64, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
+        53, 54, 55, 56
+      ]
+    ],
+    "create-database-mariadb": [
+      "Create (MariaDB)",
+      [],
+      [
+        35, 36, 37, 38, 39, 65, 66, 67, 68, 69, 42, 43, 44, 45, 46, 47, 48, 49,
+        50, 51, 52, 53, 54, 55, 56
+      ]
+    ],
+    "create-database-mongodb": [
+      "Create (MongoDB)",
+      [],
+      [
+        35, 36, 37, 38, 39, 70, 71, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
+        53, 54, 55, 56
+      ]
+    ],
+    "create-database-mysql": [
+      "Create (MySQL)",
+      [],
+      [
+        35, 36, 37, 38, 39, 72, 73, 74, 75, 76, 42, 43, 44, 45, 46, 47, 48, 49,
+        50, 51, 52, 53, 54, 55, 56
+      ]
+    ],
+    "create-database-postgresql": [
+      "Create (PostgreSQL)",
+      [],
+      [
+        35, 36, 37, 38, 77, 78, 79, 80, 81, 82, 39, 42, 43, 44, 45, 46, 47, 48,
+        49, 50, 51, 52, 53, 54, 55, 56
+      ]
+    ],
+    "create-database-redis": [
+      "Create (Redis / Valkey)",
+      [],
+      [
+        35, 36, 37, 38, 39, 83, 84, 42, 43, 85, 45, 46, 47, 48, 49, 50, 51, 52,
+        53, 54, 55, 56
+      ]
+    ],
+    "create-database-sqlite": [
+      "Create (SQLite)",
+      [],
+      [35, 36, 37, 38, 39, 86, 42, 43, 44, 48, 49, 50, 51, 52, 53, 54, 55, 56]
+    ],
+    "create-digitalocean-server": ["Create a server on DigitalOcean", [], null],
+    "create-dockerfile-application": [
+      "Create (Dockerfile without git)",
+      [],
+      [
+        87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103,
+        104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117,
+        118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131,
+        132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145,
+        146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159,
+        160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173,
+        174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184
+      ]
+    ],
+    "create-dockerimage-application": [
+      "Create (Docker Image without git)",
+      [],
+      [
+        87, 88, 89, 90, 185, 100, 93, 94, 95, 96, 97, 98, 101, 103, 104, 105,
+        106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119,
+        120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133,
+        134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147,
+        148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161,
+        162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175,
+        176, 177, 178, 179, 180, 181, 182, 183, 184
+      ]
+    ],
+    "create-env-by-application-uuid": [
+      "Create Env",
+      [0],
+      [186, 187, 188, 189, 190, 191, 192]
+    ],
+    "create-env-by-database-uuid": [
+      "Create Env",
+      [12],
+      [186, 187, 189, 190, 191]
+    ],
+    "create-env-by-service-uuid": [
+      "Create Env",
+      [13],
+      [186, 187, 189, 190, 191]
+    ],
+    "create-environment": ["Create Environment", [16], [193]],
+    "create-environment-shared-env": [
+      "Create Environment Shared Env",
+      [16, 17],
+      [1, 194, 195, 196, 191, 197]
+    ],
+    "create-github-app": [
+      "Create GitHub App",
+      [],
+      [198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210]
+    ],
+    "create-gitlab-app": [
+      "Create GitLab App",
+      [],
+      [211, 212, 213, 202, 203, 214, 215, 216, 217, 218, 219]
+    ],
+    "create-hetzner-server": [
+      "Create Hetzner Server",
+      [],
+      [
+        220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233,
+        234
+      ]
+    ],
+    "create-hostinger-server": [
+      "Purchase a Hostinger VPS and create a linked server",
+      [],
+      null
+    ],
+    "create-preview-deployment-by-application-uuid": [
+      "Create Preview Deployment",
+      [0],
+      [235, 236, 237, 238, 239, 240, 241]
+    ],
+    "create-private-deploy-key-application": [
+      "Create (Private - Deploy Key)",
+      [],
+      [
+        87, 88, 89, 90, 242, 243, 244, 93, 94, 245, 95, 96, 97, 98, 246, 99,
+        100, 247, 248, 249, 134, 135, 250, 251, 252, 253, 101, 102, 254, 103,
+        104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117,
+        118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131,
+        132, 133, 255, 256, 257, 258, 259, 260, 261, 262, 136, 137, 138, 139,
+        140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153,
+        154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167,
+        168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181,
+        182, 183, 184, 263
+      ]
+    ],
+    "create-private-gitea-app-application": [
+      "Create (Private - Gitea App)",
+      [],
+      [
+        87, 88, 89, 90, 264, 265, 244, 93, 94, 245, 95, 96, 97, 98, 246, 99,
+        100, 247, 248, 249, 134, 135, 250, 251, 252, 253, 101, 102, 254, 103,
+        104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117,
+        118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131,
+        132, 133, 255, 266, 257, 258, 259, 260, 261, 262, 136, 137, 138, 139,
+        140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 152, 153, 154,
+        155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168,
+        169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182,
+        183, 184, 263
+      ]
+    ],
+    "create-private-github-app-application": [
+      "Create (Private - GH App)",
+      [],
+      [
+        87, 88, 89, 90, 267, 243, 244, 93, 94, 245, 95, 96, 97, 98, 246, 99,
+        100, 247, 248, 249, 134, 135, 250, 251, 252, 253, 101, 102, 254, 103,
+        104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117,
+        118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131,
+        132, 133, 255, 266, 257, 258, 259, 260, 261, 262, 136, 137, 138, 139,
+        140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153,
+        154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167,
+        168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181,
+        182, 183, 184, 263
+      ]
+    ],
+    "create-private-key": ["Create", [], [5, 268, 269]],
+    "create-project": ["Create", [], [270, 271]],
+    "create-project-shared-env": [
+      "Create Project Shared Env",
+      [16],
+      [1, 194, 195, 196, 191, 197]
+    ],
+    "create-public-application": [
+      "Create (Public)",
+      [],
+      [
+        87, 88, 89, 90, 243, 244, 272, 273, 245, 93, 94, 95, 96, 97, 98, 246,
+        99, 100, 247, 248, 249, 134, 135, 250, 251, 252, 253, 101, 102, 254,
+        103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116,
+        117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130,
+        131, 132, 133, 255, 256, 257, 258, 259, 260, 261, 262, 136, 137, 138,
+        139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152,
+        153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166,
+        167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180,
+        181, 182, 183, 184, 263
+      ]
+    ],
+    "create-s3-storage": [
+      "Create S3 Storage",
+      [],
+      [274, 275, 276, 277, 278, 279, 280, 281, 282, 283, 284, 285]
+    ],
+    "create-scheduled-task-by-application-uuid": [
+      "Create Task",
+      [0],
+      [286, 287, 288, 289, 290, 291, 292]
+    ],
+    "create-scheduled-task-by-service-uuid": [
+      "Create Task",
+      [13],
+      [286, 287, 288, 289, 290, 291, 292]
+    ],
+    "create-secret-manager-integration-token": [
+      "Create Integration Token",
+      [],
+      [293, 13, 294, 295, 296, 297, 298]
+    ],
+    "create-server": [
+      "Create",
+      [],
+      [299, 300, 301, 302, 303, 304, 305, 306, 307, 308, 309]
+    ],
+    "create-server-destination": ["Create destination", [18], [5, 310, 311]],
+    "create-server-shared-env": [
+      "Create Server Shared Env",
+      [10],
+      [1, 194, 195, 196, 191, 197]
+    ],
+    "create-service": [
+      "Create service",
+      [],
+      [
+        312, 313, 314, 315, 316, 317, 318, 319, 320, 321, 322, 323, 324, 325,
+        148, 326
+      ]
+    ],
+    "create-service-database-import": [
+      "Import service database backup",
+      [19, 20],
+      []
+    ],
+    "create-service-dns-record": [
+      "Create Service DNS Record",
+      [19],
+      [10, 11, 12]
+    ],
+    "create-storage-by-application-uuid": [
+      "Create Storage",
+      [0],
+      [327, 328, 329, 330, 331, 332]
+    ],
+    "create-storage-by-database-uuid": [
+      "Create Storage",
+      [12],
+      [327, 328, 329, 330, 331, 332]
+    ],
+    "create-storage-by-service-uuid": [
+      "Create Storage",
+      [13],
+      [327, 333, 328, 329, 330, 331, 332]
+    ],
+    "create-tag": ["Create", [], [13]],
+    "create-tag-by-application-uuid": ["Create Tag", [0], [334, 335]],
+    "create-tag-by-database-uuid": ["Create Tag", [12], [334, 335]],
+    "create-tag-by-service-uuid": ["Create Tag", [13], [334, 335]],
+    "create-team-shared-env": [
+      "Create Team Shared Env",
+      [],
+      [1, 194, 195, 196, 191, 197]
+    ],
+    "create-vultr-server": ["Create Vultr Server", [], null],
+    "delete-application-by-uuid": ["Delete", [0, 21, 22, 23, 24], null],
+    "delete-application-storage-backup-schedule": [
+      "Delete application storage backup schedule",
+      [14, 25],
+      null
+    ],
+    "delete-backup-configuration-by-uuid": [
+      "Delete backup configuration",
+      [26, 27, 28],
+      null
+    ],
+    "delete-backup-execution-by-uuid": [
+      "Delete backup execution",
+      [26, 29, 30, 31],
+      null
+    ],
+    "delete-cloud-init-script-by-uuid": [
+      "Delete Cloud-init Script",
+      [14],
+      null
+    ],
+    "delete-cloud-token-by-uuid": ["Delete Cloud Provider Token", [32], null],
+    "delete-database-by-uuid": ["Delete", [12, 21, 22, 23, 24], null],
+    "delete-database-storage-backup-schedule": [
+      "Delete database storage backup schedule",
+      [14, 25],
+      null
+    ],
+    "delete-destination-by-uuid": ["Delete destination", [33], null],
+    "delete-env-by-application-uuid": ["Delete Env", [0, 34], null],
+    "delete-env-by-database-uuid": ["Delete Env", [12, 34], null],
+    "delete-env-by-service-uuid": ["Delete Env", [13, 34], null],
+    "delete-environment": ["Delete Environment", [16, 17], null],
+    "delete-environment-shared-env": [
+      "Delete Environment Shared Env",
+      [16, 17, 35],
+      null
+    ],
+    "delete-integration-token-by-uuid": [
+      "Delete Integration Token",
+      [36],
+      null
+    ],
+    "delete-preview-deployment-by-pull-request-id": [
+      "Delete Preview Deployment",
+      [0, 37],
+      null
+    ],
+    "delete-private-key-by-uuid": ["Delete", [38], null],
+    "delete-project-by-uuid": ["Delete", [0], null],
+    "delete-project-shared-env": ["Delete Project Shared Env", [16, 35], null],
+    "delete-s3-storage-by-uuid": ["Delete S3 Storage", [39], null],
+    "delete-scheduled-task-by-application-uuid": ["Delete Task", [0, 40], null],
+    "delete-scheduled-task-by-service-uuid": ["Delete Task", [13, 40], null],
+    "delete-server-by-uuid": ["Delete", [41, 42, 43, 44], null],
+    "delete-server-shared-env": ["Delete Server Shared Env", [10, 35], null],
+    "delete-service-by-uuid": ["Delete", [45, 21, 22, 23, 24], null],
+    "delete-service-storage-backup-schedule": [
+      "Delete service storage backup schedule",
+      [14, 25],
+      null
+    ],
+    "delete-storage-by-application-uuid": ["Delete Storage", [0, 46], null],
+    "delete-storage-by-database-uuid": ["Delete Storage", [12, 46], null],
+    "delete-storage-by-service-uuid": ["Delete Storage", [13, 46], null],
+    "delete-tag-by-application-uuid": ["Delete Tag", [0, 47], null],
+    "delete-tag-by-database-uuid": ["Delete Tag", [12, 47], null],
+    "delete-tag-by-service-uuid": ["Delete Tag", [13, 47], null],
+    "delete-tag-by-uuid": ["Delete", [48], null],
+    "delete-team-shared-env": ["Delete Team Shared Env", [35], null],
+    "deleteGithubApp": ["Delete GitHub App", [49], null],
+    "deleteGitlabApp": ["Delete GitLab App", [50], null],
+    "deploy-by-tag-or-uuid": ["Deploy", [51, 52, 53, 54, 55, 56, 57], null],
+    "disable-api": ["Disable API", [], null],
+    "disable-mcp": ["Disable MCP Server", [], null],
+    "disable-server-cloudflare-tunnel": [
+      "Disable Cloudflare Tunnel",
+      [10],
+      null
+    ],
+    "enable-mcp": ["Enable MCP Server", [], null],
+    "enable-server-cloudflare-tunnel": [
+      "Enable Cloudflare Tunnel (manual)",
+      [10],
+      null
+    ],
+    "execute-scheduled-task-by-application-uuid": [
+      "Execute Task",
+      [0, 40],
+      null
+    ],
+    "execute-scheduled-task-by-service-uuid": ["Execute Task", [13, 40], null],
+    "get-application-by-uuid": ["Get", [0], null],
+    "get-application-dns": ["Get Application DNS", [15], null],
+    "get-application-logs-by-uuid": [
+      "Get application logs.",
+      [0, 58, 59, 60],
+      null
+    ],
+    "get-application-vulnerabilities": [
+      "Get application vulnerabilities",
+      [61, 62, 63, 64, 65, 66, 67],
+      null
+    ],
+    "get-cloud-init-script-by-uuid": ["Get Cloud-init Script", [14], null],
+    "get-cloud-token-by-uuid": ["Get Cloud Provider Token", [68], null],
+    "get-current-team-discord-notifications": [
+      "Get Discord notification settings",
+      [],
+      null
+    ],
+    "get-current-team-email-notifications": [
+      "Get email notification settings",
+      [],
+      null
+    ],
+    "get-current-team-pushover-notifications": [
+      "Get Pushover notification settings",
+      [],
+      null
+    ],
+    "get-current-team-slack-notifications": [
+      "Get Slack notification settings",
+      [],
+      null
+    ],
+    "get-current-team-telegram-notifications": [
+      "Get Telegram notification settings",
+      [],
+      null
+    ],
+    "get-current-team-webhook-notifications": [
+      "Get webhook notification settings",
+      [],
+      null
+    ],
+    "get-database-backups-by-uuid": ["Get", [12], null],
+    "get-database-by-uuid": ["Get", [12], null],
+    "get-database-import": ["Get database import status", [12, 69], null],
+    "get-database-logs-by-uuid": ["Get database logs.", [12, 58, 59], null],
+    "get-database-vulnerabilities": [
+      "Get database vulnerabilities",
+      [70, 62, 63, 64, 65, 66, 67],
+      null
+    ],
+    "get-deployment-by-uuid": ["Get", [3], null],
+    "get-destination-by-uuid": ["Get destination", [33], null],
+    "get-digitalocean-images": ["Get DigitalOcean images", [71, 72], null],
+    "get-digitalocean-regions": ["Get DigitalOcean regions", [71, 72], null],
+    "get-digitalocean-sizes": ["Get DigitalOcean sizes", [71, 72], null],
+    "get-digitalocean-ssh-keys": ["Get DigitalOcean SSH keys", [71, 72], null],
+    "get-domains-by-server-uuid": ["Domains", [73], null],
+    "get-environment-by-name-or-uuid": ["Environment", [16, 17], null],
+    "get-environments": ["List Environments", [16], null],
+    "get-hetzner-firewalls": ["Get Hetzner Firewalls", [74, 75], null],
+    "get-hetzner-images": ["Get Hetzner Images", [74, 75], null],
+    "get-hetzner-locations": ["Get Hetzner Locations", [74, 75], null],
+    "get-hetzner-networks": ["Get Hetzner Networks", [74, 75], null],
+    "get-hetzner-server-types": [
+      "Get Hetzner Server Types",
+      [76, 74, 75],
+      null
+    ],
+    "get-hetzner-ssh-keys": ["Get Hetzner SSH Keys", [74, 75], null],
+    "get-hostinger-catalog": ["Get Hostinger VPS plans and prices", [], null],
+    "get-hostinger-data-centers": ["Get Hostinger VPS data centers", [], null],
+    "get-hostinger-post-install-scripts": [
+      "Get Hostinger post-install scripts",
+      [],
+      null
+    ],
+    "get-hostinger-ssh-keys": ["Get Hostinger account SSH keys", [], null],
+    "get-hostinger-templates": [
+      "Get Hostinger VPS operating system templates",
+      [],
+      null
+    ],
+    "get-instance-email-settings": ["Get instance email settings", [], null],
+    "get-integration-token-by-uuid": ["Get Integration Token", [36], null],
+    "get-members-by-team-id": ["Members", [77], null],
+    "get-preview-application-logs-by-pull-request-id": [
+      "Get preview application logs.",
+      [0, 78, 58, 59, 60],
+      null
+    ],
+    "get-preview-deployment-by-pull-request-id": [
+      "Get Preview Deployment",
+      [0, 79],
+      null
+    ],
+    "get-private-key-by-uuid": ["Get", [38], null],
+    "get-project-by-uuid": ["Get", [16], null],
+    "get-resources-by-server-uuid": ["Resources", [73], null],
+    "get-s3-storage-by-uuid": ["Get S3 Storage", [80], null],
+    "get-secret-manager-source": ["Get Secret Manager Source", [1, 2], null],
+    "get-server-by-uuid": ["Get", [73], null],
+    "get-server-cloudflare-tunnel": [
+      "Get Cloudflare Tunnel settings",
+      [10],
+      null
+    ],
+    "get-server-docker-cleanup": ["Get Docker cleanup settings", [10], null],
+    "get-server-image-scanning": ["Get image scanning settings", [10], null],
+    "get-server-log-drains": ["Get log drain settings", [10], null],
+    "get-server-proxy": ["Get server proxy", [10], null],
+    "get-server-sentinel": ["Get Sentinel settings", [10], null],
+    "get-server-transfer-status": ["Get server transfer status", [14], null],
+    "get-service-application-by-service-and-app-uuid": [
+      "Get service application",
+      [19, 81],
+      null
+    ],
+    "get-service-application-logs-by-service-and-app-uuid": [
+      "Get service application logs",
+      [19, 81, 58],
+      null
+    ],
+    "get-service-by-uuid": ["Get", [45], null],
+    "get-service-database-by-service-and-database-uuid": [
+      "Get service database",
+      [19, 20],
+      null
+    ],
+    "get-service-database-import": [
+      "Get service database import status",
+      [19, 20, 69],
+      null
+    ],
+    "get-service-database-logs-by-service-and-database-uuid": [
+      "Get service database logs",
+      [14, 82, 58],
+      null
+    ],
+    "get-service-dns": ["Get Service DNS", [19], null],
+    "get-service-logs-by-uuid": ["Get service logs.", [13, 83, 58, 59], null],
+    "get-service-vulnerabilities": [
+      "Get service vulnerabilities",
+      [45, 62, 63, 64, 65, 66, 67],
+      null
+    ],
+    "get-team-by-id": ["Get", [77], null],
+    "get-token-team": ["Authenticated Team", [], null],
+    "get-token-team-members": ["Authenticated Team Members", [], null],
+    "get-vultr-operating-systems": ["Get Vultr Operating Systems", [], null],
+    "get-vultr-plans": ["Get Vultr Plans", [], null],
+    "get-vultr-regions": ["Get Vultr Regions", [], null],
+    "get-vultr-ssh-keys": ["Get Vultr SSH Keys", [], null],
+    "healthcheck": ["Healthcheck", [], null],
+    "import-secret-manager-references": [
+      "Import Secret Manager References",
+      [1, 2],
+      null
+    ],
+    "import-server-transfer-bundle": [
+      "Import server transfer bundle",
+      [],
+      [336, 337, 338, 339]
+    ],
+    "list-application-destinations": ["List Destinations", [0], null],
+    "list-application-rollback-images": ["List Rollback Images", [0], null],
+    "list-applications": ["List", [84], null],
+    "list-audit-events": ["List", [85, 86, 87, 88, 89], null],
+    "list-backup-executions": ["List backup executions", [26, 29], null],
+    "list-cloud-init-scripts": ["List Cloud-init Scripts", [], null],
+    "list-cloud-tokens": ["List Cloud Provider Tokens", [], null],
+    "list-databases": ["List", [], null],
+    "list-deployments": ["List", [], null],
+    "list-deployments-by-app-uuid": [
+      "List application deployments",
+      [0, 90, 91],
+      null
+    ],
+    "list-destinations": ["List destinations", [], null],
+    "list-dns-zones": ["List DNS Zones", [], null],
+    "list-environment-shared-envs": [
+      "List Environment Shared Envs",
+      [16, 17],
+      null
+    ],
+    "list-envs-by-application-uuid": ["List Envs", [0], null],
+    "list-envs-by-database-uuid": ["List Envs", [12], null],
+    "list-envs-by-service-uuid": ["List Envs", [13], null],
+    "list-gitea-apps": ["List", [], null],
+    "list-github-apps": ["List", [], null],
+    "list-gitlab-apps": ["List", [], null],
+    "list-integration-tokens": ["List Integration Tokens", [], null],
+    "list-preview-deployments-by-application-uuid": [
+      "List Preview Deployments",
+      [0],
+      null
+    ],
+    "list-private-keys": ["List", [], null],
+    "list-project-shared-envs": ["List Project Shared Envs", [16], null],
+    "list-projects": ["List", [], null],
+    "list-resources": ["List", [], null],
+    "list-s3-storages": ["List S3 Storages", [], null],
+    "list-scheduled-task-executions-by-application-uuid": [
+      "List Executions",
+      [0, 40],
+      null
+    ],
+    "list-scheduled-task-executions-by-service-uuid": [
+      "List Executions",
+      [13, 40],
+      null
+    ],
+    "list-scheduled-tasks-by-application-uuid": ["List Tasks", [0], null],
+    "list-scheduled-tasks-by-service-uuid": ["List Tasks", [13], null],
+    "list-secret-manager-keys": ["List Secret Manager Keys", [1, 2], null],
+    "list-server-destinations": ["List destinations by server", [18], null],
+    "list-server-docker-cleanup-executions": [
+      "List Docker cleanup executions",
+      [10],
+      null
+    ],
+    "list-server-registries": ["List server registry logins", [10], null],
+    "list-server-shared-envs": ["List Server Shared Envs", [10], null],
+    "list-servers": ["List", [], null],
+    "list-service-applications-by-service-uuid": [
+      "List service applications",
+      [19],
+      null
+    ],
+    "list-service-databases-by-service-uuid": [
+      "List service databases",
+      [19],
+      null
+    ],
+    "list-services": ["List", [], null],
+    "list-storages-by-application-uuid": ["List Storages", [0], null],
+    "list-storages-by-database-uuid": ["List Storages", [12], null],
+    "list-storages-by-service-uuid": ["List Storages", [13], null],
+    "list-tags": ["List", [], null],
+    "list-tags-by-application-uuid": ["List Tags", [0], null],
+    "list-tags-by-database-uuid": ["List Tags", [12], null],
+    "list-tags-by-service-uuid": ["List Tags", [13], null],
+    "list-team-shared-envs": ["List Team Shared Envs", [], null],
+    "list-teams": ["List", [], null],
+    "list-vulnerabilities": ["List vulnerabilities", [92], null],
+    "load-branches": [
+      "Load Branches for a GitHub Repository",
+      [49, 93, 94],
+      null
+    ],
+    "load-repositories": ["Load Repositories for a GitHub App", [49], null],
+    "login-server-registry": [
+      "Log in to a registry on a server",
+      [10],
+      [340, 341, 342]
+    ],
+    "logout-server-registry": [
+      "Log out from a registry on a server",
+      [10, 11],
+      null
+    ],
+    "migrate-application-by-uuid": ["Migrate to Server", [0], [343, 344]],
+    "migrate-database-by-uuid": ["Migrate to Server", [12], [343, 344]],
+    "migrate-server-between-instances": [
+      "Migrate server to another Coolify instance",
+      [14],
+      [345, 346]
+    ],
+    "migrate-service-by-uuid": ["Migrate to Server", [13], [343, 344]],
+    "move-application-by-uuid": ["Move", [0], [347]],
+    "move-database-by-uuid": ["Move", [12], [347]],
+    "move-service-by-uuid": ["Move", [13], [347]],
+    "patch-service-application-by-service-and-app-uuid": [
+      "Update service application",
+      [19, 81, 95],
+      [348, 349, 350, 268, 351, 352, 353, 354, 355, 356, 357, 157, 358, 359]
+    ],
+    "patch-service-database-by-service-and-database-uuid": [
+      "Update service database",
+      [19, 20],
+      [350, 268, 351, 352, 353, 360, 361, 362]
+    ],
+    "post-restart-service-application-by-service-and-app-uuid": [
+      "Restart service application container",
+      [14, 96],
+      null
+    ],
+    "post-service-application-logs-by-service-and-app-uuid": [
+      "Get service application logs",
+      [14, 96, 58],
+      null
+    ],
+    "post-start-service-application-by-service-and-app-uuid": [
+      "Start or redeploy service application container",
+      [14, 96, 97, 98],
+      null
+    ],
+    "post-stop-service-application-by-service-and-app-uuid": [
+      "Stop service application container",
+      [14, 96],
+      null
+    ],
+    "release-application-dns-record": [
+      "Release Application DNS Record",
+      [15, 99, 100],
+      null
+    ],
+    "release-service-dns-record": [
+      "Release Service DNS Record",
+      [19, 99, 100],
+      null
+    ],
+    "remove-application-destination": ["Remove Destination", [0, 101], null],
+    "remove-secret-manager-source": [
+      "Remove Secret Manager Source",
+      [1, 2],
+      null
+    ],
+    "replace-application-dns-record": [
+      "Replace Application DNS Record",
+      [15],
+      [10, 11, 363, 364, 12]
+    ],
+    "replace-service-dns-record": [
+      "Replace Service DNS Record",
+      [19],
+      [10, 11, 363, 364, 12]
+    ],
+    "reset-server-host-key-by-uuid": ["Reset host key", [10], [365]],
+    "restart-application-by-uuid": ["Restart", [0], null],
+    "restart-database-by-uuid": ["Restart", [12], null],
+    "restart-server-proxy": ["Restart server proxy", [10], null],
+    "restart-service-by-uuid": ["Restart", [13, 102], null],
+    "restart-service-database-by-service-and-database-uuid": [
+      "Restart service database container",
+      [14, 82],
+      null
+    ],
+    "rollback-application-by-uuid": ["Rollback", [0], [366]],
+    "run-application-storage-backup": [
+      "Run application storage backup",
+      [14, 25],
+      null
+    ],
+    "run-database-storage-backup": [
+      "Run database storage backup",
+      [14, 25],
+      null
+    ],
+    "run-server-docker-cleanup": ["Run Docker cleanup", [10], [367, 368]],
+    "run-service-storage-backup": [
+      "Run service storage backup",
+      [14, 25],
+      null
+    ],
+    "save-server-proxy-configuration": [
+      "Save server proxy configuration",
+      [10],
+      [369]
+    ],
+    "set-application-storage-backup-schedule": [
+      "Set application storage backup schedule",
+      [0, 103],
+      [370, 371, 372, 373, 374, 375, 376, 377, 378, 379, 380, 381, 382, 383, 34]
+    ],
+    "set-database-storage-backup-schedule": [
+      "Set database storage backup schedule",
+      [12, 103],
+      [370, 371, 372, 373, 374, 375, 376, 377, 378, 379, 380, 381, 382, 383, 34]
+    ],
+    "set-secret-manager-source": [
+      "Set Secret Manager Source",
+      [1, 2],
+      [8, 384]
+    ],
+    "set-service-storage-backup-schedule": [
+      "Set service storage backup schedule",
+      [13, 103],
+      [370, 371, 372, 373, 374, 375, 376, 377, 378, 379, 380, 381, 382, 383, 34]
+    ],
+    "start-application-by-uuid": ["Start", [0, 104, 105], null],
+    "start-database-by-uuid": ["Start", [12], null],
+    "start-service-by-uuid": ["Start", [13], null],
+    "start-service-database-by-service-and-database-uuid": [
+      "Start or redeploy service database container",
+      [14, 82, 97, 98],
+      null
+    ],
+    "stop-application-by-uuid": ["Stop", [0, 23], null],
+    "stop-database-by-uuid": ["Stop", [12, 23], null],
+    "stop-service-by-uuid": ["Stop", [13, 23], null],
+    "stop-service-database-by-service-and-database-uuid": [
+      "Stop service database container",
+      [14, 82],
+      null
+    ],
+    "sync-integration-token-zones": ["Sync Cloudflare Zones", [36], null],
+    "update-application-by-uuid": [
+      "Update",
+      [0],
+      [
+        385, 386, 387, 388, 389, 390, 93, 92, 95, 96, 97, 98, 246, 99, 100, 247,
+        248, 249, 134, 135, 251, 252, 253, 101, 102, 254, 103, 104, 105, 106,
+        107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120,
+        121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 255,
+        256, 257, 258, 259, 260, 261, 262, 136, 137, 176, 177, 178, 179, 138,
+        139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152,
+        153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166,
+        167, 168, 169, 170, 171, 172, 180, 181, 183, 391
+      ]
+    ],
+    "update-cloud-init-script-by-uuid": [
+      "Update Cloud-init Script",
+      [14],
+      [5, 392]
+    ],
+    "update-cloud-token-by-uuid": ["Update Cloud Provider Token", [68], [393]],
+    "update-current-team-discord-notifications": [
+      "Update Discord notification settings",
+      [],
+      null
+    ],
+    "update-current-team-email-notifications": [
+      "Update email notification settings",
+      [],
+      null
+    ],
+    "update-current-team-pushover-notifications": [
+      "Update Pushover notification settings",
+      [],
+      null
+    ],
+    "update-current-team-slack-notifications": [
+      "Update Slack notification settings",
+      [],
+      null
+    ],
+    "update-current-team-telegram-notifications": [
+      "Update Telegram notification settings",
+      [],
+      null
+    ],
+    "update-current-team-webhook-notifications": [
+      "Update webhook notification settings",
+      [],
+      null
+    ],
+    "update-database-backup": [
+      "Update",
+      [12, 106],
+      [
+        394, 395, 396, 23, 397, 398, 24, 399, 400, 401, 402, 403, 404, 405, 406,
+        33, 34
+      ]
+    ],
+    "update-database-by-uuid": [
+      "Update",
+      [12],
+      [
+        42, 43, 44, 407, 408, 47, 48, 49, 50, 51, 52, 53, 54, 409, 77, 78, 79,
+        80, 81, 82, 40, 41, 410, 411, 412, 413, 414, 57, 83, 84, 63, 64, 65, 66,
+        67, 68, 69, 415, 416, 417, 418, 72, 73, 74, 75, 76, 86, 419, 420, 421,
+        422, 423, 424, 425, 426
+      ]
+    ],
+    "update-destination-by-uuid": ["Update destination", [33], [5]],
+    "update-env-by-application-uuid": [
+      "Update Env",
+      [0],
+      [427, 428, 188, 189, 190, 191]
+    ],
+    "update-env-by-database-uuid": [
+      "Update Env",
+      [12],
+      [427, 428, 189, 190, 191]
+    ],
+    "update-env-by-service-uuid": [
+      "Update Env",
+      [13],
+      [427, 428, 189, 190, 191]
+    ],
+    "update-environment": ["Update Environment", [16, 17], [193, 429]],
+    "update-environment-shared-env": [
+      "Update Environment Shared Env",
+      [16, 17, 35],
+      [430, 194, 195, 196, 191, 197]
+    ],
+    "update-envs-by-application-uuid": ["Update Envs (Bulk)", [0], [431]],
+    "update-envs-by-database-uuid": ["Update Envs (Bulk)", [12], [431]],
+    "update-envs-by-service-uuid": ["Update Envs (Bulk)", [13], [431]],
+    "update-instance-email-settings": [
+      "Update instance email settings",
+      [],
+      null
+    ],
+    "update-integration-token-by-uuid": [
+      "Update Integration Token",
+      [36],
+      [5, 432, 433, 434, 435, 436]
+    ],
+    "update-preview-domains-by-pull-request-id": [
+      "Update Preview Domains",
+      [14, 107],
+      [437, 438, 439]
+    ],
+    "update-private-key": ["Update", [38], [5, 268, 440]],
+    "update-project-by-uuid": ["Update", [108], [270, 271]],
+    "update-project-shared-env": [
+      "Update Project Shared Env",
+      [16, 35],
+      [430, 194, 195, 196, 191, 197]
+    ],
+    "update-s3-storage-by-uuid": [
+      "Update S3 Storage",
+      [80],
+      [441, 276, 442, 443, 444, 445, 281, 446, 447, 448, 285]
+    ],
+    "update-scheduled-task-by-application-uuid": [
+      "Update Task",
+      [0, 40],
+      [449, 450, 451, 289, 290, 291, 292]
+    ],
+    "update-scheduled-task-by-service-uuid": [
+      "Update Task",
+      [13, 40],
+      [449, 450, 451, 289, 290, 291, 292]
+    ],
+    "update-server-by-uuid": [
+      "Update",
+      [10],
+      [
+        299, 300, 301, 302, 303, 304, 305, 452, 307, 453, 454, 455, 456, 457,
+        458, 459, 460, 461, 462, 463
+      ]
+    ],
+    "update-server-cloudflare-tunnel": [
+      "Update Cloudflare Tunnel settings",
+      [10],
+      [464]
+    ],
+    "update-server-docker-cleanup": [
+      "Update Docker cleanup settings",
+      [10],
+      [465, 466, 467, 367, 368, 468]
+    ],
+    "update-server-image-scanning": [
+      "Update image scanning settings",
+      [10],
+      [469, 470, 471, 472, 473]
+    ],
+    "update-server-log-drains": [
+      "Update log drain settings",
+      [10],
+      [474, 475, 476, 477, 478, 479, 480, 481, 482, 483, 484, 485, 486, 487]
+    ],
+    "update-server-proxy": [
+      "Update server proxy",
+      [10],
+      [488, 489, 490, 491, 492, 493]
+    ],
+    "update-server-sentinel": [
+      "Update Sentinel settings",
+      [10],
+      [
+        494, 495, 496, 497, 498, 499, 500, 501, 502, 503, 504, 505, 506, 507,
+        508
+      ]
+    ],
+    "update-server-shared-env": [
+      "Update Server Shared Env",
+      [10, 35],
+      [430, 194, 195, 196, 191, 197]
+    ],
+    "update-service-by-uuid": [
+      "Update",
+      [13],
+      [509, 510, 511, 322, 321, 323, 324, 325, 148, 149]
+    ],
+    "update-storage-by-application-uuid": [
+      "Update Storage",
+      [0],
+      [512, 513, 514, 515, 516, 517, 518]
+    ],
+    "update-storage-by-database-uuid": [
+      "Update Storage",
+      [12],
+      [512, 513, 514, 515, 516, 517, 518]
+    ],
+    "update-storage-by-service-uuid": [
+      "Update Storage",
+      [13],
+      [512, 513, 514, 515, 516, 517, 518]
+    ],
+    "update-tag-by-uuid": ["Update", [48], [13]],
+    "update-team-shared-env": [
+      "Update Team Shared Env",
+      [35],
+      [430, 194, 195, 196, 191, 197]
+    ],
+    "update-token-team": ["Update authenticated team", [], [519, 520]],
+    "updateGithubApp": [
+      "Update GitHub App",
+      [49],
+      [521, 522, 523, 524, 525, 526, 527, 528, 529, 530, 531, 532, 533]
+    ],
+    "updateGitlabApp": [
+      "Update GitLab App",
+      [50],
+      [534, 535, 536, 525, 526, 537, 538, 539, 540, 541, 533]
+    ],
+    "upload-database-import": ["Upload database import", [12], null],
+    "upload-service-database-import": [
+      "Upload service database import",
+      [19, 20],
+      null
+    ],
+    "validate-cloud-token-by-uuid": [
+      "Validate Cloud Provider Token",
+      [68],
+      null
+    ],
+    "validate-s3-storage-by-uuid": ["Validate S3 Storage", [80], null],
+    "validate-server-by-uuid": ["Validate", [10], [542]],
+    "version": ["Version", [], null]
+  }
+}

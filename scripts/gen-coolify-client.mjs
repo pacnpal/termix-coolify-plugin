@@ -1,8 +1,8 @@
 // Dev only. Reads the vendored Coolify specs in vendor/coolify/ and writes
 // src/backend/coolify/generated/operations.ts (OPERATIONS and
-// EXCLUDED_OPERATIONS) and src/backend/coolify/generated/schemas.ts (each
-// operation's parameters and top-level body fields, for the generic API and
-// the API console's forms). Run with `npm run gen:coolify` after updating a
+// EXCLUDED_OPERATIONS) and src/backend/coolify/generated/schemas.json with its
+// typed accessor schemas.ts (each operation's parameters and top-level body
+// fields, for the generic API and the API console's forms). Run with `npm run gen:coolify` after updating a
 // spec, then update docs/coverage.md.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -228,7 +228,10 @@ const schemas = Object.fromEntries(
   operations.map(({ id }) => [id, schemaOf(described.get(id))]),
 );
 
+// The data goes in a JSON file, so the TypeScript stays a few lines of types.
 const schemasTs = `${header}
+import data from "./schemas.json";
+
 export interface OperationParam {
   name: string;
   in: "path" | "query";
@@ -254,8 +257,29 @@ export interface OperationSchema {
   body: OperationBodyField[] | null;
 }
 
+interface Packed {
+  params: OperationParam[];
+  fields: OperationBodyField[];
+  /** [summary, param indexes, body field indexes or null], by operation id. */
+  operations: Record<string, [string, number[], number[] | null]>;
+}
+
+// JSON imports type tuples as arrays, so the shape is asserted here; the
+// generator writes exactly this.
+const packed = data as unknown as Packed;
+
 /** Each operation as the newest vendored spec that has it describes it. */
-export const OPERATION_SCHEMAS: Readonly<Record<string, OperationSchema>> = ${JSON.stringify(schemas)};
+export const OPERATION_SCHEMAS: Readonly<Record<string, OperationSchema>> =
+  Object.fromEntries(
+    Object.entries(packed.operations).map(([id, [summary, params, body]]) => [
+      id,
+      {
+        summary,
+        params: params.map((i) => packed.params[i]),
+        body: body === null ? null : body.map((i) => packed.fields[i]),
+      },
+    ]),
+  );
 `;
 
 async function write(name, text) {
@@ -270,6 +294,40 @@ async function write(name, text) {
 
 mkdirSync(outDir, { recursive: true });
 await write("operations.ts", operationsTs);
+// Parameters and body fields repeat across operations (uuid alone is in more
+// than 200), so each distinct one is stored once and operations list indexes.
+function interned() {
+  const table = [];
+  const index = new Map();
+  return {
+    table,
+    ref(value) {
+      const key = JSON.stringify(value);
+      if (!index.has(key)) {
+        index.set(key, table.length);
+        table.push(value);
+      }
+      return index.get(key);
+    },
+  };
+}
+const paramTable = interned();
+const fieldTable = interned();
+const packed = {
+  params: paramTable.table,
+  fields: fieldTable.table,
+  operations: Object.fromEntries(
+    Object.entries(schemas).map(([id, { summary, params, body }]) => [
+      id,
+      [
+        summary,
+        params.map((p) => paramTable.ref(p)),
+        body === null ? null : body.map((f) => fieldTable.ref(f)),
+      ],
+    ]),
+  ),
+};
+await write("schemas.json", JSON.stringify(packed));
 await write("schemas.ts", schemasTs);
 
 const counts = Object.fromEntries(SOURCES.map(({ source }) => [source, 0]));

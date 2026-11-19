@@ -143,6 +143,20 @@ async function openConsole(permissions: string[], sensitive = true) {
   return api;
 }
 
+function fillUuid() {
+  fireEvent.change(screen.getByPlaceholderText("uuid"), {
+    target: { value: "app-web-uuid" },
+  });
+}
+
+/** Runs the env list read and waits for its masked values. */
+async function runEnvs() {
+  await openOperation("list-envs-by-application-uuid");
+  fillUuid();
+  fireEvent.click(screen.getByRole("button", { name: L.run }));
+  expect(await screen.findByText(L.masked)).toBeTruthy();
+}
+
 async function openOperation(id: string) {
   fireEvent.click(screen.getByText(id));
   await screen.findByRole("button", { name: L.run });
@@ -178,9 +192,7 @@ describe("API console", () => {
   it("builds the request from the generated form", async () => {
     const api = await openConsole(VIEW);
     await openOperation("list-envs-by-application-uuid");
-    fireEvent.change(screen.getByPlaceholderText("uuid"), {
-      target: { value: "app-web-uuid" },
-    });
+    fillUuid();
     fireEvent.click(screen.getByRole("button", { name: L.run }));
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith("/connections/1/api/call", {
@@ -222,9 +234,7 @@ describe("API console", () => {
     }
     const api = await openConsole(ADMIN);
     await openOperation("delete-application-by-uuid");
-    fireEvent.change(screen.getByPlaceholderText("uuid"), {
-      target: { value: "app-web-uuid" },
-    });
+    fillUuid();
     const run = screen.getByRole("button", { name: L.run });
     expect((run as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(screen.getByPlaceholderText(L.typeToConfirmPlaceholder), {
@@ -248,12 +258,7 @@ describe("API console", () => {
 
   it("values are masked with a reveal button only for configure plus a sensitive token", async () => {
     const api = await openConsole(CONFIGURE);
-    await openOperation("list-envs-by-application-uuid");
-    fireEvent.change(screen.getByPlaceholderText("uuid"), {
-      target: { value: "app-web-uuid" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: L.run }));
-    expect(await screen.findByText(L.masked)).toBeTruthy();
+    await runEnvs();
     expect(screen.queryByText(ENV_VALUE)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: L.reveal }));
     expect(await screen.findByText(ENV_VALUE)).toBeTruthy();
@@ -266,26 +271,18 @@ describe("API console", () => {
     expect(screen.queryByText(ENV_VALUE)).toBeNull();
   });
 
-  it("offers no reveal without coolify.configure", async () => {
-    await openConsole(VIEW);
-    await openOperation("list-envs-by-application-uuid");
-    fireEvent.change(screen.getByPlaceholderText("uuid"), {
-      target: { value: "app-web-uuid" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: L.run }));
-    expect(await screen.findByText(L.masked)).toBeTruthy();
+  it.each([
+    ["without coolify.configure", VIEW, true, L.revealNeedsConfigure],
+    [
+      "when the token can't read secrets",
+      CONFIGURE,
+      false,
+      L.revealNeedsSensitive,
+    ],
+  ])("offers no reveal %s", async (_case, permissions, sensitive, reason) => {
+    await openConsole(permissions, sensitive);
+    await runEnvs();
     expect(screen.queryByRole("button", { name: L.reveal })).toBeNull();
-  });
-
-  it("offers no reveal when the token can't read secrets", async () => {
-    await openConsole(CONFIGURE, false);
-    await openOperation("list-envs-by-application-uuid");
-    fireEvent.change(screen.getByPlaceholderText("uuid"), {
-      target: { value: "app-web-uuid" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: L.run }));
-    expect(await screen.findByText(L.masked)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: L.reveal })).toBeNull();
-    expect(screen.getByText(L.revealNeedsSensitive)).toBeTruthy();
+    expect(screen.getByText(reason)).toBeTruthy();
   });
 });

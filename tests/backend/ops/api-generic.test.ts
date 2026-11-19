@@ -63,6 +63,7 @@ async function start(
     settings?: Record<string, unknown>;
   } = {},
 ) {
+  await harness?.close();
   const fake = healthyCoolify({
     ...ROUTES,
     ...(options.version ? { "GET /version": { text: options.version } } : {}),
@@ -86,7 +87,49 @@ async function start(
   );
   const connectionId = String((created.data as { id: number }).id);
   fake.calls.length = 0;
+  current = { runs, connectionId };
   return { harness, fake, runs, connectionId };
+}
+
+/** The runs and connection of the last start(), for apiRead and apiCall. */
+let current: {
+  runs: ReturnType<typeof withRunHistory>;
+  connectionId: string;
+} | null = null;
+
+function apiInput(operationId: string, params?: unknown, body?: unknown) {
+  return {
+    connectionId: current!.connectionId,
+    operationId,
+    ...(params === undefined ? {} : { params: JSON.stringify(params) }),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  };
+}
+
+/** coolify.api-read on the last start()'s connection. */
+function apiRead(operationId: string, params?: unknown) {
+  return current!.runs.run("coolify.api-read", apiInput(operationId, params));
+}
+
+/** Each set of params is refused as invalid input before Coolify is asked. */
+async function expectInvalidReads(
+  operationId: string,
+  cases: Record<string, unknown>[],
+) {
+  for (const params of cases) {
+    await expect(
+      apiRead(operationId, params),
+      JSON.stringify(params),
+    ).rejects.toMatchObject({ code: "invalid-input" });
+  }
+}
+
+/** coolify.api-call on the last start()'s connection. */
+function apiCall(operationId: string, params?: unknown, body?: unknown) {
+  return current!.runs.run(
+    "coolify.api-call",
+    apiInput(operationId, params, body),
+  );
 }
 
 function grant(h: PluginHarness, connectionId: string, level: string) {
@@ -316,55 +359,41 @@ describe("generic Coolify API operations", () => {
   });
 
   it("api-call checks the operation's own access: an operate actor deploys but can't update", async () => {
-    const { runs, fake, connectionId } = await start({
+    const { fake } = await start({
       permissions: ["view", "operate"],
     });
-    const deployed = await runs.run("coolify.api-call", {
-      connectionId,
-      operationId: "deploy-by-tag-or-uuid",
-      params: JSON.stringify({ uuid: "app-web-uuid" }),
+    const deployed = await apiCall("deploy-by-tag-or-uuid", {
+      uuid: "app-web-uuid",
     });
     expect(deployed.summary).toContain("deploy-by-tag-or-uuid");
     expect(sent(fake, "POST", "/deploy")).toHaveLength(1);
     await expect(
-      runs.run("coolify.api-call", {
-        connectionId,
-        operationId: "update-application-by-uuid",
-        params: JSON.stringify({ uuid: "app-web-uuid" }),
-        body: JSON.stringify({ name: "renamed" }),
-      }),
+      apiCall(
+        "update-application-by-uuid",
+        { uuid: "app-web-uuid" },
+        { name: "renamed" },
+      ),
     ).rejects.toMatchObject({ code: "forbidden" });
     expect(sent(fake, "PATCH", "/applications/app-web-uuid")).toEqual([]);
   });
 
   it("api-call checks the grant: an operate grant deploys but can't update", async () => {
-    const { harness: h, runs, fake, connectionId } = await start();
+    const { harness: h, fake, connectionId } = await start();
     grant(h, connectionId, "operate");
-    await runs.run("coolify.api-call", {
-      connectionId,
-      operationId: "deploy-by-tag-or-uuid",
-      params: JSON.stringify({ uuid: "app-web-uuid" }),
-    });
+    await apiCall("deploy-by-tag-or-uuid", { uuid: "app-web-uuid" });
     expect(sent(fake, "POST", "/deploy")).toHaveLength(1);
     await expect(
-      runs.run("coolify.api-call", {
-        connectionId,
-        operationId: "update-application-by-uuid",
-        params: JSON.stringify({ uuid: "app-web-uuid" }),
-      }),
+      apiCall("update-application-by-uuid", { uuid: "app-web-uuid" }),
     ).rejects.toMatchObject({ code: "forbidden" });
     expect(sent(fake, "PATCH", "/applications/app-web-uuid")).toEqual([]);
   });
 
   it("a view grant is refused every non-GET operation", async () => {
-    const { harness: h, runs, fake, connectionId } = await start();
+    const { harness: h, fake, connectionId } = await start();
     grant(h, connectionId, "view");
     for (const op of OPERATIONS) {
       if (op.method === "GET") continue;
-      await expect(
-        runs.run("coolify.api-call", { connectionId, operationId: op.id }),
-        op.id,
-      ).rejects.toMatchObject({
+      await expect(apiCall(op.id), op.id).rejects.toMatchObject({
         code: expect.stringMatching(
           /^(forbidden|excluded|upload-unsupported)$/,
         ),
@@ -416,68 +445,50 @@ describe("generic Coolify API operations", () => {
   });
 
   it("api-read of a logs endpoint is refused to a view grant, too", async () => {
-    const { harness: h, runs, fake, connectionId } = await start();
+    const { harness: h, fake, connectionId } = await start();
     grant(h, connectionId, "view");
     await expect(
-      runs.run("coolify.api-read", {
-        connectionId,
-        operationId: "get-application-logs-by-uuid",
-        params: JSON.stringify({ uuid: "app-web-uuid" }),
-      }),
+      apiRead("get-application-logs-by-uuid", { uuid: "app-web-uuid" }),
     ).rejects.toMatchObject({ code: "forbidden" });
     expect(fake.calls).toEqual([]);
-    const read = await runs.run("coolify.api-read", {
-      connectionId,
-      operationId: "list-servers",
-    });
+    const read = await apiRead("list-servers");
     expect(read.data).toMatchObject({ operationId: "list-servers" });
   });
 
   it("transfer status carries the migration log, so it needs operate; starting a transfer is administer", async () => {
     {
-      const { runs, fake, connectionId } = await start({
+      const { fake } = await start({
         permissions: ["view"],
       });
       await expect(
-        runs.run("coolify.api-read", {
-          connectionId,
-          operationId: "get-server-transfer-status",
-          params: JSON.stringify({ uuid: "srv-1" }),
-        }),
+        apiRead("get-server-transfer-status", { uuid: "srv-1" }),
       ).rejects.toMatchObject({ code: "forbidden" });
       expect(fake.calls).toEqual([]);
-      await harness!.close();
-      harness = null;
     }
     {
-      const { runs, fake, connectionId } = await start({
+      const { fake } = await start({
         permissions: ["view", "operate"],
       });
-      const read = await runs.run("coolify.api-read", {
-        connectionId,
-        operationId: "get-server-transfer-status",
-        params: JSON.stringify({ uuid: "srv-1" }),
+      const read = await apiRead("get-server-transfer-status", {
+        uuid: "srv-1",
       });
       expect(read.data).toMatchObject({
         data: { migration: { status: "done" } },
       });
       expect(sent(fake, "GET", "/servers/srv-1/transfer")).toHaveLength(1);
-      await harness!.close();
-      harness = null;
     }
-    const { runs, fake, connectionId } = await start({
+    const { fake } = await start({
       permissions: ["view", "operate", "configure"],
     });
     await expect(
-      runs.run("coolify.api-call", {
-        connectionId,
-        operationId: "migrate-server-between-instances",
-        params: JSON.stringify({ uuid: "srv-1" }),
-        body: JSON.stringify({
+      apiCall(
+        "migrate-server-between-instances",
+        { uuid: "srv-1" },
+        {
           target_url: "https://coolify-b.example.test",
           target_token: "fake-target-token",
-        }),
-      }),
+        },
+      ),
     ).rejects.toMatchObject({ code: "forbidden" });
     expect(sent(fake, "POST", "/servers/srv-1/migrate")).toEqual([]);
     expect(fake.calls).toEqual([]);
@@ -486,25 +497,16 @@ describe("generic Coolify API operations", () => {
   it("administer operations need coolify.administer", async () => {
     const {
       harness: h,
-      runs,
       fake,
       connectionId,
     } = await start({
       permissions: ["view", "operate", "configure"],
     });
     await expect(
-      runs.run("coolify.api-call", {
-        connectionId,
-        operationId: "delete-application-by-uuid",
-        params: JSON.stringify({ uuid: "app-web-uuid" }),
-      }),
+      apiCall("delete-application-by-uuid", { uuid: "app-web-uuid" }),
     ).rejects.toMatchObject({ code: "forbidden" });
     await expect(
-      runs.run("coolify.api-call", {
-        connectionId,
-        operationId: "create-server",
-        body: JSON.stringify({ name: "new", ip: "192.0.2.10" }),
-      }),
+      apiCall("create-server", undefined, { name: "new", ip: "192.0.2.10" }),
     ).rejects.toMatchObject({ code: "forbidden" });
     expect(fake.calls).toEqual([]);
     const ops = await listed(h, "coolify.list-api-operations", connectionId);
@@ -514,31 +516,25 @@ describe("generic Coolify API operations", () => {
   });
 
   it("an administer actor with a configure grant can delete; ownership counts too", async () => {
-    const { harness: h, runs, fake, connectionId } = await start();
+    const { harness: h, fake, connectionId } = await start();
     const ops = await listed(h, "coolify.list-api-operations", connectionId);
     expect(ops).toContain("delete-application-by-uuid");
     grant(h, connectionId, "configure");
-    await runs.run("coolify.api-call", {
-      connectionId,
-      operationId: "delete-application-by-uuid",
-      params: JSON.stringify({ uuid: "app-web-uuid" }),
-    });
+    await apiCall("delete-application-by-uuid", { uuid: "app-web-uuid" });
     expect(sent(fake, "DELETE", "/applications/app-web-uuid")).toHaveLength(1);
   });
 
   it("api-call creating a private key or setting env values leaves no secret in run history", async () => {
-    const { runs, fake, connectionId } = await start();
-    const key = await runs.run("coolify.api-call", {
-      connectionId,
-      operationId: "create-private-key",
-      body: JSON.stringify({ name: "deploy", private_key: PRIVATE_KEY }),
+    const { runs, fake } = await start();
+    const key = await apiCall("create-private-key", undefined, {
+      name: "deploy",
+      private_key: PRIVATE_KEY,
     });
-    const env = await runs.run("coolify.api-call", {
-      connectionId,
-      operationId: "update-env-by-application-uuid",
-      params: JSON.stringify({ uuid: "app-web-uuid" }),
-      body: JSON.stringify({ key: "API_SECRET", value: ENV_VALUE }),
-    });
+    const env = await apiCall(
+      "update-env-by-application-uuid",
+      { uuid: "app-web-uuid" },
+      { key: "API_SECRET", value: ENV_VALUE },
+    );
     // The secrets did reach Coolify.
     expect(
       String(sent(fake, "POST", "/security/keys")[0].init?.body),
@@ -587,15 +583,9 @@ describe("generic Coolify API operations", () => {
     const ops = await listed(h, "coolify.list-api-operations", connectionId);
     expect(ops).not.toContain("create-database-influxdb");
     await expect(
-      runs.run("coolify.api-call", {
-        connectionId,
-        operationId: "create-database-influxdb",
-        body: JSON.stringify({ server_uuid: "srv-1" }),
-      }),
+      apiCall("create-database-influxdb", undefined, { server_uuid: "srv-1" }),
     ).rejects.toMatchObject({ cause: "unsupported-by-instance" });
     expect(fake.calls).toEqual([]);
-    await harness!.close();
-    harness = null;
     const nightly = await start({ version: "v4.8.0-nightly" });
     expect(
       await listed(
@@ -616,14 +606,10 @@ describe("generic Coolify API operations", () => {
   });
 
   it("a 404 from a 4.4.0 connection maps to unsupported-by-instance", async () => {
-    const { runs, connectionId } = await start({ version: "v4.4.0" });
+    await start({ version: "v4.4.0" });
     let caught: unknown = null;
     try {
-      await runs.run("coolify.api-read", {
-        connectionId,
-        operationId: "get-server-sentinel",
-        params: JSON.stringify({ uuid: "srv-1" }),
-      });
+      await apiRead("get-server-sentinel", { uuid: "srv-1" });
     } catch (err) {
       caught = err;
     }
@@ -632,13 +618,9 @@ describe("generic Coolify API operations", () => {
   });
 
   it("a 404 from an instance that has the operation stays not-found", async () => {
-    const { runs, connectionId } = await start({ version: "v4.7.5" });
+    await start({ version: "v4.7.5" });
     await expect(
-      runs.run("coolify.api-read", {
-        connectionId,
-        operationId: "get-server-sentinel",
-        params: JSON.stringify({ uuid: "srv-1" }),
-      }),
+      apiRead("get-server-sentinel", { uuid: "srv-1" }),
     ).rejects.toMatchObject({ cause: "not-found" });
   });
 
@@ -662,11 +644,8 @@ describe("generic Coolify API operations", () => {
   });
 
   it("api-read records method, operation, path and the redacted request", async () => {
-    const { runs, connectionId } = await start();
-    const read = await runs.run("coolify.api-read", {
-      connectionId,
-      operationId: "list-servers",
-    });
+    await start();
+    const read = await apiRead("list-servers");
     expect(read.summary).toContain("list-servers");
     expect(read.summary).toContain("GET /servers");
     expect(read.data).toMatchObject({
@@ -678,7 +657,7 @@ describe("generic Coolify API operations", () => {
   });
 
   it("dot-segment path params are refused before any request", async () => {
-    const { runs, fake, connectionId } = await start();
+    const { fake } = await start();
     const bad = [
       "..",
       ".",
@@ -691,54 +670,35 @@ describe("generic Coolify API operations", () => {
       "a b",
       "",
     ];
-    for (const value of bad) {
-      for (const params of [
+    await expectInvalidReads(
+      "get-environment-by-name-or-uuid",
+      bad.flatMap((value) => [
         { uuid: value, environment_name_or_uuid: "deployments" },
         { uuid: "proj-uuid", environment_name_or_uuid: value },
-      ]) {
-        await expect(
-          runs.run("coolify.api-read", {
-            connectionId,
-            operationId: "get-environment-by-name-or-uuid",
-            params: JSON.stringify(params),
-          }),
-          JSON.stringify(params),
-        ).rejects.toMatchObject({ code: "invalid-input" });
-      }
-    }
+      ]),
+    );
     expect(fake.calls).toEqual([]);
     // Real Coolify shapes still pass.
-    await runs.run("coolify.api-read", {
-      connectionId,
-      operationId: "get-environment-by-name-or-uuid",
-      params: JSON.stringify({
-        uuid: "proj-uuid",
-        environment_name_or_uuid: "production",
-      }),
+    await apiRead("get-environment-by-name-or-uuid", {
+      uuid: "proj-uuid",
+      environment_name_or_uuid: "production",
     });
-    await runs.run("coolify.api-read", {
-      connectionId,
-      operationId: "get-preview-deployment-by-pull-request-id",
-      params: JSON.stringify({ uuid: "app-web-uuid", pull_request_id: 42 }),
+    await apiRead("get-preview-deployment-by-pull-request-id", {
+      uuid: "app-web-uuid",
+      pull_request_id: 42,
     });
     expect(fake.calls).toHaveLength(2);
   });
 
   it("integer path params take digits only", async () => {
-    const { runs, fake, connectionId } = await start();
-    for (const value of ["4x", "-1", "1.5", "..", 1.5]) {
-      await expect(
-        runs.run("coolify.api-read", {
-          connectionId,
-          operationId: "get-preview-deployment-by-pull-request-id",
-          params: JSON.stringify({
-            uuid: "app-web-uuid",
-            pull_request_id: value,
-          }),
-        }),
-        String(value),
-      ).rejects.toMatchObject({ code: "invalid-input" });
-    }
+    const { fake } = await start();
+    await expectInvalidReads(
+      "get-preview-deployment-by-pull-request-id",
+      ["4x", "-1", "1.5", "..", 1.5].map((value) => ({
+        uuid: "app-web-uuid",
+        pull_request_id: value,
+      })),
+    );
     expect(fake.calls).toEqual([]);
   });
 
@@ -748,44 +708,30 @@ describe("generic Coolify API operations", () => {
         (p) => p.name === "resource_type",
       )?.enum,
     ).toEqual(["applications", "services", "databases"]);
-    const { runs, fake, connectionId } = await start();
-    for (const resource_type of ["servers", "settings", "deployments", ".."]) {
-      await expect(
-        runs.run("coolify.api-read", {
-          connectionId,
-          operationId: "get-secret-manager-source",
-          params: JSON.stringify({ resource_type, uuid: "app-web-uuid" }),
-        }),
+    const { fake } = await start();
+    await expectInvalidReads(
+      "get-secret-manager-source",
+      ["servers", "settings", "deployments", ".."].map((resource_type) => ({
         resource_type,
-      ).rejects.toMatchObject({ code: "invalid-input" });
-    }
-    expect(fake.calls).toEqual([]);
-    await runs.run("coolify.api-read", {
-      connectionId,
-      operationId: "get-secret-manager-source",
-      params: JSON.stringify({
-        resource_type: "applications",
         uuid: "app-web-uuid",
-      }),
+      })),
+    );
+    expect(fake.calls).toEqual([]);
+    await apiRead("get-secret-manager-source", {
+      resource_type: "applications",
+      uuid: "app-web-uuid",
     });
     expect(fake.calls).toHaveLength(1);
   });
 
   it("refuses unknown parameters and missing path parameters before calling Coolify", async () => {
     const { runs, fake, connectionId } = await start();
-    await expect(
-      runs.run("coolify.api-read", {
-        connectionId,
-        operationId: "get-server-by-uuid",
-      }),
-    ).rejects.toMatchObject({ code: "invalid-input" });
-    await expect(
-      runs.run("coolify.api-read", {
-        connectionId,
-        operationId: "list-servers",
-        params: JSON.stringify({ nope: 1 }),
-      }),
-    ).rejects.toMatchObject({ code: "invalid-input" });
+    await expect(apiRead("get-server-by-uuid")).rejects.toMatchObject({
+      code: "invalid-input",
+    });
+    await expect(apiRead("list-servers", { nope: 1 })).rejects.toMatchObject({
+      code: "invalid-input",
+    });
     await expect(
       runs.run("coolify.api-read", {
         connectionId,
@@ -797,14 +743,11 @@ describe("generic Coolify API operations", () => {
   });
 
   it("another user's connection reads as missing", async () => {
-    const { harness: h, runs, fake, connectionId } = await start();
+    const { harness: h, fake, connectionId } = await start();
     h.mock.setActor(OTHER);
-    await expect(
-      runs.run("coolify.api-read", {
-        connectionId,
-        operationId: "list-servers",
-      }),
-    ).rejects.toMatchObject({ code: "not-found" });
+    await expect(apiRead("list-servers")).rejects.toMatchObject({
+      code: "not-found",
+    });
     expect(
       await listed(h, "coolify.list-api-operations", connectionId),
     ).toEqual([]);
