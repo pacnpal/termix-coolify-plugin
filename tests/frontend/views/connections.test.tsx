@@ -61,6 +61,14 @@ function stubApi(list: unknown[] = []) {
 
 let rendered: RenderedPluginApp | null = null;
 
+/** With a connection the tab opens on Overview; these tests use Connections. */
+async function openConnections() {
+  fireEvent.click(
+    await screen.findByRole("button", { name: locales.nav.connections }),
+  );
+  return screen.findByText("Prod");
+}
+
 afterEach(async () => {
   await rendered?.deactivate();
   rendered = null;
@@ -77,7 +85,7 @@ describe("connections view", () => {
       permissions: ALL,
     });
     rendered.renderTab("coolify", { isVisible: true });
-    expect(await screen.findByText("Prod")).toBeTruthy();
+    expect(await openConnections()).toBeTruthy();
     expect(screen.getByText(L.badges.scoped)).toBeTruthy();
     expect(api.get).toHaveBeenCalledWith("/connections");
   });
@@ -139,7 +147,7 @@ describe("connections view", () => {
       permissions: ALL,
     });
     rendered.renderTab("coolify", { isVisible: true });
-    await screen.findByText("Prod");
+    await openConnections();
     fireEvent.click(screen.getByRole("button", { name: L.actions.edit }));
     const name = await screen.findByPlaceholderText(L.form.namePlaceholder);
     expect((name as HTMLInputElement).value).toBe("Prod");
@@ -169,7 +177,7 @@ describe("connections view", () => {
       permissions: ALL,
     });
     rendered.renderTab("coolify", { isVisible: true });
-    await screen.findByText("Prod");
+    await openConnections();
     fireEvent.click(screen.getByRole("button", { name: L.actions.probe }));
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith("/connections/1/probe"),
@@ -186,7 +194,7 @@ describe("connections view", () => {
       permissions: ALL,
     });
     const tab = rendered.renderTab("coolify", { isVisible: true });
-    await screen.findByText("Prod");
+    await openConnections();
     fireEvent.click(
       within(tab).getByRole("button", { name: L.actions.delete }),
     );
@@ -212,7 +220,7 @@ describe("connections view", () => {
       permissions: ["coolify.view"],
     });
     rendered.renderTab("coolify", { isVisible: true });
-    await screen.findByText("Prod");
+    await openConnections();
     expect(screen.queryByRole("button", { name: L.add })).toBeNull();
     expect(screen.queryByRole("button", { name: L.actions.edit })).toBeNull();
     expect(screen.queryByRole("button", { name: L.actions.delete })).toBeNull();

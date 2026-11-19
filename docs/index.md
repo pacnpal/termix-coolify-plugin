@@ -1,7 +1,8 @@
 Coolify for Termix brings your Coolify servers, applications, services and databases into Termix.
 
-So far you can connect Coolify instances, see what each API token can do, and sync Coolify servers into
-Termix hosts. Resources, shells and the rest come with the rest of release 1.0.0.
+So far you can connect Coolify instances, see what each API token can do, sync Coolify servers into
+Termix hosts, and browse each connection's applications, services and databases. Shells, deploys and the
+rest come with the rest of release 1.0.0.
 
 ## Turn it on
 
@@ -79,6 +80,35 @@ Syncing and unlinking need **Configure Coolify** and only the connection's owner
 needs **View Coolify**. They are also actions: `coolify.sync-preview` (offered to the assistant and MCP),
 `coolify.sync-apply` (without a server list it syncs every server with its saved address and credential)
 and `coolify.unlink`.
+
+## Overview and resources
+
+The Coolify tab has three sections on the left (a select at the top on a phone): **Overview**, **Resources**
+and **Connections**. With no connection yet it opens on Connections. With more than one, pick the connection
+in the section's header.
+
+**Overview** counts the connection's resources by status:
+
+- **Running**: running, healthy or with no health check.
+- **Degraded**: exited, restarting, or unhealthy.
+- **Stopped**: stopped, paused or with no status.
+- **Deploying**: starting or building.
+
+Service parts aren't counted on their own; their service's status covers them. Choose a tile to open the
+Resources list filtered to that status.
+
+**Resources** lists every application, service and database, with each service's parts (its containers,
+like n8n's worker or its Postgres) right under it. Each row shows the status, the Coolify server, the project
+and environment, the domains and the last deploy. Search matches names, domains, projects, environments and
+servers; filter by type and by status. Choose a row to open the resource's Overview; a service's Overview
+lists its parts, and choosing one opens it.
+
+The plugin reads Coolify's lists of applications, services and databases, never its heavier `/resources`
+list, and keeps only what it shows: no environment values, private keys, tokens, passwords or compose files.
+Statuses are cached for 20 seconds; **Refresh** fetches them again.
+
+The same reads are actions, for the CLI, Automations, the assistant and MCP: `coolify.list-resources-all`
+(optionally for one Coolify server) and `coolify.resource-get`. Both need **View Coolify**.
 
 ## Permissions
 

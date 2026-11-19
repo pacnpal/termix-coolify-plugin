@@ -3,6 +3,7 @@ import { checkFrameViews } from "@termix-ssh/plugin-sdk/testing";
 import * as plugin from "../../src/frontend/index";
 import manifest from "../../manifest.json";
 import locales from "../../locales/en.json";
+import { resourceAnswer, resourceRows } from "./fixtures";
 
 const connection = {
   id: 1,
@@ -59,6 +60,8 @@ describe("sandboxed frame views", () => {
         if (method !== "GET") return {};
         if (/\/connections$/.test(path)) return [connection];
         if (/\/connections\/1\/servers$/.test(path)) return [];
+        if (/\/resources(\?|$)/.test(path)) return resourceAnswer;
+        if (/\/resources\/[^/]+$/.test(path)) return resourceRows[0];
         if (/\/connections\/1$/.test(path)) return connection;
         return {};
       },
