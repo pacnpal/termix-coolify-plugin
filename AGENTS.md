@@ -69,8 +69,8 @@ aren't obvious from the code, and anything that has bitten you before.
   Where things stand: identity, permissions, admin settings, the vendored API and the tables exist,
   Connections work (routes, operations, the Connections view and the "Connect Coolify" onboarding step),
   host sync turns Coolify servers into locked Linked hosts, Resources can be browsed (Overview tiles,
-  the Resources list, a resource's Overview detail), and container shells and database consoles open in a
-  `coolify-shell` tab.
+  the Resources list, a resource's Overview detail), container shells and database consoles open in a
+  `coolify-shell` tab, and resources have Stats and Traffic tabs with server metrics on the host card.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
 - Coolify calls: `src/backend/coolify/http.ts` is the only way to Coolify (ctx.fetch, Bearer and CF Access
@@ -121,8 +121,8 @@ aren't obvious from the code, and anything that has bitten you before.
   Coolify status, imported by both the backend and the frontend. Exited and unhealthy are degraded; Parts
   aren't counted (their service's status covers them).
 - Frontend: `src/frontend/views/CoolifyTab.tsx` owns the SideNav, the selected connection and the shared
-  resource list (`useResources`). `ResourceDetail.tsx` lists its views in `DETAIL_TABS`; later views (shell,
-  logs, stats) add an id there. Filtering and grouping are pure functions in `resource-model.ts`.
+  resource list (`useResources`). `ResourceDetail.tsx` lists its views in `DETAIL_TABS`; `detailTabs()` picks
+  which a resource shows (Stats needs operate, Traffic is for applications); later views add an id there. Filtering and grouping are pure functions in `resource-model.ts`.
   `contributes.mobile` lists `coolify` and `coolify-shell`.
 - Shells: `src/backend/ssh.ts` (`SshRunner` over `ctx.ssh.exec`, `isHostKeyError`) and
   `src/backend/containers/` (`commands.ts` name check, `DB_CONSOLES`, `shellCommand`; `resolver.ts` docker ps
@@ -138,3 +138,19 @@ aren't obvious from the code, and anything that has bitten you before.
 console }`, calls the shell route and draws `PluginComponent id="terminal.view"` with `hostConfig` and
   `executeCommand`; the fallback is a NoticePanel with the command to copy. Picking a container re-asks in
   place. Shell host ids can be strings, so hosts are matched by `String(id)`, not `useHost`.
+- Metrics: `src/backend/coolify/mcp.ts` is the client for Coolify's own MCP (`<url>/mcp`, JSON-RPC
+  `tools/call`, same headers as REST through `coolifyInit`, a 404 or 403 means off); only
+  `get_server_metrics` is used. The probe sets `abilities.mcp` from `available()` without adding a step.
+  `src/backend/metrics/sentinel.ts` builds Sentinel paths from fixed templates, refuses any path outside
+  `/^\/api\/[A-Za-z0-9_/.\-?=&:]+$/` (the colon is for ISO timestamps) or with `..`, and a uuid must be
+  `^[A-Za-z0-9]+$`. The command is `docker exec coolify-sentinel sh -c '<script>' sh '<url>'`: Sentinel's
+  API wants a Bearer token, so the script reads the container's own `$TOKEN` and gives it to curl on stdin.
+  `service.ts` checks metrics-off and traffic-off through Coolify's API before any SSH, then the Linked
+  host, `coolify.operate` and connect access. `canEnable` is owner or configure grant plus
+  `coolify.configure`. IPs: `api.sentinelSettings()` gives `traffic_ip_mode`; anything but `full` (or a
+  failed read) hides them.
+- Stats socket: `src/backend/containers/sockets.ts` (`WS /stats`). `containers.locate()` is the shared
+  container lookup (the shell route uses it too). Each tick re-checks `isDataUnlocked()`, that
+  `ctx.currentActor()` is the socket's user, `coolify.operate`, connection access and host connect access,
+  and chains `setTimeout` (no overlap). The frontend opens it through `src/frontend/live.ts`, which keeps
+  the app's `wsUrl` from `activate` because hooks don't give it; tests mock that module.

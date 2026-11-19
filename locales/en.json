@@ -556,7 +556,9 @@
   },
   "detail": {
     "tabs": {
-      "overview": "Overview"
+      "overview": "Overview",
+      "stats": "Stats",
+      "traffic": "Traffic"
     },
     "fields": {
       "type": "Type",
@@ -576,6 +578,76 @@
     "actions": {
       "shell": "Open shell",
       "console": "Open database console"
+    }
+  },
+  "metrics": {
+    "title": "Metrics",
+    "cpu": "CPU",
+    "memory": "Memory",
+    "disk": "Disk",
+    "load": "Load",
+    "loading": "Reading metrics",
+    "failed": "The metrics could not be read.",
+    "empty": "No data in this range yet.",
+    "ranges": {
+      "1h": "1 hour",
+      "24h": "24 hours",
+      "7d": "7 days",
+      "30d": "30 days"
+    },
+    "source": {
+      "mcp": "From Coolify's MCP",
+      "sentinel": "From Sentinel over SSH"
+    },
+    "live": {
+      "title": "Live",
+      "waiting": "Waiting for the first reading",
+      "received": "Received",
+      "sent": "Sent",
+      "unavailable": "The live readout isn't available here.",
+      "failed": "The live readout stopped.",
+      "errors": {
+        "locked": "The live readout stopped because your session ended.",
+        "no-host-access": "You can't open this server's Linked host.",
+        "not-linked": "Link this server first to see live stats.",
+        "not-running": "The container isn't running.",
+        "no-stats": "docker stats gave no reading. Is the container running?"
+      }
+    },
+    "off": {
+      "title": "Metrics are off for this server",
+      "hint": "Turn them on to collect CPU and memory history in Coolify's Sentinel.",
+      "askHint": "Ask the connection's owner to turn metrics on in Coolify.",
+      "enable": "Turn on metrics",
+      "enableFailed": "Metrics could not be turned on."
+    },
+    "enableConfirm": {
+      "title": "Turn on metrics for {{name}}?",
+      "description": "This changes the server's Sentinel settings in Coolify so it collects metrics.",
+      "confirm": "Turn on metrics"
+    },
+    "errors": {
+      "not-linked": "Link this server first: sync it from Coolify to make it a Linked host.",
+      "no-host-access": "You can't open this server's Linked host. Ask its owner for server access.",
+      "host-key": "Open a server terminal once to trust this host's key.",
+      "forbidden": "You don't have access to these metrics.",
+      "sentinel-failed": "Sentinel on this server did not answer. Check that metrics are on in Coolify.",
+      "ssh-failed": "The Linked host could not be reached over SSH.",
+      "invalid-input": "Coolify's Sentinel can't be asked about this resource."
+    },
+    "traffic": {
+      "loading": "Reading traffic",
+      "requests": "Requests",
+      "visitors": "Visitors",
+      "bytesOut": "Sent",
+      "requestsOverTime": "Requests over time",
+      "topPaths": "Top paths",
+      "breakdown": "Breakdown",
+      "ipsHidden": "Client IPs are hidden: Coolify doesn't keep them in full.",
+      "off": {
+        "title": "Traffic analytics is off for this server",
+        "hint": "Turn on traffic analytics for the server in Coolify, under its Sentinel settings."
+      }
     }
   }
 }

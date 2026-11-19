@@ -15,6 +15,8 @@ import {
   type InfoItem,
 } from "@termix-ssh/plugin-sdk/ui";
 import type { Resource } from "../api";
+import { StatsTab } from "./StatsTab";
+import { TrafficTab } from "./TrafficTab";
 import { resourceHealth } from "../../shared/resource-health";
 import {
   formatTime,
@@ -27,11 +29,23 @@ import {
 type T = (key: string, options?: Record<string, unknown>) => string;
 
 /**
- * The detail views. Later releases add Shell, Logs, Stats and Traffic here:
- * one id, one locale key under detail.tabs and one case in DetailBody.
+ * The detail views: one id, one locale key under detail.tabs and one case in
+ * the body. Stats and Traffic read over SSH, so they need coolify.operate;
+ * Traffic is for applications.
  */
-export const DETAIL_TABS = ["overview"] as const;
+export const DETAIL_TABS = ["overview", "stats", "traffic"] as const;
 export type DetailTab = (typeof DETAIL_TABS)[number];
+
+/** The tabs this resource shows to someone with or without coolify.operate. */
+export function detailTabs(
+  resource: Resource | null,
+  canOperate: boolean,
+): DetailTab[] {
+  if (!resource || !canOperate) return ["overview"];
+  return resource.kind === "application"
+    ? ["overview", "stats", "traffic"]
+    : ["overview", "stats"];
+}
 
 function overviewItems(
   t: T,
@@ -138,12 +152,18 @@ export function hasConsole(r: Resource): boolean {
 export function ResourceDetail({
   resource,
   rows,
+  connectionId,
+  isVisible = true,
   onOpen,
   onClose,
   onShell,
 }: {
   /** Null when the resource is gone from the list. */
   resource: Resource | null;
+  /** The connection the resource is read through; Stats and Traffic need it. */
+  connectionId?: number | null;
+  /** Whether the tab is on screen: the live stats socket closes when not. */
+  isVisible?: boolean;
   rows: readonly Resource[];
   onOpen: (uuid: string) => void;
   onClose: () => void;
@@ -153,18 +173,33 @@ export function ResourceDetail({
   const { t } = useTranslation();
   // Shells run over SSH: coolify.operate, plus host access the backend checks.
   const canShell = usePermission("operate");
-  const [tab, setTab] = useState<DetailTab>("overview");
+  const [chosen, setTab] = useState<DetailTab>("overview");
+  const tabs = connectionId ? detailTabs(resource, canShell) : ["overview"];
+  const tab: DetailTab = tabs.includes(chosen) ? chosen : "overview";
   let body: ReactNode;
   if (!resource) {
     body = <EmptyState icon={Box} title={t("detail.missing")} />;
+  } else if (tab === "stats" && connectionId) {
+    body = (
+      <StatsTab
+        key={resource.uuid}
+        connectionId={connectionId}
+        resource={resource}
+        isVisible={isVisible}
+      />
+    );
+  } else if (tab === "traffic" && connectionId) {
+    body = (
+      <TrafficTab
+        key={resource.uuid}
+        connectionId={connectionId}
+        resource={resource}
+      />
+    );
   } else {
-    switch (tab) {
-      case "overview":
-        body = (
-          <OverviewTab t={t} resource={resource} rows={rows} onOpen={onOpen} />
-        );
-        break;
-    }
+    body = (
+      <OverviewTab t={t} resource={resource} rows={rows} onOpen={onOpen} />
+    );
   }
   return (
     <InlineView
@@ -183,7 +218,7 @@ export function ResourceDetail({
       }
       toolbar={
         <TabStrip
-          tabs={DETAIL_TABS.map((id) => ({
+          tabs={tabs.map((id) => ({
             id,
             label: t(`detail.tabs.${id}`),
           }))}

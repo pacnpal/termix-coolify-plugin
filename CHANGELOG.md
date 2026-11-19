@@ -54,3 +54,14 @@
   the command to copy
 - The action `coolify.shell-command`, offered to the assistant and MCP, answers the exact `docker exec`
   command. Shells need Operate Coolify resources and your own connect access to the Linked host
+- A Stats tab on resources: the container's CPU and memory history from Coolify's Sentinel (up to 30 days)
+  and a live `docker stats` readout every 3 seconds while the tab is open
+- A Traffic tab on applications with Coolify's traffic analytics on: requests over time, top paths, and
+  breakdowns by status code, country, browser and bot. Client IPs show only when Coolify's traffic IP mode
+  is `full`
+- Server metrics on a Linked host's Coolify card, from Coolify's MCP when it's on, else from Sentinel over
+  SSH. The connection check also notes whether Coolify's MCP answers
+- "Turn on metrics" when metrics are off for a server, for someone who may change the connection; it asks
+  first and changes the server's Sentinel settings in Coolify
+- Actions `coolify.resource-metrics`, `coolify.resource-traffic` and `coolify.server-metrics`, offered to the
+  assistant and MCP

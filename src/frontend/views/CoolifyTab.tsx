@@ -171,6 +171,8 @@ export function CoolifyTab(props: TabProps) {
         <ResourceDetail
           resource={rows.find((r) => r.uuid === openUuid) ?? null}
           rows={rows}
+          connectionId={connection?.id ?? null}
+          isVisible={props.isVisible}
           onOpen={setOpenUuid}
           onClose={() => setOpenUuid(null)}
           onShell={(resource, console) => {
