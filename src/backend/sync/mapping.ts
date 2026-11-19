@@ -13,8 +13,11 @@ export const TUNNEL_CAUSE = "needs-tunnel-support";
 
 export type PlanCause = "needs-address" | typeof TUNNEL_CAUSE;
 
+// Both sides name both fields, so `cause` reads the same with or without
+// strict null checks.
 export type HostPlan =
-  { ok: true; input: PluginHostCreateInput } | { ok: false; cause: PlanCause };
+  | { ok: true; input: PluginHostCreateInput; cause?: undefined }
+  | { ok: false; cause: PlanCause; input?: undefined };
 
 /** What planHost needs besides the server. Everything is already decided. */
 export interface PlanContext {

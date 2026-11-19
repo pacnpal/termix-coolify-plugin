@@ -1,9 +1,11 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import type { Connections } from "./connections/service.js";
 import { registerConnectionOperations } from "./ops/connections.js";
+import type { Sync } from "./sync/service.js";
 
 export interface Services {
   connections: Connections;
+  sync: Sync;
 }
 
 /**

@@ -73,7 +73,12 @@ export interface ConnectionPatch {
   autoSync?: boolean;
 }
 
-export type ConnectionErrorCode = "invalid-input" | "forbidden" | "not-found";
+export type ConnectionErrorCode =
+  | "invalid-input"
+  | "forbidden"
+  | "not-found"
+  // A server with no Linked host (host sync's unlink).
+  | "not-linked";
 
 /** A refusal by the plugin itself, before or without asking Coolify. */
 export class ConnectionError extends Error {

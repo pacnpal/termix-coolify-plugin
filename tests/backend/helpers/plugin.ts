@@ -5,6 +5,7 @@ import express, { type Router } from "express";
 import {
   createMockCtx,
   createTestDb,
+  type MockContextOptions,
   type MockPluginContext,
   type TestDb,
 } from "@termix-ssh/plugin-sdk/testing";
@@ -41,6 +42,10 @@ export async function startPlugin(
     fetch?: (url: string, init?: PluginFetchInit) => Promise<Response>;
     permissions?: string[];
     serve?: boolean;
+    /** Admin settings, like allowKeyCopy. */
+    settings?: Record<string, unknown>;
+    /** What ctx.plugins.list answers. */
+    installedPlugins?: MockContextOptions["installedPlugins"];
   } = {},
 ): Promise<PluginHarness> {
   const db = await createTestDb(pluginDir);
@@ -59,6 +64,8 @@ export async function startPlugin(
     router: () => (router = express.Router()),
     permissions: options.permissions,
     fetch: options.fetch,
+    settings: options.settings,
+    installedPlugins: options.installedPlugins,
     actor: OWNER,
   });
   await activate(mock.ctx);
