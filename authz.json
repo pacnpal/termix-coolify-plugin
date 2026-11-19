@@ -118,6 +118,62 @@
         "removeHost": false
       },
       "destructive": true
+    },
+    "GET /plugin-api/coolify/connections/:id/servers/:uuid/updates": {
+      "access": "user",
+      "permission": "coolify.view",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-own-server"
+      }
+    },
+    "POST /plugin-api/coolify/connections/:id/servers/:uuid/updates/check": {
+      "access": "user",
+      "permission": "coolify.operate",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-own-server"
+      },
+      "body": {}
+    },
+    "POST /plugin-api/coolify/connections/:id/servers/:uuid/updates/install": {
+      "access": "user",
+      "permission": "coolify.operate",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-own-server"
+      },
+      "body": {
+        "confirm": true
+      }
+    },
+    "POST /plugin-api/coolify/connections/:id/servers/:uuid/reboot": {
+      "access": "user",
+      "permission": "coolify.administer",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-own-server"
+      },
+      "body": {
+        "confirmName": "authz-own-server"
+      },
+      "destructive": true
     }
   }
 }

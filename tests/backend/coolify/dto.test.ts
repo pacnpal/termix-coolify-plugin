@@ -110,6 +110,23 @@ describe("Coolify DTO strippers", () => {
     ).toMatchObject({ updates: 1, security: 1, rebootRequired: null });
   });
 
+  it("toPatch keeps a security count Coolify doesn't know as unknown", () => {
+    // Coolify sends security_updates null for pacman and apk, where it can't
+    // tell, even though each update carries security: false.
+    const patch = toPatch(
+      {
+        total_updates: 1,
+        security_updates: null,
+        reboot_required: null,
+        updates: [{ package: "docker", security: false, risk: "docker" }],
+      },
+      "2026-11-18T10:00:00Z",
+      null,
+    );
+    expect(patch).toMatchObject({ updates: 1, security: null });
+    expect(patch?.items[0].risk).toBe("docker");
+  });
+
   it("toService flattens parts", () => {
     const dtos = toService(n8n);
     expect(dtos).toHaveLength(6);
