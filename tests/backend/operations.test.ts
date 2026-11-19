@@ -1,5 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PluginOperationContext } from "@termix-ssh/plugin-sdk/backend";
+import { validateManifest } from "@termix-ssh/plugin-sdk/manifest";
+import { checkOperationReferences } from "@termix-ssh/plugin-sdk/operations";
 import { fakeCoolify, healthyCoolify } from "./helpers/fake-coolify.js";
 import {
   changes,
@@ -473,5 +475,269 @@ describe("lifecycle, resource and signal operations", () => {
     );
     expect(JSON.stringify(outcome)).not.toContain(LIFECYCLE_TOKEN);
     expect(outcome.data).toMatchObject({ deploymentUuid: "dep-uuid" });
+  });
+});
+
+describe("Operations Center acceptance", () => {
+  /** Seeds the plugin's own last update check, as updates/check stores it. */
+  function ownCheck(
+    h: PluginHarness,
+    connectionId: number,
+    serverUuid: string,
+    status: { security: number | null; checkedAt: string },
+    via = "ssh",
+  ): void {
+    h.db.sqlite
+      .prepare(
+        "INSERT INTO p_coolify_cache (connection_id, kind, json, fetched_at) VALUES (?, ?, ?, ?)",
+      )
+      .run(
+        connectionId,
+        `updates:${serverUuid}`,
+        JSON.stringify({
+          status: {
+            updates: status.security ?? 0,
+            security: status.security,
+            rebootRequired: false,
+            checkedAt: status.checkedAt,
+            error: null,
+            items: [],
+          },
+          via,
+        }),
+        status.checkedAt,
+      );
+  }
+
+  /** Coolify's servers answer, with its own patch check on vps1 and edge. */
+  const patchedServers = {
+    "GET /servers": {
+      json: [
+        {
+          uuid: "srv-vps1-uuid",
+          name: "vps1",
+          ip: "203.0.113.10",
+          settings: { is_reachable: true, is_usable: true },
+          patch_check_result: { total_updates: 4, security_updates: 2 },
+          patch_checked_at: "2026-11-18T08:00:00Z",
+        },
+        {
+          uuid: "srv-edge-uuid",
+          name: "edge",
+          ip: "203.0.113.20",
+          settings: { is_reachable: false, is_usable: false },
+          patch_check_result: { total_updates: 1, security_updates: 1 },
+          patch_checked_at: "2026-11-18T08:00:00Z",
+        },
+      ],
+    },
+  };
+
+  const HOST_SIGNALS = [
+    "coolify.signal-degraded",
+    "coolify.signal-server",
+    "coolify.signal-updates",
+  ];
+
+  it("unlinked host lists no rows without a network call", async () => {
+    const { harness, fake, id } = await start();
+    link(harness, id, "srv-vps1-uuid", 7);
+    const exec = vi.spyOn(harness.mock.ctx.ssh, "exec");
+    const before = fake.calls.length;
+    for (const hostId of [99, undefined]) {
+      const listed = await harness.mock.ctx.operations.run(
+        "coolify.list-resources",
+        { hostId },
+      );
+      expect(listed.data).toEqual({ rows: [] });
+      for (const signal of HOST_SIGNALS) {
+        const read = await harness.mock.ctx.operations.run(signal, {
+          hostId,
+        });
+        expect(read.data, signal).toMatchObject({
+          status: "unknown",
+          label: "Not linked to Coolify",
+        });
+      }
+    }
+    expect(fake.calls.length).toBe(before);
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it("signals read from cache: one fetch for several hosts on one connection", async () => {
+    const { harness, fake, id } = await start({ overrides: patchedServers });
+    link(harness, id, "srv-vps1-uuid", 7);
+    link(harness, id, "srv-edge-uuid", 8);
+    link(harness, id, "srv-gone-uuid", 9);
+    const exec = vi.spyOn(harness.mock.ctx.ssh, "exec");
+    const count = (path: string) =>
+      fake.calls.filter((c) => c.path === path).length;
+    const before = { apps: count("/applications"), servers: count("/servers") };
+    for (const hostId of [7, 8, 9]) {
+      for (const signal of HOST_SIGNALS) {
+        await harness.mock.ctx.operations.run(signal, { hostId });
+      }
+    }
+    expect(count("/applications") - before.apps).toBe(1);
+    expect(count("/servers") - before.servers).toBe(1);
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it("the updates signal reads the updates service's own check when it is newer, never over SSH", async () => {
+    const { harness, id } = await start({ overrides: patchedServers });
+    link(harness, id, "srv-vps1-uuid", 7);
+    link(harness, id, "srv-edge-uuid", 8);
+    // vps1 was checked after Coolify's own check; edge before it.
+    ownCheck(harness, id, "srv-vps1-uuid", {
+      security: 5,
+      checkedAt: "2026-11-19T09:00:00Z",
+    });
+    ownCheck(harness, id, "srv-edge-uuid", {
+      security: 0,
+      checkedAt: "2026-11-17T09:00:00Z",
+    });
+    const exec = vi.spyOn(harness.mock.ctx.ssh, "exec");
+    const invoke = vi.spyOn(harness.mock.ctx.operations, "invoke");
+    const vps1 = await harness.mock.ctx.operations.run(
+      "coolify.signal-updates",
+      { hostId: 7 },
+    );
+    expect(vps1.data).toMatchObject({
+      value: 5,
+      status: "warn",
+      label: "5 security updates (checked over SSH)",
+    });
+    const edge = await harness.mock.ctx.operations.run(
+      "coolify.signal-updates",
+      { hostId: 8 },
+    );
+    expect(edge.data).toMatchObject({
+      value: 1,
+      status: "warn",
+      label: "1 security update (Coolify's check)",
+    });
+    expect(exec).not.toHaveBeenCalled();
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("deploy with wait emits deployment-finished or deployment-failed with hostId when linked", async () => {
+    // Server scope, on a resource whose server has a Linked host: hostId 7.
+    const finished = await start();
+    link(finished.harness, finished.id, "srv-vps1-uuid", 7);
+    await finished.harness.mock.ctx.operations.run("coolify.resource-deploy", {
+      input: {
+        connectionId: String(finished.id),
+        uuid: "app-web-uuid",
+        wait: true,
+      },
+    });
+    expect(finished.harness.mock.operationEvents).toEqual([
+      expect.objectContaining({
+        eventId: "coolify.deployment-finished",
+        hostId: 7,
+      }),
+    ]);
+    await finished.harness.close();
+
+    const failed = await start({
+      overrides: {
+        "GET /deployments/dep-uuid": {
+          json: { deployment_uuid: "dep-uuid", status: "failed" },
+        },
+      },
+    });
+    link(failed.harness, failed.id, "srv-vps1-uuid", 7);
+    await expect(
+      failed.harness.mock.ctx.operations.run("coolify.deploy", {
+        hostId: 7,
+        resourceKey: "app-web-uuid",
+        input: { wait: true },
+      }),
+    ).rejects.toMatchObject({ code: "deployment-failed" });
+    expect(failed.harness.mock.operationEvents).toEqual([
+      expect.objectContaining({
+        eventId: "coolify.deployment-failed",
+        hostId: 7,
+        payload: expect.objectContaining({
+          uuid: "app-web-uuid",
+          status: "failed",
+        }),
+      }),
+    ]);
+    await failed.harness.close();
+
+    // Without a Linked host the event carries no hostId.
+    const unlinked = await start();
+    await unlinked.harness.mock.ctx.operations.run("coolify.resource-deploy", {
+      input: {
+        connectionId: String(unlinked.id),
+        uuid: "app-web-uuid",
+        wait: true,
+      },
+    });
+    expect(unlinked.harness.mock.operationEvents).toEqual([
+      expect.objectContaining({ eventId: "coolify.deployment-finished" }),
+    ]);
+    expect(unlinked.harness.mock.operationEvents[0]?.hostId).toBeUndefined();
+  });
+
+  it("handlers honour the abort signal", async () => {
+    const { harness, fake, id } = await start();
+    link(harness, id, "srv-vps1-uuid", 7);
+    const exec = vi.spyOn(harness.mock.ctx.ssh, "exec");
+    const invoke = vi.spyOn(harness.mock.ctx.operations, "invoke");
+    const before = fake.calls.length;
+    const actions = manifest.contributes!.operations!.actions!;
+    expect(actions.length).toBeGreaterThan(0);
+    const input = {
+      connectionId: String(id),
+      uuid: "app-web-uuid",
+      serverUuid: "srv-vps1-uuid",
+    };
+    for (const declared of actions) {
+      const registered = handler(harness, declared.id);
+      const controller = new AbortController();
+      const reason = new Error(`cancelled ${declared.id}`);
+      controller.abort(reason);
+      const c = context({
+        hostId: 7,
+        resourceKey: "app-web-uuid",
+        signal: controller.signal,
+      });
+      await expect(
+        (async () => registered.run(input, c))(),
+        declared.id,
+      ).rejects.toBe(reason);
+      if (registered.describe) {
+        await expect(
+          (async () => registered.describe!(input, c))(),
+          `${declared.id} describe`,
+        ).rejects.toBe(reason);
+      }
+    }
+    expect(fake.calls.length).toBe(before);
+    expect(exec).not.toHaveBeenCalled();
+    expect(invoke).not.toHaveBeenCalled();
+    expect(harness.mock.operationEvents).toEqual([]);
+  });
+
+  it("validate passes with every action's permission declared", () => {
+    const declared = new Set(
+      (manifest.contributes?.permissions ?? []).map((p) => p.name),
+    );
+    const ops = manifest.contributes!.operations!;
+    for (const a of ops.actions!) {
+      const short = a.permission.replace(/^coolify\./, "");
+      expect(declared.has(short), `${a.id} needs ${a.permission}`).toBe(true);
+    }
+    expect(validateManifest(manifest)).toEqual([]);
+    const errors: string[] = [];
+    checkOperationReferences(
+      ops,
+      manifest.capabilities ?? [],
+      (name) => declared.has(name.replace(/^coolify\./, "")),
+      errors,
+    );
+    expect(errors).toEqual([]);
   });
 });

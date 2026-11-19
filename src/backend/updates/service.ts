@@ -597,6 +597,20 @@ export function createUpdates(
       };
     },
 
+    /**
+     * The plugin's own last check, from its cache: no Coolify call and never
+     * SSH, so the coolify.updates signal can read it for every host. Needs
+     * view access to the connection.
+     */
+    async lastCheck(
+      connectionId: number,
+      rawUuid: unknown,
+    ): Promise<{ fresh: PatchStatus | null; via: UpdatesVia | null }> {
+      const uuid = serverUuid(rawUuid);
+      await connectionAt(connectionId, "view");
+      return readFresh(connectionId, uuid);
+    },
+
     /** Re-reads pending updates and keeps the result. */
     async check(connectionId: number, rawUuid: unknown): Promise<CheckResult> {
       const { uuid, hostId } = await prepare(connectionId, rawUuid, {

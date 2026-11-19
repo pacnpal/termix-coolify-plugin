@@ -6,6 +6,7 @@ import type { Connections } from "../connections/service.js";
 import type { Tables } from "../db.js";
 import type { Resources } from "../resources/service.js";
 import type { Sync } from "../sync/service.js";
+import type { Updates, UpdatesVia } from "../updates/service.js";
 
 /** Server statuses are cached this long, per connection. */
 export const SERVERS_TTL_MS = 60_000;
@@ -18,6 +19,8 @@ interface ServerStatus {
   reachable: boolean;
   usable: boolean;
   security: number | null;
+  /** When Coolify's own patch check ran. */
+  securityCheckedAt: string | null;
 }
 
 function statusOf(s: ServerDto): ServerStatus {
@@ -27,6 +30,7 @@ function statusOf(s: ServerDto): ServerStatus {
     reachable: s.reachable,
     usable: s.usable,
     security: s.patch?.security ?? null,
+    securityCheckedAt: s.patch?.checkedAt ?? null,
   };
 }
 
@@ -36,6 +40,49 @@ const unknown = (label: string): SignalResult => ({
   label,
 });
 
+const NOT_LINKED = "Not linked to Coolify";
+
+/** Which check a security count came from, for the tile's label. */
+const SOURCE: Record<UpdatesVia | "coolify", string> = {
+  ssh: "checked over SSH",
+  "package-manager": "checked through Package Manager",
+  coolify: "Coolify's check",
+};
+
+interface SecurityCount {
+  security: number;
+  source: UpdatesVia | "coolify";
+}
+
+/**
+ * The newer of Coolify's patch check and the plugin's own last check that
+ * knows a security count. Neither is read over SSH here.
+ */
+export function newestSecurity(
+  coolify: { security: number | null; checkedAt: string | null } | null,
+  own: {
+    security: number | null;
+    checkedAt: string | null;
+    via: UpdatesVia | null;
+  } | null,
+): SecurityCount | null {
+  const time = (at: string | null) => (at ? Date.parse(at) || 0 : 0);
+  const fromCoolify =
+    coolify && coolify.security !== null
+      ? { security: coolify.security, at: time(coolify.checkedAt) }
+      : null;
+  const fromOwn =
+    own && own.security !== null && own.via
+      ? { security: own.security, at: time(own.checkedAt), via: own.via }
+      : null;
+  if (fromOwn && (!fromCoolify || fromOwn.at >= fromCoolify.at)) {
+    return { security: fromOwn.security, source: fromOwn.via };
+  }
+  return fromCoolify
+    ? { security: fromCoolify.security, source: "coolify" }
+    : null;
+}
+
 const signal = (result: SignalResult) => ({
   summary: result.label ?? String(result.value ?? result.status),
   data: result,
@@ -44,8 +91,10 @@ const signal = (result: SignalResult) => ({
 /**
  * The status-tile reads. Each is cheap: resource counts come from the
  * resources cache (20 seconds) and server statuses from a servers cache (a
- * minute), so many hosts on one connection cost one Coolify fetch. A host
- * that isn't linked, or whose connection the actor can't read, is unknown.
+ * minute), so many hosts on one connection cost one Coolify fetch. Security
+ * updates also read the updates service's own last check from its cache,
+ * never over SSH. A host that isn't linked, or whose connection the actor
+ * can't read, is unknown.
  */
 export function registerSignalOperations(
   ctx: PluginContext,
@@ -54,10 +103,11 @@ export function registerSignalOperations(
     connections: Connections;
     resources: Resources;
     sync: Sync;
+    updates: Pick<Updates, "lastCheck">;
     now?: () => number;
   },
 ): void {
-  const { connections, resources, sync } = deps;
+  const { connections, resources, sync, updates } = deps;
   const cache = createCache(ctx, deps.tables);
   const now = deps.now ?? Date.now;
   const inflight = new Map<number, Promise<ServerStatus[]>>();
@@ -87,22 +137,37 @@ export function registerSignalOperations(
     return started;
   }
 
-  async function serverOfHost(
-    hostId: number | undefined,
-  ): Promise<{ connectionId: number; server: ServerStatus | null } | null> {
+  async function serverOfHost(hostId: number | undefined): Promise<{
+    connectionId: number;
+    serverUuid: string;
+    server: ServerStatus | null;
+  } | null> {
     const link = hostId ? await sync.linkOfHost(hostId) : null;
     if (!link) return null;
     const list = await servers(link.connectionId);
     return {
       connectionId: link.connectionId,
+      serverUuid: link.serverUuid,
       server: list.find((s) => s.uuid === link.serverUuid) ?? null,
     };
+  }
+
+  /** The plugin's own last update check, or null when it can't be read. */
+  async function ownCheck(connectionId: number, serverUuid: string) {
+    try {
+      const { fresh, via } = await updates.lastCheck(connectionId, serverUuid);
+      return fresh
+        ? { security: fresh.security, checkedAt: fresh.checkedAt, via }
+        : null;
+    } catch {
+      return null;
+    }
   }
 
   ctx.operations.register("coolify.signal-degraded", {
     run: async (_input, { hostId }) => {
       const link = hostId ? await sync.linkOfHost(hostId) : null;
-      if (!link) return signal(unknown("Not linked to Coolify"));
+      if (!link) return signal(unknown(NOT_LINKED));
       try {
         const counts = await resources.counts(
           link.connectionId,
@@ -127,7 +192,7 @@ export function registerSignalOperations(
     run: async (_input, { hostId }) => {
       try {
         const found = await serverOfHost(hostId);
-        if (!found) return signal(unknown("Not linked to Coolify"));
+        if (!found) return signal(unknown(NOT_LINKED));
         const { server } = found;
         if (!server) {
           return signal({
@@ -161,14 +226,23 @@ export function registerSignalOperations(
     run: async (_input, { hostId }) => {
       try {
         const found = await serverOfHost(hostId);
-        const security = found?.server?.security ?? null;
-        if (security === null) {
+        if (!found) return signal(unknown(NOT_LINKED));
+        const coolify = found.server
+          ? {
+              security: found.server.security,
+              checkedAt: found.server.securityCheckedAt ?? null,
+            }
+          : null;
+        const own = await ownCheck(found.connectionId, found.serverUuid);
+        const newest = newestSecurity(coolify, own);
+        if (!newest) {
           return signal(unknown("No update check from Coolify yet"));
         }
+        const { security, source } = newest;
         return signal({
           value: security,
           status: security > 0 ? "warn" : "ok",
-          label: `${security} security update${security === 1 ? "" : "s"}`,
+          label: `${security} security update${security === 1 ? "" : "s"} (${SOURCE[source]})`,
         });
       } catch {
         return signal(unknown("Coolify could not be read"));
@@ -177,11 +251,12 @@ export function registerSignalOperations(
   });
 
   ctx.operations.register("coolify.signal-deploying", {
-    run: async () => {
+    run: async (_input, { signal: abort }) => {
       const list = await connections.list();
       let total = 0;
       let read = 0;
       for (const c of list) {
+        abort.throwIfAborted();
         try {
           total += (await resources.counts(c.id)).deploying;
           read += 1;
