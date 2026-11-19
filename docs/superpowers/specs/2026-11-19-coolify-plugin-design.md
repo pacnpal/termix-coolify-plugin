@@ -831,7 +831,8 @@ header. A `SideNav` holds these sections:
 
 **Overview**
 
-- Tiles: running, degraded, stopped, deploying, critical CVEs, failed backups (24 hours).
+- Tiles: running, degraded, stopped, deploying, critical CVEs, failed backups (24 hours). A resource
+  Coolify reports as exited counts as stopped, not degraded: that is how Coolify reports one you stopped.
 - An attention list, deployments in progress, and recent events.
 
 **Projects**

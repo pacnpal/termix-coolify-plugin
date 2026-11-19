@@ -31,6 +31,8 @@
   `curl` example
 - The Coolify tab's Overview, Resources and Connections sections. Overview counts running, degraded, stopped
   and deploying resources; a tile opens the Resources list filtered to it
+- A resource Coolify reports as exited counts as stopped, not degraded, since that is how Coolify reports
+  one you stopped yourself
 - The Resources list: every application, service and database of a connection, with each service's parts
   under it, its status, Coolify server, project and environment, domains and last deploy. Search and filter
   by type and status. A resource opens its Overview in place

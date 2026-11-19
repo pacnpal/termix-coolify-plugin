@@ -64,8 +64,9 @@ in the section's header.
 **Overview** counts the connection's resources by status:
 
 - **Running**: running, healthy or with no health check.
-- **Degraded**: exited, restarting, or unhealthy.
-- **Stopped**: stopped, paused or with no status.
+- **Degraded**: restarting, dead, or unhealthy.
+- **Stopped**: exited, stopped, paused or with no status. Coolify reports a resource you stopped
+  yourself as exited, so exited counts as stopped, not degraded.
 - **Deploying**: starting or building.
 
 Service parts aren't counted on their own; their service's status covers them. Choose a tile to open the

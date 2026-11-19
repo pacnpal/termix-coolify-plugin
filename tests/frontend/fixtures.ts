@@ -59,7 +59,7 @@ export const resourceRows = [
     uuid: "app-api-uuid",
     name: "api",
     kind: "application",
-    status: "exited:unhealthy",
+    status: "running:unhealthy",
     serverUuid: "srv-edge-uuid",
     serverName: "edge",
     environmentName: "staging",

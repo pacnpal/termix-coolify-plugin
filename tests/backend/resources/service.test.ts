@@ -137,9 +137,17 @@ describe("resource service", () => {
     expect(fake.calls.some((c) => c.path.startsWith("/resources"))).toBe(false);
   });
 
-  it("status degraded covers exited and unhealthy", async () => {
-    expect(resourceHealth("exited")).toBe("degraded");
-    expect(resourceHealth("exited:unhealthy")).toBe("degraded");
+  it("exited counts as stopped, not degraded", () => {
+    // Coolify reports a resource you stopped yourself as exited, so exited is
+    // Stopped, whatever its health suffix says.
+    expect(resourceHealth("exited")).toBe("stopped");
+    expect(resourceHealth("exited:unhealthy")).toBe("stopped");
+    expect(resourceHealth("exited:healthy")).toBe("stopped");
+    expect(resourceHealth("restarting")).toBe("degraded");
+    expect(resourceHealth("dead")).toBe("degraded");
+  });
+
+  it("status degraded covers unhealthy, restarting and degraded", async () => {
     expect(resourceHealth("running:unhealthy")).toBe("degraded");
     expect(resourceHealth("degraded:unhealthy")).toBe("degraded");
     expect(resourceHealth("running:healthy")).toBe("running");
@@ -150,14 +158,14 @@ describe("resource service", () => {
     // Service Parts are counted through their service, not twice.
     expect(await resources.counts(connectionId)).toEqual({
       running: 3,
-      degraded: 3,
-      stopped: 1,
+      degraded: 2,
+      stopped: 2,
       deploying: 1,
     });
     expect(await resources.counts(connectionId, "srv-vps1-uuid")).toEqual({
       running: 3,
-      degraded: 2,
-      stopped: 1,
+      degraded: 1,
+      stopped: 2,
       deploying: 1,
     });
   });

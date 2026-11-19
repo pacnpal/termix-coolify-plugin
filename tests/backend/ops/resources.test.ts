@@ -72,8 +72,8 @@ describe("resource operations", () => {
     expect(data.rows.filter((r) => r.parentUuid)).toHaveLength(5);
     expect(data.counts).toEqual({
       running: 3,
-      degraded: 3,
-      stopped: 1,
+      degraded: 2,
+      stopped: 2,
       deploying: 1,
     });
     expect(outcome.summary).toContain("8 resources");
