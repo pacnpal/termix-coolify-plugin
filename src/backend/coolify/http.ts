@@ -106,12 +106,35 @@ function apiBase(baseUrl: string): string {
   return `${baseUrl.trim().replace(/\/+$/, "")}/api/v1`;
 }
 
+/**
+ * The request URL. Refuses a path that URL parsing would change (".", "..",
+ * their percent-encoded forms, backslashes, a query or fragment in the path):
+ * fetch would send it to a different endpoint than the one the caller's
+ * access was checked for. Nothing is sent then.
+ */
 function buildUrl(
   baseUrl: string,
   path: string,
   query?: Record<string, QueryValue>,
 ): string {
-  const url = `${apiBase(baseUrl)}${path.startsWith("/") ? path : `/${path}`}`;
+  const rest = path.startsWith("/") ? path : `/${path}`;
+  const base = apiBase(baseUrl);
+  const url = `${base}${rest}`;
+  let sent: string | null = null;
+  let expected: string | null = null;
+  try {
+    sent = new URL(url).pathname;
+    expected = `${new URL(base).pathname}${rest}`;
+  } catch {
+    // Not a URL at all: refused below.
+  }
+  if (sent === null || sent !== expected) {
+    throw new CoolifyError(
+      "validation",
+      0,
+      "The request path is not a plain Coolify API path",
+    );
+  }
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value !== undefined) params.append(key, String(value));

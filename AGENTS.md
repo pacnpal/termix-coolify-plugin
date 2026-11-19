@@ -75,6 +75,9 @@ aren't obvious from the code, and anything that has bitten you before.
   `CoolifyCause`). `toRouteError` sends fixed messages only, never what Coolify sent back, because Coolify can
   echo a token. `/version` and `/health` answer `text/html`, so they use `{ text: true }`; any other HTML
   body is `not-coolify`. `dto.ts` picks fields by name (no spreads), `api.ts` calls paths from `OPERATIONS`.
+  Path parameters go through `fillPath` in `coolify/path.ts` (one segment: no dot-only values, slashes,
+  backslashes or `%`; spec enums and integers enforced), and `buildUrl` refuses any path that URL parsing
+  would change. fetch resolves `..`, so without both a checked operation could reach another endpoint.
 - Connections: `src/backend/connections/` (service, probe, routes) and `src/backend/ops/connections.ts`.
   Tokens are sealed with `ctx.secrets.seal`. The `abilities` column holds the probe summary
   (`{ abilities, scoped, teamId, steps }`), since there is no column for scope or the checklist.

@@ -18,6 +18,7 @@ import {
   type OperationSchema,
 } from "../coolify/generated/schemas.js";
 import { CoolifyError } from "../coolify/http.js";
+import { fillPath, pathRules } from "../coolify/path.js";
 import { meetsMinVersion } from "../coolify/version.js";
 import { redact } from "../redact.js";
 import { connectionIdInput } from "./connections.js";
@@ -295,13 +296,9 @@ function buildRequest(
       throw invalid(`${key} is not a parameter of ${op.id}`);
     }
   }
-  const path = op.path.replace(/\{(\w+)\}/g, (_, name: string) => {
-    const value = params[name];
-    if (value === undefined || value === null || value === "") {
-      throw invalid(`${name} is required`);
-    }
-    return encodeURIComponent(String(scalar(value, name)));
-  });
+  // Each value must stay one segment, or the request would reach another
+  // operation than the one whose access was checked.
+  const path = fillPath(op.path, params, pathRules(op.id), invalid);
   const query: Record<string, Scalar> = {};
   for (const name of queryNames) {
     const value = params[name];

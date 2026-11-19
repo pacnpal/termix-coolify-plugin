@@ -6,6 +6,7 @@ import {
   toRouteError,
   type CoolifyTarget,
 } from "../../../src/backend/coolify/http.js";
+import { createCoolifyApi } from "../../../src/backend/coolify/api.js";
 
 const TOKEN = "fake-token-for-tests-only";
 
@@ -404,5 +405,46 @@ describe("Coolify HTTP layer", () => {
     }
     const thrown = toRouteError(new Error(`failed with ${TOKEN}`));
     expect(JSON.stringify(thrown)).not.toContain(TOKEN);
+  });
+});
+
+describe("path normalisation guard", () => {
+  it("http layer refuses a URL whose normalised path differs", async () => {
+    for (const path of [
+      "/projects/../deployments",
+      "/projects/x/..",
+      "/applications/%2e%2e/logs",
+      "/applications/./envs",
+      "/servers/a\\..\\settings",
+    ]) {
+      const fake = scripted(() => json(200, []));
+      const http = createCoolifyHttp(fake.fetch, target, noSleep);
+      const err = await caught(http.request("GET", path));
+      expect(err.cause, path).toBe("validation");
+      expect(fake.calls, path).toEqual([]);
+    }
+  });
+
+  it("a typed api.ts call with a dot-segment uuid is refused before any request", async () => {
+    for (const uuid of ["..", ".", "a/b", "%2e%2e", "...", "a\\b"]) {
+      const fake = scripted(() => json(200, {}));
+      const api = createCoolifyApi(
+        createCoolifyHttp(fake.fetch, target, noSleep),
+      );
+      const err = await caught(api.server(uuid));
+      expect(err.cause, uuid).toBe("validation");
+      expect(fake.calls, uuid).toEqual([]);
+    }
+  });
+
+  it("a plain path still goes through", async () => {
+    const fake = scripted(() => json(200, { uuid: "abc123" }));
+    const api = createCoolifyApi(
+      createCoolifyHttp(fake.fetch, target, noSleep),
+    );
+    await api.server("abc123");
+    expect(fake.calls[0].url).toBe(
+      "https://coolify.example.test/api/v1/servers/abc123",
+    );
   });
 });

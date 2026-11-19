@@ -193,6 +193,7 @@ function schemaOf({ spec, operation }) {
   for (const raw of operation.parameters ?? []) {
     const param = resolve(spec, raw);
     if (param.in !== "path" && param.in !== "query") continue;
+    const values = resolve(spec, param.schema ?? {}).enum;
     params.push(
       withDescription(
         {
@@ -200,6 +201,9 @@ function schemaOf({ spec, operation }) {
           in: param.in,
           required: param.in === "path" || param.required === true,
           type: typeOf(spec, param.schema ?? {}),
+          ...(Array.isArray(values) && values.length
+            ? { enum: values.map(String) }
+            : {}),
         },
         param.description,
       ),
@@ -231,6 +235,8 @@ export interface OperationParam {
   required: boolean;
   /** The JSON type, like "string" or "integer"; "a|b" when it can be either. */
   type: string;
+  /** The only values the spec allows, when it lists them. */
+  enum?: string[];
   description?: string;
 }
 

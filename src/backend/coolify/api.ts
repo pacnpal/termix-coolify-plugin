@@ -1,5 +1,6 @@
 import { OPERATIONS } from "./generated/operations.js";
 import { CoolifyError, type CoolifyHttp } from "./http.js";
+import { fillPath, pathRules } from "./path.js";
 import {
   toApplication,
   toDatabase,
@@ -30,13 +31,12 @@ function op(
 ): { method: string; path: string } {
   const found = BY_ID.get(id);
   if (!found) throw new Error(`Unknown Coolify operation ${id}`);
-  const path = found.path.replace(/\{(\w+)\}/g, (_, key: string) => {
-    const value = params[key];
-    if (value === undefined || value === "") {
-      throw new CoolifyError("validation", 0, `Missing ${key}`);
-    }
-    return encodeURIComponent(value);
-  });
+  const path = fillPath(
+    found.path,
+    params,
+    pathRules(id),
+    (message) => new CoolifyError("validation", 0, message),
+  );
   return { method: found.method, path };
 }
 

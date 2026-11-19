@@ -44,6 +44,9 @@ const ROUTES: Record<string, FakeAnswer> = {
     json: { uuid: "env-1", key: "API_SECRET", value: ENV_VALUE },
   },
   "GET /servers": { json: [{ uuid: "srv-1", name: "one" }] },
+  "GET /projects/proj-uuid/production": { json: { name: "production" } },
+  "GET /applications/app-web-uuid/secret-manager": { json: {} },
+  "GET /applications/app-web-uuid/previews/42": { json: { id: 42 } },
 };
 
 let harness: PluginHarness | null = null;
@@ -672,6 +675,100 @@ describe("generic Coolify API operations", () => {
       path: "/servers",
       data: [{ uuid: "srv-1" }],
     });
+  });
+
+  it("dot-segment path params are refused before any request", async () => {
+    const { runs, fake, connectionId } = await start();
+    const bad = [
+      "..",
+      ".",
+      "...",
+      "a/b",
+      "a\\b",
+      "%2e%2e",
+      "%2F",
+      "a\nb",
+      "a b",
+      "",
+    ];
+    for (const value of bad) {
+      for (const params of [
+        { uuid: value, environment_name_or_uuid: "deployments" },
+        { uuid: "proj-uuid", environment_name_or_uuid: value },
+      ]) {
+        await expect(
+          runs.run("coolify.api-read", {
+            connectionId,
+            operationId: "get-environment-by-name-or-uuid",
+            params: JSON.stringify(params),
+          }),
+          JSON.stringify(params),
+        ).rejects.toMatchObject({ code: "invalid-input" });
+      }
+    }
+    expect(fake.calls).toEqual([]);
+    // Real Coolify shapes still pass.
+    await runs.run("coolify.api-read", {
+      connectionId,
+      operationId: "get-environment-by-name-or-uuid",
+      params: JSON.stringify({
+        uuid: "proj-uuid",
+        environment_name_or_uuid: "production",
+      }),
+    });
+    await runs.run("coolify.api-read", {
+      connectionId,
+      operationId: "get-preview-deployment-by-pull-request-id",
+      params: JSON.stringify({ uuid: "app-web-uuid", pull_request_id: 42 }),
+    });
+    expect(fake.calls).toHaveLength(2);
+  });
+
+  it("integer path params take digits only", async () => {
+    const { runs, fake, connectionId } = await start();
+    for (const value of ["4x", "-1", "1.5", "..", 1.5]) {
+      await expect(
+        runs.run("coolify.api-read", {
+          connectionId,
+          operationId: "get-preview-deployment-by-pull-request-id",
+          params: JSON.stringify({
+            uuid: "app-web-uuid",
+            pull_request_id: value,
+          }),
+        }),
+        String(value),
+      ).rejects.toMatchObject({ code: "invalid-input" });
+    }
+    expect(fake.calls).toEqual([]);
+  });
+
+  it("enum path param outside its enum is refused", async () => {
+    expect(
+      OPERATION_SCHEMAS["get-secret-manager-source"].params.find(
+        (p) => p.name === "resource_type",
+      )?.enum,
+    ).toEqual(["applications", "services", "databases"]);
+    const { runs, fake, connectionId } = await start();
+    for (const resource_type of ["servers", "settings", "deployments", ".."]) {
+      await expect(
+        runs.run("coolify.api-read", {
+          connectionId,
+          operationId: "get-secret-manager-source",
+          params: JSON.stringify({ resource_type, uuid: "app-web-uuid" }),
+        }),
+        resource_type,
+      ).rejects.toMatchObject({ code: "invalid-input" });
+    }
+    expect(fake.calls).toEqual([]);
+    await runs.run("coolify.api-read", {
+      connectionId,
+      operationId: "get-secret-manager-source",
+      params: JSON.stringify({
+        resource_type: "applications",
+        uuid: "app-web-uuid",
+      }),
+    });
+    expect(fake.calls).toHaveLength(1);
   });
 
   it("refuses unknown parameters and missing path parameters before calling Coolify", async () => {

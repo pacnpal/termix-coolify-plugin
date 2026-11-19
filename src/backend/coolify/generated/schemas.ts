@@ -7,6 +7,8 @@ export interface OperationParam {
   required: boolean;
   /** The JSON type, like "string" or "integer"; "a|b" when it can be either. */
   type: string;
+  /** The only values the spec allows, when it lists them. */
+  enum?: string[];
   description?: string;
 }
 
@@ -47,6 +49,7 @@ export const OPERATION_SCHEMAS: Readonly<Record<string, OperationSchema>> = {
         in: "path",
         required: true,
         type: "string",
+        enum: ["applications", "services", "databases"],
         description: "Resource type.",
       },
       {
@@ -8247,6 +8250,7 @@ export const OPERATION_SCHEMAS: Readonly<Record<string, OperationSchema>> = {
         in: "query",
         required: false,
         type: "string",
+        enum: ["none", "queued", "building"],
         description:
           "Cancel the older webhook, API, and MCP deployments of the same application, pull request, and server. `queued` cancels the ones that wait in the queue. `building` also stops the ones that are still b…",
       },
@@ -9061,6 +9065,7 @@ export const OPERATION_SCHEMAS: Readonly<Record<string, OperationSchema>> = {
         in: "path",
         required: true,
         type: "string",
+        enum: ["applications", "services", "databases"],
         description: "Resource type.",
       },
       {
@@ -9428,6 +9433,7 @@ export const OPERATION_SCHEMAS: Readonly<Record<string, OperationSchema>> = {
         in: "path",
         required: true,
         type: "string",
+        enum: ["applications", "services", "databases"],
         description: "Resource type.",
       },
       {
@@ -9536,6 +9542,7 @@ export const OPERATION_SCHEMAS: Readonly<Record<string, OperationSchema>> = {
         in: "query",
         required: false,
         type: "string",
+        enum: ["all", "ui", "api", "mcp", "webhook", "system", "scheduler"],
         description: "Filter by source.",
       },
     ],
@@ -9773,6 +9780,7 @@ export const OPERATION_SCHEMAS: Readonly<Record<string, OperationSchema>> = {
         in: "path",
         required: true,
         type: "string",
+        enum: ["applications", "services", "databases"],
         description: "Resource type.",
       },
       {
@@ -10444,6 +10452,7 @@ export const OPERATION_SCHEMAS: Readonly<Record<string, OperationSchema>> = {
         in: "path",
         required: true,
         type: "string",
+        enum: ["applications", "services", "databases"],
         description: "Resource type.",
       },
       {
@@ -10858,6 +10867,7 @@ export const OPERATION_SCHEMAS: Readonly<Record<string, OperationSchema>> = {
         in: "path",
         required: true,
         type: "string",
+        enum: ["applications", "services", "databases"],
         description: "Resource type.",
       },
       {
