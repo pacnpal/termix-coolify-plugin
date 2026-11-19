@@ -13,7 +13,8 @@
     "sign": "termix-plugin sign",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "husky || true"
+    "prepare": "husky || true",
+    "gen:coolify": "node scripts/gen-coolify-client.mjs"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.4",
@@ -32,10 +33,12 @@
     "jsdom": "^31.0.0",
     "lint-staged": "^17.2.0",
     "lucide-react": "^1.72.0",
+    "openapi-typescript": "7.13.0",
     "prettier": "3.10.1",
     "react-i18next": "^17.1.13",
     "sonner": "^2.0.8",
     "typescript": "~7.0.2",
+    "typescript-5": "npm:typescript@5.9.3",
     "vitest": "^5.1.0"
   },
   "peerDependencies": {
@@ -54,6 +57,9 @@
   },
   "overrides": {
     "glob@12": "^14.0.4",
-    "minimatch@10": "^11.0.5"
+    "minimatch@10": "^11.0.5",
+    "openapi-typescript": {
+      "typescript": "$typescript"
+    }
   }
 }

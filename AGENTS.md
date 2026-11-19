@@ -66,7 +66,12 @@ Keep this section current when the plugin changes: what it does, how it is put t
 aren't obvious from the code, and anything that has bitten you before.
 
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
-  Where things stand: the identity, permissions and admin settings are declared and the Coolify tab shows
-  an empty state; no routes or features yet. The design is in
+  Where things stand: the identity, permissions and admin settings are declared, the Coolify tab shows an
+  empty state, and the Coolify API is vendored and generated; no routes or features yet. The design is in
   `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
+- Coolify API: `vendor/coolify/` holds the v4.7.5, `main` and `next` specs as fetched (see its README).
+  `npm run gen:coolify` writes `src/backend/coolify/generated/` (`OPERATIONS`, `EXCLUDED_OPERATIONS`, the
+  `paths` types). `docs/coverage.md` must list every operation; `tests/backend/coverage.test.ts` enforces it.
+  The generator runs openapi-typescript against the `typescript-5` alias, because TypeScript 7 has no
+  compiler API; the `overrides` entry in `package.json` lets that install next to TypeScript 7.

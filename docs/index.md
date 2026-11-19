@@ -19,3 +19,8 @@ Admins and users get all five by default. Admins can take any of them away per r
 - **Administer Coolify**: deletes, server create, delete and transfer, cloud provisioning, instance settings
   and connection sharing.
 - **Use the Coolify MCP endpoint**: each call still needs the permission of the action it runs.
+
+## Coolify versions
+
+The plugin is built against Coolify v4.7.5 and the `main` and `next` branches, and supports Coolify 4.4.0
+and newer. [Coolify API coverage](coverage.md) lists every Coolify API operation and how the plugin uses it.
