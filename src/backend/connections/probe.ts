@@ -5,6 +5,7 @@ import {
   type CoolifyCause,
   type CoolifyHttp,
 } from "../coolify/http.js";
+import type { CoolifyMcp } from "../coolify/mcp.js";
 import { meetsMinVersion } from "../coolify/version.js";
 
 /** The oldest Coolify the plugin supports. */
@@ -18,7 +19,7 @@ export interface Abilities {
   /** Private keys are readable (needs an unscoped token with read:sensitive). */
   keys: boolean;
   root: boolean;
-  /** Coolify's own MCP endpoint answers (set by the MCP client, later). */
+  /** Coolify's own MCP endpoint answers this token (it's off by default). */
   mcp: boolean;
 }
 
@@ -59,6 +60,7 @@ const FATAL: ReadonlySet<CoolifyCause> = new Set([
 export async function runProbe(
   api: CoolifyApi,
   http: CoolifyHttp,
+  mcp?: Pick<CoolifyMcp, "available">,
 ): Promise<ProbeResult> {
   const steps: ProbeStep[] = [];
   const result: ProbeResult = {
@@ -165,6 +167,15 @@ export async function runProbe(
     }
   }
   if (result.abilities.root) result.abilities.sensitive = true;
+
+  // 5. Coolify's MCP endpoint. Off is normal, so it adds no failed step.
+  if (mcp) {
+    try {
+      result.abilities.mcp = await mcp.available();
+    } catch {
+      result.abilities.mcp = false;
+    }
+  }
   return result;
 }
 

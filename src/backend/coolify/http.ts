@@ -176,6 +176,79 @@ function retryAfterMs(response: Response): number | null {
 }
 
 /**
+ * The fetch options every call to a Coolify instance uses: the Bearer token
+ * and Cloudflare Access headers, no redirects, the timeout, and the private
+ * address and CA settings. The MCP client sends its calls with these too.
+ */
+export function coolifyInit(
+  target: CoolifyTarget,
+  method: string,
+  body: unknown,
+): PluginFetchInit {
+  const headers: Record<string, string> = {
+    accept: "application/json",
+    authorization: `Bearer ${target.token}`,
+  };
+  if (target.cfAccess) {
+    headers["cf-access-client-id"] = target.cfAccess.id;
+    headers["cf-access-client-secret"] = target.cfAccess.secret;
+  }
+  const result: PluginFetchInit = {
+    method,
+    headers,
+    redirect: "manual",
+    timeoutMs: TIMEOUT_MS,
+  };
+  if (body !== undefined) {
+    headers["content-type"] = "application/json";
+    result.body = JSON.stringify(body);
+  }
+  const baseHost = hostOf(target.baseUrl);
+  if (target.allowPrivate && baseHost) {
+    result.allowPrivateHosts = [baseHost];
+  }
+  if (target.caCert) result.tls = { ca: target.caCert };
+  return result;
+}
+
+/** The CoolifyError for a non-2xx answer. Reads only fixed fields of the body. */
+export async function failureOf(response: Response): Promise<CoolifyError> {
+  const status = response.status;
+  if (status >= 300 && status < 400) {
+    return new CoolifyError(
+      isAccessRedirect(response.headers.get("location"))
+        ? "access-redirect"
+        : "not-coolify",
+      status,
+    );
+  }
+  if (status === 401) return new CoolifyError("unauthorized", status);
+  if (status === 403) {
+    const body = (await readJson(response)) as { message?: unknown } | null;
+    const message = typeof body?.message === "string" ? body.message : "";
+    return new CoolifyError(
+      /api is disabled/i.test(message) ? "api-disabled" : "forbidden-ability",
+      status,
+    );
+  }
+  if (status === 404) return new CoolifyError("not-found", status);
+  if (status === 405) {
+    return new CoolifyError("unsupported-by-instance", status);
+  }
+  if (status === 422) {
+    const body = (await readJson(response)) as { errors?: unknown } | null;
+    return new CoolifyError(
+      "validation",
+      status,
+      undefined,
+      toFieldMap(body?.errors) ?? {},
+    );
+  }
+  if (status === 429) return new CoolifyError("rate-limited", status);
+  return new CoolifyError("upstream", status);
+}
+
+/**
  * The request layer every Coolify call goes through: ctx.fetch, the Bearer
  * token and Cloudflare Access headers, no redirects, a budget under Coolify's
  * rate limit, GET retries, and error mapping to a CoolifyCause.
@@ -202,70 +275,6 @@ export function createCoolifyHttp(
       }
       await sleep(sent[0] + WINDOW_MS - t);
     }
-  }
-
-  const baseHost = hostOf(target.baseUrl);
-
-  function init(method: string, body: unknown): PluginFetchInit {
-    const headers: Record<string, string> = {
-      accept: "application/json",
-      authorization: `Bearer ${target.token}`,
-    };
-    if (target.cfAccess) {
-      headers["cf-access-client-id"] = target.cfAccess.id;
-      headers["cf-access-client-secret"] = target.cfAccess.secret;
-    }
-    const result: PluginFetchInit = {
-      method,
-      headers,
-      redirect: "manual",
-      timeoutMs: TIMEOUT_MS,
-    };
-    if (body !== undefined) {
-      headers["content-type"] = "application/json";
-      result.body = JSON.stringify(body);
-    }
-    if (target.allowPrivate && baseHost) {
-      result.allowPrivateHosts = [baseHost];
-    }
-    if (target.caCert) result.tls = { ca: target.caCert };
-    return result;
-  }
-
-  async function failure(response: Response): Promise<CoolifyError> {
-    const status = response.status;
-    if (status >= 300 && status < 400) {
-      return new CoolifyError(
-        isAccessRedirect(response.headers.get("location"))
-          ? "access-redirect"
-          : "not-coolify",
-        status,
-      );
-    }
-    if (status === 401) return new CoolifyError("unauthorized", status);
-    if (status === 403) {
-      const body = (await readJson(response)) as { message?: unknown } | null;
-      const message = typeof body?.message === "string" ? body.message : "";
-      return new CoolifyError(
-        /api is disabled/i.test(message) ? "api-disabled" : "forbidden-ability",
-        status,
-      );
-    }
-    if (status === 404) return new CoolifyError("not-found", status);
-    if (status === 405) {
-      return new CoolifyError("unsupported-by-instance", status);
-    }
-    if (status === 422) {
-      const body = (await readJson(response)) as { errors?: unknown } | null;
-      return new CoolifyError(
-        "validation",
-        status,
-        undefined,
-        toFieldMap(body?.errors) ?? {},
-      );
-    }
-    if (status === 429) return new CoolifyError("rate-limited", status);
-    return new CoolifyError("upstream", status);
   }
 
   async function success(
@@ -304,7 +313,7 @@ export function createCoolifyHttp(
         await takeSlot();
         let response: Response;
         try {
-          response = await fetch(url, init(verb, options.body));
+          response = await fetch(url, coolifyInit(target, verb, options.body));
         } catch {
           throw new CoolifyError("unreachable", 0);
         }
@@ -315,7 +324,7 @@ export function createCoolifyHttp(
           await sleep(retryAfterMs(response) ?? BACKOFF_MS[attempt]);
           continue;
         }
-        throw await failure(response);
+        throw await failureOf(response);
       }
     },
   };

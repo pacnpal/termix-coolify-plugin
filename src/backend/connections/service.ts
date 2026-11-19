@@ -8,6 +8,7 @@ import {
   type CoolifyHttp,
   type CoolifyTarget,
 } from "../coolify/http.js";
+import { createCoolifyMcp, type CoolifyMcp } from "../coolify/mcp.js";
 import { dbClient, type Tables } from "../db.js";
 import {
   runProbe,
@@ -303,7 +304,7 @@ export function createConnections(
     options.releaseLinkedHosts ?? (async () => {});
   const clients = new Map<
     number,
-    { key: string; http: CoolifyHttp; api: CoolifyApi }
+    { key: string; http: CoolifyHttp; api: CoolifyApi; mcp: CoolifyMcp }
   >();
 
   function actor(): string | null {
@@ -386,7 +387,11 @@ export function createConnections(
 
   function clientFor(target: CoolifyTarget) {
     const http = createCoolifyHttp(ctx.fetch, target);
-    return { http, api: createCoolifyApi(http) };
+    return {
+      http,
+      api: createCoolifyApi(http),
+      mcp: createCoolifyMcp(ctx.fetch, target),
+    };
   }
 
   /** One client per connection, so the request budget is shared. */
@@ -407,8 +412,8 @@ export function createConnections(
   }
 
   async function probeTarget(target: CoolifyTarget): Promise<ProbeResult> {
-    const { http, api } = clientFor(target);
-    return runProbe(api, http);
+    const { http, api, mcp } = clientFor(target);
+    return runProbe(api, http, mcp);
   }
 
   async function view(id: number): Promise<ConnectionView> {
@@ -648,13 +653,18 @@ export function createConnections(
       return (await cachedClient((await reach(id)).row)).api;
     },
 
+    /** Coolify's own MCP endpoint, for a connection the actor can reach. */
+    async mcp(id: number): Promise<CoolifyMcp> {
+      return (await cachedClient((await reach(id)).row)).mcp;
+    },
+
     /** Runs the probe again and stores what it found. Any access level may. */
     async probe(
       id: number,
     ): Promise<{ connection: ConnectionView; probe: ProbeResult }> {
       const { row: found } = await reach(id);
-      const { http, api } = await cachedClient(found);
-      const probe = await runProbe(api, http);
+      const { http, api, mcp } = await cachedClient(found);
+      const probe = await runProbe(api, http, mcp);
       const db = await dbClient(ctx);
       await db
         .update(t.connections)

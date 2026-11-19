@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createCoolifyApi } from "../../../src/backend/coolify/api.js";
 import { createCoolifyHttp } from "../../../src/backend/coolify/http.js";
 import { runProbe } from "../../../src/backend/connections/probe.js";
+import { createCoolifyMcp } from "../../../src/backend/coolify/mcp.js";
 import {
   fakeCoolify,
   healthyCoolify,
@@ -10,19 +11,21 @@ import {
 
 const TOKEN = "fake-token-probe";
 
-function probeWith(fake: ReturnType<typeof fakeCoolify>) {
-  const http = createCoolifyHttp(
-    fake.fetch,
-    {
-      baseUrl: "https://coolify.example.test",
-      token: TOKEN,
-      cfAccess: null,
-      allowPrivate: false,
-      caCert: null,
-    },
-    { sleep: async () => {} },
-  );
-  return runProbe(createCoolifyApi(http), http);
+const TARGET = {
+  baseUrl: "https://coolify.example.test",
+  token: TOKEN,
+  cfAccess: null,
+  allowPrivate: false,
+  caCert: null,
+};
+
+function probeWith(
+  fake: ReturnType<typeof fakeCoolify>,
+  opts: { mcp?: boolean } = {},
+) {
+  const http = createCoolifyHttp(fake.fetch, TARGET, { sleep: async () => {} });
+  const mcp = opts.mcp ? createCoolifyMcp(fake.fetch, TARGET) : undefined;
+  return runProbe(createCoolifyApi(http), http, mcp);
 }
 
 const forbidden: FakeAnswer = { status: 403, json: { message: "Forbidden." } };
@@ -200,5 +203,20 @@ describe("ability probe", () => {
       }),
     );
     expect(step(result, "version")?.cause).toBe("not-coolify");
+  });
+
+  it("sets abilities.mcp from Coolify's MCP endpoint, without a step", async () => {
+    const on = healthyCoolify({
+      "POST https://coolify.example.test/mcp": {
+        json: { jsonrpc: "2.0", id: 1, result: { tools: [] } },
+      },
+    });
+    const enabled = await probeWith(on, { mcp: true });
+    expect(enabled.abilities.mcp).toBe(true);
+    expect(enabled.steps.map((s) => s.id)).not.toContain("mcp");
+    // Unrouted, so the fake answers 404: MCP is off on that instance.
+    const off = await probeWith(healthyCoolify(), { mcp: true });
+    expect(off.abilities.mcp).toBe(false);
+    expect(off.ok).toBe(true);
   });
 });
