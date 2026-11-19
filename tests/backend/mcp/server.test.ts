@@ -418,17 +418,61 @@ describe("the MCP endpoint", () => {
     expect(JSON.stringify(answer)).not.toContain(TOKEN);
   });
 
-  it("list_hosts and list_resources answer empty lists without calling Coolify or hosts", async () => {
+  it("list_hosts answers an empty list without calling Coolify or hosts", async () => {
     const { ctx, fake } = await start();
     const run = vi.fn<Run>();
     const before = fake.calls.length;
-    for (const name of ["list_hosts", "list_resources"]) {
-      const answer = await handleMcp(withRun(ctx, run), call(19, name));
-      expect(isError(answer), name).toBe(false);
-      expect(parsed(answer).data.rows, name).toEqual([]);
-    }
+    const answer = await handleMcp(withRun(ctx, run), call(19, "list_hosts"));
+    expect(isError(answer)).toBe(false);
+    expect(parsed(answer).data.rows).toEqual([]);
     expect(run).not.toHaveBeenCalled();
     expect(fake.calls.length).toBe(before);
+  });
+
+  it("list_resources runs the list-resources action over mcp for the connection asked", async () => {
+    const { ctx } = await start();
+    const run = vi.fn<Run>(async () => ({
+      runId: "run-1",
+      status: "success",
+      summary: "1 resource",
+      data: { rows: [{ uuid: "app-web-uuid", name: "web" }] },
+    }));
+    const answer = await handleMcp(
+      withRun(ctx, run),
+      call(19, "list_resources", { connectionId: "1" }),
+    );
+    expect(run).toHaveBeenCalledWith("coolify.list-resources-all", {
+      input: { connectionId: "1" },
+      dryRun: false,
+      via: "mcp",
+    });
+    expect(isError(answer)).toBe(false);
+    expect(parsed(answer).data.rows).toEqual([
+      { uuid: "app-web-uuid", name: "web" },
+    ]);
+  });
+
+  it("list_resources returns a connection's resources without secrets", async () => {
+    const { ctx } = await start({ allowMcpChanges: true });
+    const created = parsed(
+      await handleMcp(
+        ctx,
+        call(20, "coolify__connection_create", {
+          name: "Prod",
+          baseUrl: "https://coolify.example.test",
+          token: TOKEN,
+        }),
+      ),
+    );
+    const answer = await handleMcp(
+      ctx,
+      call(21, "list_resources", { connectionId: String(created.data.id) }),
+    );
+    expect(isError(answer)).toBe(false);
+    expect(parsed(answer).data.rows).toMatchObject([
+      { uuid: "app-web-uuid", kind: "application" },
+    ]);
+    expect(JSON.stringify(answer)).not.toContain(TOKEN);
   });
 
   it("refuses a message that is not JSON-RPC 2.0 with -32600", async () => {

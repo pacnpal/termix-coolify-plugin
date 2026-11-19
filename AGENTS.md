@@ -120,6 +120,7 @@ aren't obvious from the code, and anything that has bitten you before.
   `src/backend/cache.ts`. It checks `connections.access()` before reading the cache, so another user never
   gets a cached row. Concurrent misses share one fetch. `invalidate(connectionId)` is the hook for lifecycle
   actions. `ResourceDto.serverName` comes from `server.name` or `destination.server.name` in the payload.
+  The MCP tool `list_resources` (`src/backend/mcp/server.ts`) runs `coolify.list-resources-all`.
 - Status words: `src/shared/resource-health.ts` (`resourceHealth`, `countResources`) is the one reading of a
   Coolify status, imported by both the backend and the frontend. Exited and unhealthy are degraded; Parts
   aren't counted (their service's status covers them).

@@ -37,5 +37,5 @@
 - Resources come from Coolify's per-type lists without environment values, keys, tokens or compose files,
   and statuses are cached for 20 seconds; Refresh fetches them again
 - Actions to list a connection's resources and read one (`coolify.list-resources-all`,
-  `coolify.resource-get`), offered to the assistant and MCP
+  `coolify.resource-get`), offered to the assistant and MCP; the MCP tool `list_resources` runs the first
 - The Coolify tab in the Termix phone app, with a phone layout for the Resources list
