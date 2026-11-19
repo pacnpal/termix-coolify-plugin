@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pencil, Rocket, Stethoscope, Trash2 } from "lucide-react";
+import { Pencil, RefreshCw, Rocket, Stethoscope, Trash2 } from "lucide-react";
 import {
   usePermission,
   usePluginApi,
@@ -7,6 +7,7 @@ import {
 } from "@termix-ssh/plugin-sdk/frontend";
 import {
   AddButton,
+  BackButton,
   EmptyState,
   FormFooter,
   InlineView,
@@ -29,6 +30,7 @@ import {
   describeFailure,
   useConnectionForm,
 } from "./ConnectionForm";
+import { SyncView } from "./SyncView";
 
 function ConnectionEditor({
   api,
@@ -90,8 +92,26 @@ function metaLine(
   return parts.join(" · ");
 }
 
-/** The Connections section: the list, add, edit, check again and remove. */
-export function ConnectionsView() {
+/**
+ * A connection whose sync preview to open once the list has loaded: its id,
+ * "any" for the only one the user can sync, or null for none.
+ */
+export type SyncTarget = number | "any" | null;
+
+/** Whether the actor can sync this connection's servers into hosts. */
+function syncable(c: Connection): boolean {
+  return c.access === "owner" && !c.scoped;
+}
+
+/**
+ * The Connections section: the list, add, edit, check again, remove, and
+ * Sync servers, which opens the host sync preview for one connection.
+ */
+export function ConnectionsView({
+  syncTarget = null,
+}: {
+  syncTarget?: SyncTarget;
+} = {}) {
   const { t } = useTranslation();
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
@@ -101,6 +121,7 @@ export function ConnectionsView() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Connection | "new" | null>(null);
+  const [syncing, setSyncing] = useState<Connection | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -119,6 +140,18 @@ export function ConnectionsView() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (syncTarget === null || !rows) return;
+    const candidates = rows.filter(syncable);
+    const found =
+      syncTarget === "any"
+        ? candidates.length === 1
+          ? candidates[0]
+          : undefined
+        : candidates.find((c) => c.id === syncTarget);
+    if (found) setSyncing(found);
+  }, [rows, syncTarget]);
 
   const upsert = (saved: Connection) =>
     setRows((prev) => {
@@ -150,6 +183,24 @@ export function ConnectionsView() {
     } catch (err) {
       setError(describeFailure(t, err));
     }
+  }
+
+  if (syncing) {
+    return (
+      <SyncView
+        api={api}
+        connection={syncing}
+        actions={
+          <BackButton
+            label={t("sync.back")}
+            onClick={() => {
+              setSyncing(null);
+              void load();
+            }}
+          />
+        }
+      />
+    );
   }
 
   const add = canConfigure ? (
@@ -214,6 +265,14 @@ export function ConnectionsView() {
                       onClick={() => setEditing(c)}
                     >
                       <Pencil className="size-3.5" />
+                    </ListRowAction>
+                  )}
+                  {canConfigure && syncable(c) && (
+                    <ListRowAction
+                      label={t("connections.actions.sync")}
+                      onClick={() => setSyncing(c)}
+                    >
+                      <RefreshCw className="size-3.5" />
                     </ListRowAction>
                   )}
                   <ListRowAction
