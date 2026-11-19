@@ -1,0 +1,58 @@
+{
+  "id": 31,
+  "uuid": "svc-n8n-uuid",
+  "name": "n8n",
+  "service_type": "n8n-with-postgres-and-worker",
+  "status": "running:healthy",
+  "docker_compose_raw": "REDACTED",
+  "docker_compose": "REDACTED",
+  "server": { "id": 2, "uuid": "srv-vps1-uuid", "name": "vps1" },
+  "environment": {
+    "id": 4,
+    "name": "production",
+    "project": { "id": 2, "uuid": "proj-uuid", "name": "Shop" }
+  },
+  "applications": [
+    {
+      "id": 41,
+      "uuid": "part-n8n-uuid",
+      "name": "n8n",
+      "fqdn": "https://n8n.x",
+      "status": "running:healthy",
+      "image": "n8nio/n8n:1.0"
+    },
+    {
+      "id": 42,
+      "uuid": "part-worker-uuid",
+      "name": "n8n-worker",
+      "fqdn": null,
+      "status": "running:healthy",
+      "image": "n8nio/n8n:1.0"
+    },
+    {
+      "id": 43,
+      "uuid": "part-runner-uuid",
+      "name": "task-runners",
+      "fqdn": "",
+      "status": "running:healthy",
+      "image": "n8nio/runners:1.0"
+    }
+  ],
+  "databases": [
+    {
+      "id": 51,
+      "uuid": "part-postgres-uuid",
+      "name": "postgresql",
+      "status": "running:healthy",
+      "image": "postgres:16-alpine",
+      "public_port": null
+    },
+    {
+      "id": 52,
+      "uuid": "part-redis-uuid",
+      "name": "redis",
+      "status": "running:healthy",
+      "image": "redis:7-alpine"
+    }
+  ]
+}
