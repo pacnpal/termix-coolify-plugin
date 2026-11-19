@@ -37,7 +37,8 @@ off in Coolify (Settings, Advanced), Coolify is behind Cloudflare Access, or the
 Connections are also actions, for the CLI, Automations and the phone app: `coolify.list-connections`,
 `coolify.connection-probe`, `coolify.connection-create`, `coolify.connection-update` and
 `coolify.connection-delete`. The token and Cloudflare Access fields are secret inputs: they never appear in
-run history. Only the two reads are offered to the assistant and MCP.
+run history. Only the two reads are offered to the assistant and Termix's main MCP server; the plugin's own
+MCP endpoint (below) offers all five.
 
 Adding, changing and removing connections needs **Configure Coolify**; listing and checking them needs
 **View Coolify**. Each person sees only their own connections.
@@ -141,6 +142,19 @@ server can read every container's secrets.
 The action `coolify.shell-command` (offered to the assistant and MCP) answers the same `docker exec` command,
 or the list of containers to choose from, for a client with its own SSH. It makes the same checks. See
 [the API](api.md).
+
+## Use with an MCP client
+
+The plugin serves its own MCP endpoint at `/plugin-api/coolify/mcp`. The Connections view shows the address
+and a client config under **Use with an MCP client**; put a Termix API key with the scope `operations:read`
+(read tools only) or `operations:run` where the config says `<your Termix API key>`.
+
+Every action is a tool, plus `list_connections`, `list_hosts` and `list_resources`. Each call runs as the
+key's user through Termix's operations, so permissions, approvals and history apply. Read tools always work;
+tools that change something answer "changes over MCP are turned off" until an admin turns on **Allow changes
+over MCP**. Output never carries tokens, passwords, keys, env values or compose files, and long output is cut
+at 8,000 characters. [API and MCP reference](api.md) lists every action with its route, run path, key scope,
+MCP tool and a `curl` example.
 
 ## Permissions
 

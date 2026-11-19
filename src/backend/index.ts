@@ -7,6 +7,7 @@ import { createResources } from "./resources/service.js";
 import { registerResourceRoutes } from "./resources/routes.js";
 import { createContainers } from "./containers/service.js";
 import { registerContainerRoutes } from "./containers/routes.js";
+import { registerMcpRoutes } from "./mcp/routes.js";
 import { registerOperations } from "./operations.js";
 import { createSync, type Sync } from "./sync/service.js";
 import { registerSyncRoutes } from "./sync/routes.js";
@@ -28,6 +29,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
   registerResourceRoutes(router, ctx, resources);
   const containers = createContainers(ctx, { connections, resources, sync });
   registerContainerRoutes(router, ctx, containers);
+  registerMcpRoutes(router, ctx);
   registerOperations(ctx, { connections, sync, resources, containers });
 }
 

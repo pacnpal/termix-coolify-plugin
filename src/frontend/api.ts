@@ -165,6 +165,11 @@ function choicesOf(data: unknown): ContainerChoice[] | null {
   return Array.isArray(list) ? (list as ContainerChoice[]) : null;
 }
 
+/** GET /mcp: where the plugin's MCP endpoint is. */
+export interface McpInfo {
+  endpoint: string;
+}
+
 /** What a failed call answers: a plain message and a cause the UI translates. */
 export interface ApiFailure {
   error: string;
@@ -280,6 +285,13 @@ export function createApi(api: PluginApiClient) {
         if (choices) return { kind: "choices", choices };
         throw err;
       }
+    },
+    /** Only the endpoint: the panel writes its own snippet, with a placeholder key. */
+    async getMcpInfo(): Promise<McpInfo | null> {
+      const data = (await api.get<{ endpoint?: unknown }>("/mcp")).data;
+      return typeof data?.endpoint === "string"
+        ? { endpoint: data.endpoint }
+        : null;
     },
   };
 }

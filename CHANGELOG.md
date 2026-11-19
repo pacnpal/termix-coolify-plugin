@@ -54,3 +54,12 @@
   the command to copy
 - The action `coolify.shell-command`, offered to the assistant and MCP, answers the exact `docker exec`
   command. Shells need Operate Coolify resources and your own connect access to the Linked host
+- An MCP endpoint at `/plugin-api/coolify/mcp` for Termix API keys scoped to `operations:read` or
+  `operations:run`: one tool per action plus `list_connections`, `list_hosts` and `list_resources`, run
+  through Termix's operations with approvals and history. Changes over MCP stay off until an admin turns on
+  "Allow changes over MCP"
+- MCP output masks tokens, passwords, keys, env values and compose files at any depth, and cuts long output
+  at 8,000 characters
+- "Use with an MCP client" in the Connections view, with the endpoint and a client config to copy
+- An API and MCP reference (`docs/api.md`) with every action's route, run path, key scope, MCP tool and a
+  `curl` example
