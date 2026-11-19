@@ -781,8 +781,16 @@ of every step.
     While a step is `uncertain`:
     - automatic retry and Clean up are both blocked, and the host shows "Waiting to confirm what Coolify
       created";
-    - the step is re-checked by marker no sooner than 2 minutes after it was sent (well past the request
-      timeout), and only then decided: one match is adopted, no match lets the create be sent again;
+    - the step is re-checked by marker no sooner than 2 minutes after it was sent. One match is adopted
+      automatically, because adopting what exists can't create a duplicate.
+    - **No match never leads to an automatic retry.** Coolify offers no way to learn whether the original
+      request finished, so the plugin can't prove it won't still create the server or key. The host shows
+      "Coolify may still be creating this. Check Coolify, then choose Retry or Clean up", and only the
+      person's choice sends the create again.
+    - The remaining risk is stated in that prompt: if the original request completes after a retry, Coolify
+      ends up with two servers or keys carrying the same marker. Every later resume, the host section and
+      the next sync re-check the marker, so that duplicate is found and handled by the multiple-match rule
+      below rather than left behind silently.
     - only one resume or clean-up runs per onboarding row at a time (a per-row lock), so the plugin never
       races itself.
   - **More than one match** (two servers or keys with the same marker) stops the run. The person sees every
