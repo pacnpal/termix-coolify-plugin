@@ -698,7 +698,10 @@
   },
   "palette": {
     "group": "Coolify",
-    "deploy": "Coolify: Deploy…"
+    "deploy": "Coolify: Deploy…",
+    "shell": "Coolify: Open shell in…",
+    "logs": "Coolify: Logs of…",
+    "sync": "Coolify: Sync servers"
   },
   "updates": {
     "title": "Package updates",

@@ -39,6 +39,16 @@ type T = (key: string, options?: Record<string, unknown>) => string;
 export const DETAIL_TABS = ["overview"] as const;
 export type DetailTab = (typeof DETAIL_TABS)[number];
 
+/**
+ * A requested view (from tab data, like the palette's "Logs of…"), or the
+ * default view when this release doesn't have the one asked for.
+ */
+export function detailTabOf(requested: unknown): DetailTab {
+  return (DETAIL_TABS as readonly unknown[]).includes(requested)
+    ? (requested as DetailTab)
+    : "overview";
+}
+
 function overviewItems(
   t: T,
   r: Resource,
@@ -192,6 +202,7 @@ export function ResourceDetail({
   canOperate,
   onChanged,
   onShell,
+  initialTab,
 }: {
   /** Null when the resource is gone from the list. */
   resource: Resource | null;
@@ -205,13 +216,15 @@ export function ResourceDetail({
   onChanged: () => void;
   /** Opens a coolify-shell tab for the resource. */
   onShell?: (resource: Resource, console: "shell" | "db") => void;
+  /** The view to open on; an unknown one opens the default. */
+  initialTab?: string | null;
 }) {
   const { t } = useTranslation();
   const runner = useLifecycle(connectionId, onChanged);
   const lifecycle = canOperate ? runner : null;
   // Shells run over SSH: coolify.operate, plus host access the backend checks.
   const canShell = usePermission("operate");
-  const [tab, setTab] = useState<DetailTab>("overview");
+  const [tab, setTab] = useState<DetailTab>(() => detailTabOf(initialTab));
   let body: ReactNode;
   if (!resource) {
     body = <EmptyState icon={Box} title={t("detail.missing")} />;
