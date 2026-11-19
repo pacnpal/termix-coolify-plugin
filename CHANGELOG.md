@@ -32,3 +32,9 @@
 - "Import from Coolify" in the hosts import menu, and a Sync servers button on each connection
 - Actions `coolify.sync-preview`, `coolify.sync-apply` and `coolify.unlink`; only the preview is offered to
   the assistant and MCP
+- Server updates on the Linked host's Coolify card: pending and security updates, reboot required and when
+  Coolify last checked, with updates that restart Docker called out. **Check now**, **Install updates** (a
+  confirm lists every package and highlights Docker restarts) and **Reboot** (type the server's name) run
+  through the Package Manager plugin when it runs, otherwise over SSH with fixed commands, and say which
+  path ran. Actions `coolify.server-updates`, `coolify.server-updates-check`,
+  `coolify.server-updates-install` and `coolify.server-reboot`

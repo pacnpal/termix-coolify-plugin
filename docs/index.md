@@ -80,6 +80,45 @@ needs **View Coolify**. They are also actions: `coolify.sync-preview` (offered t
 `coolify.sync-apply` (without a server list it syncs every server with its saved address and credential)
 and `coolify.unlink`.
 
+## Server updates
+
+The Coolify card on a Linked host shows the server's pending package updates: how many, how many are
+security updates, whether a reboot is required and when it was last checked. Updates that restart Docker
+(`docker-ce`, `containerd.io`, `runc` and the like) are called out, because installing them stops and
+starts every container on the server. Kernel and core system packages are labelled too.
+
+The numbers come from Coolify's own patch check, which runs on Coolify's schedule. **Check now** re-reads
+them at once; the card then says which check it shows ("Checked over SSH", "Checked through Package
+Manager" or "Coolify's check") and keeps Coolify's own record beside it until Coolify catches up.
+
+Coolify has no API to check, install or reboot, so the plugin does it on the Linked host:
+
+- **With the Package Manager plugin running**, Check now runs its `package-manager.list-updates` and Install
+  updates runs its `package-manager.upgrade-all` on the host, so that plugin's own rules apply (turn on
+  Packages for the host there, and its read only setting is respected).
+- **Without it**, the plugin uses SSH on the Linked host with fixed commands for apt, dnf, yum or pacman.
+  The SSH login must be root or have passwordless sudo, as Coolify itself needs.
+
+**Install updates** shows every package it would change, with the Docker restarts highlighted, and runs
+only after you confirm. **Reboot** asks you to type the server's exact name and warns that every Coolify
+application, service and database on it goes down until it is back.
+
+Who may do what:
+
+- Reading the updates needs **View Coolify**.
+- **Check now** needs **Operate Coolify resources** and connect access to the Linked host.
+- **Install updates** needs **Operate Coolify resources** and edit access to the Linked host.
+- **Reboot** needs **Administer Coolify** and edit access to the Linked host.
+
+Check, install and reboot need a Linked host; a server without one answers `409` with cause `not-linked`
+(sync it first). When the plugin can't tell whether you may open the host, it refuses.
+
+They are also actions: `coolify.server-updates` (offered to the assistant and MCP),
+`coolify.server-updates-check`, `coolify.server-updates-install` (input `confirm` must be on) and
+`coolify.server-reboot` (input `confirmName` must be the server's name). The routes are
+`GET /plugin-api/coolify/connections/:id/servers/:uuid/updates`, `POST …/updates/check`,
+`POST …/updates/install` with `{ "confirm": true }` and `POST …/reboot` with `{ "confirmName": "<name>" }`.
+
 ## Permissions
 
 Admins and users get all five by default. Admins can take any of them away per role.

@@ -109,3 +109,16 @@ aren't obvious from the code, and anything that has bitten you before.
 - Frontend host surfaces: `src/frontend/linked.ts` reads a host's link from its own settings and shares one
   sync preview per connection (five minutes) between badge dots and the host card. The tab opens the sync
   preview from `tab.data` `{ section: "sync", connectionId? }`; `section: "resources"` is for ticket #7.
+- Server updates: `src/backend/updates/` (`service.ts` `createUpdates`, `routes.ts`) and
+  `src/backend/ops/updates.ts`; the UI is `src/frontend/views/ServerUpdates.tsx` inside the host card.
+  Coolify's `patch_check_result` is mapped by `toPatch` in `dto.ts` (an explicit `security_updates: null`
+  stays unknown). Check and install go through `ctx.operations.invoke` of `package-manager.list-updates` /
+  `upgrade-all` when that plugin is active, else `ctx.ssh.exec` with fixed commands built from
+  `host-commands` (no request value ever reaches a command; root or `sudo -n`). Reboot is always SSH. A
+  failure on the Package Manager path is reported, never retried over SSH, so that plugin's read only
+  setting can't be bypassed. The plugin's own last check is kept in `cache` as kind `updates:<serverUuid>`
+  (json columns take text). Access is checked in order: permission, connection grant (operate, configure
+  to reboot), Linked host (409 `not-linked`), host share level (connect to check, edit to install or
+  reboot); a host access read that throws refuses. `ConnectionError` takes an optional status for these.
+  The mock ctx's `hosts.checkAccess` only knows hosts given up front, so tests spy on it, on
+  `ssh.exec` and on `operations.invoke` (`tests/backend/updates/fixtures.ts`).
