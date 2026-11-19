@@ -1297,6 +1297,10 @@ follows the Uptime plugin's pattern instead.
   (`coolify.status-page-create`, `coolify.status-page-rotate`), it comes back only as an output marked
   `sensitive`, which Termix drops before the run is stored or shown, and the run's summary names the page,
   never the URL. So run history, logs and MCP call records never hold the token.
+- **Getting that URL to an MCP client.** Because the stored run doesn't hold the URL, the handler also keeps
+  it in process memory for at most 5 minutes, for the same user, readable once. The plugin's MCP endpoint
+  takes it from there and adds it to that one `tools/call` response. A second read, another user or a
+  restart gets nothing, and the owner can rotate to get a new URL.
 - **Content:** the owner picks which resources appear. The page shows only display names, status, last
   deploy time and result, and uptime when the Uptime plugin is there.
   - It never shows uuids, servers, domains the owner didn't tick, logs or anything sensitive.
