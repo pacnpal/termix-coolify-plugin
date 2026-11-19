@@ -1339,8 +1339,12 @@ follows the Uptime plugin's pattern instead.
   returns only the run's handoff id in its data.
   - The plugin's MCP endpoint takes it from there and adds it to that one `tools/call` response.
   - When the run needed an approval, or came through Termix's REST `operations:run`, the same actor takes it
-    afterwards with the handoff id: `POST /plugin-api/coolify/status-pages/handoff/:handoffId`, or the MCP
-    tool `take_status_page_url`.
+    afterwards with the handoff id, by one of two paths:
+    - `POST /plugin-api/coolify/status-pages/handoff/:handoffId`, which needs a signed-in session or an
+      unscoped API key. Core lets a key scoped to `operations:*` reach only `/operations/...` and the plugin's
+      `/mcp` endpoint, so a scoped key gets 403 here.
+    - The MCP tool `take_status_page_url` on the plugin's `/mcp` endpoint, which a scoped `operations:run` key
+      can reach, given `coolify.mcp`. This is the path for scoped keys.
   - A second read, another user, another run's id, an expired entry or a restart gets nothing, and the owner
     can rotate to get a new URL.
 - **Content:** the owner picks which resources appear. The page shows only display names, status, last
