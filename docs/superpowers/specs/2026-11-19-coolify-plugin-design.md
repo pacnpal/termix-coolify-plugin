@@ -591,16 +591,27 @@ Optional dependencies: `ssh-terminal`, `docker`, `homepage`.
 The Add connection form has name, URL and API token, plus an Advanced group: CF Access id and secret, "on
 my local network", and a CA certificate. On save, the probe runs:
 
-1. Health and version (record the version).
-2. `GET /team` (record the team).
-3. Non-mutating ability checks:
-   - Is it scoped? Try `GET /servers`.
+1. Health and version (record the version). Both are allowed for every token.
+2. **Scope first.** Try `GET /team`. A scoped token (limited to projects or resources) gets 403 here
+   and on `/servers`, `/security/keys` and `/notifications`. So the probe treats a 403 from `/team` as
+   "scoped", not as a failure, and confirms it with one allowed call (`GET /projects`).
+3. **Team identity**, needed for `instanceKey` and webhook grouping:
+   - Unscoped: the team id comes from `GET /team`.
+   - Scoped: the team id comes from the `team_id` on a project returned by `GET /projects`. The builder
+     confirms the field against the live API. If no team id can be found, `instanceKey` is left empty.
+   - A connection with no `instanceKey` gets no webhook fan-out and alerts by polling only.
+   - A scoped connection can never set up the team webhook itself (it can't reach `/notifications`). It
+     receives webhook events only when an unscoped connection to the same team has set one up, and then
+     only for resources its own token can see.
+   - The setup screen says what a scoped token can't do: no servers, so no host sync, shells or keys;
+     no notifications. It still offers everything that does work.
+4. Non-mutating ability checks:
    - Keys readable? Try `GET /security/keys/{first}` and discard `private_key` immediately.
    - Logs readable? Try one resource's logs with `lines=1`.
    - Is it root? Try `GET /settings/email`.
    - Write, deploy and delete can't be probed without side effects. They're marked "checked on first use",
      and a 403 is translated to "this token lacks the X ability".
-4. Store the ability summary. The UI hides or disables sections the token can't use, with the reason.
+5. Store the ability summary. The UI hides or disables sections the token can't use, with the reason.
 
 Each step's failure maps to a cause and a fix:
 
@@ -660,13 +671,15 @@ of every step.
      `/security/keys` in this branch. A Termix credential for mode A can only be made if the token can
      read the key material; otherwise fall back to mode B for this host's Termix side.
 4. Confirm the summary. From here, every step records its progress (see "Partial onboarding" below).
-5. Over `ctx.ssh.exec`, append the public key to the SSH user's `~/.ssh/authorized_keys`, idempotently and
+5. Generate branch only: right after generating, the private key is sealed (`ctx.secrets.seal`) into the
+   onboarding row, so a restart at any later step can't lose it. Then `POST /security/keys` uploads it to
+   Coolify **before anything touches the host**, and the Termix credential is created (mode A). The sealed
+   copy is erased as soon as the run completes or is cleaned up. It's never logged or returned.
+6. Over `ctx.ssh.exec`, append the public key to the SSH user's `~/.ssh/authorized_keys`, idempotently and
    with correct permissions.
    - The line carries a marker comment `coolify-termix:<onboarding id>`, so it can be found and removed
      later.
    - The key is sent on stdin, never in argv.
-6. Generate branch only: `POST /security/keys` with the generated private key, which is held in memory
-   only.
 7. `POST /servers` with name, ip (the tunnel hostname when tunnelled), port, user, private key uuid and
    `instant_validate: false`.
 8. If tunnelled, turn on Coolify's tunnel mode for the server (`PATCH /servers/{uuid}/cloudflare-tunnel` with
@@ -682,7 +695,8 @@ of every step.
     the user opts in. Store the credential as mode A where possible.
 
 **Partial onboarding.** Each run is a row in `onboardings`: `id`, `userId`, `connectionId`, `hostId`,
-`keyMode` (generated or existing), `step`, `authorizedKeyMarker`, `coolifyKeyUuid` (when we created it),
+`keyMode` (generated or existing), `step`, `generatedKeySealed` (erased at the end), `authorizedKeyMarker`,
+`coolifyKeyUuid` (when we created it),
 `serverUuid`, `lastError` and `updatedAt`. Each step records its effect before moving on.
 
 - **Failure or abandonment:** the host shows "Coolify onboarding unfinished" with two choices.
@@ -960,7 +974,10 @@ Everything goes through `ctx.db.persist()`, lazily for cache, events and recent.
 - **Tokens:** sealed at rest, unsealed only in the client, and never logged or returned. Forms use
   `SecretField`, where an empty value keeps the stored one.
 - **Private keys:**
-  - In memory only, between fetch or generation and `createSshKey` or `POST /security/keys`.
+  - In memory only, between fetch or generation and `createSshKey` or `POST /security/keys`. The one
+    exception is a key generated for reverse onboarding. It's kept sealed in its `onboardings` row only
+    until that run completes or is cleaned up, so a restart can't strand a half-installed key. Then it's
+    erased.
   - Audited without material.
   - Reveal of a Coolify key in the Keys section is not offered. Use Coolify for that.
 - **Env, notification and S3 secrets:** fetched only on an explicit reveal or edit, never cached, never put in
