@@ -326,4 +326,30 @@ describe("Coolify API wrappers", () => {
       coolify.lifecycle("service-database", "pdb", "start"),
     ).rejects.toMatchObject({ cause: "validation" });
   });
+
+  it("reads Sentinel settings: the IP mode and flags, never the token or keys", async () => {
+    const { api: coolify } = api({
+      "GET /servers/s/sentinel": {
+        json: {
+          is_sentinel_enabled: true,
+          is_metrics_enabled: false,
+          sentinel_token: "FAKE-SENTINEL-TOKEN",
+          sentinel_custom_url: "https://fake.invalid/push",
+          geoip_maxmind_license_key: "FAKE-GEOIP-KEY",
+          sentinel_metrics_history_days: 7,
+          traffic_ip_mode: "anonymized",
+        },
+      },
+      "GET /servers/t/sentinel": { json: { traffic_ip_mode: "sideways" } },
+    });
+    const settings = await coolify.sentinelSettings("s");
+    expect(settings).toEqual({
+      sentinelEnabled: true,
+      metricsEnabled: false,
+      historyDays: 7,
+      trafficIpMode: "anonymized",
+    });
+    expect(JSON.stringify(settings)).not.toMatch(/FAKE-/);
+    expect((await coolify.sentinelSettings("t")).trafficIpMode).toBeNull();
+  });
 });

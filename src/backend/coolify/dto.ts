@@ -190,6 +190,29 @@ export function toPatch(
   };
 }
 
+export type TrafficIpMode = "full" | "anonymized" | "off";
+
+/** A server's Sentinel settings without the token, push URL or GeoIP key. */
+export interface SentinelSettingsDto {
+  sentinelEnabled: boolean;
+  metricsEnabled: boolean;
+  historyDays: number | null;
+  /** How Sentinel keeps client IPs; null when unknown (treated as hidden). */
+  trafficIpMode: TrafficIpMode | null;
+}
+
+export function toSentinelSettings(input: unknown): SentinelSettingsDto {
+  const raw = obj(input);
+  const mode = raw.traffic_ip_mode;
+  return {
+    sentinelEnabled: bool(raw.is_sentinel_enabled),
+    metricsEnabled: bool(raw.is_metrics_enabled),
+    historyDays: num(raw.sentinel_metrics_history_days),
+    trafficIpMode:
+      mode === "full" || mode === "anonymized" || mode === "off" ? mode : null,
+  };
+}
+
 export function toServer(input: unknown): ServerDto {
   const raw = obj(input);
   const settings = obj(raw.settings);

@@ -355,7 +355,7 @@ run `npm run gen:coolify` and add the new rows.
 | get-server-image-scanning             | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.5 Infrastructure (Servers section). |
 | get-server-log-drains                 | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.5 Infrastructure (Servers section). |
 | get-server-proxy                      | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.5 Infrastructure (Servers section). |
-| get-server-sentinel                   | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.5 Infrastructure (Servers section). |
+| get-server-sentinel                   | used   | Task 15 `sentinelSettings()` (traffic IP mode); Task 18A `coolify.api-read`, Task 23A API console; own UI in 1.5 (Servers).       |
 | get-server-transfer-status            | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.5 Infrastructure (Servers section). |
 | import-server-transfer-bundle         | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.5 Infrastructure (Servers section). |
 | list-server-docker-cleanup-executions | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.5 Infrastructure (Servers section). |

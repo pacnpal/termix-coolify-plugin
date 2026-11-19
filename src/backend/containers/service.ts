@@ -2,7 +2,12 @@ import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import type { ResourceDto } from "../coolify/dto.js";
 import type { Connections } from "../connections/service.js";
 import type { Resources } from "../resources/service.js";
-import { isHostKeyError, sshRunner, type SshRunner } from "../ssh.js";
+import {
+  dockerNeedsSudo,
+  isHostKeyError,
+  sshRunner,
+  type SshRunner,
+} from "../ssh.js";
 import type { Sync } from "../sync/service.js";
 import {
   assertContainerName,
@@ -176,16 +181,14 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
 
   /** Whether docker needs sudo: not root and not in the docker group. */
   async function needsSudo(hostId: number): Promise<boolean> {
-    const result = await run(hostId, "id -u; id -Gn");
-    const [uid, groups] = result.stdout.split("\n").map((l) => l.trim());
-    if (result.code !== 0 || !/^\d+$/.test(uid ?? "")) {
+    const sudo = await dockerNeedsSudo(run, hostId);
+    if (sudo === null) {
       throw new ContainerError(
         "ssh-failed",
         "The Linked host's user could not be read.",
       );
     }
-    if (uid === "0") return false;
-    return !(groups ?? "").split(/\s+/).includes("docker");
+    return sudo;
   }
 
   async function hasBash(
