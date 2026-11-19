@@ -206,6 +206,208 @@
           }
         ]
       }
+    },
+    "operations": {
+      "actions": [
+        {
+          "id": "coolify.list-connections",
+          "titleKey": "ops.listConnections.title",
+          "descriptionKey": "ops.listConnections.description",
+          "icon": "Rocket",
+          "scope": "server",
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.connection-probe",
+          "titleKey": "ops.connectionProbe.title",
+          "descriptionKey": "ops.connectionProbe.description",
+          "icon": "Stethoscope",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.connection-create",
+          "titleKey": "ops.connectionCreate.title",
+          "descriptionKey": "ops.connectionCreate.description",
+          "icon": "Plus",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "name",
+              "type": "string",
+              "labelKey": "ops.fields.name.label",
+              "required": true
+            },
+            {
+              "key": "baseUrl",
+              "type": "string",
+              "labelKey": "ops.fields.baseUrl.label",
+              "descriptionKey": "ops.fields.baseUrl.description",
+              "required": true
+            },
+            {
+              "key": "token",
+              "type": "secret",
+              "labelKey": "ops.fields.token.label",
+              "descriptionKey": "ops.fields.token.description",
+              "required": true
+            },
+            {
+              "key": "cfAccessId",
+              "type": "secret",
+              "labelKey": "ops.fields.cfAccessId.label",
+              "group": "advanced"
+            },
+            {
+              "key": "cfAccessSecret",
+              "type": "secret",
+              "labelKey": "ops.fields.cfAccessSecret.label",
+              "group": "advanced"
+            },
+            {
+              "key": "allowPrivate",
+              "type": "boolean",
+              "labelKey": "ops.fields.allowPrivate.label",
+              "descriptionKey": "ops.fields.allowPrivate.description",
+              "group": "advanced"
+            },
+            {
+              "key": "caCert",
+              "type": "textarea",
+              "labelKey": "ops.fields.caCert.label",
+              "descriptionKey": "ops.fields.caCert.description",
+              "group": "advanced"
+            }
+          ],
+          "risk": "change",
+          "permission": "configure",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.connection-update",
+          "titleKey": "ops.connectionUpdate.title",
+          "descriptionKey": "ops.connectionUpdate.description",
+          "icon": "Pencil",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "name",
+              "type": "string",
+              "labelKey": "ops.fields.name.label"
+            },
+            {
+              "key": "baseUrl",
+              "type": "string",
+              "labelKey": "ops.fields.baseUrl.label",
+              "descriptionKey": "ops.fields.baseUrl.description"
+            },
+            {
+              "key": "token",
+              "type": "secret",
+              "labelKey": "ops.fields.token.label",
+              "descriptionKey": "ops.fields.token.keepDescription"
+            },
+            {
+              "key": "cfAccessId",
+              "type": "secret",
+              "labelKey": "ops.fields.cfAccessId.label",
+              "group": "advanced"
+            },
+            {
+              "key": "cfAccessSecret",
+              "type": "secret",
+              "labelKey": "ops.fields.cfAccessSecret.label",
+              "group": "advanced"
+            },
+            {
+              "key": "allowPrivate",
+              "type": "boolean",
+              "labelKey": "ops.fields.allowPrivate.label",
+              "descriptionKey": "ops.fields.allowPrivate.description",
+              "group": "advanced"
+            },
+            {
+              "key": "caCert",
+              "type": "textarea",
+              "labelKey": "ops.fields.caCert.label",
+              "descriptionKey": "ops.fields.caCert.description",
+              "group": "advanced"
+            },
+            {
+              "key": "autoSync",
+              "type": "boolean",
+              "labelKey": "ops.fields.autoSync.label"
+            }
+          ],
+          "risk": "change",
+          "permission": "configure",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.connection-delete",
+          "titleKey": "ops.connectionDelete.title",
+          "descriptionKey": "ops.connectionDelete.description",
+          "icon": "Trash2",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "removeHosts",
+              "type": "boolean",
+              "labelKey": "ops.fields.removeHosts.label",
+              "descriptionKey": "ops.fields.removeHosts.description",
+              "default": false
+            }
+          ],
+          "risk": "destructive",
+          "permission": "configure",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        }
+      ]
     }
   },
   "locales": "locales",
