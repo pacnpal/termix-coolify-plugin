@@ -1090,11 +1090,11 @@ REST API (Termix API keys) and through Termix's MCP. Nothing may exist only as a
      - **The wrapper's own permission is not enough.** Each `operationId` resolves to the Termix permission
        and grant level that the Permissions table gives the same action, kept as two separate values:
        - reads need `coolify.view`, except reads that carry log or command output, which need
-         `coolify.operate`: `/logs` endpoints, deployments (which carry build logs) and task or backup
-         executions;
+         `coolify.operate`: `/logs` endpoints, deployments (which carry build logs), task or backup
+         executions, and a server transfer's status (which carries the migration log and error);
        - lifecycle, deploys, tasks and backups need `coolify.operate`;
-       - deletes, starting a server create, transfer or migration (reading a transfer's status is a
-         read), cloud provisioning and instance settings need
+       - deletes, starting a server create, transfer or migration, cloud provisioning and instance
+         settings need
          `coolify.administer` (with a configure grant, or ownership);
        - everything else needs `coolify.configure`.
      - The three-way minimum (see Permissions) is applied to that, in both the call and the operation
@@ -1334,10 +1334,15 @@ follows the Uptime plugin's pattern instead.
   (`coolify.status-page-create`, `coolify.status-page-rotate`), it comes back only as an output marked
   `sensitive`, which Termix drops before the run is stored or shown, and the run's summary names the page,
   never the URL. So run history, logs and MCP call records never hold the token.
-- **Getting that URL to an MCP client.** Because the stored run doesn't hold the URL, the handler also keeps
-  it in process memory for at most 5 minutes, for the same user, readable once. The plugin's MCP endpoint
-  takes it from there and adds it to that one `tools/call` response. A second read, another user or a
-  restart gets nothing, and the owner can rotate to get a new URL.
+- **Getting that URL to an API or MCP client.** Because the stored run doesn't hold the URL, the handler also
+  keeps it in process memory for at most 5 minutes, keyed by the actor and that run's id, readable once, and
+  returns only the run's handoff id in its data.
+  - The plugin's MCP endpoint takes it from there and adds it to that one `tools/call` response.
+  - When the run needed an approval, or came through Termix's REST `operations:run`, the same actor takes it
+    afterwards with the handoff id: `POST /plugin-api/coolify/status-pages/handoff/:handoffId`, or the MCP
+    tool `take_status_page_url`.
+  - A second read, another user, another run's id, an expired entry or a restart gets nothing, and the owner
+    can rotate to get a new URL.
 - **Content:** the owner picks which resources appear. The page shows only display names, status, last
   deploy time and result, and uptime when the Uptime plugin is there.
   - It never shows uuids, servers, domains the owner didn't tick, logs or anything sensitive.
