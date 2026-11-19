@@ -1,10 +1,8 @@
 // Dev only. Reads the vendored Coolify specs in vendor/coolify/ and writes
-// src/backend/coolify/generated/operations.ts (the OPERATIONS table) and
-// src/backend/coolify/generated/schema-next.d.ts (openapi-typescript types of
-// the next spec, a superset of the other two). Run with `npm run gen:coolify`
-// after updating a spec, then update docs/coverage.md.
+// src/backend/coolify/generated/operations.ts (OPERATIONS and
+// EXCLUDED_OPERATIONS). Run with `npm run gen:coolify` after updating a spec,
+// then update docs/coverage.md.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { registerHooks } from "node:module";
 import { fileURLToPath } from "node:url";
 import * as prettier from "prettier";
 
@@ -144,67 +142,6 @@ ${EXCLUDED.map((e, i) => ` * - ${excludedIds[i]} (${e.method} ${e.path}): ${e.wh
 export const EXCLUDED_OPERATIONS: ReadonlySet<string> = new Set(${JSON.stringify(excludedIds)});
 `;
 
-// Coolify's specs point some responses at shared components they never define
-// (#/components/responses/403). The vendored file stays as fetched; the copy
-// given to openapi-typescript gets a bare response for each missing one. Any
-// other dangling reference stops the run.
-function withMissingResponses(file) {
-  const spec = JSON.parse(readFileSync(vendorDir + file, "utf8"));
-  const refs = new Set();
-  const walk = (value) => {
-    if (Array.isArray(value)) value.forEach(walk);
-    else if (value && typeof value === "object") {
-      if (typeof value.$ref === "string") refs.add(value.$ref);
-      Object.values(value).forEach(walk);
-    }
-  };
-  walk(spec);
-  for (const ref of refs) {
-    if (!ref.startsWith("#/")) fail(`${file}: external $ref ${ref}`);
-    const parts = ref
-      .slice(2)
-      .split("/")
-      .map((p) => p.replaceAll("~1", "/").replaceAll("~0", "~"));
-    let node = spec;
-    for (const part of parts) node = node?.[part];
-    if (node !== undefined) continue;
-    if (
-      parts.length === 3 &&
-      parts[0] === "components" &&
-      parts[1] === "responses"
-    ) {
-      spec.components.responses[parts[2]] = {
-        description: "Not defined in the vendored spec.",
-      };
-      console.warn(
-        `${file}: ${ref} is not defined; typed as a response without a body`,
-      );
-    } else {
-      fail(`${file}: $ref ${ref} is not defined`);
-    }
-  }
-  return spec;
-}
-
-// openapi-typescript 7 needs TypeScript 5's compiler API, which TypeScript 7
-// no longer ships, so its `typescript` import is pointed at the typescript-5
-// alias. Nothing else sees it.
-registerHooks({
-  resolve(specifier, context, nextResolve) {
-    if (
-      specifier === "typescript" &&
-      context.parentURL?.includes("/node_modules/openapi-typescript/")
-    ) {
-      return nextResolve("typescript-5", context);
-    }
-    return nextResolve(specifier, context);
-  },
-});
-const { default: openapiTS, astToString } = await import("openapi-typescript");
-const nextSpec = SOURCES[SOURCES.length - 1].file;
-const schemaAst = await openapiTS(withMissingResponses(nextSpec));
-const schemaTs = `${header}// Types of vendor/coolify/${nextSpec}.\n\n${astToString(schemaAst)}`;
-
 async function write(name, text) {
   const file = outDir + name;
   const options = (await prettier.resolveConfig(file)) ?? {};
@@ -217,7 +154,6 @@ async function write(name, text) {
 
 mkdirSync(outDir, { recursive: true });
 await write("operations.ts", operationsTs);
-await write("schema-next.d.ts", schemaTs);
 
 const counts = Object.fromEntries(SOURCES.map(({ source }) => [source, 0]));
 for (const operation of operations) counts[operation.source]++;
