@@ -41,7 +41,7 @@ export async function startPlugin(
   options: {
     fetch?: (url: string, init?: PluginFetchInit) => Promise<Response>;
     permissions?: string[];
-    /** Seed for the plugin's admin settings. */
+    /** Seed for the plugin's admin settings, like allowKeyCopy. */
     settings?: Record<string, unknown>;
     serve?: boolean;
     /** What ctx.plugins.list answers. */

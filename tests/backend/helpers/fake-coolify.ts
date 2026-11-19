@@ -84,6 +84,7 @@ export function healthyCoolify(overrides: Record<string, FakeAnswer> = {}) {
       json: [{ id: 11, uuid: "app-web-uuid", name: "web", status: "running" }],
     },
     "GET /databases": { json: [] },
+    "GET /services": { json: [] },
     "GET /applications/app-web-uuid/logs": { json: { logs: "a line" } },
     "GET /settings/email": { status: 403, json: { message: "Forbidden." } },
     ...overrides,

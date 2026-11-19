@@ -18,12 +18,12 @@ import { describeFailure } from "./ConnectionForm";
 const isPart = (r: Resource) =>
   r.kind === "service-application" || r.kind === "service-database";
 
-/** Start is offered for a stopped or exited resource, Stop otherwise. */
+/**
+ * Start is offered for a stopped resource (exited included, whatever its
+ * health suffix, as resource-health reads it), Stop otherwise.
+ */
 function canStart(r: Resource): boolean {
-  return (
-    resourceHealth(r.status) === "stopped" ||
-    r.status.toLowerCase().startsWith("exited")
-  );
+  return resourceHealth(r.status) === "stopped";
 }
 
 /**

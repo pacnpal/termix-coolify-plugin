@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "@termix-ssh/plugin-sdk/frontend";
 import {
   GroupHeading,
@@ -18,6 +18,7 @@ import {
   type ConnectionInput,
   type ConnectionPatch,
 } from "../api";
+import { SshTerminalCheck } from "./SshTerminalCheck";
 
 /** Causes the backend sends that have a fix to suggest (locales `fixes`). */
 const FIXABLE = new Set([
@@ -75,7 +76,9 @@ function initialState(connection: Connection | null): FormState {
 /**
  * The add and edit form's state and save. On edit, an empty token or
  * Cloudflare Access field is left out of the request, so the stored value is
- * kept.
+ * kept. After a create the form edits the saved connection, so saving again
+ * (to retry a failed check, say) changes it instead of adding a duplicate.
+ * Edits made while a save is pending stay, and keep the form dirty.
  */
 export function useConnectionForm(
   api: Api,
@@ -84,12 +87,16 @@ export function useConnectionForm(
 ) {
   const { t } = useTranslation();
   const [state, setState] = useState<FormState>(() => initialState(connection));
+  const [current, setCurrent] = useState<Connection | null>(connection);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Connection | null>(null);
   const [dirty, setDirty] = useState(false);
+  // Counts edits, so a save knows whether anything changed while it ran.
+  const revision = useRef(0);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => {
+    revision.current += 1;
     setState((prev) => ({ ...prev, [key]: value }));
     setDirty(true);
   };
@@ -98,15 +105,21 @@ export function useConnectionForm(
     const name = state.name.trim();
     const baseUrl = state.baseUrl.trim();
     const token = state.token.trim();
-    if (!name || !baseUrl || (!connection && !token)) {
+    if (!name || !baseUrl || (!current && !token)) {
       setError(t("connections.form.required"));
       return null;
     }
+    const sent = {
+      revision: revision.current,
+      token: state.token,
+      cfAccessId: state.cfAccessId,
+      cfAccessSecret: state.cfAccessSecret,
+    };
     setSaving(true);
     setError(null);
     try {
       let saved: Connection;
-      if (connection) {
+      if (current) {
         const patch: ConnectionPatch = {
           name,
           baseUrl,
@@ -118,7 +131,16 @@ export function useConnectionForm(
         if (state.cfAccessSecret.trim()) {
           patch.cfAccessSecret = state.cfAccessSecret.trim();
         }
-        saved = await api.updateConnection(connection.id, patch);
+        saved = await api.updateConnection(current.id, patch);
+        // An update that changes nothing Coolify sees doesn't check again, so
+        // a saved failure would stay stuck after Coolify is fixed: retrying it
+        // asks for a fresh probe instead.
+        if (
+          current.lastError &&
+          saved.lastCheckedAt === current.lastCheckedAt
+        ) {
+          saved = (await api.probeConnection(saved.id)).connection;
+        }
       } else {
         const input: ConnectionInput = {
           name,
@@ -133,14 +155,18 @@ export function useConnectionForm(
         if (state.caCert.trim()) input.caCert = state.caCert.trim();
         saved = await api.createConnection(input);
       }
-      // Secrets leave the form state once sent.
+      // Secrets leave the form state once sent, unless retyped meanwhile.
       setState((prev) => ({
         ...prev,
-        token: "",
-        cfAccessId: "",
-        cfAccessSecret: "",
+        token: prev.token === sent.token ? "" : prev.token,
+        cfAccessId: prev.cfAccessId === sent.cfAccessId ? "" : prev.cfAccessId,
+        cfAccessSecret:
+          prev.cfAccessSecret === sent.cfAccessSecret
+            ? ""
+            : prev.cfAccessSecret,
       }));
-      setDirty(false);
+      setDirty(revision.current !== sent.revision);
+      setCurrent(saved);
       setResult(saved);
       onSaved(saved);
       return saved;
@@ -160,7 +186,9 @@ export function useConnectionForm(
     error,
     result,
     dirty,
-    editing: !!connection,
+    /** The saved connection the form edits, or null while adding. */
+    current,
+    editing: !!current,
   };
 }
 
@@ -258,9 +286,17 @@ export function ProbeChecklist({ connection }: { connection: Connection }) {
       <ul className={cn(PANEL.body, "flex flex-col gap-2 text-[12px]")}>
         {connection.steps.map((step) => (
           <li key={step.id} className="flex items-start gap-2">
-            <StatusDot tone={step.ok ? "ok" : "bad"} className="mt-1" />
+            <StatusDot
+              tone={step.ok ? "ok" : step.skipped ? "idle" : "bad"}
+              className="mt-1"
+            />
             <div className="flex flex-col">
               <span>{t(`connections.probe.steps.${step.id}`)}</span>
+              {step.skipped && (
+                <span className="text-muted-foreground">
+                  {t(`connections.probe.skipped.${step.skipped}`)}
+                </span>
+              )}
               {step.cause && (
                 <span className="text-muted-foreground">
                   {t(`causes.${step.cause}`)}
@@ -272,6 +308,7 @@ export function ProbeChecklist({ connection }: { connection: Connection }) {
             </div>
           </li>
         ))}
+        <SshTerminalCheck connection={connection} />
       </ul>
     </div>
   );

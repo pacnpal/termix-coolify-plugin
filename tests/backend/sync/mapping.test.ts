@@ -4,7 +4,7 @@ import {
   cleanAddress,
   folderName,
   planHost,
-  TUNNEL_CAUSE,
+  SSH_TERMINAL_KEYS,
   type PlanContext,
 } from "../../../src/backend/sync/mapping.js";
 
@@ -46,6 +46,14 @@ const base: PlanContext = {
   credentialId: 9,
   folder: "Coolify",
   dockerRunning: false,
+  sshTerminal: { running: true, version: "1.2.0" },
+  cfAccess: null,
+};
+
+// Obviously fake Access service token values.
+const FAKE_ACCESS = {
+  id: "fake-access-id.access",
+  secret: "fake-access-secret-mapping-test",
 };
 
 describe("planHost", () => {
@@ -74,6 +82,12 @@ describe("planHost", () => {
       coolify: {
         coolifyConnectionId: "4",
         coolifyServerUuid: "srv-web-uuid",
+      },
+      "ssh-terminal": {
+        cloudflareTunnelEnabled: false,
+        cloudflareTunnelHostname: "",
+        cloudflareTunnelClientId: "",
+        cloudflareTunnelClientSecret: "",
       },
     });
     expect(plan.input.pluginEnable).toEqual({ coolify: true });
@@ -113,11 +127,97 @@ describe("planHost", () => {
     expect(plan.input.ip).toBe("web-1.lan");
   });
 
-  it("tunnelled server is refused with the tunnel cause and gets no ssh-terminal settings", () => {
+  it("tunnelled server writes ssh-terminal settings and tunnel host as address", () => {
     const plan = planHost(tunnelled, base);
-    expect(plan).toEqual({ ok: false, cause: TUNNEL_CAUSE });
-    expect(TUNNEL_CAUSE).toBe("needs-tunnel-support");
-    expect(JSON.stringify(plan)).not.toContain("ssh-terminal");
+    if (!plan.ok) throw new Error(`expected a plan, got ${plan.cause}`);
+    expect(plan.input.ip).toBe("ssh-vps1.example.test");
+    expect(plan.input.port).toBe(22);
+    expect(plan.input.username).toBe("root");
+    expect(plan.input.pluginSettings).toEqual({
+      coolify: {
+        coolifyConnectionId: "4",
+        coolifyServerUuid: "srv-vps1-uuid",
+      },
+      "ssh-terminal": {
+        cloudflareTunnelEnabled: true,
+        cloudflareTunnelHostname: "ssh-vps1.example.test",
+        cloudflareTunnelPort: 443,
+        cloudflareTunnelClientId: "",
+        cloudflareTunnelClientSecret: "",
+      },
+    });
+  });
+
+  it("tunnel with Access token writes the token settings", () => {
+    const plan = planHost(tunnelled, { ...base, cfAccess: FAKE_ACCESS });
+    if (!plan.ok) throw new Error(`expected a plan, got ${plan.cause}`);
+    expect(plan.input.pluginSettings?.["ssh-terminal"]).toEqual({
+      cloudflareTunnelEnabled: true,
+      cloudflareTunnelHostname: "ssh-vps1.example.test",
+      cloudflareTunnelPort: 443,
+      cloudflareTunnelClientId: FAKE_ACCESS.id,
+      cloudflareTunnelClientSecret: FAKE_ACCESS.secret,
+    });
+  });
+
+  it("a plain server gets SSH Terminal's tunnel turned off, never the Access token", () => {
+    const plan = planHost(plain, { ...base, cfAccess: FAKE_ACCESS });
+    if (!plan.ok) throw new Error("expected a plan");
+    expect(plan.input.pluginSettings?.["ssh-terminal"]).toEqual({
+      cloudflareTunnelEnabled: false,
+      cloudflareTunnelHostname: "",
+      cloudflareTunnelClientId: "",
+      cloudflareTunnelClientSecret: "",
+    });
+    expect(JSON.stringify(plan)).not.toContain(FAKE_ACCESS.secret);
+    expect(JSON.stringify(plan)).not.toContain(FAKE_ACCESS.id);
+
+    // Without SSH Terminal running there is nothing of its to write.
+    const without = planHost(plain, {
+      ...base,
+      sshTerminal: { running: false, version: null },
+    });
+    expect(JSON.stringify(without)).not.toContain("ssh-terminal");
+  });
+
+  it("refuses a tunnelled server without a running SSH Terminal 1.2.0 or newer", () => {
+    const off = { running: false, version: "1.4.1" };
+    expect(planHost(tunnelled, { ...base, sshTerminal: off })).toEqual({
+      ok: false,
+      cause: "needs-ssh-terminal",
+    });
+    for (const version of ["1.0.3", "1.1.9", "0.9.0", "1.2.0-beta.1", null]) {
+      expect(
+        planHost(tunnelled, {
+          ...base,
+          sshTerminal: { running: true, version },
+        }),
+        String(version),
+      ).toEqual({ ok: false, cause: "ssh-terminal-too-old" });
+    }
+    for (const version of ["1.2.0", "1.2.1", "1.10.0", "2.0.0", "v1.4.1"]) {
+      expect(
+        planHost(tunnelled, {
+          ...base,
+          sshTerminal: { running: true, version },
+        }).ok,
+        version,
+      ).toBe(true);
+    }
+    // A plain server needs no SSH Terminal.
+    expect(planHost(plain, { ...base, sshTerminal: off }).ok).toBe(true);
+  });
+});
+
+describe("SSH_TERMINAL_KEYS", () => {
+  it("SSH_TERMINAL_KEYS names", () => {
+    expect(SSH_TERMINAL_KEYS).toEqual({
+      enabled: "cloudflareTunnelEnabled",
+      hostname: "cloudflareTunnelHostname",
+      port: "cloudflareTunnelPort",
+      clientId: "cloudflareTunnelClientId",
+      clientSecret: "cloudflareTunnelClientSecret",
+    });
   });
 });
 

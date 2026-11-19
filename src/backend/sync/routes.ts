@@ -33,8 +33,8 @@ export function registerSyncRoutes(
    *     description: >-
    *       Each Coolify server with the Termix host it is or would become: new,
    *       linked, blocked (with a cause such as needs-address,
-   *       needs-credential or needs-tunnel-support) or gone from Coolify.
-   *       Changes nothing.
+   *       needs-credential, needs-ssh-terminal or ssh-terminal-too-old) or
+   *       gone from Coolify. Changes nothing.
    *     tags:
    *       - Coolify
    *     parameters:
@@ -110,9 +110,13 @@ export function registerSyncRoutes(
    *       400:
    *         description: Invalid choices
    *       403:
-   *         description: Missing coolify.configure, or not the owner
+   *         description: Missing coolify.view or coolify.configure, or not the owner
    *       404:
    *         description: No such connection, or another user's
+   *       409:
+   *         description: >-
+   *           target-changed: the connection's address, token, Access token or
+   *           TLS settings changed during the sync. Nothing more was written.
    *       502:
    *         description: Coolify answered with an error, with its cause
    */
@@ -162,7 +166,7 @@ export function registerSyncRoutes(
    *       200:
    *         description: The host id and whether it was deleted
    *       403:
-   *         description: Missing coolify.configure, or not the owner
+   *         description: Missing coolify.view or coolify.configure, or not the owner
    *       404:
    *         description: No such connection, or the server has no Linked host
    */

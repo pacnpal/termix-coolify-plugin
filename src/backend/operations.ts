@@ -13,8 +13,8 @@ import type { Sync } from "./sync/service.js";
 export interface Services {
   tables: Tables;
   connections: Connections;
-  sync: Sync;
   resources: Resources;
+  sync: Sync;
   lifecycle: Lifecycle;
 }
 
@@ -27,8 +27,8 @@ export function registerOperations(
   services: Services,
 ): void {
   registerConnectionOperations(ctx, services.connections);
-  registerSyncOperations(ctx, services.sync);
   registerResourceOperations(ctx, services.resources);
+  registerSyncOperations(ctx, services.sync);
   registerLifecycleOperations(ctx, services);
   registerSignalOperations(ctx, services);
 }

@@ -174,7 +174,7 @@ describe("lifecycle, resource and signal operations", () => {
       expect.objectContaining({
         uuid: "app-api-uuid",
         name: "api",
-        status: "exited:unhealthy",
+        status: "running:unhealthy",
         fqdn: "https://api.x",
       }),
     ]);
@@ -411,8 +411,10 @@ describe("lifecycle, resource and signal operations", () => {
       );
       values.push(outcome.data);
     }
+    // vps1: worker is running:unhealthy (degraded); cache is exited, which
+    // is stopped, not degraded. edge: api is running:unhealthy.
     expect(values).toEqual([
-      expect.objectContaining({ value: 2, status: "warn" }),
+      expect.objectContaining({ value: 1, status: "warn" }),
       expect.objectContaining({ value: 1, status: "warn" }),
       expect.objectContaining({ value: 0, status: "ok" }),
     ]);
@@ -423,6 +425,37 @@ describe("lifecycle, resource and signal operations", () => {
       });
     }
     expect(fake.calls.filter((c) => c.path === "/servers")).toHaveLength(1);
+  });
+
+  it("the degraded signal counts bare unhealthy, never exited with any health suffix", async () => {
+    const on = { server: { uuid: "srv-vps1-uuid", name: "vps1" } };
+    const app = (id: number, status: string) => ({
+      id,
+      uuid: `app-${id}-uuid`,
+      name: `app-${id}`,
+      status,
+      destination: on,
+    });
+    const { harness, id } = await start({
+      overrides: {
+        "GET /applications": {
+          json: [
+            app(31, "exited:unhealthy"),
+            app(32, "exited:healthy"),
+            app(33, "exited"),
+            app(34, "unhealthy"),
+          ],
+        },
+        "GET /services": { json: [] },
+        "GET /databases": { json: [] },
+      },
+    });
+    link(harness, id, "srv-vps1-uuid", 7);
+    const outcome = await harness.mock.ctx.operations.run(
+      "coolify.signal-degraded",
+      { hostId: 7 },
+    );
+    expect(outcome.data).toMatchObject({ value: 1, status: "warn" });
   });
 
   it("the server signal reads reachability and an unlinked host is unknown", async () => {

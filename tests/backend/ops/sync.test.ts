@@ -78,7 +78,7 @@ describe("host sync operations", () => {
       "srv-web1": "created",
       "srv-web2": "created",
       "srv-local": "needs-address",
-      "srv-vps1": "needs-tunnel-support",
+      "srv-vps1": "needs-ssh-terminal",
     });
     expect(outcome.changed).toBe(true);
     expect(await h.mock.ctx.hosts.listOwned()).toHaveLength(2);
