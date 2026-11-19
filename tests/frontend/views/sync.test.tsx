@@ -10,6 +10,13 @@ import * as plugin from "../../../src/frontend/index";
 import manifestJson from "../../../manifest.json";
 import locales from "../../../locales/en.json";
 
+// The actor's Termix credentials, as the credential picker reads them.
+const credentialList = vi.hoisted(() => vi.fn(async () => [] as unknown[]));
+vi.mock("@termix-ssh/plugin-sdk/frontend", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  listCredentials: credentialList,
+}));
+
 const manifest = manifestJson as unknown as PluginManifest;
 const S = locales.sync;
 const ALL = ["coolify.view", "coolify.configure"];
@@ -91,14 +98,14 @@ const rows = [
   row(server("srv-old", "old-box", ""), { status: "gone", hostId: 9 }),
 ];
 
-function stubApi() {
+function stubApi(serverRows: unknown[] = rows) {
   const mocks = {
     get: vi.fn(async (url: string) => ({
       data:
         url === "/connections"
           ? [connection]
           : url === "/connections/1/servers"
-            ? rows
+            ? serverRows
             : connection,
     })),
     post: vi.fn(async (url: string) => ({
@@ -250,6 +257,56 @@ describe("sync view", () => {
       within(old).getByRole("button", { name: S.removeHost }),
     ).toBeTruthy();
   });
+
+  it("every server still in Coolify takes an address override", async () => {
+    const { api, tab } = await openSync();
+    const web1 = rowOf(tab, "web-1");
+    const address = within(web1).getByPlaceholderText("203.0.113.11");
+    fireEvent.change(address, { target: { value: "10.0.0.9" } });
+    expect(includeBox(tab, "web-1").hasAttribute("disabled")).toBe(false);
+    expect(within(rowOf(tab, "old-box")).queryByText(S.address)).toBeNull();
+
+    fireEvent.click(within(tab).getByRole("button", { name: S.apply }));
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        "/connections/1/sync",
+        expect.anything(),
+      ),
+    );
+    const [, body] = api.post.mock.calls.find(([url]) =>
+      String(url).endsWith("/sync"),
+    ) as unknown as [string, { choices: any[] }];
+    expect(body.choices.find((c) => c.uuid === "srv-web1")).toEqual({
+      uuid: "srv-web1",
+      include: true,
+      addressOverride: "10.0.0.9",
+    });
+  });
+
+  it.each(["credential-not-found", "credential-check-failed"])(
+    "a stored credential in state %s offers the credential picker",
+    async (cause) => {
+      credentialList.mockResolvedValue([
+        { id: 7, name: "own credential 7", authType: "key" },
+      ]);
+      const stale = row(server("srv-app", "app-1", "203.0.113.30"), {
+        status: "blocked",
+        cause,
+        mode: "termix",
+        credentialId: 42,
+      });
+      const { tab } = await openSync(stubApi([...rows, stale]));
+      const app = rowOf(tab, "app-1");
+      expect(within(app).getByText(S.causes[cause])).toBeTruthy();
+      expect(within(app).getByText(S.credential)).toBeTruthy();
+      await waitFor(() => expect(credentialList).toHaveBeenCalled());
+      // A deleted credential needs a new pick; one that couldn't be checked
+      // may be tried again as it is.
+      expect(includeBox(tab, "app-1").hasAttribute("disabled")).toBe(
+        cause === "credential-not-found",
+      );
+    },
+  );
 });
 
 describe("the Servers section", () => {

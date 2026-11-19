@@ -427,6 +427,7 @@
     "include": "Include",
     "address": "Address Termix uses",
     "addressHint": "Coolify reaches this server as {{ip}}, which Termix can't use. Enter the address Termix should connect to.",
+    "addressOptionalHint": "Optional. Leave empty to connect to {{ip}}, the address Coolify uses.",
     "useSuggested": "Use {{address}}",
     "credential": "Termix credential",
     "credentialHint": "Coolify's key for this server can't be copied, so pick one of your Termix credentials.",
