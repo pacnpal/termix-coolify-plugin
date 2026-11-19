@@ -973,12 +973,9 @@ Both sources feed one pipeline, deduped by `deployment_uuid` or `(event, resourc
        - Server events: `GET /servers/{uuid}`.
        - Team-wide events (API token expiring, vulnerability digest, test): `GET /team`.
        - Only a 200 lets the event through.
-       - The cached resource list is used only to skip connections that clearly can't see the subject. A
-         cache hit never lets an event through on its own, so a token that lost access since the cache was
-         filled gets nothing.
-       - A subject missing from the cache skips a connection only while that cache is at most 60 seconds
-         old. Older than that, the live `GET` decides, so a resource created since the last refresh still
-         gets its events.
+       - The resource cache plays no part in this decision. Every connection with that `instanceKey` gets
+         the live `GET`, so a cache hit can't let an event through and a cache miss can't drop one: a
+         resource created just before its first event still gets it.
      - **Fail closed.** A 401, 403 or 404, a timeout or any other error drops the event for that connection.
        It's never stored or emitted there. A failed check is not retried for a webhook event, so a dropped event can be lost for that connection. Polling, when it's on, catches up only on deployment and resource status changes (plus backups and tasks every five minutes), not on every kind of webhook event.
      - These checks count against the per-connection request budget. Webhook events are infrequent, and an
