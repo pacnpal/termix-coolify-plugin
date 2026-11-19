@@ -220,8 +220,10 @@ aren't obvious from the code, and anything that has bitten you before.
   in-flight fetch from before the action is dropped.
 - MCP may deploy and restart without `allowMcpChanges` (`MCP_CHANGES_EXEMPT` in `mcp/server.ts`).
 - Signals (`src/backend/ops/signals.ts`) read resources from the resources cache and server statuses from a
-  `servers` cache kind (a minute, no addresses or keys kept). The degraded count is `countResources`, so
-  exited (with any health suffix) is stopped and never counts; bare `unhealthy` does. Updates come from
-  Coolify's own patch check (`ServerDto.patch.security`) until the updates service exists. The deployment
-  events are emitted only by a deploy run with `wait`; container-restarted and server-unreachable are
-  declared for later polling.
+  `servers` cache kind (a minute, no addresses or keys kept). That cache works like the resources cache:
+  rows carry `connections.revision(id)` and a hit needs the current one, in-flight fetches are keyed by
+  id and revision, and a fetch is cached only if the revision didn't change while it ran. The degraded
+  count is `countResources`, so exited (with any health suffix) is stopped and never counts; bare
+  `unhealthy` does. Updates come from Coolify's own patch check (`ServerDto.patch.security`) until the
+  updates service exists. The deployment events are emitted only by a deploy run with `wait`;
+  container-restarted and server-unreachable are declared for later polling.

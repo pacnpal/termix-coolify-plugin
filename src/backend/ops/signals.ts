@@ -20,6 +20,12 @@ interface ServerStatus {
   security: number | null;
 }
 
+/** A cached server list and the connection revision it was read under. */
+interface CachedServers {
+  revision: string;
+  rows: ServerStatus[];
+}
+
 function statusOf(s: ServerDto): ServerStatus {
   return {
     uuid: s.uuid,
@@ -60,30 +66,44 @@ export function registerSignalOperations(
   const { connections, resources, sync } = deps;
   const cache = createCache(ctx, deps.tables);
   const now = deps.now ?? Date.now;
-  const inflight = new Map<number, Promise<ServerStatus[]>>();
+  // One fetch per connection revision at a time; a caller after a target
+  // change never joins a fetch that started before it.
+  const inflight = new Map<string, Promise<ServerStatus[]>>();
 
   async function servers(connectionId: number): Promise<ServerStatus[]> {
-    // The access check comes before the cache, as in resources.
-    if (!(await connections.access(connectionId))) {
-      throw new Error("No access to this connection");
-    }
-    const hit = await cache.fresh<ServerStatus[]>(
+    // revision() checks access before the cache, as in resources, and names
+    // the target, so rows read from an old address or token are never served.
+    const revision = await connections.revision(connectionId);
+    if (!revision) throw new Error("No access to this connection");
+    const hit = await cache.fresh<Partial<CachedServers>>(
       connectionId,
       SERVERS_CACHE_KIND,
       SERVERS_TTL_MS,
       now(),
     );
-    if (hit && Array.isArray(hit.value)) return hit.value;
-    const pending = inflight.get(connectionId);
+    const value = hit?.value;
+    if (value?.revision === revision && Array.isArray(value.rows)) {
+      return value.rows;
+    }
+    const key = `${connectionId}:${revision}`;
+    const pending = inflight.get(key);
     if (pending) return pending;
     const started = (async () => {
       const list = (await (await connections.api(connectionId)).servers()).map(
         statusOf,
       );
-      await cache.write(connectionId, SERVERS_CACHE_KIND, list, now());
+      // Cached only while the connection still has the revision the fetch
+      // started under. The row carries it too, so a change that lands after
+      // this check still never serves it.
+      if ((await connections.revision(connectionId)) === revision) {
+        const row: CachedServers = { revision, rows: list };
+        await cache.write(connectionId, SERVERS_CACHE_KIND, row, now());
+      }
       return list;
-    })().finally(() => inflight.delete(connectionId));
-    inflight.set(connectionId, started);
+    })().finally(() => {
+      if (inflight.get(key) === started) inflight.delete(key);
+    });
+    inflight.set(key, started);
     return started;
   }
 
