@@ -630,13 +630,22 @@ From an unlinked host's context menu or the Servers section ("Add a Termix host"
 3. Over `ctx.ssh.exec`, append the public key to the SSH user's `~/.ssh/authorized_keys`, idempotently and
    with correct permissions. The key is sent on stdin, never in argv.
 4. `POST /security/keys` with the generated private key, which is held in memory only.
-5. `POST /servers` with name, ip, port, user, private key uuid and `instant_validate: true`.
-6. Poll `GET /servers/{uuid}` until `is_reachable` and `is_usable`, or show the validation logs.
-7. Link: the existing Termix host becomes a linked host. It isn't recreated, and it isn't locked unless the
+5. Ask "Is this host reached through a Cloudflare tunnel?" **before** creating anything in Coolify. The
+   plugin can't read SSH Terminal's tunnel settings on the host (a plugin only sees its own host
+   settings), so the person answers. When the host's address looks like a tunnel hostname, prefill "yes".
+6. `POST /servers` with name, ip (the tunnel hostname when tunnelled), port, user, private key uuid and
+   `instant_validate: false`.
+7. If tunnelled, turn on Coolify's tunnel mode for the server (`PATCH /servers/{uuid}/cloudflare-tunnel` with
+   `is_cloudflare_tunnel: true`, or `POST …/cloudflare-tunnel/enable` where that fits the setup).
+   - This must happen before validation: plain SSH validation can't reach a tunnel-only host.
+   - Warn that Coolify runs `cloudflared access ssh` without a service token, so the tunnel hostname must
+     not sit behind a Cloudflare Access app that needs one.
+   - Coolify's managed tunnel creation needs a Cloudflare integration token on the Coolify side, which is
+     linked from the DNS section.
+8. `POST /servers/{uuid}/validate`, then poll `GET /servers/{uuid}` until `is_reachable` and `is_usable`. On
+   failure, show the validation logs, with the tunnel warning above when tunnelled.
+9. Link: the existing Termix host becomes a linked host. It isn't recreated, and it isn't locked unless the
    user opts in. Store the credential as mode A.
-8. Offer "Behind a Cloudflare tunnel?". If the host already uses SSH Terminal's tunnel settings, call
-   Coolify's `cloudflare-tunnel` endpoints so Coolify knows. Coolify's managed tunnel creation needs a
-   Cloudflare integration token on the Coolify side, which is linked from the DNS section.
 
 ### The Coolify tab
 
@@ -772,9 +781,21 @@ Coolify's 422 field errors map back onto fields.
    6. Uses `docker attach` mode when the container has `OpenStdin` and the user picks attach.
 2. For `db`, it builds the native client for the engine: `psql`, `mysql`/`mariadb`, `mongosh`, `redis-cli`,
    `keydb-cli`, `clickhouse-client` or `sqlite3`.
-   - Passwords go through `docker exec -e` from a short script sent on stdin to `sh -s`. They are never
-     in argv or the frontend.
-   - This needs `read:sensitive`. Without it, fall back to a plain shell with a note.
+   - **No password ever leaves the server.** The command is returned to the browser and run by
+     `terminal.view`, so it must hold no secret. Coolify already sets each database container's
+     credentials in its own environment (`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`,
+     `MYSQL_ROOT_PASSWORD`, `MARIADB_ROOT_PASSWORD`, `MONGO_INITDB_ROOT_USERNAME`,
+     `MONGO_INITDB_ROOT_PASSWORD`, `REDIS_PASSWORD` and so on). So the console runs inside the container
+     and reads them there.
+     - For example: `docker exec -it <c> sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -U
+"$POSTGRES_USER" "$POSTGRES_DB"'`.
+     - The `$` references expand inside the container, never in Termix or the browser.
+     - The variable names per engine are a per-engine table. The builder confirms them against Coolify's
+       `StartPostgresql`, `StartMysql` and the other start actions, and against the owner's live containers
+       (`docker inspect` over SSH, names only).
+   - This needs no `read:sensitive` and no secret handoff.
+   - When an engine's container has no usable credential variable (for example custom images), fall back to
+     a plain shell with a note. Never pass a password through the returned command.
 3. The response is `{ hostId, title, command }`, with everything built through `shellQuote`. Names are
    accepted only if they match `[A-Za-z0-9_.-]+`.
 4. The frontend opens the `coolify-shell` tab, which renders `PluginComponent id="terminal.view"` with
