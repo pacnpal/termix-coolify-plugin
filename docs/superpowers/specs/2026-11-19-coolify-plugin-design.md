@@ -192,7 +192,8 @@ these sections.
   `GET /services` validation errors and Coolify's template list. The builder confirms the source; if
   there's no API list, ship the template id list vendored with the spec.
 - Per-part start, stop, restart, logs and PATCH (image, domains, excluded-from-status).
-- Database imports for service databases: upload, start, status.
+- Database imports for service databases: start and status, with the same sources as standalone databases
+  below.
 - Where it surfaces: same as applications, with parts as child rows.
 
 **Databases (44)**
@@ -202,7 +203,8 @@ these sections.
 - Detail and PATCH, including public port and image. Start, stop, restart, delete and clone.
 - Move and migrate, envs, storages, tags and logs.
 - Scheduled backups: CRUD, executions list, delete an execution, run now via create.
-- Imports: upload a dump (multipart, through our route, streamed), start the import, poll its status.
+- Imports: start an import from a file already on the server (`source: server`) or from an S3 storage
+  (`source: s3`), then poll its status. See "Database imports" for why there's no browser upload.
 - Where it surfaces: the tab, the native database console in the terminal, backups views, Operations, and
   alerts on backup failure.
 
@@ -504,7 +506,8 @@ Not used, deliberately:
     policy, alert preferences and a webhook secret.
   - Tokens are sealed in our own table (`ctx.secrets.seal`), so background polling can use them with no
     actor.
-- **Grant:** the owner may share a connection with Termix users or roles at a level:
+- **Grant:** the owner may share a connection with individual Termix users (picked with
+  `ctx.hosts.listUsers`) at a level:
   - `view`: read everything except secret reveals.
   - `operate`: view plus start, stop, restart, deploy, cancel, run tasks and backups, and shells. Shells
     still need Termix host `connect` access.
@@ -547,7 +550,7 @@ says no. Admins can tighten the defaults per role in Termix.
 | `notify:send`                    | medium       | Alerts                                                                    |
 | `events:core`                    | medium       | `host.deleted`, `host.updated`                                            |
 | `plugins:read`                   | low          | Detect SSH Terminal and Docker so features degrade cleanly                |
-| `users:read`                     | medium       | Show grantee names, send alerts in the grantee's language                 |
+| `users:read`                     | medium       | Send alerts in the grantee's language (`users.getLocale`)                 |
 
 `ssh:connect` is the only high-risk capability, and it's required for anything container-level, because
 Coolify has no exec API.
@@ -798,8 +801,14 @@ Both sources feed one pipeline, deduped by `deployment_uuid` or `(event, resourc
 1. **Webhook** (instant):
    - `POST /plugin-api/coolify/webhook/:token` with a 32-byte random token, stored as a sha256 hash and
      constant-time compared.
+   - Coolify allows one webhook per team, so there is **one webhook per Coolify team per Termix install**
+     (`webhooks` table, keyed by `instanceKey`), not one per connection. An event fans out to every
+     connection with that `instanceKey`. Each connection then applies its own alert preferences and grants.
    - Body limit 64 KB, strict shape. It answers 200 fast and never echoes input.
-   - Setup can write it into Coolify (Notifications, webhook) with one click.
+   - One-click setup reads the team's current webhook first.
+     - Unset, or already ours: it writes it.
+     - Set to something else: it shows the current URL and asks before replacing it, because Coolify can
+       only send to one place. Declining leaves polling on.
    - The UI warns that Coolify refuses private addresses.
 2. **Polling** (fallback; on by default until a webhook arrives, then optional):
    - Schedule `coolify-poll` every 60 seconds or more, with jitter.
@@ -808,8 +817,8 @@ Both sources feed one pipeline, deduped by `deployment_uuid` or `(event, resourc
    - `ctx.schedule.keepAwake` keeps it up only while something polls.
    - Backoff after failures is 1, 2, 5 and then 15 minutes, with the last error shown on the connection.
 3. **Event output:**
-   - Alerts go to the owner and to grantees with `coolify.view`, filtered by the kinds each person
-     picked.
+   - Alerts go to the owner and to each granted user who has `coolify.view`, filtered by the kinds each
+     person picked.
    - The event goes to `ctx.operations.emit`, with `hostId` when linked.
    - It's added to the event log, pruned to 1000 per connection.
    - Default alert kinds: deploy failed, restart limit, server unreachable, backup failed, task failed, high
@@ -819,12 +828,16 @@ Both sources feed one pipeline, deduped by `deployment_uuid` or `(event, resourc
 
 - **`connections`:**
   - `id`, `userId` (refUser), `name`, `baseUrl`, `tokenSealed`, `cfAccessIdSealed`, `cfAccessSecretSealed`
-  - `allowPrivate`, `caCert`, `webhookTokenHash` (varchar 64, indexed)
+  - `allowPrivate`, `caCert`
+  - `instanceKey` (varchar 255, indexed): the normalized base URL plus the Coolify team id, used to group
+    connections to the same team
   - `pollEnabled`, `autoSync`, `alertKinds` (json)
   - `abilities` (json), `coolifyVersion`, `teamName`
   - `lastError`, `lastCheckedAt`, `createdAt`
-- **`grants`:** `id`, `connectionId`, `targetType` (user or role), `targetId`, `level`, `createdAt`. Unique on
-  (`connectionId`, `targetType`, `targetId`).
+- **`grants`:** `id`, `connectionId`, `userId` (refUser), `level`, `createdAt`. Unique on (`connectionId`,
+  `userId`). Users only, not roles: see "Decisions settled during review".
+- **`webhooks`:** `id`, `instanceKey` (unique), `tokenHash` (varchar 64, indexed), `createdByUserId`,
+  `lastReceivedAt`. One per Coolify team, shared by every connection with that `instanceKey`.
 - **`servers`:**
   - `id`, `connectionId`, `serverUuid` (unique with `connectionId`), `hostId` (refHost, nullable)
   - `addressOverride`, `credentialMode`, `credentialId`, `keyFingerprint`, `lastSyncedAt`
@@ -876,8 +889,9 @@ Everything goes through `ctx.db.persist()`, lazily for cache, events and recent.
 - **Webhook:** token-in-path (hashed), size limit, strict parse. `authz.json` declares `access: public`.
 - **Ownership and grants:** checked on every route through `resolveAccess`. Host access is checked before any
   SSH. Another user's connection answers 404.
-- **Uploads** (database import): streamed through our route to Coolify's upload endpoint, with a size cap
-  from admin settings and never stored on disk. Uses `bodyLimit` on that router only.
+- **Database imports:** the plugin never carries dump files. The user puts the file on the server with
+  Termix's file manager (SFTP on the linked host), or it's already in S3. The plugin only passes a server
+  path or an S3 path to Coolify. A server path is checked with `test -f` over SSH, through `shellQuote`.
 - **Typed confirmation:** required for deleting servers, databases, volumes and projects with resources.
 
 ### Settings
@@ -885,7 +899,7 @@ Everything goes through `ctx.db.persist()`, lazily for cache, events and recent.
 - **Admin:**
   - "Allow polling" (on), "Minimum poll interval" (60s), "Allow copying Coolify SSH keys" (on; off forces
     mode B).
-  - "Allow sharing connections" (on), "Maximum import upload size" (512 MB).
+  - "Allow sharing connections" (on).
   - "Allow cloud provisioning" (on).
 - **Host (hidden):** `coolifyConnectionId` and `coolifyServerUuid`.
 - Everything else is per connection.
@@ -951,6 +965,37 @@ reason.
 | `repository`  | https://github.com/pacnpal/termix-coolify-plugin                                                                                                                      |
 | `docs`        | the repo's `docs/`                                                                                                                                                    |
 | `engine`      | `termix >=26.11.2-0`, `api ^2.7.0` (frames embedding other plugins' parts, needed for `terminal.view`)                                                                |
+
+### Database imports
+
+Coolify (v4.7.5 and newer) imports a dump from three sources: `upload`, `s3` and `server`. The plugin uses
+`server` and `s3` only.
+
+- **From the server:** the Import form has a path field and a "Browse" list of the linked host's files. The
+  list runs `ls` over SSH in a folder the user picks, defaulting to `/tmp`. A "Put a file there" button opens
+  Termix's file manager on that host, if it's installed, so the user can upload with SFTP. The plugin then
+  posts `{ source: "server", path }` along with the engine options (`dump_all`, `replace_existing`,
+  `keep_owners`, `restore_mysql_users`, `sqlite_database`), and polls the import status.
+- **From S3:** pick one of the team's S3 storages and a path.
+- **`upload` is not used.** `ctx.fetch` only sends string bodies, so the plugin can't send a binary multipart
+  stream. Holding a large dump in memory would also break the plugin process's memory cap.
+
+## Decisions settled during review
+
+A reviewer read this design as the builder would. These are the calls made from its questions. Each is
+marked as mine for the owner to check.
+
+1. **Connections are shared with users only, not roles** (my call). Termix plugins have no way to see who
+   is in a role unless they take `db:core-refs`, a high-risk capability. That would break "stay inside what
+   Termix allows, with the fewest capabilities". The owner shares with each person instead. Admins can
+   still limit the plugin's permissions per role in Termix.
+2. **One webhook per Coolify team, shared across connections** (my call). Coolify sends to only one URL per
+   team, so a webhook per connection would silently steal events from each other. Events fan out to every
+   connection for that team. Setup asks before replacing a webhook URL it didn't set.
+3. **Two people connecting the same Coolify each get their own hosts** (my call). Termix hosts belong to
+   one user, so that is how Termix works. The recommended way for a team is one connection, shared with
+   the others, along with its linked hosts.
+4. **Database imports come from a server path or S3, not a browser upload** (my call; reasons above).
 
 ## Gaps (what neither API allows, and what we do instead)
 
