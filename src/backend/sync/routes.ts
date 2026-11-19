@@ -113,6 +113,10 @@ export function registerSyncRoutes(
    *         description: Missing coolify.view or coolify.configure, or not the owner
    *       404:
    *         description: No such connection, or another user's
+   *       409:
+   *         description: >-
+   *           target-changed: the connection's address, token, Access token or
+   *           TLS settings changed during the sync. Nothing more was written.
    *       502:
    *         description: Coolify answered with an error, with its cause
    */

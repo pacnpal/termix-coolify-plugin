@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PluginHostCreateInput } from "@termix-ssh/plugin-sdk/backend";
 import type { PluginHarness } from "../helpers/plugin.js";
 import { withRunHistory } from "../helpers/run-history.js";
-import { startWithConnection } from "./fixtures.js";
+import { server, startWithConnection, syncCoolify } from "./fixtures.js";
 
 // Obviously fake Cloudflare Access service token. Tests scan for both values.
 const FAKE_ACCESS = {
@@ -122,6 +122,8 @@ describe("tunnelled servers through SSH Terminal", () => {
       cloudflareTunnelEnabled: true,
       cloudflareTunnelHostname: "ssh-vps1.example.test",
       cloudflareTunnelPort: 443,
+      cloudflareTunnelClientId: "",
+      cloudflareTunnelClientSecret: "",
     });
     expect(byUuid(await preview(h, connectionId), "srv-vps1").status).toBe(
       "linked",
@@ -207,5 +209,207 @@ describe("tunnelled servers through SSH Terminal", () => {
     ]);
     expect(seen).not.toContain(FAKE_ACCESS.secret);
     expect(seen).not.toContain(FAKE_ACCESS.id);
+  });
+});
+
+// A second fake Access token, the one a mid-sync change stores.
+const NEW_ACCESS = {
+  id: "fake-access-client-id-new-target.access",
+  secret: "fake-access-client-secret-new-target",
+};
+const NEW_BASE = "https://coolify-new.example.test";
+
+/** A promise the test settles by hand, to hold a call in flight. */
+function deferred<T = void>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+/**
+ * The sync fake, answering the new address like the old one, with a gate
+ * that holds the next server list read until the test opens it.
+ */
+function gatedCoolify() {
+  const fake = syncCoolify();
+  let gate: { reached: () => void; open: Promise<void> } | null = null;
+  const fetch: typeof fake.fetch = async (url, init) => {
+    const same = url.replace(NEW_BASE, "https://coolify.example.test");
+    if (gate && /\/api\/v1\/servers(\?|$)/.test(same)) {
+      const held = gate;
+      gate = null;
+      held.reached();
+      await held.open;
+    }
+    return fake.fetch(same, init);
+  };
+  return {
+    fake: { ...fake, fetch },
+    /** Holds the next server list read; resolves once it is held. */
+    holdServers() {
+      const reached = deferred();
+      const open = deferred();
+      gate = { reached: () => reached.resolve(), open: open.promise };
+      return { reached: reached.promise, open: () => open.resolve() };
+    },
+  };
+}
+
+describe("a sync works on one snapshot of the connection's target", () => {
+  it("a target changed while the sync reads servers ends it with target-changed and writes nothing", async () => {
+    const gated = gatedCoolify();
+    const { harness: h, connectionId } = await start({
+      fake: gated.fake,
+      sshTerminal: "1.2.0",
+      cfAccess: FAKE_ACCESS,
+    });
+    const create = vi.spyOn(h.mock.ctx.hosts, "create");
+    const update = vi.spyOn(h.mock.ctx.hosts, "update");
+    const id = String(connectionId);
+
+    const held = gated.holdServers();
+    const syncing = h.request("POST", `/connections/${id}/sync`, {
+      choices: BOTH,
+    });
+    await held.reached;
+    // Connection updates take their own lock, not the sync queue.
+    const changed = await h.request("PATCH", `/connections/${id}`, {
+      baseUrl: NEW_BASE,
+      cfAccessId: NEW_ACCESS.id,
+      cfAccessSecret: NEW_ACCESS.secret,
+    });
+    expect(changed.status).toBe(200);
+    held.open();
+
+    const res = await syncing;
+    expect(res.status).toBe(409);
+    expect(res.body.cause).toBe("target-changed");
+    expect(create).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    const hosts = JSON.stringify(await h.mock.ctx.hosts.listOwned());
+    expect(hosts).not.toContain(NEW_ACCESS.secret);
+    expect(hosts).not.toContain(NEW_ACCESS.id);
+    expect(JSON.stringify(res.body)).not.toContain(NEW_ACCESS.secret);
+  });
+
+  it("a tunnelled host gets the snapshot's token, even if the token changes mid-sync", async () => {
+    const { harness: h, connectionId } = await start({
+      sshTerminal: "1.2.0",
+      cfAccess: FAKE_ACCESS,
+    });
+    const id = String(connectionId);
+    const hosts = h.mock.ctx.hosts;
+    const original = hosts.create.bind(hosts);
+    const firstWrite = deferred();
+    const resume = deferred();
+    let writes = 0;
+    const create = vi
+      .spyOn(hosts, "create")
+      .mockImplementation(async (input) => {
+        if (++writes === 1) {
+          firstWrite.resolve();
+          await resume.promise;
+        }
+        return original(input);
+      });
+
+    const syncing = h.request("POST", `/connections/${id}/sync`, {
+      choices: BOTH,
+    });
+    // The first host write is under way, so the target check has passed.
+    await firstWrite.promise;
+    const changed = await h.request("PATCH", `/connections/${id}`, {
+      cfAccessId: NEW_ACCESS.id,
+      cfAccessSecret: NEW_ACCESS.secret,
+    });
+    expect(changed.status).toBe(200);
+    resume.resolve();
+
+    const res = await syncing;
+    expect(res.status).toBe(200);
+    expect(byUuid(res.body, "srv-vps1").status).toBe("created");
+    const vps = create.mock.calls
+      .map(([input]) => input)
+      .find((input) => input.ip === "ssh-vps1.example.test");
+    expect(sshTerminalOf(vps!)).toMatchObject({
+      cloudflareTunnelClientId: FAKE_ACCESS.id,
+      cloudflareTunnelClientSecret: FAKE_ACCESS.secret,
+    });
+    expect(JSON.stringify(create.mock.calls)).not.toContain(NEW_ACCESS.secret);
+  });
+});
+
+describe("a re-sync turns off tunnel settings that no longer apply", () => {
+  const VPS_ONLY = [{ uuid: "srv-vps1", include: true }];
+
+  /** Syncs the tunnelled server once, with the Access token, and returns its host id. */
+  async function syncTunnelled() {
+    const started = await start({
+      sshTerminal: "1.2.0",
+      cfAccess: FAKE_ACCESS,
+    });
+    const first = await apply(started.harness, started.connectionId, VPS_ONLY);
+    const hostId = byUuid(first, "srv-vps1").hostId as number;
+    expect(hostId).toBeGreaterThan(0);
+    return { ...started, hostId };
+  }
+
+  function lastUpdate(
+    update: { mock: { calls: unknown[][] } },
+    hostId: number,
+  ) {
+    const call = update.mock.calls.filter(([id]) => id === hostId).at(-1);
+    if (!call) throw new Error(`no update of host ${hostId}`);
+    return call[1] as PluginHostCreateInput;
+  }
+
+  it("a removed Access token is written as empty on the tunnelled host", async () => {
+    const { harness: h, connectionId, hostId } = await syncTunnelled();
+    const cleared = await h.request("PATCH", `/connections/${connectionId}`, {
+      cfAccessId: null,
+      cfAccessSecret: null,
+    });
+    expect(cleared.status).toBe(200);
+    const update = vi.spyOn(h.mock.ctx.hosts, "update");
+
+    const results = await apply(h, connectionId, VPS_ONLY);
+    expect(byUuid(results, "srv-vps1").status).toBe("updated");
+    expect(sshTerminalOf(lastUpdate(update, hostId))).toEqual({
+      cloudflareTunnelEnabled: true,
+      cloudflareTunnelHostname: "ssh-vps1.example.test",
+      cloudflareTunnelPort: 443,
+      cloudflareTunnelClientId: "",
+      cloudflareTunnelClientSecret: "",
+    });
+  });
+
+  it("a server that is no longer tunnelled has its tunnel turned off and cleared", async () => {
+    const { harness: h, fake, connectionId, hostId } = await syncTunnelled();
+    fake.set("GET /servers", {
+      json: [server("srv-vps1", "vps1", "203.0.113.40")],
+    });
+    const update = vi.spyOn(h.mock.ctx.hosts, "update");
+
+    const results = await apply(h, connectionId, VPS_ONLY);
+    expect(byUuid(results, "srv-vps1").status).toBe("updated");
+    const input = lastUpdate(update, hostId);
+    expect(input.ip).toBe("203.0.113.40");
+    expect(sshTerminalOf(input)).toEqual({
+      cloudflareTunnelEnabled: false,
+      cloudflareTunnelHostname: "",
+      cloudflareTunnelClientId: "",
+      cloudflareTunnelClientSecret: "",
+    });
+    // Only the tunnel keys and the plugin's own link settings are written.
+    expect(Object.keys(input.pluginSettings ?? {}).sort()).toEqual([
+      "coolify",
+      "ssh-terminal",
+    ]);
+    expect(input.pluginSettings?.coolify).toEqual({
+      coolifyConnectionId: String(connectionId),
+      coolifyServerUuid: "srv-vps1",
+    });
+    expect(input.pluginEnable).toEqual({ coolify: true });
+    expect(JSON.stringify(input)).not.toContain(FAKE_ACCESS.secret);
   });
 });

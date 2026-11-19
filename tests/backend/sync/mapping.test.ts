@@ -83,6 +83,12 @@ describe("planHost", () => {
         coolifyConnectionId: "4",
         coolifyServerUuid: "srv-web-uuid",
       },
+      "ssh-terminal": {
+        cloudflareTunnelEnabled: false,
+        cloudflareTunnelHostname: "",
+        cloudflareTunnelClientId: "",
+        cloudflareTunnelClientSecret: "",
+      },
     });
     expect(plan.input.pluginEnable).toEqual({ coolify: true });
     expect(plan.input.notes).toContain(
@@ -136,6 +142,8 @@ describe("planHost", () => {
         cloudflareTunnelEnabled: true,
         cloudflareTunnelHostname: "ssh-vps1.example.test",
         cloudflareTunnelPort: 443,
+        cloudflareTunnelClientId: "",
+        cloudflareTunnelClientSecret: "",
       },
     });
   });
@@ -152,11 +160,24 @@ describe("planHost", () => {
     });
   });
 
-  it("a plain server never gets ssh-terminal settings, even with an Access token", () => {
+  it("a plain server gets SSH Terminal's tunnel turned off, never the Access token", () => {
     const plan = planHost(plain, { ...base, cfAccess: FAKE_ACCESS });
     if (!plan.ok) throw new Error("expected a plan");
-    expect(JSON.stringify(plan)).not.toContain("ssh-terminal");
+    expect(plan.input.pluginSettings?.["ssh-terminal"]).toEqual({
+      cloudflareTunnelEnabled: false,
+      cloudflareTunnelHostname: "",
+      cloudflareTunnelClientId: "",
+      cloudflareTunnelClientSecret: "",
+    });
     expect(JSON.stringify(plan)).not.toContain(FAKE_ACCESS.secret);
+    expect(JSON.stringify(plan)).not.toContain(FAKE_ACCESS.id);
+
+    // Without SSH Terminal running there is nothing of its to write.
+    const without = planHost(plain, {
+      ...base,
+      sshTerminal: { running: false, version: null },
+    });
+    expect(JSON.stringify(without)).not.toContain("ssh-terminal");
   });
 
   it("refuses a tunnelled server without a running SSH Terminal 1.2.0 or newer", () => {

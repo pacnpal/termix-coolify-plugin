@@ -18,7 +18,6 @@ import {
   folderName,
   planHost,
   SSH_TERMINAL,
-  type PlanContext,
   type SshTerminalState,
 } from "./mapping.js";
 
@@ -249,8 +248,7 @@ export async function createSync(
     return view;
   }
 
-  async function ownedConnection(id: number): Promise<ConnectionView> {
-    const view = await connectionFor(id);
+  function requireOwner(view: ConnectionView): ConnectionView {
     if (view.access !== "owner") {
       throw new ConnectionError(
         "forbidden",
@@ -258,6 +256,25 @@ export async function createSync(
       );
     }
     return view;
+  }
+
+  async function ownedConnection(id: number): Promise<ConnectionView> {
+    return requireOwner(await connectionFor(id));
+  }
+
+  /**
+   * Fails closed unless the connection still exists, is the actor's, and
+   * points at the target a sync took its snapshot of: a new address, token,
+   * Access token or TLS setting ends the whole sync with target-changed.
+   */
+  async function assertSnapshotHolds(id: number, revision: string) {
+    await ownedConnection(id);
+    if ((await connections.revision(id)) !== revision) {
+      throw new ConnectionError(
+        "target-changed",
+        "The connection's address, token or Access settings changed during the sync. Sync again.",
+      );
+    }
   }
 
   /** Copying keys is on unless the admin turned it off, and the token reads them. */
@@ -453,9 +470,16 @@ export async function createSync(
     connectionId: number,
     choices: SyncChoice[] | null,
   ): Promise<SyncResult[]> {
-    const view = await ownedConnection(connectionId);
-    const api = await connections.api(connectionId);
+    // One snapshot of the target: the view (name, address, abilities and
+    // revision), the Coolify client and the Access token all come from one
+    // read of the connection, so a change made meanwhile can't mix in.
+    const target = await connections.snapshot(connectionId);
+    const view = requireOwner(target.view);
+    const { api } = target;
     const servers = await api.servers();
+    // The list came from the snapshot's target; a change while it was read
+    // ends the sync before any key is copied or any row is saved.
+    await assertSnapshotHolds(connectionId, view.revision);
     const rows = await rowsOf(connectionId);
     const byUuid = new Map(rows.map((r) => [r.serverUuid, r]));
     const wanted = choices && new Map(choices.map((c) => [c.uuid, c]));
@@ -481,14 +505,11 @@ export async function createSync(
     });
     const folder = folderName(view.name, (await connections.list()).length);
     const { docker, sshTerminal } = await companions();
-    // The Access token is unsealed once, and only when a tunnelled host is
-    // about to be written. It goes into that host's SSH Terminal settings
-    // and nowhere else: never a result, a log or an audit entry.
-    let cfAccess: Promise<PlanContext["cfAccess"]> | null = null;
-    const accessToken = () =>
-      (cfAccess ??= connections
-        .target(connectionId)
-        .then((target) => target.cfAccess));
+    // The snapshot's Access token is unsealed once, and only when a
+    // tunnelled host is about to be written. It goes into that host's SSH
+    // Terminal settings and nowhere else: never a result, a log or an audit
+    // entry.
+    const accessToken = target.cfAccess;
     let folderReady = false;
     const results: SyncResult[] = [];
     const checkCredential = ownCredentialCheck();
@@ -620,8 +641,9 @@ export async function createSync(
         if (!plan.ok) throw new Error("plan changed");
         if (!folderReady) {
           // Fail closed before the first host write: the connection must
-          // still exist and be the actor's. Throws, ending the whole sync.
-          await ownedConnection(connectionId);
+          // still exist, be the actor's and point at the snapshot's target.
+          // Throws, ending the whole sync.
+          await assertSnapshotHolds(connectionId, view.revision);
           await ctx.hosts.folders.ensure(folder, { icon: "Rocket" });
           folderReady = true;
         }
@@ -729,8 +751,9 @@ export async function createSync(
 
     /** Every Coolify server and the host it would become. Read only. */
     async preview(connectionId: number): Promise<SyncRow[]> {
-      const view = await connectionFor(connectionId);
-      const api = await connections.api(connectionId);
+      // The address, abilities and client come from one read, so the rows
+      // describe one target. The Access token is never read here.
+      const { view, api } = await connections.snapshot(connectionId);
       const servers = await api.servers();
       const rows = await rowsOf(connectionId);
       const byUuid = new Map(rows.map((r) => [r.serverUuid, r]));

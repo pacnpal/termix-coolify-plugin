@@ -152,15 +152,15 @@ export function planTunnel(
   if (!atLeast(ctx.sshTerminal.version, SSH_TERMINAL.minVersion)) {
     return { ok: false, cause: "ssh-terminal-too-old" };
   }
+  // A host update merges the keys it is given and keeps the rest, so a token
+  // removed from the connection is written as empty, never left out.
   const tunnel: Record<string, unknown> = {
     [SSH_TERMINAL_KEYS.enabled]: true,
     [SSH_TERMINAL_KEYS.hostname]: input.ip,
     [SSH_TERMINAL_KEYS.port]: SSH_TERMINAL.tunnelPort,
+    [SSH_TERMINAL_KEYS.clientId]: ctx.cfAccess?.id ?? "",
+    [SSH_TERMINAL_KEYS.clientSecret]: ctx.cfAccess?.secret ?? "",
   };
-  if (ctx.cfAccess) {
-    tunnel[SSH_TERMINAL_KEYS.clientId] = ctx.cfAccess.id;
-    tunnel[SSH_TERMINAL_KEYS.clientSecret] = ctx.cfAccess.secret;
-  }
   return {
     ok: true,
     input: {
@@ -202,5 +202,22 @@ export function planHost(server: ServerDto, ctx: PlanContext): HostPlan {
       ? { coolify: true, docker: true }
       : { coolify: true },
   };
-  return server.isTunnel ? planTunnel(input, ctx) : { ok: true, input };
+  if (server.isTunnel) return planTunnel(input, ctx);
+  // A Linked host keeps settings an update leaves out, so a server that was
+  // tunnelled before has its tunnel turned off and cleared here. Only the
+  // tunnel keys are written, and only while SSH Terminal runs: core skips
+  // settings for a plugin that doesn't.
+  if (ctx.sshTerminal.running) {
+    input.pluginSettings = {
+      ...input.pluginSettings,
+      // SSH Terminal's tunnel switched off, its hostname and token cleared.
+      [SSH_TERMINAL.id]: {
+        [SSH_TERMINAL_KEYS.enabled]: false,
+        [SSH_TERMINAL_KEYS.hostname]: "",
+        [SSH_TERMINAL_KEYS.clientId]: "",
+        [SSH_TERMINAL_KEYS.clientSecret]: "",
+      },
+    };
+  }
+  return { ok: true, input };
 }

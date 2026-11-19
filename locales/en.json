@@ -295,6 +295,7 @@
     }
   },
   "causes": {
+    "target-changed": "The connection's address, token or Cloudflare Access settings changed during the sync, so nothing more was written. Sync again.",
     "unreachable": "Coolify could not be reached.",
     "unauthorized": "Coolify refused the API token.",
     "api-disabled": "API access is turned off in Coolify.",
