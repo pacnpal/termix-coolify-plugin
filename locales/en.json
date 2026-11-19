@@ -192,7 +192,8 @@
       "caCertHint": "Paste a PEM certificate when Coolify uses a private CA.",
       "save": "Save and check",
       "saving": "Checking Coolify",
-      "required": "Name, URL and token are required."
+      "required": "Name, URL and token are required.",
+      "tokenPlaceholder": "Paste the API token"
     },
     "probe": {
       "title": "What the token can do",
