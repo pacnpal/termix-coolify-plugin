@@ -322,6 +322,7 @@ export function CoolifyTab({ tab, shell }: TabProps) {
           onOpen={setOpenUuid}
           onClose={() => setOpenUuid(null)}
           connectionId={connection.id}
+          revision={connection.revision ?? null}
           canOperate={canOperate && OPERATE_ACCESS.has(connection.access)}
           onChanged={() => void resources.reload(true)}
           onShell={(resource, console) => {

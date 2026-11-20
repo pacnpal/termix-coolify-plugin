@@ -88,9 +88,11 @@ function OverviewTab({
   onOpen,
   lifecycle,
   connectionId,
+  revision,
 }: {
   t: T;
   connectionId: number;
+  revision: string | null;
   resource: Resource;
   rows: readonly Resource[];
   onOpen: (uuid: string) => void;
@@ -144,6 +146,7 @@ function OverviewTab({
         <CompanionActions
           connectionId={connectionId}
           resource={resource}
+          revision={revision}
           shell={tabs}
         />
       </div>
@@ -216,6 +219,7 @@ export function ResourceDetail({
   canOperate,
   onChanged,
   onShell,
+  revision,
 }: {
   /** Null when the resource is gone from the list. */
   resource: Resource | null;
@@ -229,6 +233,8 @@ export function ResourceDetail({
   onChanged: () => void;
   /** Opens a coolify-shell tab for the resource. */
   onShell?: (resource: Resource, console: "shell" | "db") => void;
+  /** The connection's target hash, which keys the companion views. */
+  revision?: string | null;
 }) {
   const { t } = useTranslation();
   const runner = useLifecycle(connectionId, onChanged);
@@ -248,6 +254,7 @@ export function ResourceDetail({
             onOpen={onOpen}
             lifecycle={lifecycle}
             connectionId={connectionId}
+            revision={revision ?? null}
           />
         );
         break;

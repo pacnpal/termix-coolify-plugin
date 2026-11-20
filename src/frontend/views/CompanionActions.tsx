@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Database, Globe, Search, Trash2, Activity } from "lucide-react";
 import {
   usePermission,
@@ -61,14 +61,55 @@ const MONITOR_TONE: Record<UptimeMonitor["status"], StatusTone> = {
   unknown: "idle",
 };
 
+/**
+ * One view's answer, kept with the target it was read for (connection,
+ * resource uuid and revision) and guarded by a request generation: a new
+ * target or a newer request drops every answer still on its way, and another
+ * target's answer is never shown.
+ */
+export function useTargetAnswer<T>(target: string) {
+  const [state, setState] = useState<{ target: string; value: T | null }>({
+    target,
+    value: null,
+  });
+  const generation = useRef(0);
+  const current = useRef(target);
+  if (current.current !== target) {
+    current.current = target;
+    generation.current += 1;
+  }
+  /** Starts a request; the answer it returns lands only while it is the newest. */
+  const begin = useCallback(() => {
+    const mine = ++generation.current;
+    const forTarget = current.current;
+    return (value: T | null) => {
+      if (mine === generation.current && forTarget === current.current) {
+        setState({ target: forTarget, value });
+      }
+    };
+  }, []);
+  return [state.target === target ? state.value : null, begin] as const;
+}
+
+/** The key every companion view's state is read for. */
+function targetOf(
+  connectionId: number,
+  resource: CompanionResource,
+  revision: string | null | undefined,
+): string {
+  return `${connectionId}:${resource.uuid}:${revision ?? ""}`;
+}
+
 function DnsRecords({
   connectionId,
   resource,
   canConfigure,
+  target,
 }: {
   connectionId: number;
   resource: CompanionResource;
   canConfigure: boolean;
+  target: string;
 }) {
   const { t } = useTranslation();
   const client = usePluginApi();
@@ -76,10 +117,18 @@ function DnsRecords({
   const confirm = useConfirm();
   const domains = domainsOf(resource.fqdns);
   // Everything here belongs to one target: rows, form and errors read from
-  // another connection or resource are never shown or acted on.
-  const target = `${connectionId}:${resource.uuid}`;
+  // another connection, resource or revision are never shown or acted on.
   const current = useRef(target);
   current.current = target;
+  // A new target remounts this view; a confirm the old one opened then
+  // answers into an unmounted view and must run nothing.
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const [records, setRecords] = useState<{
     target: string;
     rows: DnsRecord[];
@@ -143,7 +192,7 @@ function DnsRecords({
     });
     // The view moved to another resource while the confirm was open: what
     // was confirmed is no longer what is shown, so nothing runs.
-    if (!ok || current.current !== forTarget) return;
+    if (!ok || !mounted.current || current.current !== forTarget) return;
     const id = record.id;
     setError(null);
     try {
@@ -224,26 +273,25 @@ function UptimeStatus({
   connectionId,
   resource,
   shell,
+  target,
 }: {
   connectionId: number;
   resource: CompanionResource;
   shell: Shell;
+  target: string;
 }) {
   const { t } = useTranslation();
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
-  const [monitors, setMonitors] = useState<UptimeMonitor[] | null>(null);
+  const [monitors, begin] = useTargetAnswer<UptimeMonitor[]>(target);
 
   useEffect(() => {
-    let live = true;
+    const land = begin();
     api
       .uptime(connectionId, resource.uuid)
-      .then((a) => live && setMonitors(a?.monitors ?? []))
-      .catch(() => live && setMonitors([]));
-    return () => {
-      live = false;
-    };
-  }, [api, connectionId, resource.uuid]);
+      .then((a) => land(a?.monitors ?? []))
+      .catch(() => land([]));
+  }, [api, begin, connectionId, resource.uuid, target]);
 
   return (
     <div className="flex flex-col gap-1 text-xs" data-companion="uptime">
@@ -277,25 +325,31 @@ function UptimeStatus({
 function LogSearch({
   connectionId,
   resource,
+  target,
 }: {
   connectionId: number;
   resource: CompanionResource;
+  target: string;
 }) {
   const { t } = useTranslation();
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
-  const [answer, setAnswer] = useState<LogSearchAnswer | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [result, begin] = useTargetAnswer<
+    { answer: LogSearchAnswer } | { error: string }
+  >(target);
 
   async function search() {
-    setError(null);
+    const land = begin();
+    land(null);
     try {
-      setAnswer(await api.logSearch(connectionId, resource.uuid));
+      land({ answer: await api.logSearch(connectionId, resource.uuid) });
     } catch {
-      setError(t("companions.logs.failed"));
+      land({ error: t("companions.logs.failed") });
     }
   }
 
+  const answer = result && "answer" in result ? result.answer : null;
+  const error = result && "error" in result ? result.error : null;
   return (
     <div className="flex flex-col gap-2" data-companion="log-search">
       <div>
@@ -329,26 +383,25 @@ function DatabaseLogin({
   connectionId,
   resource,
   shell,
+  target,
 }: {
   connectionId: number;
   resource: CompanionResource;
   shell: Shell;
+  target: string;
 }) {
   const { t } = useTranslation();
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
-  const [answer, setAnswer] = useState<DbLoginAnswer | null>(null);
+  const [answer, begin] = useTargetAnswer<DbLoginAnswer>(target);
 
   useEffect(() => {
-    let live = true;
+    const land = begin();
     api
       .dbLogin(connectionId, resource.uuid)
-      .then((a) => live && setAnswer(a))
-      .catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, [api, connectionId, resource.uuid]);
+      .then((a) => land(a ?? null))
+      .catch(() => land(null));
+  }, [api, begin, connectionId, resource.uuid, target]);
 
   if (!answer) return null;
   return (
@@ -377,48 +430,62 @@ function DatabaseLogin({
  * Uptime status with a link to Uptime, Search logs across servers and, for a
  * database, whether Databases has a saved login. Each part shows only while
  * its plugin runs, and only to people whose permission allows its action.
+ * Each part's state belongs to one connection, resource and revision: a new
+ * one remounts it, and its answers for an older one are dropped.
  */
 export function CompanionActions({
   connectionId,
   resource,
   shell,
+  revision,
 }: {
   connectionId: number;
   resource: CompanionResource;
   shell: Shell;
+  /** The connection's target hash; a new one reads everything again. */
+  revision?: string | null;
 }) {
   const map = useCompanions();
   const canOperate = usePermission("operate");
   const canConfigure = usePermission("configure");
   if (!map) return null;
+  const target = targetOf(connectionId, resource, revision);
   const isDatabase =
     resource.kind === "database" || resource.kind === "service-database";
   const parts = [
     map.dns && (
       <DnsRecords
-        key="dns"
+        key={`dns:${target}`}
         connectionId={connectionId}
         resource={resource}
         canConfigure={canConfigure}
+        target={target}
       />
     ),
     map.uptime && resource.fqdns.length > 0 && (
       <UptimeStatus
-        key="uptime"
+        key={`uptime:${target}`}
         connectionId={connectionId}
         resource={resource}
         shell={shell}
+        target={target}
       />
     ),
     map.logSearch && canOperate && (
-      <LogSearch key="logs" connectionId={connectionId} resource={resource} />
+      <LogSearch
+        key={`logs:${target}`}
+        connectionId={connectionId}
+        resource={resource}
+        target={target}
+      />
     ),
     map.databases && isDatabase && (
       <DatabaseLogin
-        key="databases"
+        key={`databases:${target}`}
         connectionId={connectionId}
         resource={resource}
         shell={shell}
+        target={target}
       />
     ),
   ].filter(Boolean);

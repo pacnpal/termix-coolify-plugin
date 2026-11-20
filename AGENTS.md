@@ -321,6 +321,10 @@ console }`, calls the shell route and draws `PluginComponent id="terminal.view"`
   Nothing here writes host or plugin settings. Frontend: `src/frontend/companions.ts` (`useCompanions`),
   `views/CompanionActions.tsx` (at the end of `ResourceDetail`'s Overview, with `useTabs()` as its shell)
   and `views/HostCompanions.tsx` (inside the host card, keyed by connection, server and `revision`).
-  `DnsRecords` keeps its rows with the `connectionId:uuid` they were read for and drops a confirm answered
-  after the view moved to another resource. Opening Uptime or Databases uses `openSingletonTab("uptime")`
+  Every CompanionActions part is keyed (React `key` and its state) by `connectionId:uuid:revision`
+  (`targetOf`; `CoolifyTab` passes the connection's `revision` through `ResourceDetail`), and Uptime, Log
+  Search and Databases read through `useTargetAnswer`, whose request generation drops any answer that is
+  not the newest for the current target. `DnsRecords` keeps its rows the same way and drops a confirm
+  answered after the view moved to another target or unmounted. Never give a part a constant key: a
+  service and its Part would share state. Opening Uptime or Databases uses `openSingletonTab("uptime")`
   and `("databases")`.

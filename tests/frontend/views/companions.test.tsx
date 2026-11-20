@@ -335,6 +335,129 @@ describe("companion UI", () => {
     );
   });
 
+  /** CompanionActions whose resource and revision a test can switch. */
+  async function mountSwitcher(
+    api: ReturnType<typeof stubApi>,
+    first: Resource,
+  ) {
+    let pick: (r: Resource, revision?: string) => void = () => {};
+    function Switcher() {
+      const [state, setState] = useState({ r: first, revision: "rev-1" });
+      pick = (r, revision = "rev-1") => setState({ r, revision });
+      return (
+        <CompanionActions
+          connectionId={1}
+          resource={state.r}
+          revision={state.revision}
+          shell={shell()}
+        />
+      );
+    }
+    rendered = await renderWithApp(
+      {
+        activate(a: TermixApp) {
+          a.registerTab("coolify", () => <Switcher />, {
+            titleKey: "tab.title",
+            singleton: true,
+            hostless: true,
+          });
+        },
+      },
+      { manifest, locales, api, permissions: ALL },
+    );
+    rendered.renderTab("coolify");
+    return (r: Resource, revision?: string) => act(() => pick(r, revision));
+  }
+
+  const service = {
+    uuid: "svc-n8n-uuid",
+    name: "n8n",
+    kind: "service",
+    fqdns: ["https://n8n.example.test"],
+  };
+  const part = {
+    uuid: "svc-n8n-app",
+    name: "n8n app",
+    kind: "service-application",
+    fqdns: ["https://n8n.example.test"],
+  };
+
+  it("switching from a service to its Part clears the logs", async () => {
+    const api = stubApi(ALL_RUNNING);
+    const get = api.get.getMockImplementation()!;
+    api.get.mockImplementation(async (url: string) =>
+      url.includes("log-search")
+        ? {
+            data: {
+              source: "docker",
+              query: "x",
+              results: [{ message: `line for ${url.split("=")[1]}` }],
+            },
+          }
+        : get(url),
+    );
+    const pick = await mountSwitcher(api, service);
+    fireEvent.click(await screen.findByText(locales.companions.logs.search));
+    expect(await screen.findByText(/line for svc-n8n-uuid/)).toBeTruthy();
+    pick(part);
+    await waitFor(() =>
+      expect(screen.queryByText(/line for svc-n8n-uuid/)).toBeNull(),
+    );
+    expect(screen.queryByText(locales.companions.logs.source)).toBeNull();
+  });
+
+  it("a late search answer for the old resource is dropped", async () => {
+    const api = stubApi(ALL_RUNNING);
+    const get = api.get.getMockImplementation()!;
+    let answer: (v: unknown) => void = () => {};
+    api.get.mockImplementation(async (url: string) =>
+      url.includes("log-search")
+        ? new Promise((resolve) => (answer = resolve))
+        : get(url),
+    );
+    const pick = await mountSwitcher(api, service);
+    fireEvent.click(await screen.findByText(locales.companions.logs.search));
+    await waitFor(() =>
+      expect(api.get).toHaveBeenCalledWith(
+        "/connections/1/log-search?uuid=svc-n8n-uuid",
+      ),
+    );
+    pick(part);
+    await act(async () => {
+      answer({
+        data: {
+          source: "docker",
+          query: "svc-n8n-uuid",
+          results: [{ message: "late service line" }],
+        },
+      });
+    });
+    expect(screen.queryByText(/late service line/)).toBeNull();
+    expect(screen.queryByText(locales.companions.logs.source)).toBeNull();
+  });
+
+  it("Uptime and saved-login readings never show under another resource or revision", async () => {
+    const api = stubApi(ALL_RUNNING);
+    const get = api.get.getMockImplementation()!;
+    // After the first reads, nothing answers again.
+    let first = true;
+    api.get.mockImplementation(async (url: string) => {
+      if (url === "/companions") return get(url);
+      if (!first) return new Promise(() => {});
+      return get(url.replace("db-main-uuid/uptime", "app-web-uuid/uptime"));
+    });
+    const db = { ...database, fqdns: app.fqdns };
+    const pick = await mountSwitcher(api, db);
+    expect(await screen.findByText("web monitor")).toBeTruthy();
+    expect(
+      await screen.findByText(locales.companions.databases.saved),
+    ).toBeTruthy();
+    first = false;
+    pick(db, "rev-2");
+    await waitFor(() => expect(screen.queryByText("web monitor")).toBeNull());
+    expect(screen.queryByText(locales.companions.databases.saved)).toBeNull();
+  });
+
   it("a DNS record of one resource is never removed under another", async () => {
     const api = stubApi(ALL_RUNNING);
     const other = { ...app, uuid: "app-two-uuid", name: "two" };
