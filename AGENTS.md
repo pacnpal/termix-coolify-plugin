@@ -69,7 +69,8 @@ aren't obvious from the code, and anything that has bitten you before.
   Where things stand: identity, permissions, admin settings, the vendored API and the tables exist,
   Connections work (routes, operations, the Connections view and the "Connect Coolify" onboarding step),
   Resources can be browsed (Overview tiles, the Resources list, a resource's Overview detail) and deployed,
-  started, stopped and restarted, and host sync turns Coolify servers into locked Linked hosts.
+  started, stopped and restarted, host sync turns Coolify servers into locked Linked hosts, and container
+  shells and database consoles open in a `coolify-shell` tab.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
 - Coolify calls: `src/backend/coolify/http.ts` is the only way to Coolify (ctx.fetch, Bearer and CF Access
@@ -139,7 +140,8 @@ aren't obvious from the code, and anything that has bitten you before.
   non-secret hash, also on `ConnectionView`), and `ConnectionsView`'s `onSaved` puts a saved row back into
   the tab, so editing the selected connection's target clears and reloads it. `ResourceDetail.tsx` lists its views in `DETAIL_TABS`; later views (shell,
   logs, stats) add an id there. Filtering and grouping are pure functions in `resource-model.ts`.
-  `contributes.mobile` lists only `coolify` until the `coolify-shell` tab is registered.
+  `contributes.mobile` lists `coolify` and `coolify-shell`. `DETAIL_TABS` has `shell`, whose view holds the
+  Open shell and Open database console buttons (only with `canOperate`).
 - Host sync: `src/backend/sync/` (`mapping.ts` pure `planHost`, `credentials.ts` key copy, `locks.ts`,
   `service.ts` `createSync`, `routes.ts`) and `src/backend/ops/sync.ts`. `createSync` is async (it loads the
   lock set from `servers.hostId` before providing locks) and is made right after `createConnections`, whose
@@ -218,6 +220,25 @@ aren't obvious from the code, and anything that has bitten you before.
   action that reaches Coolify calls `resources.invalidate(connectionId)` afterwards (success or failure),
   and a waited deploy calls it again when the deployment ends, so the next read refetches and an
   in-flight fetch from before the action is dropped.
+- Shells: `src/backend/ssh.ts` (`SshRunner` over `ctx.ssh.exec`, `isHostKeyError`) and
+  `src/backend/containers/` (`commands.ts` name check, `DB_CONSOLES`, `shellCommand`; `resolver.ts` docker ps
+  filters; `service.ts` the checks; `routes.ts`) and `src/backend/ops/containers.ts`. Order of checks:
+  `connections.snapshot(id)` once, lifecycle's `authorize` (operate permission, owner or operate/configure
+  grant, uuid in the connection's own list; a Part is authorized too and must have the path's uuid as its
+  parent), Linked host (`sync.linkedHostFor`, else 409 `not-linked`), the actor's
+  `ctx.hosts.checkAccess(hostId, "connect")` (else 403 `no-host-access`), the snapshot's revision checked
+  again, then SSH, and the revision once more before the command is answered (409 `target-changed`).
+  Fingerprints come from the snapshot's client. Container names are refused outside `[A-Za-z0-9_.-]` or with
+  a leading `-`; every other value goes through `shellQuote`. Console scripts only name the container's own
+  variables and are one quoted `sh -c` argument, so `$` expands in the container. A password reaches a
+  client only through an env variable (PGPASSWORD, MYSQL_PWD, REDISCLI_AUTH, clickhouse-client's own
+  CLICKHOUSE_PASSWORD; mongosh reads `process.env` in `--eval`), never argv, which `ps` on the host shows to
+  every user. Several matches answer HTTP 300 `{ choices }`; the frontend reads choices from a rejected axios
+  call too. `ContainerError` has its own statuses (409 for `not-linked`), unlike `ConnectionError`'s 404.
+- Shell tab: `src/frontend/views/ShellTab.tsx` reads its tab data `{ connectionId, uuid, part?, container?,
+console }`, calls the shell route and draws `PluginComponent id="terminal.view"` with `hostConfig` and
+  `executeCommand`; the fallback is a NoticePanel with the command to copy. Picking a container re-asks in
+  place. Shell host ids can be strings, so hosts are matched by `String(id)`, not `useHost`.
 - MCP may deploy and restart without `allowMcpChanges` (`MCP_CHANGES_EXEMPT` in `mcp/server.ts`).
 - Signals (`src/backend/ops/signals.ts`) read resources from the resources cache and server statuses from a
   `servers` cache kind (a minute, no addresses or keys kept). That cache works like the resources cache:

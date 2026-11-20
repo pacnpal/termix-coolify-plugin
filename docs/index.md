@@ -1,8 +1,9 @@
 Coolify for Termix brings your Coolify servers, applications, services and databases into Termix.
 
 So far you can connect Coolify instances, see what each API token can do, browse each connection's
-applications, services and databases, deploy, start, stop and restart them, and sync Coolify servers into
-Termix hosts. Shells, logs and the rest come with the rest of release 1.0.0.
+applications, services and databases, deploy, start, stop and restart them, open a shell or database console
+in their containers, and sync Coolify servers into Termix hosts. Logs and the rest come with the rest of release
+1.0.0.
 
 ## Turn it on
 
@@ -120,6 +121,42 @@ Linked hosts also get:
   (`coolify.server`) and security updates from Coolify's last update check (`coolify.updates`), plus
   `coolify.deploying`, the resources deploying now across your connections. They read the same short caches
   as the tab, so many hosts on one connection cost one Coolify request.
+
+## Container shells and database consoles
+
+A resource's or part's **Shell** view has **Open shell**, and a database (or a service's database part) also
+has **Open database console**. Each opens a **Coolify shell** tab with Termix's own terminal (SSH Terminal's)
+on the server's Linked host, running `docker exec` into the container.
+
+- The plugin finds the container over SSH by Coolify's labels: the resource's uuid label first, then the
+  labels Coolify used before 4.4, which carry the numeric id. A service part is found by its own uuid label,
+  then by its compose service name.
+- `bash` is used when the container has it, otherwise `sh`. `sudo` is added when the SSH user isn't root and
+  isn't in the `docker` group.
+- **Database consoles** start the engine's own client: `psql`, `mysql` or `mariadb`, `mongosh`, `redis-cli`
+  (Redis and Dragonfly), `keydb-cli`, `clickhouse-client` or `sqlite3`. The credentials are the ones Coolify
+  set in the container's environment, and they are read inside the container when the console starts. No
+  password is in the command, sent to the browser or logged. Consoles also keep passwords out of process
+  arguments, which any user on the server can list with `ps`: each client gets its password from an
+  environment variable (`mongosh` reads it in JavaScript from `process.env`). An engine with no known console
+  opens a shell instead, with a note.
+- **Several containers** (a service with parts, say): pick one from the list.
+- **Not running**: start the resource first.
+- **Link this server first**: the resource's server has no Linked host yet; sync it from Coolify.
+- **Open a server terminal once to trust this host's key**: Termix hasn't trusted the server's SSH key yet.
+  **Open server terminal** opens one, where you confirm the key. Coolify's fingerprint for the key is shown
+  so you can compare.
+- If the connection's address, token or Access token changes while a shell is being opened, it stops and asks
+  you to open it again, so a shell never reaches a container of another Coolify.
+- Without the SSH Terminal plugin the tab shows the command to copy and run in a terminal on the server.
+
+Shells and consoles are checked like deploys: **Operate Coolify resources**, and the connection's owner or an
+operate or configure grant. They also need your own **connect** access to the Linked host, because a shell on
+a server can read every container's secrets.
+
+The action `coolify.shell-command` (offered to the assistant and MCP) answers the same `docker exec` command,
+or the list of containers to choose from, for a client with its own SSH. It makes the same checks. See
+[the API](api.md).
 
 ## Use with an MCP client
 
