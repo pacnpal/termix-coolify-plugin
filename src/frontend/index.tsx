@@ -140,6 +140,23 @@ export function activate(app: TermixApp): void {
     },
   });
 
+  // Command palette. "Coolify: Deploy…" opens the Resources list to pick
+  // from; Open shell, Logs and Sync servers join this group later.
+  app.registerPaletteGroup({
+    id: "coolify",
+    titleKey: "palette.group",
+    load: () => [
+      {
+        id: "coolify.deploy",
+        title: app.t("palette.deploy"),
+        icon: Rocket,
+        keywords: ["coolify", "deploy", "redeploy", "rebuild"],
+        run: ({ shell }) =>
+          shell.openSingletonTab(TAB_ID, { data: { section: "resources" } }),
+      },
+    ],
+  });
+
   // Hosts > Import: opens the sync preview.
   app.registerAction(
     IMPORT_ACTION,

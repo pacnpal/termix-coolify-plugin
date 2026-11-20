@@ -38,10 +38,25 @@ export type ConsoleEngine =
   | "sqlite";
 
 /**
+ * mongosh's connect, reading the user and password from the container's
+ * environment in JavaScript. It holds no `$`, backtick or double quote, so
+ * the container's sh passes it to mongosh untouched.
+ */
+const MONGO_CONNECT = [
+  "const e = process.env;",
+  "const u = encodeURIComponent(e.MONGO_INITDB_ROOT_USERNAME || '');",
+  "const p = encodeURIComponent(e.MONGO_INITDB_ROOT_PASSWORD || '');",
+  "db = connect('mongodb://' + u + ':' + p + '@127.0.0.1:27017/admin?authSource=admin')",
+  ".getSiblingDB(e.MONGO_INITDB_DATABASE || 'admin');",
+].join(" ");
+
+/**
  * The native client per engine and the script that starts it inside the
  * container. Each script only names the container's own variables (the ones
  * Coolify's Start* actions set in v4.7.5), so `$` expands in the container's
- * shell: no password is in the command, a route answer or a log.
+ * shell: no password is in the command, a route answer or a log. A password
+ * reaches the client through its environment, never its arguments, which any
+ * user on the host can read with `ps`.
  */
 export const DB_CONSOLES: Record<string, { client: string; script: string }> = {
   postgresql: {
@@ -59,7 +74,10 @@ export const DB_CONSOLES: Record<string, { client: string; script: string }> = {
   },
   mongodb: {
     client: "mongosh",
-    script: `exec mongosh -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin "\${MONGO_INITDB_DATABASE:-admin}"`,
+    // mongosh reads no password variable, and -p would put the password in
+    // argv, where `ps` on the host shows it. This JavaScript reads
+    // process.env instead; --shell stays interactive after --eval.
+    script: `exec mongosh --nodb --shell --quiet --eval "${MONGO_CONNECT}"`,
   },
   redis: {
     client: "redis-cli",
@@ -75,8 +93,11 @@ export const DB_CONSOLES: Record<string, { client: string; script: string }> = {
     script: `REDISCLI_AUTH="$REDIS_PASSWORD" exec redis-cli`,
   },
   clickhouse: {
+    // clickhouse-client reads CLICKHOUSE_USER and CLICKHOUSE_PASSWORD from its
+    // environment (since 24.3; Coolify v4.7.5 deploys 26.8), so neither is an
+    // argument.
     client: "clickhouse-client",
-    script: `exec clickhouse-client --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD" --database "$CLICKHOUSE_DB"`,
+    script: `exec clickhouse-client --database "$CLICKHOUSE_DB"`,
   },
   sqlite: {
     client: "sqlite3",

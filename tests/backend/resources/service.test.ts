@@ -8,7 +8,7 @@ import {
 } from "@termix-ssh/plugin-sdk/testing";
 import type { PluginManifest } from "@termix-ssh/plugin-sdk/manifest";
 import manifestJson from "../../../manifest.json";
-import { defineTables } from "../../../src/backend/db.js";
+import { defineTables, type Tables } from "../../../src/backend/db.js";
 import {
   createConnections,
   type Connections,
@@ -45,10 +45,63 @@ const RESOURCE_KEYS = [
 let db: TestDb;
 let mock: MockPluginContext;
 let fake: ReturnType<typeof healthyCoolify>;
+/** A second Coolify at MOVED_URL, which sees only the narrower list. */
+let moved: ReturnType<typeof healthyCoolify>;
+const BASE_URL = "https://coolify.example.test";
+const MOVED_URL = "https://coolify-moved.example.test";
 let connections: Connections;
 let resources: Resources;
+let tables: Tables;
 let clock: number;
 let connectionId: number;
+
+const NEW_TOKEN = "fake-token-resources-new";
+
+/** A narrower token's view: one application the old token's list lacks. */
+const NARROWER = {
+  json: [{ id: 99, uuid: "app-only-uuid", name: "only", status: "running" }],
+};
+
+let gate: { reached: () => void; released: Promise<void> } | null = null;
+
+/** Holds the next `/applications` answer until `release` is called. */
+function holdNextApplications() {
+  let reached = () => {};
+  let release = () => {};
+  const atFetch = new Promise<void>((resolve) => (reached = resolve));
+  const released = new Promise<void>((resolve) => (release = resolve));
+  gate = { reached, released };
+  return { atFetch, release };
+}
+
+function authorizations(): (string | null)[] {
+  return listCalls().map((c) =>
+    new Headers(c.init?.headers as Record<string, string>).get("authorization"),
+  );
+}
+
+/**
+ * Holds the next cache write until `release`, as a slow database would, so
+ * the write can land after an invalidate's drop.
+ */
+function holdNextCacheWrite() {
+  const db = mock.ctx.db;
+  const batch = db.batch.bind(db);
+  let reached = () => {};
+  let release = () => {};
+  const atWrite = new Promise<void>((resolve) => (reached = resolve));
+  const released = new Promise<void>((resolve) => (release = resolve));
+  let armed = true;
+  db.batch = (async (...args: Parameters<typeof batch>) => {
+    if (armed) {
+      armed = false;
+      reached();
+      await released;
+    }
+    return batch(...args);
+  }) as typeof db.batch;
+  return { atWrite, release };
+}
 
 function listCalls() {
   return fake.calls.filter((c) =>
@@ -64,16 +117,33 @@ beforeEach(async () => {
       .run(user, user);
   }
   fake = healthyCoolify(resourceLists());
+  moved = healthyCoolify({
+    "GET /applications": NARROWER,
+    "GET /services": { json: [] },
+    "GET /databases": { json: [] },
+  });
   mock = createMockCtx({
     pluginId: manifest.id,
     manifest,
     sandbox: true,
     capabilities: manifest.capabilities,
     db: db.database,
-    fetch: (url, init) => fake.fetch(url, init),
+    fetch: async (url, init) => {
+      // Coolify answers now; a held answer reaches the plugin on release.
+      const response = url.startsWith(MOVED_URL)
+        ? await moved.fetch(BASE_URL + url.slice(MOVED_URL.length), init)
+        : await fake.fetch(url, init);
+      const held = gate;
+      if (held && new URL(url).pathname.endsWith("/applications")) {
+        gate = null;
+        held.reached();
+        await held.released;
+      }
+      return response;
+    },
     actor: "user-1",
   });
-  const tables = await defineTables(mock.ctx);
+  tables = await defineTables(mock.ctx);
   connections = createConnections(mock.ctx, tables);
   clock = Date.parse("2026-11-19T10:00:00Z");
   resources = createResources(mock.ctx, {
@@ -91,7 +161,10 @@ beforeEach(async () => {
   fake.calls.length = 0;
 });
 
-afterEach(() => db.close());
+afterEach(() => {
+  gate = null;
+  db.close();
+});
 
 describe("resource service", () => {
   it("merges apps, services with parts, and databases", async () => {
@@ -137,9 +210,22 @@ describe("resource service", () => {
     expect(fake.calls.some((c) => c.path.startsWith("/resources"))).toBe(false);
   });
 
-  it("status degraded covers exited and unhealthy", async () => {
-    expect(resourceHealth("exited")).toBe("degraded");
-    expect(resourceHealth("exited:unhealthy")).toBe("degraded");
+  it("exited counts as stopped, not degraded", () => {
+    // Coolify reports a resource you stopped yourself as exited, so exited is
+    // Stopped, whatever its health suffix says.
+    expect(resourceHealth("exited")).toBe("stopped");
+    expect(resourceHealth("exited:unhealthy")).toBe("stopped");
+    expect(resourceHealth("exited:healthy")).toBe("stopped");
+    expect(resourceHealth("restarting")).toBe("degraded");
+    expect(resourceHealth("dead")).toBe("degraded");
+  });
+
+  it("a bare unhealthy state is degraded", () => {
+    expect(resourceHealth("unhealthy")).toBe("degraded");
+    expect(resourceHealth("UNHEALTHY")).toBe("degraded");
+  });
+
+  it("status degraded covers unhealthy, restarting and degraded", async () => {
     expect(resourceHealth("running:unhealthy")).toBe("degraded");
     expect(resourceHealth("degraded:unhealthy")).toBe("degraded");
     expect(resourceHealth("running:healthy")).toBe("running");
@@ -150,14 +236,14 @@ describe("resource service", () => {
     // Service Parts are counted through their service, not twice.
     expect(await resources.counts(connectionId)).toEqual({
       running: 3,
-      degraded: 3,
-      stopped: 1,
+      degraded: 2,
+      stopped: 2,
       deploying: 1,
     });
     expect(await resources.counts(connectionId, "srv-vps1-uuid")).toEqual({
       running: 3,
-      degraded: 2,
-      stopped: 1,
+      degraded: 1,
+      stopped: 2,
       deploying: 1,
     });
   });
@@ -195,6 +281,115 @@ describe("resource service", () => {
     await resources.invalidate(connectionId);
     await resources.list(connectionId);
     expect(listCalls()).toHaveLength(6);
+  });
+
+  it("a load after invalidate never joins or caches a fetch from before it", async () => {
+    const hold = holdNextApplications();
+    const before = resources.list(connectionId);
+    await hold.atFetch;
+    await resources.invalidate(connectionId);
+    fake.set("GET /applications", NARROWER);
+    const after = resources.list(connectionId);
+    // Callers after invalidate share one new fetch.
+    const alsoAfter = resources.list(connectionId);
+    hold.release();
+    const [, rows, sameRows] = await Promise.all([before, after, alsoAfter]);
+    expect(rows.map((r) => r.uuid)).toContain("app-only-uuid");
+    expect(sameRows).toBe(rows);
+    const applications = fake.calls.filter((c) => c.path === "/applications");
+    expect(applications).toHaveLength(2);
+
+    fake.calls.length = 0;
+    const cached = (await resources.list(connectionId)).map((r) => r.uuid);
+    expect(listCalls()).toHaveLength(0);
+    expect(cached).toContain("app-only-uuid");
+    expect(cached).not.toContain("app-web-uuid");
+  });
+
+  it("a cache write held past an invalidate is never served", async () => {
+    // The write lands after invalidate has run to completion.
+    const hold = holdNextCacheWrite();
+    const stale = resources.list(connectionId);
+    await hold.atWrite;
+    await resources.invalidate(connectionId);
+    hold.release();
+    await stale;
+
+    fake.set("GET /applications", NARROWER);
+    fake.calls.length = 0;
+    const uuids = (await resources.list(connectionId)).map((r) => r.uuid);
+    expect(listCalls().length).toBeGreaterThan(0);
+    expect(uuids).toContain("app-only-uuid");
+    expect(uuids).not.toContain("app-web-uuid");
+  });
+
+  it("a cache write that landed after invalidate is not served after a restart", async () => {
+    const hold = holdNextCacheWrite();
+    const stale = resources.list(connectionId);
+    await hold.atWrite;
+    await resources.invalidate(connectionId);
+    hold.release();
+    await stale;
+
+    // A restart: a new instance over the same tables, with the row still there.
+    const restarted = createResources(mock.ctx, {
+      tables,
+      connections,
+      now: () => clock,
+    });
+    fake.set("GET /applications", NARROWER);
+    fake.calls.length = 0;
+    const uuids = (await restarted.list(connectionId)).map((r) => r.uuid);
+    expect(listCalls().length).toBeGreaterThan(0);
+    expect(uuids).toContain("app-only-uuid");
+    expect(uuids).not.toContain("app-web-uuid");
+  });
+
+  it("a token change stops serving resources cached under the old token", async () => {
+    await resources.list(connectionId);
+    await connections.update(connectionId, { token: NEW_TOKEN });
+    fake.set("GET /applications", NARROWER);
+    fake.calls.length = 0;
+    const uuids = (await resources.list(connectionId)).map((r) => r.uuid);
+    expect(uuids).toContain("app-only-uuid");
+    expect(uuids).not.toContain("app-web-uuid");
+    expect(authorizations().length).toBeGreaterThan(0);
+    for (const auth of authorizations()) {
+      expect(auth).toBe(`Bearer ${NEW_TOKEN}`);
+    }
+  });
+
+  it("a new address stops serving resources cached from the old one", async () => {
+    await resources.list(connectionId);
+    await connections.update(connectionId, { baseUrl: MOVED_URL });
+    fake.calls.length = 0;
+    moved.calls.length = 0;
+    const uuids = (await resources.list(connectionId)).map((r) => r.uuid);
+    expect(uuids).toEqual(["app-only-uuid"]);
+    expect(listCalls()).toHaveLength(0);
+    expect(moved.calls.filter((c) => c.path === "/applications")).toHaveLength(
+      1,
+    );
+  });
+
+  it("a fetch in flight during a token change does not repopulate the cache", async () => {
+    const hold = holdNextApplications();
+    const stale = resources.list(connectionId);
+    await hold.atFetch;
+    await connections.update(connectionId, { token: NEW_TOKEN });
+    fake.set("GET /applications", NARROWER);
+    // A caller after the change gets its own fetch, not the old one.
+    const fresh = (await resources.list(connectionId)).map((r) => r.uuid);
+    expect(fresh).toContain("app-only-uuid");
+    hold.release();
+    await stale;
+    fake.calls.length = 0;
+    const uuids = (await resources.list(connectionId)).map((r) => r.uuid);
+    expect(uuids).toContain("app-only-uuid");
+    expect(uuids).not.toContain("app-web-uuid");
+    for (const auth of authorizations()) {
+      expect(auth).toBe(`Bearer ${NEW_TOKEN}`);
+    }
   });
 
   it("other user 404", async () => {

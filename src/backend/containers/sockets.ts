@@ -2,11 +2,11 @@ import type {
   PluginContext,
   PluginWebSocketConnection,
 } from "@termix-ssh/plugin-sdk/backend";
-import { ConnectionError, type Connections } from "../connections/service.js";
+import { ConnectionError } from "../connections/service.js";
 import { CoolifyError, toRouteError } from "../coolify/http.js";
 import { assertContainerName } from "./commands.js";
 import type { Following, Logs } from "./logs.js";
-import { ContainerError, type Containers } from "./service.js";
+import { ContainerError } from "./service.js";
 
 /** Served at /plugin-ws/coolify/logs. */
 export const LOG_SOCKET_PATH = "/logs";
@@ -28,6 +28,11 @@ const FLUSH_MS = 250;
 const MAX_PER_FLUSH = 500;
 const MAX_BUFFER = 2_000;
 const MAX_MESSAGE = 4 * 1024;
+/**
+ * How often a follow checks, with no message from the client, that the
+ * actor may still read it and the connection still points at its target.
+ */
+export const RECHECK_MS = 15_000;
 
 const UUID = /^[A-Za-z0-9_-]{1,64}$/;
 
@@ -138,14 +143,17 @@ function failureOf(err: unknown): Failure {
  * `error { cause, error }`.
  *
  * Every message is checked first: the session's data must be unlocked, and
- * the actor must hold coolify.operate, still reach the connection and still
- * have connect access to the Linked host. A refusal ends the follow, kills
- * the remote docker logs and closes the socket with 1008. Closing the socket
- * or unsubscribing kills it too.
+ * the actor must hold coolify.operate, pass lifecycle's authorize (an
+ * operate grant and the uuid in the connection's own list), the connection
+ * must still point at the follow's target and the actor must still have
+ * connect access to the Linked host. The same checks run every RECHECK_MS
+ * while a follow runs. A refusal ends the follow, kills the remote docker
+ * logs and closes the socket with 1008; a changed target ends the follow
+ * with target-changed. Closing the socket or unsubscribing kills it too.
  */
 export function registerLogSocket(
   ctx: PluginContext,
-  deps: { logs: Logs; connections: Connections; containers: Containers },
+  deps: { logs: Logs },
 ): void {
   ctx.ws.route(LOG_SOCKET_PATH, (conn: PluginWebSocketConnection) => {
     const socket = conn.socket as WsLike;
@@ -154,6 +162,7 @@ export function registerLogSocket(
     let buffer: string[] = [];
     let dropped = 0;
     let timer: ReturnType<typeof setInterval> | null = null;
+    let checker: ReturnType<typeof setInterval> | null = null;
     let done = false;
     let queue: Promise<void> = Promise.resolve();
 
@@ -168,7 +177,9 @@ export function registerLogSocket(
 
     function stopFollow(): void {
       if (timer) clearInterval(timer);
+      if (checker) clearInterval(checker);
       timer = null;
+      checker = null;
       active?.stop();
       active = null;
       buffer = [];
@@ -241,16 +252,31 @@ export function registerLogSocket(
 
     /** Null while the actor still may read this follow; else why not. */
     async function recheck(following: Following): Promise<unknown> {
-      const { connectionId, hostId } = following.where;
-      if (!(await deps.connections.access(connectionId))) {
-        return new ConnectionError("not-found", "Coolify connection not found");
+      // Core runs a socket's events, and the timers they start, as the user
+      // who opened it. Anything else is refused rather than run as nobody.
+      if (!userId || ctx.currentActor() !== userId) {
+        return new ConnectionError("forbidden", forbidden.error);
+      }
+      if (!(await ctx.rbac.has("operate"))) {
+        return new ConnectionError("forbidden", forbidden.error);
       }
       try {
-        await deps.containers.assertHostAccess(hostId);
+        await following.recheck();
         return null;
       } catch (err) {
         return err;
       }
+    }
+
+    /** The periodic check: queued with messages, so they never interleave. */
+    function scheduleCheck(): void {
+      queue = queue
+        .then(async () => {
+          if (done || !active) return;
+          const lost = await recheck(active);
+          if (lost) fail(lost);
+        })
+        .catch((err) => fail(err));
     }
 
     async function handle(data: unknown): Promise<void> {
@@ -304,6 +330,7 @@ export function registerLogSocket(
         }
         active = result;
         timer = setInterval(flush, FLUSH_MS);
+        checker = setInterval(scheduleCheck, RECHECK_MS);
         send({ type: "started", source: "ssh", container: result.container });
         return;
       }

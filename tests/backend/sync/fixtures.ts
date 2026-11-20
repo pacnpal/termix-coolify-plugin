@@ -93,6 +93,10 @@ export async function startWithConnection(
     dockerRunning?: boolean;
     /** The actor's own credential ids, for picked credentials. */
     ownCredentials?: number[];
+    /** The running SSH Terminal's version, or absent when it isn't installed. */
+    sshTerminal?: string;
+    /** A Cloudflare Access service token stored on the connection. */
+    cfAccess?: { id: string; secret: string };
   } = {},
 ): Promise<{ harness: PluginHarness; fake: Fake; connectionId: number }> {
   const fake = options.fake ?? syncCoolify();
@@ -107,17 +111,40 @@ export async function startWithConnection(
       authType: "key",
       folder: null,
     })),
-    installedPlugins: options.dockerRunning
-      ? [
-          { id: "coolify", version: "1.0.0", source: "user", state: "active" },
-          { id: "docker", version: "1.0.0", source: "user", state: "active" },
-        ]
-      : undefined,
+    installedPlugins: [
+      { id: "coolify", version: "1.0.0", source: "user", state: "active" },
+      ...(options.dockerRunning
+        ? [
+            {
+              id: "docker",
+              version: "1.0.0",
+              source: "user" as const,
+              state: "active",
+            },
+          ]
+        : []),
+      ...(options.sshTerminal
+        ? [
+            {
+              id: "ssh-terminal",
+              version: options.sshTerminal,
+              source: "bundled" as const,
+              state: "active",
+            },
+          ]
+        : []),
+    ],
   });
   const created = await harness.request("POST", "/connections", {
     name: "Prod",
     baseUrl: "https://coolify.example.test",
     token: "fake-token-sync-test",
+    ...(options.cfAccess
+      ? {
+          cfAccessId: options.cfAccess.id,
+          cfAccessSecret: options.cfAccess.secret,
+        }
+      : {}),
   });
   if (created.status !== 201) {
     throw new Error(`connection not created: ${created.status}`);

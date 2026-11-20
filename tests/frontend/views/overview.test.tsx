@@ -8,7 +8,7 @@ import type { PluginManifest } from "@termix-ssh/plugin-sdk/manifest";
 import * as plugin from "../../../src/frontend/index";
 import manifestJson from "../../../manifest.json";
 import locales from "../../../locales/en.json";
-import { stubApi } from "../fixtures";
+import { connection, resourceRows, stubApi } from "../fixtures";
 
 const manifest = manifestJson as unknown as PluginManifest;
 const L = locales.overview;
@@ -84,6 +84,92 @@ describe("overview", () => {
         "/connections/1/resources?refresh=true",
       ),
     );
+  });
+
+  it("editing the selected connection's target reloads the resources list", async () => {
+    // After the token change the connection has a new revision and Coolify
+    // shows only one running application to the new token.
+    const edited = { ...connection, revision: "rev-after-token-change" };
+    const narrower = {
+      rows: [resourceRows[0]],
+      counts: { running: 1, degraded: 0, stopped: 0, deploying: 0 },
+      fetchedAt: "2026-11-19T10:05:00.000Z",
+    };
+    let saved = false;
+    const api = stubApi();
+    const answer = api.get.getMockImplementation()!;
+    api.get.mockImplementation(async (url: string) => {
+      if (saved && url === "/connections") return { data: [edited] };
+      if (saved && /^\/connections\/1\/resources(\?|$)/.test(url)) {
+        return { data: narrower };
+      }
+      return answer(url);
+    });
+    api.patch.mockImplementation(async () => {
+      saved = true;
+      return { data: edited };
+    });
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions: ["coolify.view", "coolify.configure"],
+    });
+    rendered.renderTab("coolify", { isVisible: true });
+    await screen.findByText(L.tiles.running, { selector: "span" });
+    await waitFor(() =>
+      expect(within(tile(L.tiles.running)).getByText("3")).toBeTruthy(),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: locales.nav.connections }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: locales.connections.actions.edit,
+      }),
+    );
+    fireEvent.change(
+      await screen.findByPlaceholderText(locales.connections.form.tokenKeep),
+      { target: { value: "fake-token-narrower" } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: locales.connections.form.save }),
+    );
+    await waitFor(() => expect(api.patch).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: locales.nav.overview }));
+    await waitFor(() =>
+      expect(within(tile(L.tiles.running)).getByText("1")).toBeTruthy(),
+    );
+    expect(within(tile(L.tiles.degraded)).getByText("0")).toBeTruthy();
+  });
+
+  it("a failed connections reload keeps the list and says so", async () => {
+    const api = stubApi();
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions: ["coolify.view"],
+    });
+    rendered.renderTab("coolify", { isVisible: true });
+    await waitFor(() =>
+      expect(within(tile(L.tiles.running)).getByText("3")).toBeTruthy(),
+    );
+    const answer = api.get.getMockImplementation()!;
+    api.get.mockImplementation(async (url: string) => {
+      if (url === "/connections") throw new Error("offline");
+      return answer(url);
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: locales.nav.resources }),
+    );
+    expect(
+      await screen.findByText(locales.connections.loadFailed),
+    ).toBeTruthy();
+    expect(screen.getByText("web")).toBeTruthy();
+    expect(screen.queryByText(locales.tab.noConnection.title)).toBeNull();
   });
 
   it("names the cause when Coolify fails", async () => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Clock,
   Download,
@@ -121,7 +121,18 @@ export function LogsView({
   const [follow, setFollow] = useState<Follow>({ kind: "off" });
   const max = Number(count);
 
+  // Request generation: only the newest load may set the snapshot, so an
+  // older answer that ends last (or after unmount) is dropped.
+  const generation = useRef(0);
+  useEffect(
+    () => () => {
+      generation.current += 1;
+    },
+    [],
+  );
+
   const load = useCallback(async () => {
+    const mine = ++generation.current;
     setSnapshot({ kind: "loading" });
     try {
       const result = await api.logs(connectionId, target.uuid, {
@@ -130,6 +141,7 @@ export function LogsView({
         ...(target.part ? { part: target.part } : {}),
         ...(container ? { container } : {}),
       });
+      if (mine !== generation.current) return;
       if (result.kind === "choices") {
         setSnapshot({ kind: "choices", choices: result.choices });
         return;
@@ -141,6 +153,7 @@ export function LogsView({
         container: result.container ?? null,
       });
     } catch (err) {
+      if (mine !== generation.current) return;
       setSnapshot({ kind: "failed", cause: failureOf(err)?.cause ?? "" });
     }
   }, [api, connectionId, target, max, timestamps, container]);

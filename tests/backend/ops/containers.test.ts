@@ -177,7 +177,12 @@ describe("logs-tail operation", () => {
       "container",
       "lines",
       "timestamps",
+      "confirm",
     ]);
+    expect(action.inputs!.find((f) => f.key === "confirm")).toMatchObject({
+      type: "boolean",
+      required: true,
+    });
     expect(action.inputs!.find((f) => f.key === "lines")).toMatchObject({
       type: "number",
       min: 1,
@@ -206,12 +211,34 @@ describe("logs-tail operation", () => {
         uuid: "app-web-uuid",
         lines: 20,
         timestamps: true,
+        confirm: true,
       });
       expect(outcome.data).toEqual(route.body);
       expect(route.body.source).toBe(sensitive ? "coolify" : "ssh");
     }
     // The text is a sensitive output: run history never keeps it.
     expect(JSON.stringify(runs.history)).not.toMatch(/c1|s1/);
+  });
+
+  it("logs-tail reads nothing without confirm: true (MCP and ops alike)", async () => {
+    const { runs, id, harness: h, fake, connectionId } = await start();
+    setSensitive(h, connectionId, true);
+    fake.set("GET /applications/app-web-uuid/logs", { json: { logs: "c1\n" } });
+    const docker = fakeDocker(h, { ps: [WEB], logs: "s1\n" });
+    const before = fake.calls.filter((c) => c.path.endsWith("/logs")).length;
+    for (const confirm of [undefined, false]) {
+      await expect(
+        runs.run("coolify.logs-tail", {
+          connectionId: id,
+          uuid: "app-web-uuid",
+          ...(confirm === undefined ? {} : { confirm }),
+        }),
+      ).rejects.toThrow(/confirm/i);
+    }
+    expect(fake.calls.filter((c) => c.path.endsWith("/logs")).length).toBe(
+      before,
+    );
+    expect(docker.commands).toEqual([]);
   });
 
   it("logs-tail answers choices and refuses another user's connection", async () => {
@@ -228,6 +255,7 @@ describe("logs-tail operation", () => {
     const outcome = await runs.run("coolify.logs-tail", {
       connectionId: id,
       uuid: "svc-n8n-uuid",
+      confirm: true,
     });
     expect(outcome.data).toMatchObject({
       choices: [{ name: "n8n-a" }, { name: "pg-a" }],
@@ -235,7 +263,11 @@ describe("logs-tail operation", () => {
     const ran = docker.commands.length;
     h.mock.setActor(OTHER);
     await expect(
-      runs.run("coolify.logs-tail", { connectionId: id, uuid: "app-web-uuid" }),
+      runs.run("coolify.logs-tail", {
+        connectionId: id,
+        uuid: "app-web-uuid",
+        confirm: true,
+      }),
     ).rejects.toThrow(/not found/i);
     h.mock.setActor(OWNER);
     expect(docker.commands.length).toBe(ran);

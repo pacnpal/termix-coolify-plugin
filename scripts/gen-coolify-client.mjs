@@ -1,7 +1,9 @@
 // Dev only. Reads the vendored Coolify specs in vendor/coolify/ and writes
 // src/backend/coolify/generated/operations.ts (OPERATIONS and
-// EXCLUDED_OPERATIONS). Run with `npm run gen:coolify` after updating a spec,
-// then update docs/coverage.md.
+// EXCLUDED_OPERATIONS) and src/backend/coolify/generated/schemas.json with its
+// typed accessor schemas.ts (each operation's parameters and top-level body
+// fields, for the generic API and the API console's forms). Run with `npm run gen:coolify` after updating a
+// spec, then update docs/coverage.md.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import * as prettier from "prettier";
@@ -47,8 +49,16 @@ function compareVersions(a, b) {
   return 0;
 }
 
+const MAX_TEXT = 200;
+const specs = new Map(
+  SOURCES.map(({ file }) => [
+    file,
+    JSON.parse(readFileSync(vendorDir + file, "utf8")),
+  ]),
+);
+
 function readOperations(file) {
-  const spec = JSON.parse(readFileSync(vendorDir + file, "utf8"));
+  const spec = specs.get(file);
   const seen = new Map();
   for (const [path, item] of Object.entries(spec.paths ?? {})) {
     for (const method of METHODS) {
@@ -58,15 +68,20 @@ function readOperations(file) {
       if (!id)
         fail(`${file}: ${method.toUpperCase()} ${path} has no operationId`);
       if (seen.has(id)) fail(`${file}: operationId ${id} is used twice`);
-      seen.set(id, { id, method: method.toUpperCase(), path });
+      seen.set(id, { id, method: method.toUpperCase(), path, operation });
     }
   }
   return seen;
 }
 
 const union = new Map();
+// The newest spec's description of each operation: its parameters and body.
+const described = new Map();
 for (const { source, file, minVersion } of SOURCES) {
-  for (const operation of readOperations(file).values()) {
+  for (const { operation: raw, ...operation } of readOperations(
+    file,
+  ).values()) {
+    described.set(operation.id, { spec: specs.get(file), operation: raw });
     const known = union.get(operation.id);
     if (!known) {
       union.set(operation.id, { ...operation, source, minVersion });
@@ -142,6 +157,364 @@ ${EXCLUDED.map((e, i) => ` * - ${excludedIds[i]} (${e.method} ${e.path}): ${e.wh
 export const EXCLUDED_OPERATIONS: ReadonlySet<string> = new Set(${JSON.stringify(excludedIds)});
 `;
 
+function short(text) {
+  if (typeof text !== "string") return undefined;
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (!flat) return undefined;
+  return flat.length > MAX_TEXT ? `${flat.slice(0, MAX_TEXT - 1)}…` : flat;
+}
+
+function resolve(spec, node) {
+  let current = node;
+  for (let depth = 0; current && current.$ref && depth < 5; depth++) {
+    const parts = current.$ref.replace(/^#\//, "").split("/");
+    current = parts.reduce((n, part) => (n ? n[part] : undefined), spec);
+  }
+  return current ?? {};
+}
+
+function typeOf(spec, schema) {
+  const resolved = resolve(spec, schema);
+  if (Array.isArray(resolved.type)) {
+    return resolved.type.filter((t) => t !== "null").join("|") || "string";
+  }
+  if (typeof resolved.type === "string") return resolved.type;
+  if (resolved.properties) return "object";
+  return "string";
+}
+
+function nullable(spec, schema) {
+  const resolved = resolve(spec, schema);
+  return (
+    resolved.nullable === true ||
+    (Array.isArray(resolved.type) && resolved.type.includes("null"))
+  );
+}
+
+/** `{ nullable: true }` when the spec allows null, so a form can send it. */
+function nullableOf(spec, schema) {
+  return nullable(spec, schema) ? { nullable: true } : {};
+}
+
+function withDescription(out, text) {
+  const description = short(text);
+  return description ? { ...out, description } : out;
+}
+
+/**
+ * A body's top-level fields: its own properties and those of its allOf,
+ * oneOf and anyOf branches (the first description of a name wins). A field
+ * is required when the body or an allOf branch requires it, or every oneOf
+ * (or anyOf) branch does.
+ */
+function bodyFields(spec, node, seen = new Set()) {
+  const schema = resolve(spec, node);
+  const properties = {};
+  const required = new Set();
+  if (seen.has(schema)) return { properties, required };
+  seen.add(schema);
+  const add = (part) => {
+    for (const [name, prop] of Object.entries(part.properties)) {
+      if (!(name in properties)) properties[name] = prop;
+    }
+  };
+  add({ properties: schema.properties ?? {} });
+  for (const name of schema.required ?? []) required.add(name);
+  for (const branch of schema.allOf ?? []) {
+    const part = bodyFields(spec, branch, seen);
+    add(part);
+    for (const name of part.required) required.add(name);
+  }
+  for (const key of ["oneOf", "anyOf"]) {
+    const parts = (schema[key] ?? []).map((b) => bodyFields(spec, b, seen));
+    for (const part of parts) add(part);
+    if (parts.length) {
+      for (const name of parts[0].required) {
+        if (parts.every((part) => part.required.has(name))) required.add(name);
+      }
+    }
+  }
+  return { properties, required };
+}
+
+function schemaOf({ spec, operation }) {
+  const params = [];
+  for (const raw of operation.parameters ?? []) {
+    const param = resolve(spec, raw);
+    if (param.in !== "path" && param.in !== "query") continue;
+    const values = resolve(spec, param.schema ?? {}).enum;
+    params.push(
+      withDescription(
+        {
+          name: param.name,
+          in: param.in,
+          required: param.in === "path" || param.required === true,
+          type: typeOf(spec, param.schema ?? {}),
+          ...nullableOf(spec, param.schema ?? {}),
+          ...(typeOf(spec, param.schema ?? {}) === "array"
+            ? { items: typeOf(spec, resolve(spec, param.schema).items ?? {}) }
+            : {}),
+          ...(Array.isArray(values) && values.length
+            ? { enum: values.map(String) }
+            : {}),
+        },
+        param.description,
+      ),
+    );
+  }
+  let body = null;
+  const json = operation.requestBody?.content?.["application/json"]?.schema;
+  if (json) {
+    const { properties, required } = bodyFields(spec, json);
+    body = Object.entries(properties).map(([name, prop]) =>
+      withDescription(
+        {
+          name,
+          type: typeOf(spec, prop),
+          ...nullableOf(spec, prop),
+          required: required.has(name),
+        },
+        resolve(spec, prop).description,
+      ),
+    );
+  }
+  return { summary: short(operation.summary) ?? "", params, body };
+}
+
+const schemas = Object.fromEntries(
+  operations.map(({ id }) => [id, schemaOf(described.get(id))]),
+);
+
+/**
+ * Whether the operation's success answer is text, not JSON: it lists a
+ * content type and none of them is JSON (Coolify's /version and /health
+ * answer text/html).
+ */
+function answersText({ spec, operation }) {
+  const types = Object.entries(operation.responses ?? {})
+    .filter(([code]) => /^2/.test(code))
+    .flatMap(([, raw]) => Object.keys(resolve(spec, raw).content ?? {}));
+  return types.length > 0 && !types.some((type) => /json/i.test(type));
+}
+const textAnswers = operations
+  .filter(({ id }) => answersText(described.get(id)))
+  .map(({ id }) => id);
+
+// Fields any vendored spec describes as a password or secret, so answers mask
+// them by name. Only strings: flags and costs about passwords are not secret.
+const NOT_SECRET_NAME = /(_username|_algorithm|_uuid)$/;
+const secretFieldSet = new Set();
+function collectSecrets(spec, node, seen = new Set()) {
+  if (!node || typeof node !== "object" || seen.has(node)) return;
+  seen.add(node);
+  for (const [name, prop] of Object.entries(node.properties ?? {})) {
+    const types = [].concat(prop?.type ?? []);
+    if (
+      types.includes("string") &&
+      /password|secret/i.test(prop?.description ?? "") &&
+      !NOT_SECRET_NAME.test(name)
+    ) {
+      secretFieldSet.add(name);
+    }
+  }
+  for (const value of Object.values(node)) collectSecrets(spec, value, seen);
+}
+for (const spec of specs.values()) collectSecrets(spec, spec);
+const secretFields = [...secretFieldSet].sort();
+
+// String fields any vendored spec describes as raw config, Compose, a script,
+// a Dockerfile, labels or env text: they can carry any credential, so answers
+// mask them whole and only the audited reveal shows one.
+const RAW_DESCRIPTION =
+  /\byaml\b|\.ya?ml file|dockerfile content|\bscript\b|nginx configuration|custom labels|env(ironment)? (file|text)|\.env\b/i;
+const rawFieldSet = new Set();
+function collectRaw(node, seen = new Set()) {
+  if (!node || typeof node !== "object" || seen.has(node)) return;
+  seen.add(node);
+  for (const [name, prop] of Object.entries(node.properties ?? {})) {
+    const types = [].concat(prop?.type ?? []);
+    if (
+      types.includes("string") &&
+      RAW_DESCRIPTION.test(prop?.description ?? "")
+    ) {
+      rawFieldSet.add(name);
+    }
+  }
+  for (const value of Object.values(node)) collectRaw(value, seen);
+}
+for (const spec of specs.values()) collectRaw(spec);
+const rawFields = [...rawFieldSet].sort();
+
+// Log and output fields: a property named logs, log, output, *_logs or
+// *_output that isn't a flag or a count, or a string described as output.
+const LOG_NAME = /^(logs?|output)$|_(logs|output)$/i;
+function isLogField(spec, name, raw) {
+  const prop = resolve(spec, raw);
+  const types = [].concat(prop.type ?? []);
+  const scalarFlag =
+    types.length > 0 &&
+    types.every((t) => t === "boolean" || t === "integer" || t === "null");
+  if (!scalarFlag && LOG_NAME.test(name)) return true;
+  return types.includes("string") && /\boutput\b/i.test(prop.description ?? "");
+}
+
+/** The names of every log or output field in a schema, at any depth. */
+function logFieldsOf(spec, node, out = new Set(), seen = new Set()) {
+  const resolved = resolve(spec, node);
+  if (!resolved || typeof resolved !== "object" || seen.has(resolved)) {
+    return out;
+  }
+  seen.add(resolved);
+  for (const [name, raw] of Object.entries(resolved.properties ?? {})) {
+    if (isLogField(spec, name, raw)) out.add(name);
+    logFieldsOf(spec, raw, out, seen);
+  }
+  for (const n of [
+    resolved.items,
+    ...(resolved.allOf ?? []),
+    ...(resolved.oneOf ?? []),
+    ...(resolved.anyOf ?? []),
+  ]) {
+    if (n) logFieldsOf(spec, n, out, seen);
+  }
+  return out;
+}
+
+/** The success answers' JSON schemas of an operation. */
+function answerSchemas(spec, raw) {
+  return Object.entries(raw.responses ?? {})
+    .filter(([code]) => /^2/.test(code))
+    .flatMap(([, response]) =>
+      Object.values(resolve(spec, response).content ?? {}),
+    )
+    .map((content) => content.schema)
+    .filter(Boolean);
+}
+
+/** Whether log or output fields are at least half of an answer's top level. */
+function mostlyLogs(spec, schema) {
+  let top = resolve(spec, schema);
+  if (top.items) top = resolve(spec, top.items);
+  const names = Object.entries(top.properties ?? {});
+  const logs = names.filter(([name, raw]) => isLogField(spec, name, raw));
+  return logs.length > 0 && logs.length * 2 >= names.length;
+}
+
+// An operation is for logs or output (it needs coolify.operate, an operate
+// grant and a confirm) when it is a read (a GET, or a POST to .../logs) and
+// its path has a logs, deployments, executions or imports segment, or log
+// and output fields are at least half of its answer's top-level properties.
+// Any other answer that merely holds such a field (a server's
+// validation_logs) stays a plain read, with those fields masked.
+const LOG_PATH = /\/(logs|deployments|executions|imports)(\/|$)/;
+const logFieldMap = new Map();
+const logPurposeSet = new Set();
+for (const { file } of SOURCES) {
+  const spec = specs.get(file);
+  for (const { id, method, path, operation } of readOperations(file).values()) {
+    const schemas = answerSchemas(spec, operation);
+    const fields = logFieldMap.get(id) ?? new Set();
+    for (const schema of schemas) logFieldsOf(spec, schema, fields);
+    if (fields.size) logFieldMap.set(id, fields);
+    const read =
+      method === "GET" || (method === "POST" && /\/logs$/.test(path));
+    if (
+      read &&
+      (LOG_PATH.test(path) ||
+        schemas.some((schema) => mostlyLogs(spec, schema)))
+    ) {
+      logPurposeSet.add(id);
+    }
+  }
+}
+const logFields = Object.fromEntries(
+  [...logFieldMap.keys()]
+    .sort()
+    .map((id) => [id, [...logFieldMap.get(id)].sort()]),
+);
+const logPurpose = [...logPurposeSet].sort();
+
+// The data goes in a JSON file, so the TypeScript stays a few lines of types.
+const schemasTs = `${header}
+import data from "./schemas.json";
+
+export interface OperationParam {
+  name: string;
+  in: "path" | "query";
+  required: boolean;
+  /** The JSON type, like "string" or "integer"; "a|b" when it can be either. */
+  type: string;
+  /** The spec allows null (sent as JSON null, apart from leaving it out). */
+  nullable?: boolean;
+  /** For an array: its items' JSON type. Sent as one name=value per item. */
+  items?: string;
+  /** The only values the spec allows, when it lists them. */
+  enum?: string[];
+  description?: string;
+}
+
+export interface OperationBodyField {
+  name: string;
+  type: string;
+  /** The spec allows null (sent as JSON null, apart from leaving it out). */
+  nullable?: boolean;
+  required: boolean;
+  description?: string;
+}
+
+export interface OperationSchema {
+  summary: string;
+  params: OperationParam[];
+  /** The JSON body's top-level fields, or null when it takes no JSON body. */
+  body: OperationBodyField[] | null;
+}
+
+interface Packed {
+  params: OperationParam[];
+  fields: OperationBodyField[];
+  /** [summary, param indexes, body field indexes or null], by operation id. */
+  operations: Record<string, [string, number[], number[] | null]>;
+  textAnswers: string[];
+  secretFields: string[];
+  rawFields: string[];
+  logFields: Record<string, string[]>;
+  logPurpose: string[];
+}
+
+// JSON imports type tuples as arrays, so the shape is asserted here; the
+// generator writes exactly this.
+const packed = data as unknown as Packed;
+
+/** Each operation as the newest vendored spec that has it describes it. */
+export const OPERATION_SCHEMAS: Readonly<Record<string, OperationSchema>> =
+  Object.fromEntries(
+    Object.entries(packed.operations).map(([id, [summary, params, body]]) => [
+      id,
+      {
+        summary,
+        params: params.map((i) => packed.params[i]),
+        body: body === null ? null : body.map((i) => packed.fields[i]),
+      },
+    ]),
+  );
+
+/** Operations whose success answer is text (the spec lists no JSON type). */
+export const TEXT_ANSWERS: ReadonlySet<string> = new Set(packed.textAnswers);
+
+/** Field names a vendored spec describes as a password or secret. */
+export const SECRET_FIELDS: ReadonlySet<string> = new Set(packed.secretFields);
+
+/** Fields a vendored spec describes as raw config, Compose, a script or env text. */
+export const RAW_FIELDS: ReadonlySet<string> = new Set(packed.rawFields);
+
+/** The log and output fields of each operation's answer, by response schema. */
+export const LOG_FIELDS: Readonly<Record<string, readonly string[]>> =
+  packed.logFields;
+
+/** Reads whose purpose is logs or command output (see the generator's rule). */
+export const LOG_PURPOSE: ReadonlySet<string> = new Set(packed.logPurpose);
+`;
+
 async function write(name, text) {
   const file = outDir + name;
   const options = (await prettier.resolveConfig(file)) ?? {};
@@ -154,6 +527,46 @@ async function write(name, text) {
 
 mkdirSync(outDir, { recursive: true });
 await write("operations.ts", operationsTs);
+// Parameters and body fields repeat across operations (uuid alone is in more
+// than 200), so each distinct one is stored once and operations list indexes.
+function interned() {
+  const table = [];
+  const index = new Map();
+  return {
+    table,
+    ref(value) {
+      const key = JSON.stringify(value);
+      if (!index.has(key)) {
+        index.set(key, table.length);
+        table.push(value);
+      }
+      return index.get(key);
+    },
+  };
+}
+const paramTable = interned();
+const fieldTable = interned();
+const packed = {
+  params: paramTable.table,
+  fields: fieldTable.table,
+  operations: Object.fromEntries(
+    Object.entries(schemas).map(([id, { summary, params, body }]) => [
+      id,
+      [
+        summary,
+        params.map((p) => paramTable.ref(p)),
+        body === null ? null : body.map((f) => fieldTable.ref(f)),
+      ],
+    ]),
+  ),
+  textAnswers,
+  secretFields,
+  rawFields,
+  logFields,
+  logPurpose,
+};
+await write("schemas.json", JSON.stringify(packed));
+await write("schemas.ts", schemasTs);
 
 const counts = Object.fromEntries(SOURCES.map(({ source }) => [source, 0]));
 for (const operation of operations) counts[operation.source]++;

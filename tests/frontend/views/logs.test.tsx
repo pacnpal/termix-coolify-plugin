@@ -170,6 +170,46 @@ describe("Logs view", () => {
     expect(screen.getByText("beta")).toBeTruthy();
   });
 
+  it("keeps only the newest answer when an older request ends last", async () => {
+    const api = stubApi();
+    const fallback = api.get.getMockImplementation()!;
+    let releaseFirst: () => void = () => {};
+    api.get.mockImplementation(async (url: string) => {
+      if (!/\/logs(\?|$)/.test(url)) return fallback(url);
+      if (!url.includes("timestamps")) {
+        await new Promise<void>((resolve) => (releaseFirst = resolve));
+        return { data: { source: "coolify", text: "stale line\n" } };
+      }
+      return { data: { source: "coolify", text: "fresh line\n" } };
+    });
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions: OPERATE,
+    });
+    rendered.renderTab("coolify", { isVisible: true });
+    fireEvent.click(
+      await screen.findByRole("button", { name: locales.nav.resources }),
+    );
+    fireEvent.click(
+      await waitFor(() => {
+        const r = document.querySelector('[data-name="web"]');
+        if (!r) throw new Error("no row");
+        return r;
+      }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: locales.detail.tabs.logs }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: G.timestamps }));
+    expect(await screen.findByText("fresh line")).toBeTruthy();
+    await act(async () => releaseFirst());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByText("stale line")).toBeNull();
+    expect(screen.getByText("fresh line")).toBeTruthy();
+  });
+
   it("explains not-linked from the route", async () => {
     const api = stubApi();
     const fallback = api.get.getMockImplementation()!;

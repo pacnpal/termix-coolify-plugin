@@ -1,7 +1,7 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import type { ResourceDto } from "../coolify/dto.js";
-import type { Connections } from "../connections/service.js";
-import type { Resources } from "../resources/service.js";
+import { ConnectionError, type Connections } from "../connections/service.js";
+import type { Lifecycle } from "../resources/lifecycle.js";
 import { isHostKeyError, sshRunner, type SshRunner } from "../ssh.js";
 import type { Sync } from "../sync/service.js";
 import {
@@ -76,9 +76,13 @@ export interface ShellChoices {
   choices: ContainerChoice[];
 }
 
+type Snapshot = Awaited<ReturnType<Connections["snapshot"]>>;
+
 /** Where a resource's container runs, checked as the actor. */
 export interface ContainerPlace {
   connectionId: number;
+  /** The one read of the connection every later step is checked against. */
+  snap: Snapshot;
   serverUuid: string;
   hostId: number;
 }
@@ -135,30 +139,45 @@ export function readShellRequest(body: unknown): ShellRequest {
 
 export interface ContainersDeps {
   connections: Connections;
-  resources: Resources;
-  sync: Sync;
+  /** Its `authorize` is the access check: the same as lifecycle's. */
+  lifecycle: Pick<Lifecycle, "authorize">;
+  sync: Pick<Sync, "linkedHostFor">;
   /** SSH on a Linked host; ctx.ssh.exec unless a test gives another. */
   run?: SshRunner;
 }
 
 /**
  * Container shells and database consoles. Everything is checked before any
- * SSH: the connection (owner or any Grant: shells need host access, not a
- * grant level), the resource in that connection's list, its server's Linked
- * host and the actor's own `connect` access to that host.
+ * SSH: lifecycle's `authorize` (coolify.operate, the owner or an operate or
+ * configure grant, and a uuid in that connection's own list), its server's
+ * Linked host and the actor's own `connect` access to that host. The whole
+ * answer is about one snapshot of the connection: if its address, token,
+ * Access token or TLS settings change before SSH or before the command is
+ * answered, it ends with target-changed.
  */
 export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
   const run = deps.run ?? sshRunner(ctx);
 
   async function fingerprints(
-    connectionId: number,
+    snap: Snapshot,
     serverUuid: string,
   ): Promise<string[]> {
     try {
-      const api = await deps.connections.api(connectionId);
-      return (await api.server(serverUuid)).hostKeyFingerprints;
+      return (await snap.api.server(serverUuid)).hostKeyFingerprints;
     } catch {
       return [];
+    }
+  }
+
+  /** Fails closed unless the connection still points at the snapshot's target. */
+  async function assertSnapshotHolds(connectionId: number, snap: Snapshot) {
+    if (
+      (await deps.connections.revision(connectionId)) !== snap.view.revision
+    ) {
+      throw new ConnectionError(
+        "target-changed",
+        "The connection's address, token or Access settings changed. Open the shell again.",
+      );
     }
   }
 
@@ -177,10 +196,7 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
           "Open a server terminal once to trust this host's key.",
           {
             hostId: target.hostId,
-            fingerprints: await fingerprints(
-              target.connectionId,
-              target.serverUuid,
-            ),
+            fingerprints: await fingerprints(target.snap, target.serverUuid),
           },
         );
       }
@@ -224,18 +240,19 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
     uuid: string,
     part: string | undefined,
   ): Promise<{ res: ResourceDto; serverUuid: string | null }> {
-    if (!UUID.test(uuid)) {
-      throw new ContainerError("not-found", "Coolify resource not found");
-    }
-    // Checks the actor's access to the connection first: another user's
-    // connection is a 404, and the uuid must be one of its resources.
-    const rows = await deps.resources.list(connectionId);
-    const res = rows.find((r) => r.uuid === uuid);
-    if (!res)
-      throw new ContainerError("not-found", "Coolify resource not found");
+    const res = await deps.lifecycle.authorize(connectionId, uuid);
     if (!part) return { res, serverUuid: res.serverUuid };
-    const found = rows.find((r) => r.uuid === part && r.parentUuid === uuid);
-    if (!found) throw new ContainerError("not-found", "Coolify Part not found");
+    let found: ResourceDto | null = null;
+    try {
+      found = await deps.lifecycle.authorize(connectionId, part);
+    } catch (err) {
+      if (!(err instanceof ConnectionError) || err.code !== "not-found") {
+        throw err;
+      }
+    }
+    if (!found || found.parentUuid !== uuid) {
+      throw new ContainerError("not-found", "Coolify Part not found");
+    }
     return { res: found, serverUuid: found.serverUuid ?? res.serverUuid };
   }
 
@@ -252,13 +269,15 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
 
   /**
    * The resource's container on its Linked host, after every check: the
-   * connection and resource (target), the Linked host (else not-linked), the
-   * actor's own connect access to it (else no-host-access), then docker ps.
-   * A chosen container must be one of this resource's; several without a
-   * choice answer choices. Whether it runs is the caller's to judge.
+   * resource (target, lifecycle's authorize), the Linked host (else
+   * not-linked), the actor's own connect access to it (else no-host-access),
+   * the snapshot's revision, then docker ps. A chosen container must be one
+   * of this resource's; several without a choice answer choices. Whether it
+   * runs is the caller's to judge.
    */
   async function locate(
     connectionId: number,
+    snap: Snapshot,
     uuid: string,
     request: { part?: string; container?: string },
   ): Promise<Located> {
@@ -273,7 +292,8 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
       );
     }
     await assertHostAccess(hostId);
-    const where = { connectionId, serverUuid, hostId };
+    const where: ContainerPlace = { connectionId, snap, serverUuid, hostId };
+    await assertSnapshotHolds(connectionId, snap);
 
     const sudo = await probe(where, () => needsSudo(hostId));
     const containers = await probe(where, () =>
@@ -306,6 +326,7 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
     target,
     locate,
     assertHostAccess,
+    assertSnapshotHolds,
     /** Runs SSH work on a located host; a host key refusal becomes host-key. */
     guard: probe,
 
@@ -315,7 +336,9 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
       body: unknown,
     ): Promise<ShellAnswer | ShellChoices> {
       const request = readShellRequest(body);
-      const located = await locate(connectionId, uuid, request);
+      // Read once: every later step is checked against this target.
+      const snap = await deps.connections.snapshot(connectionId);
+      const located = await locate(connectionId, snap, uuid, request);
       if (located.kind === "choices") return { choices: located.choices };
       const { res, where, sudo, container: chosen } = located;
       const { hostId, serverUuid } = where;
@@ -349,12 +372,14 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
         }
         throw err;
       }
+      const hostKeys = await fingerprints(snap, serverUuid);
+      await assertSnapshotHolds(connectionId, snap);
       const answer: ShellAnswer = {
         hostId,
         title: res.name,
         container: chosen.name,
         command,
-        fingerprints: await fingerprints(connectionId, serverUuid),
+        fingerprints: hostKeys,
       };
       if (request.console === "db" && !engine) answer.note = "no-console";
       return answer;

@@ -1,11 +1,14 @@
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OTHER, OWNER, type PluginHarness } from "../helpers/plugin.js";
+import { resourceLists } from "../helpers/resources.js";
 import { fakeDocker, HOST_ID, setSensitive, startShell } from "./fixtures.js";
+import { RECHECK_MS } from "../../../src/backend/containers/sockets.js";
 
 let harness: PluginHarness | null = null;
 
 afterEach(async () => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   await harness?.close();
   harness = null;
@@ -27,6 +30,39 @@ const WEB_RUNNING: [RegExp, string] = [
 
 function logCalls(fake: { calls: { path: string; url: string }[] }) {
   return fake.calls.filter((c) => c.path.endsWith("/logs"));
+}
+
+/** The connection's token (startShell's), echoed by a careless app. */
+const TOKEN = "fake-token-shell-test";
+const LEAKY = [
+  `auth Bearer ${TOKEN}`,
+  "db postgres://app:fake-db-pass@db:5432/app",
+  "GET /hook?token=fake-query-token&x=1",
+  "DB_PASSWORD=fake-env-pass",
+  '{"api_key": "fake-json-key"}',
+  "plain line",
+  "",
+].join("\n");
+
+function expectMasked(text: string) {
+  for (const secret of [
+    TOKEN,
+    "fake-db-pass",
+    "fake-query-token",
+    "fake-env-pass",
+    "fake-json-key",
+  ]) {
+    expect(text).not.toContain(secret);
+  }
+  expect(text).toContain("plain line");
+  expect(text).toContain("postgres://app:");
+}
+
+/** Points the connection at another token, as an owner's edit would. */
+function repoint(h: PluginHarness) {
+  h.db.sqlite
+    .prepare("UPDATE p_coolify_connections SET token_sealed = ?")
+    .run("sealed:another-instance");
 }
 
 describe("logs snapshot route", () => {
@@ -69,25 +105,79 @@ describe("logs snapshot route", () => {
     expect(logCalls(fake).length).toBe(before);
   });
 
-  it("a view grant reads logs over SSH, never through Coolify", async () => {
+  it("a view grant reads no logs, through Coolify or over SSH", async () => {
+    const { harness: h, fake, connectionId } = await start();
+    for (const sensitive of [true, false]) {
+      setSensitive(h, connectionId, sensitive);
+      h.db.sqlite
+        .prepare(
+          "INSERT OR REPLACE INTO p_coolify_grants (connection_id, user_id, level) VALUES (?, ?, ?)",
+        )
+        .run(connectionId, OTHER, "view");
+      const before = logCalls(fake).length;
+      const docker = fakeDocker(h, { ps: [WEB_RUNNING], logs: "x\n" });
+      const res = await h.request(
+        "GET",
+        logsPath(connectionId, "app-web-uuid"),
+        undefined,
+        OTHER,
+      );
+      expect(res.status).toBe(403);
+      expect(res.body.cause).toBe("forbidden");
+      expect(docker.commands).toEqual([]);
+      expect(logCalls(fake).length).toBe(before);
+    }
+  });
+
+  it("masks the token, URL credentials and secret fields in a Coolify snapshot", async () => {
     const { harness: h, fake, connectionId } = await start();
     setSensitive(h, connectionId, true);
-    h.db.sqlite
-      .prepare(
-        "INSERT INTO p_coolify_grants (connection_id, user_id, level) VALUES (?, ?, ?)",
-      )
-      .run(connectionId, OTHER, "view");
-    const before = logCalls(fake).length;
-    fakeDocker(h, { ps: [WEB_RUNNING], logs: "x\n" });
-    const res = await h.request(
-      "GET",
-      logsPath(connectionId, "app-web-uuid"),
-      undefined,
-      OTHER,
-    );
+    fake.set("GET /applications/app-web-uuid/logs", { json: { logs: LEAKY } });
+    const res = await h.request("GET", logsPath(connectionId, "app-web-uuid"));
+    expect(res.status).toBe(200);
+    expect(res.body.source).toBe("coolify");
+    expectMasked(res.body.text);
+  });
+
+  it("masks the token, URL credentials and secret fields in an SSH snapshot", async () => {
+    const { harness: h, connectionId } = await start();
+    setSensitive(h, connectionId, false);
+    fakeDocker(h, { ps: [WEB_RUNNING], logs: LEAKY });
+    const res = await h.request("GET", logsPath(connectionId, "app-web-uuid"));
     expect(res.status).toBe(200);
     expect(res.body.source).toBe("ssh");
+    expectMasked(res.body.text);
+  });
+
+  it("a target change before Coolify's logs call reads nothing", async () => {
+    const { harness: h, fake, connectionId } = await start();
+    setSensitive(h, connectionId, true);
+    const list = resourceLists()["GET /applications"] as { json: unknown };
+    fake.set("GET /applications", () => {
+      // The owner points the connection at another token mid-way.
+      repoint(h);
+      return Response.json(list.json);
+    });
+    const before = logCalls(fake).length;
+    const res = await h.request("GET", logsPath(connectionId, "app-web-uuid"));
+    expect(res.status).toBe(409);
+    expect(res.body.cause).toBe("target-changed");
     expect(logCalls(fake).length).toBe(before);
+  });
+
+  it("a target change before docker logs runs no docker logs", async () => {
+    const { harness: h, connectionId } = await start();
+    setSensitive(h, connectionId, false);
+    const docker = fakeDocker(h, { ps: [WEB_RUNNING], logs: "x\n" });
+    const real = docker.exec.getMockImplementation()!;
+    docker.exec.mockImplementation(async (...args) => {
+      if (/docker ps /.test(args[1])) repoint(h);
+      return real(...args);
+    });
+    const res = await h.request("GET", logsPath(connectionId, "app-web-uuid"));
+    expect(res.status).toBe(409);
+    expect(res.body.cause).toBe("target-changed");
+    expect(docker.commands.some((c) => /docker logs /.test(c))).toBe(false);
   });
 
   it("falls back to SSH when Coolify refuses the token's ability", async () => {
@@ -509,6 +599,93 @@ describe("logs follow socket", () => {
     await vi.waitFor(() => expect(sentOf(socket, "error")).toHaveLength(1));
     expect(sentOf(socket, "error")[0]).toMatchObject({ cause: "not-linked" });
     expect(ssh.connect).not.toHaveBeenCalled();
+  });
+
+  it("masks secrets in followed lines", async () => {
+    const { ssh, socket } = await following();
+    ssh.execs[0].stream.emit("data", Buffer.from(LEAKY));
+    await vi.waitFor(() =>
+      expect(
+        sentOf(socket, "lines").flatMap((m) => m.lines as string[]),
+      ).toContain("plain line"),
+    );
+    expectMasked(
+      sentOf(socket, "lines")
+        .flatMap((m) => m.lines as string[])
+        .join("\n"),
+    );
+  });
+
+  it("a target change stops the follow on the next message", async () => {
+    const { ssh, socket, harness: h } = await following();
+    repoint(h);
+    socket.message({ type: "ping" });
+    await vi.waitFor(() =>
+      expect(sentOf(socket, "error").at(-1)).toMatchObject({
+        cause: "target-changed",
+      }),
+    );
+    expect(ssh.execs[0].stream.signals).toContain("KILL");
+    expect(ssh.dispose).toHaveBeenCalled();
+  });
+
+  it("checks the target and access periodically without any message", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { ssh, socket, harness: h } = await following();
+    repoint(h);
+    await vi.advanceTimersByTimeAsync(RECHECK_MS + 10);
+    await vi.waitFor(() =>
+      expect(sentOf(socket, "error").at(-1)).toMatchObject({
+        cause: "target-changed",
+      }),
+    );
+    expect(ssh.dispose).toHaveBeenCalled();
+  });
+
+  it("a revoked grant stops the follow periodically", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { harness: h, connectionId } = await start();
+    h.db.sqlite
+      .prepare(
+        "INSERT INTO p_coolify_grants (connection_id, user_id, level) VALUES (?, ?, 'operate')",
+      )
+      .run(connectionId, OTHER);
+    fakeDocker(h, { ps: [WEB_RUNNING] });
+    const ssh = fakeFollowSsh(h);
+    const { socket } = openFollow(h, OTHER);
+    socket.message({ type: "subscribe", connectionId, uuid: "app-web-uuid" });
+    await vi.waitFor(() => expect(sentOf(socket, "started")).toHaveLength(1));
+    h.db.sqlite.prepare("DELETE FROM p_coolify_grants").run();
+    await vi.advanceTimersByTimeAsync(RECHECK_MS + 10);
+    await vi.waitFor(() => expect(socket.closedWith).toBe(1008));
+    expect(ssh.dispose).toHaveBeenCalled();
+  });
+
+  it("a view grant can't follow", async () => {
+    const { harness: h, connectionId } = await start();
+    h.db.sqlite
+      .prepare(
+        "INSERT INTO p_coolify_grants (connection_id, user_id, level) VALUES (?, ?, 'view')",
+      )
+      .run(connectionId, OTHER);
+    const docker = fakeDocker(h, { ps: [WEB_RUNNING] });
+    const ssh = fakeFollowSsh(h);
+    const { socket } = openFollow(h, OTHER);
+    socket.message({ type: "subscribe", connectionId, uuid: "app-web-uuid" });
+    await vi.waitFor(() => expect(socket.closedWith).toBe(1008));
+    expect(sentOf(socket, "error").at(-1)).toMatchObject({
+      cause: "forbidden",
+    });
+    expect(ssh.connect).not.toHaveBeenCalled();
+    expect(docker.commands).toEqual([]);
+  });
+
+  it("a second subscribe on one socket ends the first SSH process", async () => {
+    const { ssh, socket, connectionId } = await following();
+    socket.message({ type: "subscribe", connectionId, uuid: "app-web-uuid" });
+    await vi.waitFor(() => expect(ssh.execs).toHaveLength(2));
+    expect(ssh.execs[0].stream.signals).toContain("KILL");
+    expect(ssh.dispose).toHaveBeenCalledTimes(1);
   });
 
   it("ends when docker logs ends on its own", async () => {

@@ -1,8 +1,10 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { shellQuote } from "@termix-ssh/plugin-sdk/host-scripts";
+import { REDACTED_VALUE } from "@termix-ssh/plugin-sdk/operations";
 import { CoolifyError } from "../coolify/http.js";
 import type { ResourceDto } from "../coolify/dto.js";
-import type { AccessLevel, Connections } from "../connections/service.js";
+import type { Connections } from "../connections/service.js";
+import { maskCredentials } from "../redact.js";
 import { sshRunner, type SshRunner } from "../ssh.js";
 import { assertContainerName, CommandError, dockerPrefix } from "./commands.js";
 import type { ContainerChoice } from "./resolver.js";
@@ -21,12 +23,30 @@ const LOGS_TIMEOUT_MS = 30_000;
 
 const UUID = /^[A-Za-z0-9_-]{1,64}$/;
 
-/** Grant levels that may read logs through Coolify's API (with coolify.operate). */
-const API_LEVELS: ReadonlySet<AccessLevel> = new Set([
-  "owner",
-  "operate",
-  "configure",
-]);
+/**
+ * `name=value`, `name: value` and `"name": "value"` where the name says it
+ * holds a secret: env dumps, config echoes and JSON log lines.
+ */
+const SECRET_FIELD =
+  /(\b[\w.-]{0,64}(?:password|passwd|pwd|secret|token|api_?key|private_?key|access_?key|credentials?)[\w.-]{0,64}["']?\s{0,8}[:=]\s{0,8}["']?)[^\s"',;&}]+/gi;
+/** An Authorization header's credential. */
+const AUTH_HEADER = /(\b(?:bearer|basic|token)\s+)[A-Za-z0-9._~+/=|-]{8,}/gi;
+
+/**
+ * Log text with its secrets masked before it leaves the backend: the
+ * connection's own token and Access secret anywhere, then what redact.ts
+ * masks in a string (a URL's password, credential query parameters), then
+ * secret-named fields and Authorization credentials.
+ */
+export function redactLog(text: string, secrets: readonly string[]): string {
+  let out = text;
+  for (const secret of secrets) {
+    if (secret) out = out.split(secret).join(REDACTED_VALUE);
+  }
+  return maskCredentials(out)
+    .replace(SECRET_FIELD, `$1${REDACTED_VALUE}`)
+    .replace(AUTH_HEADER, `$1${REDACTED_VALUE}`);
+}
 
 export interface LogsRequest {
   lines: number;
@@ -178,6 +198,12 @@ export interface Following {
   kind: "following";
   container: string;
   where: ContainerPlace;
+  /**
+   * Throws unless the actor may still read this follow: lifecycle's
+   * authorize (coolify.operate, an operate grant, the uuid in the
+   * connection's own list), the snapshot's revision and host access.
+   */
+  recheck: () => Promise<void>;
   /** Kills the remote docker logs and ends the SSH connection. Idempotent. */
   stop: () => void;
 }
@@ -198,35 +224,41 @@ export interface LogsDeps {
   run?: SshRunner;
 }
 
+type Snapshot = Awaited<ReturnType<Connections["snapshot"]>>;
+
 /**
  * Container logs. A snapshot comes from Coolify's API when the API rules
  * allow it (coolify.operate, checked by the route or the action, an owner or
  * operate or configure Grant, and a token with read:sensitive), else from
  * `docker logs` over SSH on the Linked host, which needs coolify.operate and
  * the actor's own connect access to that host. A follow is always SSH.
+ * Both need lifecycle's authorize. Every read is about one snapshot of the
+ * connection, checked again right before each fetch or SSH, and every line
+ * goes through redactLog before it leaves.
  */
+
 export function createLogs(ctx: PluginContext, deps: LogsDeps) {
   const run = deps.run ?? sshRunner(ctx);
 
   /** Logs through Coolify, or null when the API rules send this to SSH. */
   async function fromCoolify(
-    connectionId: number,
+    snap: Snapshot,
     res: ResourceDto,
     request: LogsRequest,
   ): Promise<string | null> {
     // A container from an SSH choices answer is read over SSH; Coolify reads
     // a whole service only one sub-service at a time.
     if (request.container || res.kind === "service") return null;
-    const view = await deps.connections.get(connectionId);
-    if (!view || !API_LEVELS.has(view.access) || !view.abilities.sensitive) {
-      return null;
-    }
+    // The grant level was checked by authorize; the token needs read:sensitive.
+    if (!snap.view.abilities.sensitive) return null;
     try {
-      const api = await deps.connections.api(connectionId);
-      return await api.logs(res.kind, res.uuid, {
+      return await snap.api.logs(res.kind, res.uuid, {
         lines: request.lines,
         timestamps: request.timestamps,
         parentUuid: res.parentUuid ?? undefined,
+        // Right before each fetch, after the budget's and retries' waits.
+        beforeFetch: () =>
+          deps.containers.assertSnapshotHolds(snap.view.id, snap),
       });
     } catch (err) {
       // The token lost read:sensitive since the last probe.
@@ -239,10 +271,16 @@ export function createLogs(ctx: PluginContext, deps: LogsDeps) {
 
   async function fromSsh(
     connectionId: number,
+    snap: Snapshot,
     uuid: string,
     request: LogsRequest,
   ): Promise<LogsAnswer | LogsChoices> {
-    const located = await deps.containers.locate(connectionId, uuid, request);
+    const located = await deps.containers.locate(
+      connectionId,
+      snap,
+      uuid,
+      request,
+    );
     if (located.kind === "choices") return { choices: located.choices };
     const { where, sudo, container } = located;
     let command: string;
@@ -258,6 +296,7 @@ export function createLogs(ctx: PluginContext, deps: LogsDeps) {
         "That container can't be read.",
       );
     }
+    await deps.containers.assertSnapshotHolds(connectionId, snap);
     const result = await deps.containers.guard(where, () =>
       run(where.hostId, command, {
         timeoutMs: LOGS_TIMEOUT_MS,
@@ -273,7 +312,10 @@ export function createLogs(ctx: PluginContext, deps: LogsDeps) {
     }
     return {
       source: "ssh",
-      text: lastLines(result.stdout, request.lines),
+      text: redactLog(
+        lastLines(result.stdout, request.lines),
+        await snap.secrets(),
+      ),
       container: container.name,
     };
   }
@@ -286,17 +328,21 @@ export function createLogs(ctx: PluginContext, deps: LogsDeps) {
       raw: unknown,
     ): Promise<LogsAnswer | LogsChoices> {
       const request = readLogsRequest(raw);
-      // The connection (another user's is a 404) and the resource first.
+      // Read once: every later step is checked against this target.
+      const snap = await deps.connections.snapshot(connectionId);
       const { res } = await deps.containers.target(
         connectionId,
         uuid,
         request.part,
       );
-      const text = await fromCoolify(connectionId, res, request);
+      const text = await fromCoolify(snap, res, request);
       if (text !== null) {
-        return { source: "coolify", text: lastLines(text, request.lines) };
+        return {
+          source: "coolify",
+          text: redactLog(lastLines(text, request.lines), await snap.secrets()),
+        };
       }
-      return fromSsh(connectionId, uuid, request);
+      return fromSsh(connectionId, snap, uuid, request);
     },
 
     /**
@@ -309,7 +355,13 @@ export function createLogs(ctx: PluginContext, deps: LogsDeps) {
       request: { part?: string; container?: string; timestamps: boolean },
       sink: FollowSink,
     ): Promise<Following | LogsChoices> {
-      const located = await deps.containers.locate(connectionId, uuid, request);
+      const snap = await deps.connections.snapshot(connectionId);
+      const located = await deps.containers.locate(
+        connectionId,
+        snap,
+        uuid,
+        request,
+      );
       if (located.kind === "choices") return { choices: located.choices };
       const { where, sudo, container } = located;
       const command = logsCommand(container.name, {
@@ -318,6 +370,8 @@ export function createLogs(ctx: PluginContext, deps: LogsDeps) {
         timestamps: request.timestamps,
         follow: true,
       });
+      const secrets = await snap.secrets();
+      await deps.containers.assertSnapshotHolds(connectionId, snap);
       const connection = await deps.containers.guard(where, () =>
         ctx.ssh.connect(where.hostId, {
           purpose: "coolify",
@@ -365,18 +419,31 @@ export function createLogs(ctx: PluginContext, deps: LogsDeps) {
           parts.push(carry.slice(0, MAX_LINE));
           carry = carry.slice(MAX_LINE);
         }
-        if (parts.length) sink.lines(parts);
+        if (parts.length) {
+          sink.lines(parts.map((line) => redactLog(line, secrets)));
+        }
       };
       stream.on("data", onData);
       stream.stderr?.on("data", onData);
       stream.on("close", () => {
         if (stopped) return;
-        if (carry) sink.lines([carry]);
+        if (carry) sink.lines([redactLog(carry, secrets)]);
         carry = "";
         stop();
         sink.end();
       });
-      return { kind: "following", container: container.name, where, stop };
+      const recheck = async () => {
+        await deps.containers.target(connectionId, uuid, request.part);
+        await deps.containers.assertSnapshotHolds(connectionId, snap);
+        await deps.containers.assertHostAccess(where.hostId);
+      };
+      return {
+        kind: "following",
+        container: container.name,
+        where,
+        recheck,
+        stop,
+      };
     },
   };
 }

@@ -1,5 +1,5 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
-import type { Containers } from "../containers/service.js";
+import { ContainerError, type Containers } from "../containers/service.js";
 import type { Logs } from "../containers/logs.js";
 import { connectionIdInput } from "./connections.js";
 
@@ -13,7 +13,8 @@ function text(value: unknown): string {
  * including the actor's connect access to the Linked host.
  *
  * coolify.logs-tail: the same snapshot as the logs route, labelled with its
- * source. The text is a sensitive output, so run history never keeps it.
+ * source. The text is a sensitive output, so run history never keeps it,
+ * and it needs confirm: true.
  */
 export function registerContainerOperations(
   ctx: PluginContext,
@@ -47,6 +48,14 @@ export function registerContainerOperations(
 
   ctx.operations.register("coolify.logs-tail", {
     run: async (input) => {
+      // Logs carry secrets: an ops run or MCP call reads them only when the
+      // caller asked for exactly that.
+      if (input.confirm !== true) {
+        throw new ContainerError(
+          "invalid-input",
+          "Reading logs needs confirm: true",
+        );
+      }
       const id = connectionIdInput(input);
       const answer = await logs.snapshot(id, text(input.uuid), {
         part: text(input.part) || undefined,

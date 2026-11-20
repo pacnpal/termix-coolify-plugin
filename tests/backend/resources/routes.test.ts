@@ -32,8 +32,8 @@ describe("resource routes", () => {
     expect(answer.body.rows).toHaveLength(13);
     expect(answer.body.counts).toEqual({
       running: 3,
-      degraded: 3,
-      stopped: 1,
+      degraded: 2,
+      stopped: 2,
       deploying: 1,
     });
     expect(typeof answer.body.fetchedAt).toBe("string");
