@@ -22,6 +22,7 @@ import {
 } from "../connections/service.js";
 import type { Tables } from "../db.js";
 import type { ServerStatuses } from "../ops/signals.js";
+import { COMPANION_PLUGINS, activePlugins } from "../plugins.js";
 import type { Resources } from "../resources/service.js";
 import { isHostKeyError, sshRunner, type SshRunner } from "../ssh.js";
 import type { Sync } from "../sync/service.js";
@@ -106,7 +107,7 @@ export class UpdateError extends Error {
 }
 type HostLevel = "connect" | "edit";
 
-export const PACKAGE_MANAGER = "package-manager";
+export const PACKAGE_MANAGER = COMPANION_PLUGINS.packageManager;
 export const PM_LIST = "package-manager.list-updates";
 export const PM_UPGRADE = "package-manager.upgrade-all";
 
@@ -570,18 +571,14 @@ export function createUpdates(
    * is never bypassed.
    */
   async function packageManagerRuns(): Promise<boolean> {
-    let plugins: Awaited<ReturnType<PluginContext["plugins"]["list"]>>;
-    try {
-      plugins = await ctx.plugins.list();
-    } catch {
+    const active = await activePlugins(ctx);
+    if (!active) {
       throw new UpdateError(
         "companions-unknown",
         "Termix's plugin list could not be read, so nothing ran. Try again.",
       );
     }
-    return plugins.some(
-      (p) => p.id === PACKAGE_MANAGER && p.state === "active",
-    );
+    return active.has(PACKAGE_MANAGER);
   }
 
   /** One fixed command on the Linked host, after the snapshot is checked. */

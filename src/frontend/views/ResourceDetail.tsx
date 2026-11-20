@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Box, Database, SquareTerminal } from "lucide-react";
-import { useTranslation } from "@termix-ssh/plugin-sdk/frontend";
+import { useTabs, useTranslation } from "@termix-ssh/plugin-sdk/frontend";
 import {
   Button,
   EmptyState,
@@ -16,6 +16,7 @@ import {
 } from "@termix-ssh/plugin-sdk/ui";
 import type { Resource } from "../api";
 import { resourceHealth } from "../../shared/resource-health";
+import { CompanionActions } from "./CompanionActions";
 import {
   PartRestart,
   ResourceActions,
@@ -86,8 +87,12 @@ function OverviewTab({
   rows,
   onOpen,
   lifecycle,
+  connectionId,
+  revision,
 }: {
   t: T;
+  connectionId: number;
+  revision: string | null;
   resource: Resource;
   rows: readonly Resource[];
   onOpen: (uuid: string) => void;
@@ -98,6 +103,7 @@ function OverviewTab({
     ? (rows.find((r) => r.uuid === resource.parentUuid) ?? null)
     : null;
   const parts = rows.filter((r) => r.parentUuid === resource.uuid);
+  const tabs = useTabs();
   return (
     <TileStack>
       <div className="p-3">
@@ -136,6 +142,14 @@ function OverviewTab({
           </PanelList>
         </div>
       )}
+      <div className="p-3">
+        <CompanionActions
+          connectionId={connectionId}
+          resource={resource}
+          revision={revision}
+          shell={tabs}
+        />
+      </div>
     </TileStack>
   );
 }
@@ -205,6 +219,7 @@ export function ResourceDetail({
   canOperate,
   onChanged,
   onShell,
+  revision,
 }: {
   /** Null when the resource is gone from the list. */
   resource: Resource | null;
@@ -218,6 +233,8 @@ export function ResourceDetail({
   onChanged: () => void;
   /** Opens a coolify-shell tab for the resource. */
   onShell?: (resource: Resource, console: "shell" | "db") => void;
+  /** The connection's target hash, which keys the companion views. */
+  revision?: string | null;
 }) {
   const { t } = useTranslation();
   const runner = useLifecycle(connectionId, onChanged);
@@ -236,6 +253,8 @@ export function ResourceDetail({
             rows={rows}
             onOpen={onOpen}
             lifecycle={lifecycle}
+            connectionId={connectionId}
+            revision={revision ?? null}
           />
         );
         break;

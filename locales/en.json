@@ -220,6 +220,23 @@
       "confirmName": {
         "label": "Server name",
         "description": "Type the Coolify server's exact name to reboot it."
+      },
+      "kind": {
+        "label": "What to do",
+        "description": "The companion feature to use. Each one needs its plugin installed."
+      },
+      "params": {
+        "label": "Details",
+        "readDescription": "A JSON object: uuid for a resource (uptime, log-search, db-login, dns-list) or serverUuid for a server (security, backups-failed, host-metrics, db-logins).",
+        "changeDescription": "A JSON object with uuid, the resource. For dns also fqdn and optional type (A, AAAA or CNAME) and content."
+      },
+      "resourceUuid": {
+        "label": "Coolify resource",
+        "description": "The uuid of the Coolify application, service or database."
+      },
+      "recordId": {
+        "label": "DNS record",
+        "description": "The id of a DNS record made here for that resource, from the dns-list read."
       }
     },
     "listConnections": {
@@ -372,6 +389,32 @@
     "serverReboot": {
       "title": "Reboot a Coolify server",
       "description": "Reboots the server over SSH on its Linked host. Every Coolify application, service and database on it goes down until it is back."
+    },
+    "companionRead": {
+      "title": "Read from a companion plugin",
+      "description": "Reads what a companion plugin knows about a Coolify resource or server: Uptime monitors, Log Search results, Security Center score, failed backups, saved database logins, and DNS records made here."
+    },
+    "companion": {
+      "title": "Use a companion plugin",
+      "description": "Creates a DNS record for a resource's domain, or pauses and resumes its Uptime monitors."
+    },
+    "kinds": {
+      "companions": "Which companion plugins run",
+      "uptime": "Uptime monitors of a resource",
+      "logSearch": "Search a resource's logs across servers",
+      "security": "Security Center score of a server",
+      "dbLogin": "Saved logins for a database",
+      "dbLogins": "Saved logins for a server's databases",
+      "backupsFailed": "Failed backups on a server",
+      "hostMetrics": "Coolify resources on a server",
+      "dnsList": "DNS records made for a resource",
+      "dns": "Create a DNS record",
+      "uptimePause": "Pause a resource's Uptime monitors",
+      "uptimeResume": "Resume a resource's Uptime monitors"
+    },
+    "companionDnsRemove": {
+      "title": "Remove a DNS record made here",
+      "description": "Deletes a DNS record this connection created for the resource, through the DNS plugin. Only records made here can be removed."
     }
   },
   "connections": {
@@ -784,6 +827,66 @@
       "companions-unknown": "Termix's plugin list could not be read, so nothing ran. Try again.",
       "forbidden": "You don't have permission to do this.",
       "failed": "That didn't work."
+    }
+  },
+  "companions": {
+    "cancel": "Cancel",
+    "dns": {
+      "create": "Create DNS record",
+      "domain": "Domain",
+      "content": "Points to",
+      "contentHint": "An IP address or host name. Leave empty to use the server's address.",
+      "submit": "Create record",
+      "record": "{{fqdn}} {{type}} {{content}}",
+      "remove": "Remove",
+      "failed": "The DNS record could not be created.",
+      "removeFailed": "The DNS record could not be removed.",
+      "removeConfirm": {
+        "title": "Remove the DNS record for {{fqdn}}?",
+        "description": "The DNS plugin deletes the record from your DNS provider.",
+        "confirm": "Remove record"
+      }
+    },
+    "uptime": {
+      "title": "Uptime",
+      "none": "No Uptime monitor checks this resource's domains.",
+      "open": "Create monitor in Uptime",
+      "why": "Uptime can't create HTTP monitors for other plugins, so add the monitor in the Uptime tab.",
+      "status": {
+        "up": "Up",
+        "down": "Down",
+        "paused": "Paused",
+        "pending": "Pending",
+        "unknown": "Unknown"
+      }
+    },
+    "logs": {
+      "search": "Search logs across servers",
+      "source": "Docker logs, from Log Search. It can't filter by host.",
+      "none": "No log lines matched.",
+      "failed": "Log Search could not search the logs."
+    },
+    "databases": {
+      "saved": "A login for this database is saved in Databases.",
+      "notSaved": "Databases has no saved login for this database yet.",
+      "summary": "{{saved}} of {{total}} Coolify databases on this server have a saved login in Databases.",
+      "open": "Open Databases"
+    },
+    "security": {
+      "label": "Security Center",
+      "score": "Score {{score}}",
+      "noScore": "Not checked yet",
+      "critical": "{{count}} critical"
+    },
+    "metrics": {
+      "title": "Coolify on this server",
+      "counts": "{{applications}} applications, {{services}} services, {{databases}} databases"
+    },
+    "backups": {
+      "title": "Failed backups",
+      "none": "No failed backup jobs.",
+      "failed": "Failed",
+      "job": "{{name}}, {{at}}"
     }
   }
 }

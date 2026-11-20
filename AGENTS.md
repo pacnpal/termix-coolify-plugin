@@ -71,7 +71,8 @@ aren't obvious from the code, and anything that has bitten you before.
   Resources can be browsed (Overview tiles, the Resources list, a resource's Overview detail) and deployed,
   started, stopped and restarted, host sync turns Coolify servers into locked Linked hosts, container
   shells and database consoles open in a `coolify-shell` tab, and a Linked host's card checks, installs
-  and reboots its server's updates.
+  and reboots its server's updates. Companion plugins (DNS, Uptime, Log Search, Security Center, Host
+  Metrics, Databases, Backups) add their features when they run.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
 - Coolify calls: `src/backend/coolify/http.ts` is the only way to Coolify (ctx.fetch, Bearer and CF Access
@@ -286,3 +287,47 @@ console }`, calls the shell route and draws `PluginComponent id="terminal.view"`
   `unhealthy` does. Updates come from Coolify's own patch check (`ServerDto.patch.security`), not the
   updates service's own checks. The deployment events are emitted only by a deploy run with `wait`;
   container-restarted and server-unreachable are declared for later polling.
+- Other plugins: `src/backend/plugins.ts` is the one read of `ctx.plugins.list()` (`activePlugins`, null
+  when unreadable) and the one table of their ids (`COMPANION_PLUGINS`: docker, sshTerminal,
+  packageManager and the companions). Sync, server updates and companions all go through it; each treats
+  null as unknown, never as "not running" (sync blocks tunnelled rows, updates refuses with
+  `companions-unknown`, companions answer `companions-unknown` 409).
+- Companions: `src/backend/companions/` (`detect.ts` `companions(ctx)`, read fresh on every call, the
+  frontend's `useCompanions` caches it a minute; `adapters.ts`, the only code that calls another plugin;
+  `service.ts`; `routes.ts` with its own `handle` for `CompanionError`) and `src/backend/ops/companions.ts`
+  (`coolify.companion-read` for reads, `coolify.companion` for changes, `coolify.companion-dns-remove` on
+  its own because it is destructive and is the only call that passes `confirmed: true` downstream, to
+  `dns.delete-record`; one `kind` per route). Every service method checks, in order: the Termix
+  permission (`ctx.rbac.has`), `connections.snapshot(id)` once and its grant rank (view < operate <
+  configure < owner), that the companion runs, a resource from the shared resource cache
+  (`resources.get`, a miss checked once fresh, as lifecycle does) or a server path that is linked to the
+  connection (`sync.linkedHostFor`, else `not-linked`) and that the snapshot's Coolify still has
+  (`snap.api.server`, else Coolify's 404), then for Linked hosts `ctx.hosts.checkAccess(hostId, "view")`,
+  failing closed. The adapters reach companions through a `CompanionCaller` whose `before` checks the
+  snapshot's revision right before every `ctx.operations.invoke`, and reads check it again before they
+  answer, so a target change ends with `target-changed`. A missing companion is a `CompanionError`
+  (`companion-missing`, 404, with `plugin`). Log search is `operate` (it shows log output); DNS is
+  `configure`. Every companion call is a documented action from the companions' published references
+  (docs.termix.site/plugins/<id>/reference), by its id and input names, through `ctx.operations.invoke`;
+  `operations.invokes` lists exactly those ids (and Package Manager's) and `optionalDependencies` pins each
+  companion to `~` the version its reference documents. The references list no service methods, so no
+  service is called and there is no `requires`. They don't describe outputs either: answers are read as
+  `{ rows }` lists or `{ value }` host reads, fields picked by name, and a failed run is `companion-failed`
+  with a fixed message. DNS: `dns.list-zones` (longest matching zone, its `id` or else its `name`),
+  `dns.upsert-record` and `dns.delete-record` take `zone`, `type`, `name`, `content`; the
+  `dns_records.handle` column holds exactly those four as JSON text, and removal looks the row up by id,
+  connection and resource, so only a record made here can be removed. A stored row is never enough on
+  its own: listing and removing first need the resource in the current target's list (`exposed`:
+  `resourceOf`, then the snapshot's revision), so a repoint or a narrowed token that hides it, or a list
+  that can't be read, refuses before any row is read or any DNS call runs. `setMonitorsPaused` is the hook for
+  pausing Uptime during deploys (ticket #10 decides when). Files, Tunnels and Reverse Proxy are ticket #19.
+  Nothing here writes host or plugin settings. Frontend: `src/frontend/companions.ts` (`useCompanions`),
+  `views/CompanionActions.tsx` (at the end of `ResourceDetail`'s Overview, with `useTabs()` as its shell)
+  and `views/HostCompanions.tsx` (inside the host card, keyed by connection, server and `revision`).
+  Every CompanionActions part is keyed (React `key` and its state) by `connectionId:uuid:revision`
+  (`targetOf`; `CoolifyTab` passes the connection's `revision` through `ResourceDetail`), and Uptime, Log
+  Search and Databases read through `useTargetAnswer`, whose request generation drops any answer that is
+  not the newest for the current target. `DnsRecords` keeps its rows the same way and drops a confirm
+  answered after the view moved to another target or unmounted. Never give a part a constant key: a
+  service and its Part would share state. Opening Uptime or Databases uses `openSingletonTab("uptime")`
+  and `("databases")`.

@@ -1,6 +1,8 @@
 import type { Router } from "express";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { defineTables } from "./db.js";
+import { registerCompanionRoutes } from "./companions/routes.js";
+import { createCompanions } from "./companions/service.js";
 import { createConnections } from "./connections/service.js";
 import { registerConnectionRoutes } from "./connections/routes.js";
 import { createResources } from "./resources/service.js";
@@ -42,6 +44,12 @@ export async function activate(ctx: PluginContext): Promise<void> {
     servers,
     sync,
   });
+  const companions = createCompanions(ctx, {
+    tables,
+    connections,
+    resources,
+    sync,
+  });
   const router = ctx.http.router<Router>();
   registerConnectionRoutes(router, ctx, connections);
   registerResourceRoutes(router, ctx, resources);
@@ -49,6 +57,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
   registerLifecycleRoutes(router, ctx, lifecycle);
   registerContainerRoutes(router, ctx, containers);
   registerUpdateRoutes(router, ctx, updates);
+  registerCompanionRoutes(router, ctx, companions);
   registerMcpRoutes(router, ctx);
   registerOperations(ctx, {
     tables,
@@ -59,6 +68,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
     containers,
     servers,
     updates,
+    companions,
   });
 }
 

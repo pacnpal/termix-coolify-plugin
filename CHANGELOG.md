@@ -107,3 +107,12 @@
   through the Package Manager plugin when it runs, otherwise over SSH with fixed commands, and say which
   path ran. Actions `coolify.server-updates`, `coolify.server-updates-check`,
   `coolify.server-updates-install` and `coolify.server-reboot`
+- Other Termix plugins, when installed: Create DNS record for a resource's domain (records made here are
+  remembered and can be removed), Uptime monitor status with a link to Uptime, Search logs across servers
+  through Log Search, and, on Linked hosts, the Security Center score, a Host Metrics card with Coolify's
+  resource counts, failed backups and whether Databases has a saved login. Each hides while its plugin is
+  missing or Termix's plugin list can't be read, and stops with `target-changed` when the connection's
+  target changes while it runs. Create DNS record and Uptime also appear on a resource's Overview
+- Actions `coolify.companion-read` (offered to the assistant and MCP) and `coolify.companion` for the
+  same features, including pausing and resuming a resource's Uptime monitors, and the destructive
+  `coolify.companion-dns-remove`, which asks for a confirm before it deletes a DNS record made here

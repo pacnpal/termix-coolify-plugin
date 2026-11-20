@@ -1,6 +1,7 @@
 import type { PluginHostCreateInput } from "@termix-ssh/plugin-sdk/backend";
 import type { ServerDto } from "../coolify/dto.js";
 import { ConnectionError } from "../connections/service.js";
+import { COMPANION_PLUGINS } from "../plugins.js";
 
 /** The tag every Linked host carries. */
 export const LINKED_TAG = "coolify";
@@ -21,7 +22,7 @@ export const SSH_TERMINAL_KEYS = {
 
 /** The SSH Terminal plugin that carries tunnels, and what sync needs of it. */
 export const SSH_TERMINAL = {
-  id: "ssh-terminal",
+  id: COMPANION_PLUGINS.sshTerminal,
   /** 1.0.3 tunnelled only its own terminal tab; 1.2.0 tunnels every SSH connection. */
   minVersion: "1.2.0",
   /** Cloudflare tunnels are reached on 443; the host's port is the origin's. */

@@ -2,8 +2,8 @@ Coolify for Termix brings your Coolify servers, applications, services and datab
 
 So far you can connect Coolify instances, see what each API token can do, browse each connection's
 applications, services and databases, deploy, start, stop and restart them, open a shell or database console
-in their containers, and sync Coolify servers into Termix hosts. Logs and the rest come with the rest of release
-1.0.0.
+in their containers, sync Coolify servers into Termix hosts, and use other Termix plugins (DNS, Uptime, Log
+Search and more) with them. Logs and the rest come with the rest of release 1.0.0.
 
 ## Turn it on
 
@@ -318,6 +318,49 @@ They are also actions: `coolify.server-updates` (offered to the assistant and MC
 `coolify.server-reboot` (input `confirmName` must be the server's name). The routes are
 `GET /plugin-api/coolify/connections/:id/servers/:uuid/updates`, `POST …/updates/check`,
 `POST …/updates/install` with `{ "confirm": true }` and `POST …/reboot` with `{ "confirmName": "<name>" }`.
+
+## Other Termix plugins
+
+Built for DNS 1.1, Uptime 1.0.1, Log Search 1.1, Security Center 1.1, Host Metrics 1.4.1, Databases 1.3 and
+Backups 1.1. When one of these Termix plugins is installed and running, its Coolify feature appears. When it isn't, that
+feature hides and nothing else changes. The plugin checks every minute. When Termix's plugin list can't be
+read, every one of them hides and their routes and actions answer `companions-unknown` instead of acting.
+
+| Plugin          | What appears                                                                                 |
+| --------------- | -------------------------------------------------------------------------------------------- |
+| DNS             | **Create DNS record** for one of a resource's domains                                        |
+| Uptime          | The status of the Uptime monitors whose URL is on a resource's domains                       |
+| Log Search      | **Search logs across servers**, over Docker logs, with the resource's uuid as the query      |
+| Security Center | The score and critical findings of a Linked host, on its Coolify card                        |
+| Host Metrics    | A **Coolify on this server** card on a Linked host: its applications, services and databases |
+| Databases       | Whether a Coolify database already has a saved login there, with **Open Databases**          |
+| Backups         | Failed Termix backup jobs on a Linked host                                                   |
+
+- **DNS records.** The name must be one of the resource's domains. Leave **Points to** empty to use the
+  server's address. Only records made here can be removed from here, after you confirm. The DNS plugin
+  needs a zone for the name, and your own DNS permissions apply.
+- **Uptime.** Uptime can't create HTTP monitors for another plugin, so **Create monitor in Uptime** opens the
+  Uptime tab. A resource's monitors can be paused and resumed with the `coolify.companion` action.
+- **Log Search** searches every server's Docker logs and can't filter by host. The results say where they
+  came from.
+- **Databases** only shows names: logins and database names, never a password.
+
+Who may use them:
+
+- Reading (Uptime, Security Center, Host Metrics, Databases, Backups, listing DNS records) needs **View
+  Coolify** and the connection (yours, or a grant).
+- **Search logs** needs **Operate Coolify resources** and an operate grant, because it shows log output.
+- Creating and removing DNS records needs **Configure Coolify** and a configure grant.
+- Anything about a Linked host also needs your own access to that host in Termix, and the server must still
+  be in that connection's Coolify.
+- If the connection's address, token or Access settings change while one of these runs, it stops before
+  the next call to the other plugin and answers `target-changed`.
+
+They are also actions: `coolify.companion-read` (offered to the assistant and MCP) reads any of them, and
+`coolify.companion` creates DNS records and pauses or resumes Uptime monitors. Removing a DNS record is
+its own action, `coolify.companion-dns-remove`: it is marked destructive, so Termix asks for a confirm, and
+it is never offered to the assistant or MCP. The plugin never
+sends a Coolify token or any other secret to another plugin.
 
 ## Permissions
 

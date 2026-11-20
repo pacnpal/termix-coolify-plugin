@@ -11,6 +11,7 @@ import {
   type Connections,
 } from "../connections/service.js";
 import { dbClient, type Tables } from "../db.js";
+import { COMPANION_PLUGINS, activePlugins } from "../plugins.js";
 import { createKeyCopier, type KnownCopy } from "./credentials.js";
 import { createLocks, type Locks } from "./locks.js";
 import {
@@ -299,24 +300,20 @@ export async function createSync(
     docker: boolean;
     sshTerminal: SshTerminalState;
   }> {
-    try {
-      const plugins = await ctx.plugins.list();
-      const active = (id: string) =>
-        plugins.find((p) => p.id === id && p.state === "active");
-      const terminal = active(SSH_TERMINAL.id);
-      return {
-        docker: Boolean(active("docker")),
-        sshTerminal: {
-          running: Boolean(terminal),
-          version: terminal?.version ?? null,
-        },
-      };
-    } catch {
+    const active = await activePlugins(ctx);
+    if (!active) {
       return {
         docker: false,
         sshTerminal: { running: false, version: null },
       };
     }
+    return {
+      docker: active.has(COMPANION_PLUGINS.docker),
+      sshTerminal: {
+        running: active.has(SSH_TERMINAL.id),
+        version: active.get(SSH_TERMINAL.id) ?? null,
+      },
+    };
   }
 
   const NO_SSH_TERMINAL: SshTerminalState = { running: false, version: null };

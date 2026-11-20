@@ -69,7 +69,9 @@ describe("server update operations", () => {
   });
 
   it("lists exactly the Package Manager actions it invokes", () => {
-    expect(manifest.contributes?.operations?.invokes).toEqual([
+    const invokes = manifest.contributes?.operations?.invokes ?? [];
+    // The other companions' ids are checked in companions/detect.test.ts.
+    expect(invokes.filter((id) => id.startsWith("package-manager."))).toEqual([
       "package-manager.list-updates",
       "package-manager.upgrade-all",
     ]);

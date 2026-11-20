@@ -1,9 +1,11 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
+import type { Companions } from "./companions/service.js";
 import type { Containers } from "./containers/service.js";
 import type { Connections } from "./connections/service.js";
 import type { Tables } from "./db.js";
 import type { Lifecycle } from "./resources/lifecycle.js";
 import type { Resources } from "./resources/service.js";
+import { registerCompanionOperations } from "./ops/companions.js";
 import { registerConnectionOperations } from "./ops/connections.js";
 import { registerContainerOperations } from "./ops/containers.js";
 import { registerLifecycleOperations } from "./ops/lifecycle.js";
@@ -26,6 +28,7 @@ export interface Services {
   containers: Containers;
   servers: ServerStatuses;
   updates: Updates;
+  companions: Companions;
 }
 
 /**
@@ -43,4 +46,5 @@ export function registerOperations(
   registerSignalOperations(ctx, services);
   registerContainerOperations(ctx, services.containers);
   registerUpdateOperations(ctx, services.updates);
+  registerCompanionOperations(ctx, services.companions);
 }
