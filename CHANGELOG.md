@@ -87,6 +87,10 @@
 - Coolify resources on Linked hosts (`coolify.resource`, `coolify.list-resources`), `coolify.sync-host`,
   status tiles for degraded resources, server reachability, security updates and deployments running, and
   the declared events deployment finished, deployment failed, container restarted and server unreachable
+- The security updates tile shows the newer of Coolify's own update check and the host card's last
+  **Check now**, and says which; reading it never connects over SSH
+- Every action stops before it reaches Coolify when its run is cancelled
+- "Coolify: Open shell in…", "Coolify: Logs of…" and "Coolify: Sync servers" in the command palette
 - Open shell and Open database console in a resource's or part's Shell view: a Coolify shell tab with SSH
   Terminal's terminal on the Linked host, in the container found by Coolify's labels (uuid first, then the
   labels from before Coolify 4.4, and for parts their own uuid, then their compose service name). `bash` or

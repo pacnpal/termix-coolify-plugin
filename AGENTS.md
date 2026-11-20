@@ -481,9 +481,31 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   in-flight fetches are keyed by id, revision and generation (invalidate drops them), and a fetch is
   cached only if neither changed while it ran. The degraded
   count is `countResources`, so exited (with any health suffix) is stopped and never counts; bare
-  `unhealthy` does. Updates come from Coolify's own patch check (`ServerDto.patch.security`), not the
-  updates service's own checks. The deployment events are emitted only by a deploy run with `wait`;
-  container-restarted and server-unreachable are declared for later polling.
+  `unhealthy` does. `coolify.updates` takes the newer (`newestSecurity`, parsed timestamps, an unparsable
+  one counts as oldest) of Coolify's patch check (`ServerDto.patch`) and the updates service's own last
+  check (`updates.lastCheck`: the `updates:<serverUuid>` cache row, served only under the current revision
+  and generation, as in `status`); a signal never runs SSH or calls Coolify beyond the servers cache. The
+  deployment events are emitted only by a deploy run with `wait`; container-restarted and
+  server-unreachable are declared for later polling.
+- Abort: `registerOperations` hands the ops files a ctx whose `operations.register` wraps every handler in
+  `abortable` (operations.ts), so a cancelled run throws its signal's reason before it starts; the wrapper
+  only adds that check, so each handler's own permission and confirm checks still run. Long handlers
+  watch the signal as they go: deploy with `wait`, exec (kills the remote process and closes the session),
+  logs-tail (`logs.snapshot` checks it after each await), server-updates-install and server-reboot
+  (`Target.signal`), tunnel-open (`tunnelOpen`'s signal) and the deploying signal's loop. Each checks the
+  signal once more after its last revision check, with no await before the SSH command, connect, Package
+  Manager call or forward: a cancel during that check starts nothing. Checked before `guard(...)`, not
+  inside it, since guard turns what its callback throws into ssh-failed. A shared update check takes no
+  signal (other callers join its run; it only reads). `ctx.ssh.exec` takes no signal, so a one-shot SSH
+  command already sent runs to its own timeout.
+- Palette (`src/frontend/index.tsx`): Deploy, Open shell and Logs open the Coolify tab on Resources with tab
+  data `{ section: "resources", open?: "shell", tab?: "<detail view>" }`, Sync servers with
+  `{ section: "sync" }`. CoolifyTab's `pick` opens a shell once (coolify.operate and `OPERATE_ACCESS`, the
+  Shell button's rule) or the detail on that view; `detailTabOf` falls back to Overview for a view it
+  doesn't know, and `detailTabs` drops one the actor can't see. The request is tracked by the `tab.data`
+  object, so an entry run while the tab is open applies there too.
+- Operations Center host page: SDK 2.8.1 has no shell API that opens it (`ShellApi` has none, and the
+  design's `host-page.open` action can't be detected), so the host section has no link to it yet.
 - Other plugins: `src/backend/plugins.ts` is the one read of `ctx.plugins.list()` (`activePlugins`, null
   when unreadable) and the one table of their ids (`COMPANION_PLUGINS`: docker, sshTerminal,
   packageManager and the companions). Sync, server updates and companions all go through it; each treats

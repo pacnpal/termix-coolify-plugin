@@ -705,6 +705,34 @@ describe("coolify.exec hardening", () => {
     expect(docker.dispose).toHaveBeenCalled();
   });
 
+  it("an abort while the revision check is pending opens no SSH connection", async () => {
+    const { h, id, docker } = await start();
+    const abort = new AbortController();
+    // Armed once docker ps has answered: the next actor read is the access
+    // check inside connections.revision(), awaited right before the connect.
+    let armed = false;
+    const answer = docker.exec.getMockImplementation()!;
+    docker.exec.mockImplementation(async (...args) => {
+      const out = await answer(...args);
+      if (/docker ps /.test(args[1])) armed = true;
+      return out;
+    });
+    const actor = h.mock.ctx.currentActor.bind(h.mock.ctx);
+    vi.spyOn(h.mock.ctx, "currentActor").mockImplementation(() => {
+      if (armed) {
+        armed = false;
+        abort.abort();
+      }
+      return actor();
+    });
+    await expect(
+      handler(h, abort.signal)({ connectionId: id, uuid: WEB, command: "ls" }),
+    ).rejects.toThrow(/cancel/i);
+    expect(abort.signal.aborted).toBe(true);
+    expect(docker.connect).not.toHaveBeenCalled();
+    expect(execCalls(docker)).toEqual([]);
+  });
+
   it("one exec per actor per resource at a time", async () => {
     let hang = true;
     const { h, id, docker } = await start({

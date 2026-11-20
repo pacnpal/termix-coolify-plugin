@@ -3,6 +3,7 @@ import { useState } from "react";
 import {
   act,
   cleanup,
+  configure,
   fireEvent,
   render,
   screen,
@@ -24,6 +25,10 @@ import { forgetCompanions } from "../../../src/frontend/companions";
 import { CompanionActions } from "../../../src/frontend/views/CompanionActions";
 import manifestJson from "../../../manifest.json";
 import locales from "../../../locales/en.json";
+
+// The companion views render several sections; under a loaded parallel run one
+// step can pass the default 1 s wait (#55, as #50). Nothing here is timing-sensitive.
+configure({ asyncUtilTimeout: 3000 });
 
 const manifest = manifestJson as unknown as PluginManifest;
 const ALL = ["coolify.view", "coolify.operate", "coolify.configure"];

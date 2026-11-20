@@ -643,6 +643,7 @@ export function createLogs(ctx: PluginContext, deps: LogsDeps) {
     snap: Snapshot,
     uuid: string,
     request: LogsRequest,
+    signal?: AbortSignal,
   ): Promise<LogsAnswer | LogsChoices> {
     const located = await deps.containers.locate(
       connectionId,
@@ -650,6 +651,7 @@ export function createLogs(ctx: PluginContext, deps: LogsDeps) {
       uuid,
       request,
     );
+    signal?.throwIfAborted();
     if (located.kind === "choices") return { choices: located.choices };
     const { where, sudo, container } = located;
     let command: string;
@@ -666,12 +668,18 @@ export function createLogs(ctx: PluginContext, deps: LogsDeps) {
       );
     }
     await deps.containers.assertSnapshotHolds(connectionId, snap);
+    // Last check, with no await before the command: guard calls its callback
+    // synchronously, so a cancel during the revision check above never starts
+    // docker logs. Checked here, not inside the callback, because guard turns
+    // anything the callback throws into ssh-failed.
+    signal?.throwIfAborted();
     const result = await deps.containers.guard(where, () =>
       run(where.hostId, command, {
         timeoutMs: LOGS_TIMEOUT_MS,
         maxOutputBytes: MAX_LOG_BYTES,
       }),
     );
+    signal?.throwIfAborted();
     if (result.code !== 0) {
       // Only a fixed message: the output could hold anything.
       throw new ContainerError(
@@ -690,11 +698,16 @@ export function createLogs(ctx: PluginContext, deps: LogsDeps) {
   }
 
   return {
-    /** A route query or an operation input in; a labelled snapshot out. */
+    /**
+     * A route query or an operation input in; a labelled snapshot out. An
+     * aborted signal (a cancelled run) stops it at its next await, so it
+     * never starts docker logs after the abort.
+     */
     async snapshot(
       connectionId: number,
       uuid: string,
       raw: unknown,
+      signal?: AbortSignal,
     ): Promise<LogsAnswer | LogsChoices> {
       const request = readLogsRequest(raw);
       // Read once: every later step is checked against this target.
@@ -704,14 +717,16 @@ export function createLogs(ctx: PluginContext, deps: LogsDeps) {
         uuid,
         request.part,
       );
+      signal?.throwIfAborted();
       const text = await fromCoolify(snap, res, request);
+      signal?.throwIfAborted();
       if (text !== null) {
         return {
           source: "coolify",
           text: redactLog(lastLines(text, request.lines), await snap.secrets()),
         };
       }
-      return fromSsh(connectionId, snap, uuid, request);
+      return fromSsh(connectionId, snap, uuid, request, signal);
     },
 
     /**

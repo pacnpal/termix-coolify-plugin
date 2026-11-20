@@ -116,7 +116,7 @@ export function registerContainerOperations(
   });
 
   ctx.operations.register("coolify.logs-tail", {
-    run: async (input, { runId }) => {
+    run: async (input, { runId, signal }) => {
       // Logs carry secrets: an ops run or MCP call reads them only when the
       // caller asked for exactly that.
       if (input.confirm !== true) {
@@ -126,12 +126,17 @@ export function registerContainerOperations(
         );
       }
       const id = connectionIdInput(input);
-      const answer = await logs.snapshot(id, text(input.uuid), {
-        part: text(input.part) || undefined,
-        container: text(input.container) || undefined,
-        lines: input.lines,
-        timestamps: input.timestamps,
-      });
+      const answer = await logs.snapshot(
+        id,
+        text(input.uuid),
+        {
+          part: text(input.part) || undefined,
+          container: text(input.container) || undefined,
+          lines: input.lines,
+          timestamps: input.timestamps,
+        },
+        signal,
+      );
       if ("choices" in answer) {
         return {
           summary: `${answer.choices.length} containers match; pick one with container`,

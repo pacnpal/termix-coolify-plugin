@@ -588,6 +588,9 @@ export function createUpdates(
     timeoutMs: number,
   ): Promise<PluginSshExecResult> {
     await holds(target.connectionId, target.snap);
+    // No await between this and the command: a cancel during the revision
+    // check above never starts it.
+    target.signal?.throwIfAborted();
     let result: PluginSshExecResult;
     try {
       result = await run(target.hostId, command, { timeoutMs });
@@ -631,6 +634,8 @@ export function createUpdates(
     failure: string,
   ): Promise<PluginOperationOutcome> {
     await holds(target.connectionId, target.snap);
+    // As in exec: nothing is awaited between this and the call.
+    target.signal?.throwIfAborted();
     let outcome: PluginOperationOutcome;
     try {
       outcome = await ctx.operations.invoke(actionId, {
@@ -656,13 +661,13 @@ export function createUpdates(
   async function readFresh(
     connectionId: number,
     uuid: string,
-    snap: Snapshot,
+    revision: string,
   ): Promise<{ fresh: PatchStatus | null; via: UpdatesVia | null }> {
     const kept = (
       await cache.read<Partial<KeptCheck>>(connectionId, kindOf(uuid))
     )?.value;
     if (
-      kept?.revision !== snap.view.revision ||
+      kept?.revision !== revision ||
       kept.generation !== generationOf(connectionId) ||
       !kept.status
     ) {
@@ -689,6 +694,11 @@ export function createUpdates(
     hostId: number;
     snap: Snapshot;
     server: ServerDto;
+    /**
+     * The run's abort signal, for install and reboot. A check has none: its
+     * run is shared by every caller of the same server, and only reads.
+     */
+    signal?: AbortSignal;
   }
 
   /** Everything an action needs, checked in order; the first refusal wins. */
@@ -768,7 +778,11 @@ export function createUpdates(
       const snap = await connections.snapshot(connectionId);
       const server = await snap.api.server(uuid);
       const hostId = await sync.linkedHostFor(connectionId, uuid);
-      const { fresh, via } = await readFresh(connectionId, uuid, snap);
+      const { fresh, via } = await readFresh(
+        connectionId,
+        uuid,
+        snap.view.revision,
+      );
       return {
         server: { uuid, name: server.name },
         hostId,
@@ -776,6 +790,23 @@ export function createUpdates(
         fresh,
         via,
       };
+    },
+
+    /**
+     * The plugin's own last check, from its cache: no Coolify call and never
+     * SSH, so the coolify.updates signal can read it for every host. Kept
+     * rows count only under the connection's current revision and
+     * generation, as in status.
+     */
+    async lastCheck(
+      connectionId: number,
+      rawUuid: unknown,
+    ): Promise<{ fresh: PatchStatus | null; via: UpdatesVia | null }> {
+      await allowed("view");
+      const uuid = serverUuid(rawUuid);
+      const revision = await connections.revision(connectionId);
+      if (!revision) return { fresh: null, via: null };
+      return readFresh(connectionId, uuid, revision);
     },
 
     /**
@@ -810,6 +841,7 @@ export function createUpdates(
       connectionId: number,
       rawUuid: unknown,
       body: { confirm?: unknown },
+      signal?: AbortSignal,
     ): Promise<InstallResult> {
       const target = await prepare(
         connectionId,
@@ -824,6 +856,7 @@ export function createUpdates(
           }
         },
       );
+      target.signal = signal;
       let result: InstallResult;
       let asked = false;
       try {
@@ -880,12 +913,14 @@ export function createUpdates(
       connectionId: number,
       rawUuid: unknown,
       body: { confirmName?: unknown },
+      signal?: AbortSignal,
     ): Promise<RebootResult> {
       const target = await prepare(connectionId, rawUuid, {
         permission: "administer",
         grant: "configure",
         host: "edit",
       });
+      target.signal = signal;
       const { server, hostId, uuid } = target;
       if (
         typeof body.confirmName !== "string" ||

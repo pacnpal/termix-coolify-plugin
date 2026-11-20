@@ -30,7 +30,7 @@ import {
   ToolbarSelect,
   type SideNavEntry,
 } from "@termix-ssh/plugin-sdk/ui";
-import { createApi, type Api, type Connection } from "../api";
+import { createApi, type Api, type Connection, type Resource } from "../api";
 import type { ResourceHealth } from "../../shared/resource-health";
 import { ApiConsoleView } from "./ApiConsoleView";
 import { ConnectionsView, syncable } from "./ConnectionsView";
@@ -56,16 +56,28 @@ const SECTIONS: readonly string[] = [
   "api",
 ];
 
+/** What a pick in the Resources list does, when the palette asked. */
+interface PickIntent {
+  /** "shell": the next picked resource opens in a coolify-shell tab. */
+  open: "shell" | null;
+  /** The resource view to open on, like "logs"; unknown ones fall back. */
+  detailTab: string | null;
+}
+
+const NO_INTENT: PickIntent = { open: null, detailTab: null };
+
 /** What the tab was opened for, from its data. */
-interface OpenRequest {
+interface OpenRequest extends PickIntent {
   section: Section;
   /** A connection id, or null for the first syncable one (the import menu). */
   connectionId: number | null;
 }
 
 /**
- * Reads the tab's data. "sync" (from a Linked host or the import menu) opens
- * the Servers section, where host sync lives.
+ * Reads the tab's data. "sync" (from a Linked host, the import menu or the
+ * palette) opens the Servers section, where host sync lives. On Resources,
+ * `open: "shell"` makes the next pick open a shell and `tab` names the view
+ * the next picked resource opens on (the palette's Open shell and Logs).
  */
 function requestOf(
   data: Record<string, unknown> | undefined,
@@ -76,6 +88,9 @@ function requestOf(
   return {
     section: raw as Section,
     connectionId: Number.isSafeInteger(id) && id > 0 ? id : null,
+    open: raw === "resources" && data?.open === "shell" ? "shell" : null,
+    detailTab:
+      raw === "resources" && typeof data?.tab === "string" ? data.tab : null,
   };
 }
 
@@ -143,6 +158,7 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [health, setHealth] = useState<HealthFilter>("all");
   const [openUuid, setOpenUuid] = useState<string | null>(null);
+  const [intent, setIntent] = useState<PickIntent>(NO_INTENT);
 
   const [loadFailed, setLoadFailed] = useState(false);
 
@@ -176,6 +192,7 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
     if (!asked) return;
     setSection(asked.section);
     setOpenUuid(null);
+    setIntent({ open: asked.open, detailTab: asked.detailTab });
     if (asked.connectionId !== null) setSelectedId(asked.connectionId);
     pickFirst.current =
       asked.section === "servers" && asked.connectionId === null;
@@ -211,6 +228,7 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
   function select(next: string) {
     setSection(next as Section);
     setOpenUuid(null);
+    setIntent(NO_INTENT);
     // Pick up connections added or removed in the Connections section.
     if (next !== "connections") void loadConnections();
   }
@@ -252,6 +270,34 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
         label={t("picker.label")}
       />
     ) : null;
+
+  const rows = resources.list?.rows ?? [];
+  // The same rule as the detail view's Shell button.
+  const mayOperate =
+    canOperate && !!connection && OPERATE_ACCESS.has(connection.access);
+
+  function openShell(resource: Resource, console: "shell" | "db") {
+    if (!connection) return;
+    shell.openTab(null, "coolify-shell", {
+      label:
+        console === "db"
+          ? t("shellTab.consoleLabel", { name: resource.name })
+          : t("shellTab.shellLabel", { name: resource.name }),
+      forceNewTab: true,
+      data: { connectionId: connection.id, uuid: resource.uuid, console },
+    });
+  }
+
+  /** A pick in the Resources list: a shell once when asked, else the detail. */
+  function pick(uuid: string) {
+    const resource = rows.find((r) => r.uuid === uuid);
+    if (intent.open === "shell" && mayOperate && resource) {
+      setIntent({ ...intent, open: null });
+      openShell(resource, "shell");
+      return;
+    }
+    setOpenUuid(uuid);
+  }
 
   let body;
   if (section === null) {
@@ -304,12 +350,11 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
         picker={picker}
         health={health}
         onHealth={setHealth}
-        onOpen={setOpenUuid}
+        onOpen={pick}
       />
     );
   }
 
-  const rows = resources.list?.rows ?? [];
   return (
     <PanelFrame>
       <div className="flex h-full min-h-0 flex-col md:flex-row">
@@ -336,26 +381,17 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
           resource={rows.find((r) => r.uuid === openUuid) ?? null}
           rows={rows}
           onOpen={setOpenUuid}
-          onClose={() => setOpenUuid(null)}
+          onClose={() => {
+            setOpenUuid(null);
+            setIntent(NO_INTENT);
+          }}
           connectionId={connection.id}
           revision={connection.revision ?? null}
           canOperate={canOperate && OPERATE_ACCESS.has(connection.access)}
           onChanged={() => void resources.reload(true)}
           isVisible={isVisible}
-          onShell={(resource, console) => {
-            shell.openTab(null, "coolify-shell", {
-              label:
-                console === "db"
-                  ? t("shellTab.consoleLabel", { name: resource.name })
-                  : t("shellTab.shellLabel", { name: resource.name }),
-              forceNewTab: true,
-              data: {
-                connectionId: connection.id,
-                uuid: resource.uuid,
-                console,
-              },
-            });
-          }}
+          onShell={openShell}
+          initialTab={intent.detailTab}
         />
       )}
     </PanelFrame>

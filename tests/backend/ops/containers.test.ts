@@ -248,6 +248,67 @@ describe("logs-tail operation", () => {
     expect(docker.commands).toEqual([]);
   });
 
+  it("logs-tail aborted while it locates the container stops before docker logs", async () => {
+    const { id, harness: h, connectionId } = await start();
+    setSensitive(h, connectionId, false);
+    const docker = fakeDocker(h, { ps: [WEB], logs: "s1\n" });
+    const abort = new AbortController();
+    const reason = new Error("cancelled");
+    const answer = docker.exec.getMockImplementation()!;
+    docker.exec.mockImplementation(async (...args) => {
+      const out = await answer(...args);
+      if (/docker ps /.test(args[1])) abort.abort(reason);
+      return out;
+    });
+    const handler = h.mock.operationHandlers.get("coolify.logs-tail")!;
+    await expect(
+      Promise.resolve(
+        handler.run(
+          { connectionId: id, uuid: "app-web-uuid", confirm: true },
+          { runId: "r1", dryRun: false, signal: abort.signal, log: () => {} },
+        ),
+      ),
+    ).rejects.toBe(reason);
+    expect(docker.commands.some((c) => /docker ps /.test(c))).toBe(true);
+    expect(docker.commands.some((c) => /docker logs /.test(c))).toBe(false);
+  });
+
+  it("logs-tail aborted while the revision check is pending never starts docker logs", async () => {
+    const { id, harness: h, connectionId } = await start();
+    setSensitive(h, connectionId, false);
+    const docker = fakeDocker(h, { ps: [WEB], logs: "s1\n" });
+    const abort = new AbortController();
+    const reason = new Error("cancelled");
+    // Armed once docker ps has answered: the next actor read is the access
+    // check inside connections.revision(), awaited right before docker logs.
+    let armed = false;
+    const answer = docker.exec.getMockImplementation()!;
+    docker.exec.mockImplementation(async (...args) => {
+      const out = await answer(...args);
+      if (/docker ps /.test(args[1])) armed = true;
+      return out;
+    });
+    const actor = h.mock.ctx.currentActor.bind(h.mock.ctx);
+    vi.spyOn(h.mock.ctx, "currentActor").mockImplementation(() => {
+      if (armed) {
+        armed = false;
+        abort.abort(reason);
+      }
+      return actor();
+    });
+    const handler = h.mock.operationHandlers.get("coolify.logs-tail")!;
+    await expect(
+      Promise.resolve(
+        handler.run(
+          { connectionId: id, uuid: "app-web-uuid", confirm: true },
+          { runId: "r1", dryRun: false, signal: abort.signal, log: () => {} },
+        ),
+      ),
+    ).rejects.toBe(reason);
+    expect(abort.signal.aborted).toBe(true);
+    expect(docker.commands.some((c) => /docker logs /.test(c))).toBe(false);
+  });
+
   it("logs-tail answers choices and refuses another user's connection", async () => {
     const { runs, id, harness: h, connectionId } = await start();
     setSensitive(h, connectionId, false);

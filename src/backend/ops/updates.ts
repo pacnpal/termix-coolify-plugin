@@ -49,11 +49,12 @@ export function registerUpdateOperations(
   });
 
   ctx.operations.register("coolify.server-updates-install", {
-    run: async (input) => {
+    run: async (input, { signal }) => {
       const result = await updates.install(
         connectionIdInput(input),
         input.serverUuid,
         { confirm: input.confirm },
+        signal,
       );
       return {
         summary: `${result.summary} (via ${result.via})`,
@@ -64,11 +65,12 @@ export function registerUpdateOperations(
   });
 
   ctx.operations.register("coolify.server-reboot", {
-    run: async (input) => {
+    run: async (input, { signal }) => {
       const result = await updates.reboot(
         connectionIdInput(input),
         input.serverUuid,
         { confirmName: input.confirmName },
+        signal,
       );
       return { summary: result.summary, changed: true, data: result };
     },

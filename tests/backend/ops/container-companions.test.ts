@@ -93,6 +93,45 @@ describe("container companion operations", () => {
     expect(calls.stop).toEqual([[`web:${HOST_ID}:coolify-app-web-uuid`]]);
   });
 
+  it("tunnel-open cancelled during the last revision check opens no forward", async () => {
+    const { id, harness: h, calls } = await start();
+    const docker = fakeDockerHost(h, { ps: [WEB_RUNNING] });
+    const abort = new AbortController();
+    // Armed once docker inspect answered: the next actor read is the access
+    // check inside connections.revision(), awaited right before the forward.
+    let armed = false;
+    const answer = docker.exec.getMockImplementation()!;
+    docker.exec.mockImplementation(async (...args) => {
+      const out = await answer(...args);
+      if (/docker inspect /.test(args[1])) armed = true;
+      return out;
+    });
+    const actor = h.mock.ctx.currentActor.bind(h.mock.ctx);
+    vi.spyOn(h.mock.ctx, "currentActor").mockImplementation(() => {
+      if (armed) {
+        armed = false;
+        abort.abort(new Error("cancelled"));
+      }
+      return actor();
+    });
+    const handler = h.mock.operationHandlers.get("coolify.companion")!;
+    await expect(
+      Promise.resolve(
+        handler.run(
+          {
+            connectionId: id,
+            kind: "tunnel-open",
+            params: JSON.stringify({ uuid: "app-web-uuid", port: 3000 }),
+          },
+          { runId: "r1", dryRun: false, signal: abort.signal, log: () => {} },
+        ),
+      ),
+    ).rejects.toThrow("cancelled");
+    expect(abort.signal.aborted).toBe(true);
+    expect(calls.forward).toEqual([]);
+    expect(calls.live.size).toBe(0);
+  });
+
   it("web-ui keeps the one-time URL out of the summary and run history", async () => {
     const { runs, id, harness: h } = await start();
     fakeDockerHost(h, { ps: [WEB_RUNNING] });

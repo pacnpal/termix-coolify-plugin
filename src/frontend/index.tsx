@@ -3,6 +3,7 @@ import {
   Download,
   RefreshCw,
   Rocket,
+  ScrollText,
   SquareTerminal,
   Unlink,
 } from "lucide-react";
@@ -141,8 +142,9 @@ export function activate(app: TermixApp): void {
     },
   });
 
-  // Command palette. "Coolify: Deploy…" opens the Resources list to pick
-  // from; Open shell, Logs and Sync servers join this group later.
+  // Command palette. Deploy, Open shell and Logs open the Resources list to
+  // pick from: the tab data says what a pick does (CoolifyTab's targetOf).
+  // Sync servers opens the sync preview.
   app.registerPaletteGroup({
     id: "coolify",
     titleKey: "palette.group",
@@ -154,6 +156,34 @@ export function activate(app: TermixApp): void {
         keywords: ["coolify", "deploy", "redeploy", "rebuild"],
         run: ({ shell }) =>
           shell.openSingletonTab(TAB_ID, { data: { section: "resources" } }),
+      },
+      {
+        id: "coolify.shell",
+        title: app.t("palette.shell"),
+        icon: SquareTerminal,
+        keywords: ["coolify", "shell", "terminal", "exec", "container"],
+        run: ({ shell }) =>
+          shell.openSingletonTab(TAB_ID, {
+            data: { section: "resources", open: "shell" },
+          }),
+      },
+      {
+        id: "coolify.logs",
+        title: app.t("palette.logs"),
+        icon: ScrollText,
+        keywords: ["coolify", "logs", "container"],
+        run: ({ shell }) =>
+          shell.openSingletonTab(TAB_ID, {
+            data: { section: "resources", tab: "logs" },
+          }),
+      },
+      {
+        id: "coolify.sync",
+        title: app.t("palette.sync"),
+        icon: RefreshCw,
+        keywords: ["coolify", "sync", "servers", "hosts", "import"],
+        run: ({ shell }) =>
+          shell.openSingletonTab(TAB_ID, { data: { section: "sync" } }),
       },
     ],
   });

@@ -1,4 +1,7 @@
-import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
+import type {
+  PluginContext,
+  PluginOperationHandler,
+} from "@termix-ssh/plugin-sdk/backend";
 import type { Companions } from "./companions/service.js";
 import type { ContainerCompanions } from "./companions/container-service.js";
 import type { Containers } from "./containers/service.js";
@@ -49,13 +52,51 @@ export interface Services {
 }
 
 /**
+ * A handler that stops before it starts when its run is already cancelled,
+ * timed out or the plugin is stopping. Long handlers (a deploy that waits)
+ * watch the signal themselves as well.
+ */
+export function abortable(
+  handler: PluginOperationHandler,
+): PluginOperationHandler {
+  const { run, describe } = handler;
+  return {
+    run: async (input, c) => {
+      c.signal.throwIfAborted();
+      return await run(input, c);
+    },
+    ...(describe && {
+      describe: async (input, c) => {
+        c.signal.throwIfAborted();
+        return await describe(input, c);
+      },
+    }),
+  };
+}
+
+/** ctx, with every handler registered through it made abortable. */
+function withAbortableHandlers(ctx: PluginContext): PluginContext {
+  const operations = Object.create(ctx.operations, {
+    register: {
+      value: (id: string, handler: PluginOperationHandler) =>
+        ctx.operations.register(id, abortable(handler)),
+    },
+  }) as PluginContext["operations"];
+  return Object.create(ctx, {
+    operations: { value: operations },
+  }) as PluginContext;
+}
+
+/**
  * Registers every action declared in manifest.json contributes.operations.
  * Handlers call the same service functions the routes use, never the routes.
+ * Every one honours its run's abort signal before it starts.
  */
 export function registerOperations(
-  ctx: PluginContext,
+  base: PluginContext,
   services: Services,
 ): void {
+  const ctx = withAbortableHandlers(base);
   registerConnectionOperations(ctx, services.connections);
   registerResourceOperations(ctx, services.resources);
   registerSyncOperations(ctx, services.sync);

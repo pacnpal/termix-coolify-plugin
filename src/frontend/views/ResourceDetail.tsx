@@ -51,6 +51,16 @@ export const DETAIL_TABS = [
 export type DetailTab = (typeof DETAIL_TABS)[number];
 
 /**
+ * A requested view (from tab data, like the palette's "Logs of…"), or the
+ * default view when this release doesn't have the one asked for.
+ */
+export function detailTabOf(requested: unknown): DetailTab {
+  return (DETAIL_TABS as readonly unknown[]).includes(requested)
+    ? (requested as DetailTab)
+    : "overview";
+}
+
+/**
  * Views that need canOperate: logs carry secrets, and stats and traffic read
  * over SSH, so they need coolify.operate and the owner or an operate grant,
  * as the backend does.
@@ -260,6 +270,7 @@ export function ResourceDetail({
   onShell,
   revision,
   isVisible = true,
+  initialTab,
 }: {
   /** Null when the resource is gone from the list. */
   resource: Resource | null;
@@ -277,12 +288,14 @@ export function ResourceDetail({
   revision?: string | null;
   /** Whether the tab is shown; a live log follow stops while it isn't. */
   isVisible?: boolean;
+  /** The view to open on; an unknown one opens the default. */
+  initialTab?: string | null;
 }) {
   const { t } = useTranslation();
   const runner = useLifecycle(connectionId, onChanged);
   const lifecycle = canOperate ? runner : null;
   const tabs = detailTabs(resource, canOperate);
-  const [chosen, setTab] = useState<DetailTab>("overview");
+  const [chosen, setTab] = useState<DetailTab>(() => detailTabOf(initialTab));
   const tab = tabs.includes(chosen) ? chosen : "overview";
   let body: ReactNode;
   if (!resource) {
