@@ -364,6 +364,12 @@
         "24h": "Last 24 hours",
         "7d": "Last 7 days",
         "30d": "Last 30 days"
+      },
+      "confirm": {
+        "label": "Confirm"
+      },
+      "enableConfirm": {
+        "description": "Set true to change the server's Sentinel settings in Coolify."
       }
     },
     "listConnections": {
@@ -598,6 +604,10 @@
     "serverMetrics": {
       "title": "Server metrics",
       "description": "Read a Coolify server's CPU, memory, disk, load and network metrics, from Coolify's MCP when it's on, else from Sentinel over SSH."
+    },
+    "enableMetrics": {
+      "title": "Turn on server metrics",
+      "description": "Turns metrics on in a Coolify server's Sentinel settings. Needs configure access to the connection and confirm."
     }
   },
   "connections": {
@@ -1249,7 +1259,10 @@
         "no-host-access": "You can't open this server's Linked host.",
         "not-linked": "Link this server first to see live stats.",
         "not-running": "The container isn't running.",
-        "no-stats": "docker stats gave no reading. Is the container running?"
+        "no-stats": "docker stats gave no reading. Is the container running?",
+        "target-changed": "The connection changed. Open the tab again.",
+        "too-many-streams": "Too many live readouts are open. Close one and try again.",
+        "forbidden": "You don't have access to these stats."
       }
     },
     "off": {
@@ -1271,7 +1284,9 @@
       "forbidden": "You don't have access to these metrics.",
       "sentinel-failed": "Sentinel on this server did not answer. Check that metrics are on in Coolify.",
       "ssh-failed": "The Linked host could not be reached over SSH.",
-      "invalid-input": "Coolify's Sentinel can't be asked about this resource."
+      "invalid-input": "Coolify's Sentinel can't be asked about this resource.",
+      "target-changed": "The connection's address, token or Access settings changed. Try again.",
+      "confirm-required": "Turning metrics on needs a confirm."
     },
     "traffic": {
       "loading": "Reading traffic",

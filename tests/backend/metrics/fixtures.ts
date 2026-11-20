@@ -27,6 +27,7 @@ export interface MetricsOptions {
   ipMode?: string;
   linked?: boolean;
   permissions?: string[];
+  settings?: Record<string, unknown>;
 }
 
 function lists(): Record<string, FakeAnswer> {
@@ -135,6 +136,7 @@ export async function startMetrics(options: MetricsOptions = {}) {
   const harness = await startPlugin({
     fetch,
     permissions: options.permissions,
+    settings: options.settings,
     hosts: [linkedHost],
   });
   const created = await harness.request("POST", "/connections", {

@@ -1,6 +1,8 @@
 import { shellQuote } from "@termix-ssh/plugin-sdk/host-scripts";
 import { dockerPrefix } from "../containers/commands.js";
+import { REDACTED_VALUE } from "@termix-ssh/plugin-sdk/operations";
 import { pathParamProblem } from "../coolify/path.js";
+import { maskCredentials } from "../redact.js";
 import type { SshRunner } from "../ssh.js";
 
 /**
@@ -38,6 +40,9 @@ export const TRAFFIC_DIMENSIONS = [
   "useragent",
 ] as const;
 export type TrafficDimension = (typeof TRAFFIC_DIMENSIONS)[number];
+
+/** The most rows a paths or breakdown read asks for. */
+export const MAX_TRAFFIC_LIMIT = 200;
 
 export const TRAFFIC_RANGES = ["24h", "7d", "30d"] as const;
 export type TrafficRange = (typeof TRAFFIC_RANGES)[number];
@@ -127,7 +132,7 @@ export interface TrafficQuery {
   view: TrafficView;
   dim?: TrafficDimension;
   range: TrafficRange;
-  /** Rows for paths and breakdowns, 1 to 1000. */
+  /** Rows for paths and breakdowns, 1 to MAX_TRAFFIC_LIMIT. */
   limit?: number;
 }
 
@@ -146,7 +151,7 @@ export function trafficPath(
   const limit =
     query.limit === undefined
       ? ""
-      : `&limit=${Math.min(1000, Math.max(1, Math.floor(query.limit)))}`;
+      : `&limit=${Math.min(MAX_TRAFFIC_LIMIT, Math.max(1, Math.floor(query.limit)))}`;
   if (query.view === "overview") return `${base}/overview?${window}`;
   if (query.view === "paths") return `${base}/paths?${window}${limit}`;
   if (query.view === "breakdown") {
@@ -210,5 +215,28 @@ export async function sentinelGet<T>(
   ) {
     throw unavailable();
   }
-  return parsed as T;
+  return scrubbed(parsed) as T;
+}
+
+const SECRET_KEY = /(token|secret|password|passwd|authorization|api_?key)$/i;
+
+/**
+ * Sentinel's answer with credentials masked: every string through
+ * maskCredentials (a URL's password, a token query parameter) and any field
+ * named like a secret. Traffic paths and referrers are client input.
+ */
+export function scrubbed(value: unknown): unknown {
+  if (typeof value === "string") return maskCredentials(value);
+  if (Array.isArray(value)) return value.map(scrubbed);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, inner]) => [
+        key,
+        SECRET_KEY.test(key) && inner !== null
+          ? REDACTED_VALUE
+          : scrubbed(inner),
+      ]),
+    );
+  }
+  return value;
 }

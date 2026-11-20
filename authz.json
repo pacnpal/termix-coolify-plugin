@@ -645,8 +645,11 @@
         "id": "coolify.connection",
         "uuid": "=authz-own-server"
       },
-      "body": {},
-      "destructive": true
+      "body": {
+        "confirm": true
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify (the server can't be read) before anything changes; there is no reachable Coolify in the authz run."
     },
     "GET /plugin-api/coolify/connections/:id/resources/:uuid/metrics": {
       "access": "user",
@@ -657,7 +660,7 @@
       },
       "params": {
         "id": "coolify.connection",
-        "uuid": "=authzresourceuuid"
+        "uuid": "=authz-resource-uuid"
       },
       "allowed": "any",
       "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify before any SSH; there is no reachable Coolify, Linked host or Sentinel in the authz run."
@@ -671,7 +674,7 @@
       },
       "params": {
         "id": "coolify.connection",
-        "uuid": "=authzresourceuuid"
+        "uuid": "=authz-resource-uuid"
       },
       "allowed": "any",
       "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify before any SSH; there is no reachable Coolify, Linked host or Sentinel in the authz run."
@@ -681,18 +684,19 @@
       "permission": "coolify.operate",
       "resource": {
         "kind": "own",
-        "fixture": "coolify.connection"
+        "fixture": "coolify.connection",
+        "key": "connectionId"
       },
       "send": [
         {
           "connectionId": "{{coolify.connection}}",
-          "uuid": "authzresourceuuid"
+          "uuid": "authz-resource-uuid"
         }
       ],
-      "refuseReply": "\"type\":\"error\"",
+      "refuseReply": "\"cause\":\"(locked|forbidden|not-found|no-host-access|target-changed)\"",
       "refusalCloseCodes": [1008],
       "allowed": "any",
-      "note": "The seeded connection points at coolify.invalid, so an allowed caller gets an error reply from Coolify before any SSH; there is no reachable Coolify, Linked host or container in the authz run."
+      "note": "Checks run on every message and tick, so the entry sends a subscribe. The seeded connection points at coolify.invalid, so an allowed caller gets an unreachable error before any SSH; there is no reachable Coolify, Linked host or container in the authz run."
     }
   }
 }

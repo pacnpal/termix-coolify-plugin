@@ -265,7 +265,7 @@ describe("Stats tab", () => {
     await waitFor(() =>
       expect(canEnable.post).toHaveBeenCalledWith(
         "/connections/1/servers/srv-vps1-uuid/metrics/enable",
-        {},
+        { confirm: true },
       ),
     );
     expect(await screen.findByText(L.cpu)).toBeTruthy();

@@ -63,4 +63,23 @@ export function registerMetricsOperations(
       };
     },
   });
+
+  // A change: coolify.configure, the owner or a configure grant, and
+  // confirm: true. Over MCP it also needs "Allow changes over MCP" and
+  // confirmed: true (MCP_CONFIRM_REQUIRED).
+  ctx.operations.register("coolify.enable-metrics", {
+    run: async (input) => {
+      const serverUuid = text(input.serverUuid);
+      const data = await metrics.enableMetrics(
+        connectionIdInput(input),
+        serverUuid,
+        { confirm: input.confirm },
+      );
+      return {
+        summary: `Turned metrics on for server ${serverUuid}`,
+        changed: true,
+        data,
+      };
+    },
+  });
 }

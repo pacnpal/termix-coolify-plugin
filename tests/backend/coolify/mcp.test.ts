@@ -197,4 +197,41 @@ describe("Coolify MCP client", () => {
     await mcp.serverMetrics("srv-vps1-uuid", 0);
     expect(calls[1].body.params.arguments.minutes).toBe(1);
   });
+
+  it("masks secrets in a tool's answer, as every MCP output is", async () => {
+    const { fetch } = scripted(() =>
+      rpcResult(
+        toolText({
+          data: {
+            name: "db",
+            password: "fake-tool-pass",
+            internal_db_url: "postgres://u:fake-url-pass@db:5432/app",
+          },
+        }),
+      ),
+    );
+    const mcp = createCoolifyMcp(createCoolifyHttp(fetch, target));
+    const data = await mcp.call<Record<string, string>>("get_database", {});
+    expect(data.name).toBe("db");
+    expect(JSON.stringify(data)).not.toContain("fake-tool-pass");
+    expect(JSON.stringify(data)).not.toContain("fake-url-pass");
+  });
+
+  it("shares the connection's request budget with the REST calls", async () => {
+    const { fetch } = scripted(() => rpcResult({ tools: [] }));
+    const waits: number[] = [];
+    const http = createCoolifyHttp(fetch, target, {
+      perMinute: 1,
+      now: () => 0,
+      sleep: async (ms) => {
+        waits.push(ms);
+        throw new Error("budget spent");
+      },
+    });
+    expect(await createCoolifyMcp(http).available()).toBe(true);
+    await expect(createCoolifyMcp(http).available()).rejects.toThrow(
+      "budget spent",
+    );
+    expect(waits).toEqual([60_000]);
+  });
 });

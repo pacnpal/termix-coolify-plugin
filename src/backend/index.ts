@@ -56,7 +56,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
     resources,
     servers,
   });
-  const metrics = createMetrics(ctx, { connections, resources, sync });
+  const metrics = createMetrics(ctx, { connections, containers, sync });
   const updates = createUpdates(ctx, {
     tables,
     connections,

@@ -914,11 +914,11 @@ export function createApi(api: PluginApiClient) {
         series,
       };
     },
-    /** Turns metrics on in the server's Sentinel settings in Coolify. */
+    /** Turns metrics on in the server's Sentinel settings, after a confirm. */
     async enableMetrics(id: number, serverUuid: string): Promise<void> {
       await api.post(
         `/connections/${id}/servers/${encodeURIComponent(serverUuid)}/metrics/enable`,
-        {},
+        { confirm: true },
       );
     },
   };

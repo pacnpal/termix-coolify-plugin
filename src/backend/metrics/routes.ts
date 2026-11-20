@@ -1,11 +1,12 @@
 import type { Request, Response, Router } from "express";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { idParam, sendError } from "../connections/routes.js";
+import { ContainerError } from "../containers/service.js";
 import { uuidParam } from "../resources/routes.js";
 import { MetricsError, type Metrics } from "./service.js";
 
 function send(ctx: PluginContext, res: Response, err: unknown) {
-  if (err instanceof MetricsError) {
+  if (err instanceof MetricsError || err instanceof ContainerError) {
     return res
       .status(err.status)
       .json({ error: err.message, cause: err.code, ...err.extra });
@@ -105,7 +106,8 @@ export function registerMetricsRoutes(
    *     description: >-
    *       Sets is_metrics_enabled in the server's Sentinel settings through
    *       Coolify's API. Needs coolify.configure and owner or configure access
-   *       to the connection; the token needs write in Coolify.
+   *       to the connection, and confirm true; the token needs write in
+   *       Coolify.
    *     tags:
    *       - Coolify
    *     parameters:
@@ -119,9 +121,21 @@ export function registerMetricsRoutes(
    *         required: true
    *         schema:
    *           type: string
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [confirm]
+   *             properties:
+   *               confirm:
+   *                 type: boolean
    *     responses:
    *       200:
    *         description: "{ enabled: true }"
+   *       400:
+   *         description: confirm-required, without confirm true
    *       403:
    *         description: Missing coolify.configure, or only view or operate access
    *       404:
@@ -134,7 +148,13 @@ export function registerMetricsRoutes(
     configure,
     async (req, res) => {
       try {
-        res.json(await metrics.enableMetrics(idParam(req), uuidParam(req)));
+        res.json(
+          await metrics.enableMetrics(
+            idParam(req),
+            uuidParam(req),
+            req.body ?? {},
+          ),
+        );
       } catch (err) {
         send(ctx, res, err);
       }
@@ -149,7 +169,8 @@ export function registerMetricsRoutes(
    *     description: >-
    *       Read from Sentinel over SSH on the server's Linked host
    *       (/api/container/<uuid>/cpu/history and /memory/history). Needs
-   *       coolify.operate and the caller's own connect access to the host.
+   *       lifecycle's check (coolify.operate, an operate grant, the uuid in
+   *       the connection's list) and connect access to the host.
    *       minutes is capped at 43200 (30 days).
    *     tags:
    *       - Coolify
@@ -213,8 +234,11 @@ export function registerMetricsRoutes(
    *     description: >-
    *       Read from Sentinel over SSH on the server's Linked host when
    *       Coolify's traffic analytics is on for the server. Client IPs are
-   *       left out unless Coolify's traffic_ip_mode is full. Needs
-   *       coolify.operate and the caller's own connect access to the host.
+   *       left out unless Coolify's traffic_ip_mode is full and the caller
+   *       has coolify.configure with owner or configure access. Needs
+   *       lifecycle's check (coolify.operate, an operate grant, the uuid in
+   *       the connection's list) and connect access to the host. limit is
+   *       clamped to 200.
    *     tags:
    *       - Coolify
    *     parameters:
@@ -251,7 +275,6 @@ export function registerMetricsRoutes(
    *         schema:
    *           type: integer
    *           minimum: 1
-   *           maximum: 1000
    *     responses:
    *       200:
    *         description: "{ view, dim?, range, ipsHidden, data }"

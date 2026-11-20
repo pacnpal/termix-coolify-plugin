@@ -48,6 +48,8 @@ const METRICS_ERRORS = new Set([
   "sentinel-failed",
   "ssh-failed",
   "invalid-input",
+  "target-changed",
+  "confirm-required",
 ]);
 
 /** One line for a failed metrics or traffic call. */

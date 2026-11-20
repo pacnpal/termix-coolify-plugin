@@ -6,6 +6,7 @@ import {
   STATS_INTERVAL_MS,
   statsCommand,
 } from "../../../src/backend/containers/stats.js";
+import { grant } from "../helpers/lifecycle.js";
 import { OTHER, OWNER, type PluginHarness } from "../helpers/plugin.js";
 import { fakeDocker, startShell } from "./fixtures.js";
 
@@ -240,5 +241,85 @@ describe("stats socket", () => {
       cause: "not-linked",
     });
     expect(docker.commands).toEqual([]);
+  });
+
+  it("a changed target stops the stream and closes the socket", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { open, connectionId, statsRuns, harness: h } = await start();
+    const { socket } = await open();
+    socket.message({ connectionId, uuid: "app-web-uuid" });
+    await settle();
+    expect(statsRuns()).toBe(1);
+    h.db.sqlite
+      .prepare("UPDATE p_coolify_connections SET base_url = ?")
+      .run("https://other.example.test");
+    await vi.advanceTimersByTimeAsync(STATS_INTERVAL_MS);
+    await settle();
+    expect(statsRuns()).toBe(1);
+    expect(socket.sent.at(-1)).toMatchObject({
+      type: "error",
+      cause: "target-changed",
+    });
+    expect(socket.closedWith).toBe(1008);
+  });
+
+  it("re-runs lifecycle's check for the socket's user every tick", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { open, connectionId, statsRuns, harness: h } = await start();
+    grant(h, connectionId, OTHER, "operate");
+    h.mock.setActor(OTHER);
+    const { socket } = await open(OTHER);
+    socket.message({ connectionId, uuid: "app-web-uuid" });
+    await settle();
+    expect(statsRuns()).toBe(1);
+    // Down to view: lifecycle's authorize refuses it.
+    h.db.sqlite.prepare("UPDATE p_coolify_grants SET level = 'view'").run();
+    await vi.advanceTimersByTimeAsync(STATS_INTERVAL_MS);
+    await settle();
+    expect(statsRuns()).toBe(1);
+    expect(socket.sent.at(-1)).toMatchObject({
+      type: "error",
+      cause: "forbidden",
+    });
+    expect(socket.closedWith).toBe(1008);
+  });
+
+  it("runs at most 3 streams per person, and a closed one frees its place", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { open, connectionId } = await start();
+    const sockets: FakeSocket[] = [];
+    for (let i = 0; i < 4; i++) {
+      const { socket } = await open();
+      socket.message({ connectionId, uuid: "app-web-uuid" });
+      await settle();
+      sockets.push(socket);
+    }
+    expect(sockets.slice(0, 3).map((s) => s.sent.at(-1)?.type)).toEqual([
+      "stats",
+      "stats",
+      "stats",
+    ]);
+    expect(sockets[3].sent.at(-1)).toMatchObject({
+      type: "error",
+      cause: "too-many-streams",
+    });
+    sockets[0].close();
+    const { socket: again } = await open();
+    again.message({ connectionId, uuid: "app-web-uuid" });
+    await settle();
+    expect(again.sent.at(-1)).toMatchObject({ type: "stats" });
+  });
+
+  it("takes one subscribe a second on a socket", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { open, connectionId, statsRuns } = await start();
+    const { socket } = await open();
+    socket.message({ connectionId, uuid: "app-web-uuid" });
+    socket.message({ connectionId, uuid: "app-web-uuid" });
+    await settle();
+    expect(socket.sent.find((m) => m.type === "error")).toMatchObject({
+      cause: "rate-limited",
+    });
+    expect(statsRuns()).toBe(1);
   });
 });

@@ -202,7 +202,7 @@ describe("server metrics", () => {
     const enabled = await off.harness.request(
       "POST",
       `/connections/${off.connectionId}/servers/${SERVER_UUID}/metrics/enable`,
-      {},
+      { confirm: true },
     );
     expect(enabled.status).toBe(200);
     expect(enabled.body).toEqual({ enabled: true });

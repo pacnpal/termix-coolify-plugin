@@ -1,3 +1,4 @@
+import { redact } from "../redact.js";
 import { CoolifyError, type CoolifyHttp } from "./http.js";
 
 /** Coolify's own cap on a get_server_metrics window: 30 days. */
@@ -125,7 +126,8 @@ export function createCoolifyMcp(http: CoolifyHttp): CoolifyMcp {
       throw new CoolifyError("upstream", 200);
     }
     const body = obj(parsed);
-    return ("data" in body ? body.data : parsed) as T;
+    // Whatever a tool answers is masked, as every MCP output is.
+    return redact("data" in body ? body.data : parsed) as T;
   }
 
   return {

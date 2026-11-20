@@ -85,26 +85,54 @@ export function statsCommand(container: string, sudo: boolean): string {
   return `${dockerPrefix(sudo)} stats --no-stream --format '{{json .}}' ${name}`;
 }
 
+export const STATS_SOCKET_PATH = "/stats";
+
 /** The ws socket, as far as this module uses it. */
 interface WsLike {
   send(data: string): void;
   close(code?: number, reason?: string): void;
   on(event: "message", fn: (data: unknown) => void): void;
-  on(event: "close", fn: () => void): void;
+  on(event: "close" | "error", fn: () => void): void;
 }
+
+type Snapshot = Awaited<ReturnType<Connections["snapshot"]>>;
 
 interface Subscription {
   connectionId: number;
+  uuid: string;
+  part?: string;
+  snap: Snapshot;
   hostId: number;
   container: string;
   sudo: boolean;
 }
 
 export interface StatsSocketDeps {
-  connections: Connections;
-  containers: Containers;
+  connections: Pick<Connections, "snapshot">;
+  containers: Pick<
+    Containers,
+    "locate" | "target" | "assertHostAccess" | "assertSnapshotHolds"
+  >;
   run?: SshRunner;
 }
+
+/** Streams one person may run at once, over all their sockets. */
+export const MAX_STREAMS_PER_USER = 3;
+/** The shortest gap between two subscribes on one socket. */
+export const SUBSCRIBE_GAP_MS = 1_000;
+/** docker stats prints one short line; anything longer is not a reading. */
+const MAX_STATS_BYTES = 4_096;
+/** Policy violation: the close code for a refusal. */
+const REFUSED = 1008;
+
+/** Causes that end the socket: the caller may not have these stats. */
+const REFUSALS: ReadonlySet<string> = new Set([
+  "locked",
+  "forbidden",
+  "not-found",
+  "no-host-access",
+  "target-changed",
+]);
 
 type Refusal = {
   error: string;
@@ -127,23 +155,30 @@ function refusalOf(err: unknown): Refusal {
  * WS /stats: send `{ connectionId, uuid, part?, container? }` and the socket
  * answers `{ type: "stats", ... }` every 3 seconds while it is open, or
  * `{ type: "choices" }` or `{ type: "error", cause }`. `{ type: "unsubscribe" }`
- * or closing stops it. Every message and every tick checks the session is
- * unlocked, the socket's user is the acting user, coolify.operate, access to
- * the connection and connect access to the Linked host. Nothing here throws:
- * errors count against the plugin's budget.
+ * or closing stops it. One stream per socket (a new subscribe replaces it),
+ * at most one subscribe a second, and MAX_STREAMS_PER_USER per person.
+ *
+ * Every subscribe and every tick runs as the socket's own user (core runs a
+ * socket's events and timers as the user who opened it; anything else is
+ * refused) and checks: the session is unlocked, lifecycle's authorize for
+ * the resource, the actor's connect access to the Linked host, and that the
+ * connection still points at the subscribe's snapshot. A refusal closes the
+ * socket with 1008. Nothing here throws: errors count against the plugin.
  */
-export const STATS_SOCKET_PATH = "/stats";
-
 export function registerStatsSocket(
   ctx: PluginContext,
   deps: StatsSocketDeps,
 ): void {
   const run = deps.run ?? sshRunner(ctx);
+  const streams = new Map<string, number>();
 
   ctx.ws.route(STATS_SOCKET_PATH, (conn: PluginWebSocketConnection) => {
     const socket = conn.socket as WsLike;
+    const userId = conn.userId;
     let generation = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let holding = false;
+    let lastSubscribe = -Infinity;
     let closed = false;
 
     function send(message: Record<string, unknown>) {
@@ -155,10 +190,19 @@ export function registerStatsSocket(
       }
     }
 
+    function release() {
+      if (!holding || !userId) return;
+      holding = false;
+      const left = (streams.get(userId) ?? 1) - 1;
+      if (left > 0) streams.set(userId, left);
+      else streams.delete(userId);
+    }
+
     function stop() {
       generation++;
       if (timer) clearTimeout(timer);
       timer = null;
+      release();
     }
 
     function refuse(refusal: Refusal) {
@@ -169,9 +213,10 @@ export function registerStatsSocket(
         cause: refusal.cause,
         ...(refusal.extra ?? {}),
       });
-      if (refusal.cause === "locked") {
+      if (REFUSALS.has(refusal.cause)) {
+        closed = true;
         try {
-          socket.close(1008, "locked");
+          socket.close(REFUSED, refusal.cause);
         } catch {
           // Already closing.
         }
@@ -179,49 +224,41 @@ export function registerStatsSocket(
     }
 
     /** The session-level checks every message and tick makes, or a refusal. */
-    async function sessionRefusal(): Promise<Refusal | null> {
+    function sessionRefusal(): Refusal | null {
       if (!conn.isDataUnlocked()) {
         return { error: "The session is locked.", cause: "locked" };
       }
       // Fail closed: the work must run as the socket's own user.
-      if (!conn.userId || ctx.currentActor() !== conn.userId) {
+      if (!userId || ctx.currentActor() !== userId) {
         return { error: "Not allowed.", cause: "forbidden" };
-      }
-      if (!(await ctx.rbac.has("operate"))) {
-        return {
-          error: "Live stats need coolify.operate.",
-          cause: "forbidden",
-        };
       }
       return null;
     }
 
+    /** Everything a subscribe checked, again, as the socket's user. */
+    async function recheck(sub: Subscription): Promise<void> {
+      await deps.containers.assertSnapshotHolds(sub.connectionId, sub.snap);
+      await deps.containers.target(sub.connectionId, sub.uuid, sub.part);
+      await deps.containers.assertHostAccess(sub.hostId);
+    }
+
     async function tick(sub: Subscription, gen: number): Promise<void> {
       try {
-        const refusal =
-          (await sessionRefusal()) ??
-          ((await deps.connections.access(sub.connectionId))
-            ? null
-            : { error: "Coolify connection not found", cause: "not-found" }) ??
-          ((await ctx.hosts.checkAccess(sub.hostId, "connect"))?.hasAccess
-            ? null
-            : {
-                error: "You can't open this server's Linked host.",
-                cause: "no-host-access",
-              });
-        if (gen !== generation) return;
+        const refusal = sessionRefusal();
         if (refusal) {
           refuse(refusal);
           return;
         }
+        await recheck(sub);
+        if (gen !== generation) return;
         const result = await run(
           sub.hostId,
           statsCommand(sub.container, sub.sudo),
-          { timeoutMs: 15_000 },
+          { timeoutMs: 15_000, maxOutputBytes: MAX_STATS_BYTES },
         );
         if (gen !== generation) return;
         const sample =
-          result.code === 0
+          result.code === 0 && !result.truncated
             ? parseDockerStats(result.stdout.trim().split("\n")[0] ?? "")
             : null;
         if (!sample) {
@@ -246,7 +283,7 @@ export function registerStatsSocket(
     async function subscribe(body: Record<string, unknown>): Promise<void> {
       stop();
       const gen = generation;
-      const refusal = await sessionRefusal();
+      const refusal = sessionRefusal();
       if (refusal) {
         refuse(refusal);
         return;
@@ -263,12 +300,16 @@ export function registerStatsSocket(
         return;
       }
       const uuid = typeof body.uuid === "string" ? body.uuid : "";
+      const request = readShellRequest({
+        part: body.part,
+        container: body.container,
+      });
       const snap = await deps.connections.snapshot(connectionId);
       const found = await deps.containers.locate(
         connectionId,
         snap,
         uuid,
-        readShellRequest({ part: body.part, container: body.container }),
+        request,
       );
       if (gen !== generation) return;
       if (found.kind === "choices") {
@@ -279,9 +320,22 @@ export function registerStatsSocket(
         refuse({ error: "The container isn't running.", cause: "not-running" });
         return;
       }
+      const held = streams.get(userId) ?? 0;
+      if (held >= MAX_STREAMS_PER_USER) {
+        refuse({
+          error: `At most ${MAX_STREAMS_PER_USER} live stats at once.`,
+          cause: "too-many-streams",
+        });
+        return;
+      }
+      streams.set(userId, held + 1);
+      holding = true;
       await tick(
         {
           connectionId,
+          uuid,
+          part: request.part,
+          snap,
           hostId: found.where.hostId,
           container: found.container.name,
           sudo: found.sudo,
@@ -291,6 +345,7 @@ export function registerStatsSocket(
     }
 
     async function onMessage(data: unknown): Promise<void> {
+      if (closed) return;
       try {
         const text = String(data ?? "");
         if (text.length > MAX_MESSAGE) throw new SyntaxError("too long");
@@ -303,6 +358,16 @@ export function registerStatsSocket(
           stop();
           return;
         }
+        const at = Date.now();
+        if (at - lastSubscribe < SUBSCRIBE_GAP_MS) {
+          send({
+            type: "error",
+            error: "One subscribe a second.",
+            cause: "rate-limited",
+          });
+          return;
+        }
+        lastSubscribe = at;
         await subscribe(message);
       } catch (err) {
         if (err instanceof SyntaxError) {
@@ -317,9 +382,11 @@ export function registerStatsSocket(
     }
 
     socket.on("message", (data) => void onMessage(data));
-    socket.on("close", () => {
+    const end = () => {
       closed = true;
       stop();
-    });
+    };
+    socket.on("close", end);
+    socket.on("error", end);
   });
 }

@@ -1925,6 +1925,44 @@
             "assistant": true,
             "mcp": true
           }
+        },
+        {
+          "id": "coolify.enable-metrics",
+          "titleKey": "ops.enableMetrics.title",
+          "descriptionKey": "ops.enableMetrics.description",
+          "icon": "Activity",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "serverUuid",
+              "type": "string",
+              "labelKey": "ops.fields.serverUuid.label",
+              "descriptionKey": "ops.fields.serverUuid.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            },
+            {
+              "key": "confirm",
+              "type": "boolean",
+              "labelKey": "ops.fields.confirm.label",
+              "descriptionKey": "ops.fields.enableConfirm.description",
+              "required": true
+            }
+          ],
+          "risk": "change",
+          "permission": "configure",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
         }
       ],
       "resources": [

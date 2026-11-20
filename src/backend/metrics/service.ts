@@ -8,8 +8,12 @@ import {
   type MetricPoint,
 } from "../coolify/mcp.js";
 import { pathParamProblem } from "../coolify/path.js";
-import type { Connections } from "../connections/service.js";
-import type { Resources } from "../resources/service.js";
+import {
+  ConnectionError,
+  type AccessLevel,
+  type Connections,
+} from "../connections/service.js";
+import type { Containers } from "../containers/service.js";
 import { isHostKeyError, sshRunner, type SshRunner } from "../ssh.js";
 import type { Sync } from "../sync/service.js";
 import {
@@ -20,6 +24,7 @@ import {
   serverHistoryPath,
   SUMMARY_PATH,
   trafficPath,
+  MAX_TRAFFIC_LIMIT,
   TRAFFIC_DIMENSIONS,
   TRAFFIC_RANGES,
   TRAFFIC_VIEWS,
@@ -33,6 +38,7 @@ import {
 export type MetricsErrorCode =
   | "invalid-input"
   | "forbidden"
+  | "confirm-required"
   | "not-found"
   | "not-linked"
   | "no-host-access"
@@ -45,6 +51,7 @@ export type MetricsErrorCode =
 const STATUS: Record<MetricsErrorCode, 400 | 403 | 404 | 409 | 502> = {
   "invalid-input": 400,
   forbidden: 403,
+  "confirm-required": 400,
   "not-found": 404,
   "not-linked": 409,
   "no-host-access": 403,
@@ -75,6 +82,13 @@ export class MetricsError extends Error {
 }
 
 const DEFAULT_MINUTES = 60;
+
+/** Access levels that may read over SSH, as lifecycle's authorize allows. */
+const OPERATE_ACCESS: ReadonlySet<AccessLevel> = new Set([
+  "owner",
+  "operate",
+  "configure",
+]);
 
 /** A uuid that can't be one path segment reads as missing. */
 function badUuid(uuid: string): boolean {
@@ -135,9 +149,9 @@ export function readTrafficQuery(raw: Record<string, unknown>): TrafficQuery {
     if (limit !== undefined && limit !== null && limit !== "") {
       const text = typeof limit === "number" ? String(limit) : limit;
       const n =
-        typeof text === "string" && /^\d{1,4}$/.test(text) ? Number(text) : 0;
-      if (n < 1 || n > 1000) throw invalid("limit must be 1 to 1000");
-      query.limit = n;
+        typeof text === "string" && /^\d{1,9}$/.test(text) ? Number(text) : 0;
+      if (n < 1) throw invalid("limit must be a whole number from 1");
+      query.limit = Math.min(n, MAX_TRAFFIC_LIMIT);
     }
   }
   return query;
@@ -246,58 +260,81 @@ export interface TrafficAnswer {
   data: unknown;
 }
 
+type Snapshot = Awaited<ReturnType<Connections["snapshot"]>>;
+
 export interface MetricsDeps {
   connections: Connections;
-  resources: Resources;
-  sync: Sync;
+  /**
+   * The containers service's checks: `target` is lifecycle's authorize (and
+   * a Part's parent), then the actor's host access and the snapshot check.
+   */
+  containers: Pick<
+    Containers,
+    "target" | "assertHostAccess" | "assertSnapshotHolds"
+  >;
+  sync: Pick<Sync, "linkedHostFor">;
   run?: SshRunner;
   now?: () => number;
 }
 
+/** One read of the connection, and the check to run before each step. */
+interface Read {
+  connectionId: number;
+  snap: Snapshot;
+  /** Throws target-changed (or not-found) once the snapshot no longer holds. */
+  holds: () => Promise<void>;
+}
+
 /**
  * Metrics and traffic. Server metrics come from Coolify's MCP when it is on
- * (an API read: any access to the connection), else from Sentinel over SSH.
- * Every SSH read needs coolify.operate plus the actor's own connect access
- * to the Linked host, checked before anything runs there.
+ * (an API read: coolify.view and access to the connection), else from
+ * Sentinel over SSH. Every SSH read passes lifecycle's authorize (or, for a
+ * server, coolify.operate and an operate grant) and the actor's own connect
+ * access to the Linked host. Each request reads the connection once
+ * (`connections.snapshot`) and checks it still holds before every Coolify
+ * call and every SSH command.
  */
 export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
   const run = deps.run ?? sshRunner(ctx);
   const now = deps.now ?? Date.now;
 
-  /** Whether the actor may turn metrics on: coolify.configure and owner or a configure grant. */
-  async function canConfigure(connectionId: number): Promise<boolean> {
-    const access = await deps.connections.access(connectionId);
+  async function begin(connectionId: number): Promise<Read> {
+    const snap = await deps.connections.snapshot(connectionId);
+    return {
+      connectionId,
+      snap,
+      holds: () => deps.containers.assertSnapshotHolds(connectionId, snap),
+    };
+  }
+
+  /** coolify.configure and the owner or a configure grant. */
+  async function canConfigure(read: Read): Promise<boolean> {
+    const access = read.snap.view.access;
     if (access !== "owner" && access !== "configure") return false;
-    return ctx.rbac.has("configure");
+    return (await ctx.rbac.has("configure")) === true;
   }
 
-  async function serverOf(
-    connectionId: number,
-    serverUuid: string,
-  ): Promise<ServerDto> {
-    const api = await deps.connections.api(connectionId);
-    return api.server(serverUuid);
+  async function serverOf(read: Read, serverUuid: string): Promise<ServerDto> {
+    await read.holds();
+    return read.snap.api.server(serverUuid);
   }
 
-  async function requireMetrics(
-    connectionId: number,
-    server: ServerDto,
-  ): Promise<void> {
+  async function requireMetrics(read: Read, server: ServerDto): Promise<void> {
     if (server.metricsEnabled) return;
     throw new MetricsError(
       "metrics-off",
       "Metrics are off for this server in Coolify.",
-      { canEnable: await canConfigure(connectionId) },
+      { canEnable: await canConfigure(read) },
     );
   }
 
-  /** The Linked host, checked for coolify.operate and the actor's connect access. */
+  /** The Linked host of a server, the actor's connect access, and sudo. */
   async function sshTarget(
-    connectionId: number,
+    read: Read,
     serverUuid: string | null,
   ): Promise<{ hostId: number; sudo: boolean }> {
     const hostId = serverUuid
-      ? await deps.sync.linkedHostFor(connectionId, serverUuid)
+      ? await deps.sync.linkedHostFor(read.connectionId, serverUuid)
       : null;
     if (!serverUuid || !hostId) {
       throw new MetricsError(
@@ -305,20 +342,10 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
         "Link this server first: sync it from Coolify to make it a Linked host.",
       );
     }
-    if (!(await ctx.rbac.has("operate"))) {
-      throw new MetricsError(
-        "forbidden",
-        "Reading metrics over SSH needs coolify.operate.",
-      );
-    }
-    const access = await ctx.hosts.checkAccess(hostId, "connect");
-    if (!access?.hasAccess) {
-      throw new MetricsError(
-        "no-host-access",
-        "You can't open this server's Linked host.",
-      );
-    }
-    const sudo = await overSsh(hostId, () => dockerNeedsSudo(run, hostId));
+    await deps.containers.assertHostAccess(hostId);
+    const sudo = await overSsh(read, hostId, () =>
+      dockerNeedsSudo(run, hostId),
+    );
     if (sudo === null) {
       throw new MetricsError(
         "ssh-failed",
@@ -328,7 +355,13 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
     return { hostId, sudo };
   }
 
-  async function overSsh<T>(hostId: number, fn: () => Promise<T>): Promise<T> {
+  /** One SSH step: the snapshot check first, then fixed errors only. */
+  async function overSsh<T>(
+    read: Read,
+    hostId: number,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    await read.holds();
     try {
       return await fn();
     } catch (err) {
@@ -353,54 +386,62 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
     }
   }
 
-  /** The resource from the connection's own list (another user's reads as 404). */
-  async function resourceOf(
-    connectionId: number,
-    uuid: string,
-  ): Promise<ResourceDto> {
+  function sentinel(
+    read: Read,
+    target: { hostId: number; sudo: boolean },
+    path: string,
+  ): Promise<unknown> {
+    return overSsh(read, target.hostId, () =>
+      sentinelGet<unknown>(run, target.hostId, path, { sudo: target.sudo }),
+    );
+  }
+
+  /** A resource by lifecycle's authorize: operate, a grant, its own list. */
+  async function resourceOf(read: Read, uuid: string): Promise<ResourceDto> {
     if (badUuid(uuid)) {
       throw new MetricsError("not-found", "Coolify resource not found");
     }
-    const found = await deps.resources.get(connectionId, uuid);
-    if (!found) {
-      throw new MetricsError("not-found", "Coolify resource not found");
-    }
-    return found;
+    const { res } = await deps.containers.target(
+      read.connectionId,
+      uuid,
+      undefined,
+    );
+    return res;
   }
 
+  /** Sentinel on a server's host: coolify.operate and an operate grant. */
   async function sentinelServerMetrics(
-    connectionId: number,
+    read: Read,
     serverUuid: string,
     minutes: number,
   ): Promise<ServerMetrics> {
-    const { hostId, sudo } = await sshTarget(connectionId, serverUuid);
+    if (
+      (await ctx.rbac.has("operate")) !== true ||
+      !OPERATE_ACCESS.has(read.snap.view.access)
+    ) {
+      throw new MetricsError(
+        "forbidden",
+        "Reading metrics over SSH needs coolify.operate and operate access to this connection.",
+      );
+    }
+    const target = await sshTarget(read, serverUuid);
     const window = historyWindow(minutes, now());
-    return overSsh(hostId, async () => {
-      const summary = await sentinelGet<unknown>(run, hostId, SUMMARY_PATH, {
-        sudo,
-      });
-      const cpu = await sentinelGet<unknown>(
-        run,
-        hostId,
-        serverHistoryPath("cpu", window),
-        { sudo },
-      );
-      const memory = await sentinelGet<unknown>(
-        run,
-        hostId,
-        serverHistoryPath("memory", window),
-        { sudo },
-      );
-      return {
-        source: "sentinel" as const,
-        minutes,
-        current: summaryCurrent(summary),
-        series: {
-          cpu_percent: toPoints(cpu, "percent"),
-          memory_used_bytes: toPoints(memory, "used"),
-        },
-      };
-    });
+    const summary = await sentinel(read, target, SUMMARY_PATH);
+    const cpu = await sentinel(read, target, serverHistoryPath("cpu", window));
+    const memory = await sentinel(
+      read,
+      target,
+      serverHistoryPath("memory", window),
+    );
+    return {
+      source: "sentinel",
+      minutes,
+      current: summaryCurrent(summary),
+      series: {
+        cpu_percent: toPoints(cpu, "percent"),
+        memory_used_bytes: toPoints(memory, "used"),
+      },
+    };
   }
 
   return {
@@ -413,18 +454,16 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
       if (badUuid(serverUuid)) {
         throw new MetricsError("not-found", "Coolify server not found");
       }
-      // The connection (any access) and the server, from Coolify's API.
-      const conn = await deps.connections.get(connectionId);
-      if (!conn)
-        throw new MetricsError("not-found", "Coolify connection not found");
-      const server = await serverOf(connectionId, serverUuid);
-      await requireMetrics(connectionId, server);
+      // Any access to the connection, and a server its token sees.
+      const read = await begin(connectionId);
+      await requireMetrics(read, await serverOf(read, serverUuid));
       // Coolify's MCP first (off by default): any refusal falls to Sentinel.
       try {
-        const mcp = createCoolifyMcp(
-          (await deps.connections.snapshot(connectionId)).http,
+        await read.holds();
+        const data = await createCoolifyMcp(read.snap.http).serverMetrics(
+          serverUuid,
+          minutes,
         );
-        const data = await mcp.serverMetrics(serverUuid, minutes);
         return {
           source: "mcp",
           minutes,
@@ -434,7 +473,7 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
       } catch (err) {
         if (!(err instanceof CoolifyError)) throw err;
       }
-      return sentinelServerMetrics(connectionId, serverUuid, minutes);
+      return sentinelServerMetrics(read, serverUuid, minutes);
     },
 
     async resourceMetrics(
@@ -443,35 +482,29 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
       query: { minutes?: unknown } = {},
     ): Promise<ResourceMetrics> {
       const minutes = readMinutes(query.minutes);
-      const res = await resourceOf(connectionId, uuid);
+      const read = await begin(connectionId);
+      const res = await resourceOf(read, uuid);
       if (res.serverUuid) {
-        await requireMetrics(
-          connectionId,
-          await serverOf(connectionId, res.serverUuid),
-        );
+        await requireMetrics(read, await serverOf(read, res.serverUuid));
       }
-      const { hostId, sudo } = await sshTarget(connectionId, res.serverUuid);
+      const target = await sshTarget(read, res.serverUuid);
       const window = historyWindow(minutes, now());
-      return overSsh(hostId, async () => {
-        const cpu = await sentinelGet<unknown>(
-          run,
-          hostId,
-          containerHistoryPath(uuid, "cpu", window),
-          { sudo },
-        );
-        const memory = await sentinelGet<unknown>(
-          run,
-          hostId,
-          containerHistoryPath(uuid, "memory", window),
-          { sudo },
-        );
-        return {
-          source: "sentinel" as const,
-          minutes,
-          cpu: toPoints(cpu, "percent"),
-          memory: toPoints(memory, "used"),
-        };
-      });
+      const cpu = await sentinel(
+        read,
+        target,
+        containerHistoryPath(uuid, "cpu", window),
+      );
+      const memory = await sentinel(
+        read,
+        target,
+        containerHistoryPath(uuid, "memory", window),
+      );
+      return {
+        source: "sentinel",
+        minutes,
+        cpu: toPoints(cpu, "percent"),
+        memory: toPoints(memory, "used"),
+      };
     },
 
     async resourceTraffic(
@@ -480,28 +513,33 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
       raw: Record<string, unknown> = {},
     ): Promise<TrafficAnswer> {
       const query = readTrafficQuery(raw);
-      const res = await resourceOf(connectionId, uuid);
+      const read = await begin(connectionId);
+      const res = await resourceOf(read, uuid);
       if (res.kind !== "application") {
         throw invalid("Traffic analytics covers applications.");
       }
       if (
         res.serverUuid &&
-        !(await serverOf(connectionId, res.serverUuid)).trafficEnabled
+        !(await serverOf(read, res.serverUuid)).trafficEnabled
       ) {
         throw new MetricsError(
           "traffic-off",
           "Traffic analytics is off for this server in Coolify.",
         );
       }
-      const { hostId, sudo } = await sshTarget(connectionId, res.serverUuid);
-      // Fail closed: an unreadable IP mode hides IPs.
+      const target = await sshTarget(read, res.serverUuid);
+      // Fail closed: IPs need Coolify keeping them in full and configure
+      // access; an unreadable IP mode hides them.
       let ipsHidden = true;
-      try {
-        const api = await deps.connections.api(connectionId);
-        const settings = await api.sentinelSettings(res.serverUuid!);
-        ipsHidden = settings.trafficIpMode !== "full";
-      } catch {
-        ipsHidden = true;
+      if (res.serverUuid && (await canConfigure(read))) {
+        try {
+          await read.holds();
+          const settings = await read.snap.api.sentinelSettings(res.serverUuid);
+          ipsHidden = settings.trafficIpMode !== "full";
+        } catch (err) {
+          if (err instanceof ConnectionError) throw err;
+          ipsHidden = true;
+        }
       }
       const answer: TrafficAnswer = {
         view: query.view,
@@ -511,40 +549,46 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
       };
       if (query.dim) answer.dim = query.dim;
       if (ipsHidden && query.dim === "ip") return answer;
-      const data = await overSsh(hostId, () =>
-        sentinelGet<unknown>(
-          run,
-          hostId,
-          trafficPath(uuid, query, new Date(now())),
-          { sudo },
-        ),
+      const data = await sentinel(
+        read,
+        target,
+        trafficPath(uuid, query, new Date(now())),
       );
       answer.data = ipsHidden ? withoutIps(data) : data;
       return answer;
     },
 
-    /** Turns metrics on in the server's Sentinel settings. */
+    /**
+     * Turns metrics on in the server's Sentinel settings. Needs
+     * coolify.configure, the owner or a configure grant, and confirm: true.
+     */
     async enableMetrics(
       connectionId: number,
       serverUuid: string,
+      body: { confirm?: unknown } = {},
     ): Promise<{ enabled: true }> {
       if (badUuid(serverUuid)) {
         throw new MetricsError("not-found", "Coolify server not found");
       }
-      const access = await deps.connections.access(connectionId);
-      if (!access) {
-        throw new MetricsError("not-found", "Coolify connection not found");
-      }
-      if (!(await canConfigure(connectionId))) {
+      const read = await begin(connectionId);
+      if (!(await canConfigure(read))) {
         throw new MetricsError(
           "forbidden",
           "Turning metrics on needs coolify.configure and configure access to this connection.",
         );
       }
-      const api = await deps.connections.api(connectionId);
+      if (body.confirm !== true) {
+        throw new MetricsError(
+          "confirm-required",
+          "Turning metrics on needs confirm: true",
+        );
+      }
       // The server must be one this token sees, before anything changes.
-      await api.server(serverUuid);
-      await api.patchSentinel(serverUuid, { is_metrics_enabled: true });
+      await serverOf(read, serverUuid);
+      await read.holds();
+      await read.snap.api.patchSentinel(serverUuid, {
+        is_metrics_enabled: true,
+      });
       return { enabled: true };
     },
   };
