@@ -599,7 +599,7 @@
     },
     "resourceTraffic": {
       "title": "Application traffic",
-      "description": "Read an application's traffic from Sentinel: requests over time, top paths, status codes, countries, browsers and bots. Client IPs are hidden unless Coolify keeps them in full."
+      "description": "Read an application's traffic from Sentinel: requests over time, top paths, status codes, countries, browsers and bots. Client IPs are hidden unless Coolify keeps them in full and you have configure access to the connection."
     },
     "serverMetrics": {
       "title": "Server metrics",
@@ -1300,7 +1300,7 @@
       "requestsOverTime": "Requests over time",
       "topPaths": "Top paths",
       "breakdown": "Breakdown",
-      "ipsHidden": "Client IPs are hidden: Coolify doesn't keep them in full.",
+      "ipsHidden": "Client IPs are hidden. Showing them requires full IP mode in Coolify and configure access to this connection.",
       "off": {
         "title": "Traffic analytics is off for this server",
         "hint": "Turn on traffic analytics for the server in Coolify, under its Sentinel settings."
