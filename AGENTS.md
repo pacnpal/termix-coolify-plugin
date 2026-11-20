@@ -380,7 +380,9 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   the newest answer (a request generation, as in `useResources`). It opens the socket through
   `src/frontend/socket.ts` (`keepSocketTarget(app)` in activate keeps `app.wsUrl`; tests swap it with
   `setWsUrl`). The follow effect depends on `isVisible`, so hiding the tab closes it; a Part is asked for
-  by its service's uuid plus `part`.
+  by its service's uuid plus `part`. A follow socket that closes on its own is `lost`: retried after
+  `RECONNECT_DELAYS_MS` (3, growing), then Reconnect; a 1008 close is `failed` with its reason (no
+  retry). Once the effect cleans up (`stopped`), nothing the old socket sends reaches the view.
 - Server updates: `src/backend/updates/` (`service.ts` `createUpdates`, `routes.ts`) and
   `src/backend/ops/updates.ts`; the UI is `src/frontend/views/ServerUpdates.tsx` inside the host card.
   `ServerUpdates` remounts its card on `connectionId:serverUuid:revision` (the revision from
@@ -453,7 +455,9 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   `metrics/service.ts` reads the connection once per request (`connections.snapshot`). Its Coolify calls go
   through `read.api`/`read.http`, the snapshot's request layer wrapped by `guarded()` so
   `containers.assertSnapshotHolds` is every request's `beforeFetch` (after the budget wait, right before
-  the fetch); SSH commands call it first too. Resource reads use
+  the fetch); SSH commands call it before and after. `holds` also checks the actor's live
+  `connections.access` against `read.need` (operate for Sentinel, owner/configure for the PATCH), since a
+  grant change doesn't change the revision. Resource reads use
   `containers.target` (lifecycle's `authorize`); the server read over MCP needs view and any access, its
   Sentinel fallback operate and an operate grant. IPs need `traffic_ip_mode` `full` and `canConfigure`
   (coolify.configure plus owner or configure grant); anything else hides them. Traffic `limit` is clamped to

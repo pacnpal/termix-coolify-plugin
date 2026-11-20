@@ -260,6 +260,10 @@ export function registerStatsSocket(
           { timeoutMs: 15_000, maxOutputBytes: MAX_STATS_BYTES },
         );
         if (gen !== generation) return;
+        // The answer belongs to the target that was checked: a change while
+        // docker stats ran withholds it.
+        await deps.containers.assertSnapshotHolds(sub.connectionId, sub.snap);
+        if (gen !== generation) return;
         const sample =
           result.code === 0 && !result.truncated
             ? parseDockerStats(result.stdout.trim().split("\n")[0] ?? "")
@@ -277,6 +281,8 @@ export function registerStatsSocket(
           ...sample,
           at: Date.now(),
         });
+        // Core runs a socket's events, and the timers they start, as the
+        // user who opened it; sessionRefusal fails closed if it ever doesn't.
         timer = setTimeout(() => void tick(sub, gen), STATS_INTERVAL_MS);
       } catch (err) {
         if (gen === generation) refuse(refusalOf(err));

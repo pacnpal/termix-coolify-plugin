@@ -201,3 +201,5 @@
   asks first and changes the server's Sentinel settings in Coolify
 - Actions `coolify.resource-metrics`, `coolify.resource-traffic` and `coolify.server-metrics`, offered to the
   assistant and MCP, and `coolify.enable-metrics`, which over MCP needs changes allowed and `confirmed`
+- Following logs says why it stopped when your access or the connection changed, reconnects a lost follow up
+  to 3 times, and offers Reconnect

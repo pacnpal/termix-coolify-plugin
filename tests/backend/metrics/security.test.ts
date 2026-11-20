@@ -227,3 +227,62 @@ describe("coolify.enable-metrics over MCP", () => {
     expect(patches).toHaveLength(1);
   });
 });
+
+describe("access and target checked again late", () => {
+  it("a grant cut to view before the PATCH sends nothing", async () => {
+    const { id, fake, harness: h } = await start({ metricsEnabled: false });
+    grant(h, id, OTHER, "configure");
+    // The server read happens after the access check; the grant drops then.
+    fake.set(`GET /servers/${SERVER_UUID}`, () => {
+      h.db.sqlite.prepare("UPDATE p_coolify_grants SET level = 'view'").run();
+      return new Response(
+        JSON.stringify({
+          uuid: SERVER_UUID,
+          name: "vps1",
+          settings: { is_metrics_enabled: false },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    const answer = await h.request(
+      "POST",
+      `/connections/${id}/servers/${SERVER_UUID}/metrics/enable`,
+      { confirm: true },
+      OTHER,
+    );
+    expect(answer.status).toBe(403);
+    expect(fake.calls.filter((c) => c.method === "PATCH")).toEqual([]);
+  });
+
+  it("a grant cut to view mid-read stops the next Sentinel command", async () => {
+    const { id, resource, harness: h } = await start();
+    grant(h, id, OTHER, "operate");
+    const ssh = fakeSentinel(h, HISTORY);
+    const inner = ssh.exec.getMockImplementation()!;
+    ssh.exec.mockImplementation(async (target, command, opts) => {
+      const answer = await inner(target, command, opts);
+      if (command.includes("/cpu/history")) {
+        h.db.sqlite.prepare("UPDATE p_coolify_grants SET level = 'view'").run();
+      }
+      return answer;
+    });
+    const answer = await resource(APP_UUID, "metrics", "", OTHER);
+    expect(answer.status).toBe(403);
+    expect(ssh.paths().filter((p) => p.includes("/memory/"))).toEqual([]);
+  });
+
+  it("a target change during the traffic read withholds the data", async () => {
+    const { resource, harness: h } = await start();
+    const ssh = fakeSentinel(h, HISTORY);
+    const inner = ssh.exec.getMockImplementation()!;
+    ssh.exec.mockImplementation(async (target, command, opts) => {
+      const answer = await inner(target, command, opts);
+      if (command.includes("/traffic/")) retarget(h);
+      return answer;
+    });
+    const answer = await resource(APP_UUID, "traffic", "?view=paths");
+    expect(answer.status).toBe(409);
+    expect(answer.body.cause).toBe("target-changed");
+    expect(JSON.stringify(answer.body)).not.toContain("requests");
+  });
+});

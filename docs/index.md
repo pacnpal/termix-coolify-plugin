@@ -220,6 +220,9 @@ another view or resource, hide the tab or close it, and the `docker logs` proces
 with it. Every message on the follow's socket, and a check every 15 seconds, confirms again that your
 session is unlocked, that you still hold the permission, the Grant and the connection's same target, and
 that you can still open the Linked host. Very busy logs are thinned to about 2,000 lines a second.
+If the connection drops, the view says **Follow lost its connection** and tries again up to 3 times;
+**Reconnect** starts it again by hand. When your access or the connection changed, it says why and
+waits for **Reconnect**.
 
 The action `coolify.logs-tail` (offered to the assistant and MCP) answers the same snapshot with its source,
 only with `confirm: true`. Its text is a sensitive output, so run history never keeps it; over MCP the

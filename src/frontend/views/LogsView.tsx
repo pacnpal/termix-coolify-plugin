@@ -44,7 +44,15 @@ const KNOWN_CAUSES = [
   "host-key",
   "container-not-found",
   "locked",
+  "forbidden",
+  "not-found",
+  "target-changed",
 ] as const;
+
+/** Waits before each automatic reconnect of a lost follow; then only the button. */
+const RECONNECT_DELAYS_MS = [1_000, 3_000, 9_000];
+/** The close code the backend refuses with: access or the target changed. */
+const REFUSED = 1008;
 
 type Snapshot =
   | { kind: "loading" }
@@ -62,10 +70,19 @@ type Follow =
   | { kind: "connecting" }
   | { kind: "live" }
   | { kind: "ended" }
+  /** The socket closed on its own (not a refusal): retried, then Reconnect. */
+  | { kind: "lost" }
   | { kind: "failed"; cause: string };
 
 function causeKey(cause: string): string {
   return (KNOWN_CAUSES as readonly string[]).includes(cause) ? cause : "failed";
+}
+
+/** The text for a 1008 close: its cause, or that access or the target changed. */
+function refusalKey(reason: string): string {
+  return (KNOWN_CAUSES as readonly string[]).includes(reason)
+    ? reason
+    : "refused";
 }
 
 function splitLines(text: string): string[] {
@@ -120,6 +137,9 @@ export function LogsView({
   const [attempt, setAttempt] = useState(0);
   const [following, setFollowing] = useState(false);
   const [follow, setFollow] = useState<Follow>({ kind: "off" });
+  // Bumped to open a new follow socket: Reconnect and the automatic retries.
+  const [followAttempt, setFollowAttempt] = useState(0);
+  const followRetries = useRef(0);
   // Where the followed lines come from, apart from the snapshot's source:
   // a follow is always SSH, even on a snapshot read through Coolify. A new
   // snapshot replaces the lines, so it clears this.
@@ -174,7 +194,13 @@ export function LogsView({
   useEffect(() => {
     if (!following || !isVisible || !ready) return;
     let socket: WebSocket | null = null;
+    // This socket's generation: set on cleanup, after which nothing it
+    // sends or reports reaches the view.
     let stopped = false;
+    // An "ended" or "error" message came first: the close that follows is
+    // expected.
+    let settled = false;
+    let retry: ReturnType<typeof setTimeout> | null = null;
     setFollow({ kind: "connecting" });
     void openSocket("/logs").then((opened) => {
       if (stopped) {
@@ -199,6 +225,7 @@ export function LogsView({
         );
       };
       opened.onmessage = (event) => {
+        if (stopped) return;
         let message: Record<string, unknown>;
         try {
           message = JSON.parse(String(event.data)) as Record<string, unknown>;
@@ -206,6 +233,7 @@ export function LogsView({
           return;
         }
         if (message.type === "started") {
+          followRetries.current = 0;
           setFollow({ kind: "live" });
           setFollowSource(message.source === "coolify" ? "coolify" : "ssh");
         } else if (message.type === "choices") {
@@ -214,8 +242,11 @@ export function LogsView({
           // with it (kept for this resource while the view lives).
           const choices = choicesOf(message);
           if (choices) setSnapshot({ kind: "choices", choices });
-        } else if (message.type === "ended") setFollow({ kind: "ended" });
-        else if (message.type === "error") {
+        } else if (message.type === "ended") {
+          settled = true;
+          setFollow({ kind: "ended" });
+        } else if (message.type === "error") {
+          settled = true;
           setFollow({ kind: "failed", cause: String(message.cause ?? "") });
         } else if (message.type === "lines" && Array.isArray(message.lines)) {
           const added = message.lines.filter(
@@ -228,14 +259,26 @@ export function LogsView({
           );
         }
       };
-      opened.onclose = () => {
-        if (!stopped) {
-          setFollow((f) => (f.kind === "failed" ? f : { kind: "ended" }));
+      opened.onclose = (event?: { code?: number; reason?: string }) => {
+        if (stopped || settled) return;
+        settled = true;
+        if (event?.code === REFUSED) {
+          // A refusal: say why, and only Reconnect starts it again.
+          setFollow({ kind: "failed", cause: refusalKey(event.reason ?? "") });
+          return;
         }
+        setFollow({ kind: "lost" });
+        const wait = RECONNECT_DELAYS_MS[followRetries.current];
+        if (wait === undefined) return;
+        followRetries.current += 1;
+        retry = setTimeout(() => {
+          if (!stopped) setFollowAttempt((n) => n + 1);
+        }, wait);
       };
     });
     return () => {
       stopped = true;
+      if (retry) clearTimeout(retry);
       setFollow({ kind: "off" });
       if (!socket) return;
       try {
@@ -249,6 +292,7 @@ export function LogsView({
     };
   }, [
     following,
+    followAttempt,
     isVisible,
     ready,
     followContainer,
@@ -292,7 +336,10 @@ export function LogsView({
           variant={following ? "default" : "outline"}
           aria-pressed={following}
           disabled={!ready && !following}
-          onClick={() => setFollowing((v) => !v)}
+          onClick={() => {
+            followRetries.current = 0;
+            setFollowing((v) => !v);
+          }}
         >
           <Radio className="size-3.5" />
           {t("logs.follow")}
@@ -331,8 +378,25 @@ export function LogsView({
         )}
         {follow.kind === "failed" && (
           <StatusBadge tone="warn">
-            {t(`logs.errors.${causeKey(follow.cause)}`)}
+            {t(
+              `logs.errors.${follow.cause === "refused" ? "refused" : causeKey(follow.cause)}`,
+            )}
           </StatusBadge>
+        )}
+        {follow.kind === "lost" && (
+          <StatusBadge tone="warn">{t("logs.followLost")}</StatusBadge>
+        )}
+        {following && (follow.kind === "failed" || follow.kind === "lost") && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              followRetries.current = 0;
+              setFollowAttempt((n) => n + 1);
+            }}
+          >
+            {t("logs.reconnect")}
+          </Button>
         )}
       </div>
       <PanelSearch
