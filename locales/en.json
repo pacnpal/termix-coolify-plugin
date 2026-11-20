@@ -858,7 +858,8 @@
         "paused": "Paused",
         "pending": "Pending",
         "unknown": "Unknown"
-      }
+      },
+      "failed": "Uptime could not be read, so it's not known which monitors check this resource."
     },
     "logs": {
       "search": "Search logs across servers",

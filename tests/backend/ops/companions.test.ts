@@ -228,7 +228,9 @@ describe("companion operations", () => {
     const base = `/connections/${id}/resources/app-web-uuid/dns`;
     const first = await h.request("POST", base, { fqdn: "a.example.test" });
     const second = await h.request("POST", base, { fqdn: "b.example.test" });
-    const route = await h.request("DELETE", `${base}/${first.body.id}`);
+    const route = await h.request("DELETE", `${base}/${first.body.id}`, {
+      confirm: true,
+    });
     const op = await runs.run("coolify.companion-dns-remove", {
       connectionId: id,
       uuid: "app-web-uuid",
@@ -238,7 +240,9 @@ describe("companion operations", () => {
     expect(op.data).toEqual({ ...route.body, id: second.body.id });
     expect((await h.request("GET", base)).body).toEqual([]);
     // An unknown record is refused the same way by both.
-    const routeMissing = await h.request("DELETE", `${base}/999`);
+    const routeMissing = await h.request("DELETE", `${base}/999`, {
+      confirm: true,
+    });
     expect(routeMissing.body.cause).toBe("dns-record-not-found");
     await expect(
       runs.run("coolify.companion-dns-remove", {
@@ -274,6 +278,83 @@ describe("companion operations", () => {
     expect(
       h.db.sqlite.prepare("SELECT id FROM p_coolify_dns_records").all(),
     ).toHaveLength(1);
+  });
+
+  it("a pause that fails part way resumes the monitors it already paused", async () => {
+    const { runs, id, companions } = await start();
+    let n = 0;
+    companions.actions["uptime.pause"] = () => {
+      n += 1;
+      if (n === 2) throw new Error("uptime down");
+      return { summary: "paused", changed: true };
+    };
+    await expect(
+      runs.run("coolify.companion", {
+        connectionId: id,
+        kind: "uptime-pause",
+        params: { uuid: "app-web-uuid" },
+      }),
+    ).rejects.toMatchObject({ code: "companion-failed" });
+    const calls = companions.calls.map((c) => [
+      c.name,
+      (c.args[0] as { monitor?: string }).monitor,
+    ]);
+    expect(calls).toEqual([
+      ["uptime.monitors", undefined],
+      ["uptime.pause", "mon-a"],
+      ["uptime.pause", "mon-b"],
+      ["uptime.resume", "mon-a"],
+    ]);
+  });
+
+  it("a failed pause never resumes a monitor that was already paused", async () => {
+    const { runs, id, companions } = await start();
+    const monitors = companions.actions["uptime.monitors"];
+    // mon-a was paused before this call; mon-b is up.
+    companions.actions["uptime.monitors"] = (input, hostId) => {
+      const answer = monitors(input, hostId) as {
+        data: { rows: { id: string; status: string }[] };
+      };
+      for (const row of answer.data.rows) {
+        if (row.id === "mon-a") row.status = "paused";
+      }
+      return answer;
+    };
+    companions.actions["uptime.pause"] = () => {
+      throw new Error("uptime down");
+    };
+    await expect(
+      runs.run("coolify.companion", {
+        connectionId: id,
+        kind: "uptime-pause",
+        params: { uuid: "app-web-uuid" },
+      }),
+    ).rejects.toMatchObject({ code: "companion-failed" });
+    const calls = companions.calls.map((c) => [
+      c.name,
+      (c.args[0] as { monitor?: string }).monitor,
+    ]);
+    // Only mon-b needed pausing; its failure changed nothing, so nothing is
+    // set back, and mon-a stays paused.
+    expect(calls).toEqual([
+      ["uptime.monitors", undefined],
+      ["uptime.pause", "mon-b"],
+    ]);
+  });
+
+  it("an unknown critical count reads as unknown, never as zero", async () => {
+    const { runs, id, companions } = await start();
+    companions.actions["security-center.critical-vulns"] = () => ({
+      summary: "?",
+      data: { status: "unknown" },
+    });
+    const outcome = await runs.run("coolify.companion-read", {
+      connectionId: id,
+      kind: "security",
+      params: { serverUuid: "srv-web1" },
+    });
+    expect(outcome.summary).not.toContain("0 critical");
+    expect(outcome.summary).toContain("critical count unknown");
   });
 
   it("uptime-pause and uptime-resume run uptime.pause and uptime.resume for the resource's monitors", async () => {

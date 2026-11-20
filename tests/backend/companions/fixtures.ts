@@ -117,6 +117,9 @@ export type CompanionCall = { name: string; args: unknown[] };
  */
 export function fakeCompanions() {
   const calls: CompanionCall[] = [];
+  const paused = new Set<string>();
+  const withPaused = <R extends { id: string; status: string }>(rows: R[]) =>
+    rows.map((r) => (paused.has(r.id) ? { ...r, status: "paused" } : r));
   const actions: Record<
     string,
     (input: Record<string, unknown>, hostId?: number) => unknown
@@ -135,7 +138,7 @@ export function fakeCompanions() {
     "uptime.monitors": () => ({
       summary: "3 monitors",
       data: {
-        rows: [
+        rows: withPaused([
           {
             id: "mon-a",
             name: "web",
@@ -154,11 +157,18 @@ export function fakeCompanions() {
             url: "https://other.example.test",
             status: "up",
           },
-        ],
+        ]),
       },
     }),
-    "uptime.pause": () => ({ summary: "paused", changed: true }),
-    "uptime.resume": () => ({ summary: "resumed", changed: true }),
+    // Uptime keeps which monitors are paused, as the real plugin does.
+    "uptime.pause": (input) => {
+      paused.add(String(input.monitor));
+      return { summary: "paused", changed: true };
+    },
+    "uptime.resume": (input) => {
+      paused.delete(String(input.monitor));
+      return { summary: "resumed", changed: true };
+    },
     "log-search.search": (input) => ({
       summary: "2 lines",
       data: {

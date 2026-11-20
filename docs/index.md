@@ -329,7 +329,7 @@ read, every one of them hides and their routes and actions answer `companions-un
 | Plugin          | What appears                                                                                 |
 | --------------- | -------------------------------------------------------------------------------------------- |
 | DNS             | **Create DNS record** for one of a resource's domains                                        |
-| Uptime          | The status of the Uptime monitors whose URL is on a resource's domains                       |
+| Uptime          | The status of the Uptime monitors at or under one of a resource's URLs                       |
 | Log Search      | **Search logs across servers**, over Docker logs, with the resource's uuid as the query      |
 | Security Center | The score and critical findings of a Linked host, on its Coolify card                        |
 | Host Metrics    | A **Coolify on this server** card on a Linked host: its applications, services and databases |
@@ -337,13 +337,19 @@ read, every one of them hides and their routes and actions answer `companions-un
 | Backups         | Failed Termix backup jobs on a Linked host                                                   |
 
 - **DNS records.** The name must be one of the resource's domains. Leave **Points to** empty to use the
-  server's address. Only records made here can be removed from here, after you confirm. The DNS plugin
-  needs a zone for the name, and your own DNS permissions apply.
+  server's address. Only records made here can be removed from here, after you confirm, and only while
+  the connection's Coolify still lists the resource. The route needs `{ "confirm": true }` (or
+  `?confirm=true`). The record is saved before the DNS plugin is asked, so one it makes can always be
+  removed. The DNS plugin needs a zone for the name, and your own DNS permissions apply.
 - **Uptime.** Uptime can't create HTTP monitors for another plugin, so **Create monitor in Uptime** opens the
-  Uptime tab. A resource's monitors can be paused and resumed with the `coolify.companion` action.
+  Uptime tab. A monitor belongs to a resource when it checks the resource's host at or under its path
+  (`/app` covers `/app/health`, not `/admin`). A resource's monitors can be paused and resumed with the
+  `coolify.companion` action. Monitors already paused (or running) are left alone, and if one fails part
+  way, each monitor already changed goes back to how it was.
 - **Log Search** searches every server's Docker logs and can't filter by host. The results say where they
   came from.
-- **Databases** only shows names: logins and database names, never a password.
+- **Databases** only shows names: logins and database names, never a password. A login matches a database
+  by its uuid, or by its name only when no other database on that server has the same name.
 
 Who may use them:
 

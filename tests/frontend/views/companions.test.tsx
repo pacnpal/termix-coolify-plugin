@@ -330,7 +330,7 @@ describe("companion UI", () => {
     }
     await waitFor(() =>
       expect(api.delete).toHaveBeenCalledWith(
-        "/connections/1/resources/app-web-uuid/dns/4",
+        "/connections/1/resources/app-web-uuid/dns/4?confirm=true",
       ),
     );
   });
@@ -539,6 +539,100 @@ describe("companion UI", () => {
     };
     rerender(view(moved));
     await waitFor(() => expect(screen.queryByText(score)).toBeNull());
+  });
+
+  it("a mounted view reads the companion map again after a minute", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const api = stubApi(ALL_RUNNING);
+      const get = api.get.getMockImplementation()!;
+      let down = true;
+      api.get.mockImplementation(async (url: string) => {
+        if (url === "/companions" && down) throw new Error("not yet");
+        return get(url);
+      });
+      await mountSwitcher(api, app);
+      await waitFor(() => expect(api.get).toHaveBeenCalledWith("/companions"));
+      expect(screen.queryByText(locales.companions.dns.create)).toBeNull();
+      down = false;
+      await act(async () => {
+        vi.advanceTimersByTime(61_000);
+      });
+      expect(
+        await screen.findByText(locales.companions.dns.create),
+      ).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an earlier DNS list answer never undoes a create that finished first", async () => {
+    const api = stubApi(ALL_RUNNING);
+    const get = api.get.getMockImplementation()!;
+    // Only the first read is answered by the test; the read after the
+    // create stays out.
+    let answerList: ((v: unknown) => void) | null = null;
+    api.get.mockImplementation(async (url: string) =>
+      url.endsWith("/dns")
+        ? new Promise((resolve) => (answerList ??= resolve))
+        : get(url),
+    );
+    await mountSwitcher(api, app);
+    fireEvent.click(await screen.findByText(locales.companions.dns.create));
+    fireEvent.click(screen.getByText(locales.companions.dns.submit));
+    expect(await screen.findByText(/a\.example\.test A/)).toBeTruthy();
+    await act(async () => answerList?.({ data: [] }));
+    expect(screen.getByText(/a\.example\.test A/)).toBeTruthy();
+  });
+
+  it("a create during the first list read loses none of the records already there", async () => {
+    const api = stubApi(ALL_RUNNING);
+    const get = api.get.getMockImplementation()!;
+    const existing = {
+      id: 4,
+      fqdn: "b.example.test",
+      type: "A",
+      content: "203.0.113.11",
+      createdAt: "2026-11-19T10:00:00.000Z",
+    };
+    const created = {
+      id: 5,
+      fqdn: "a.example.test",
+      type: "A",
+      content: "203.0.113.11",
+      createdAt: "2026-11-19T11:00:00.000Z",
+    };
+    let answerFirst: (v: unknown) => void = () => {};
+    let lists = 0;
+    api.get.mockImplementation(async (url: string) => {
+      if (!url.endsWith("/dns")) return get(url);
+      lists += 1;
+      // The first read hangs; any later one sees both records.
+      return lists === 1
+        ? new Promise((resolve) => (answerFirst = resolve))
+        : { data: [existing, created] };
+    });
+    await mountSwitcher(api, app);
+    fireEvent.click(await screen.findByText(locales.companions.dns.create));
+    fireEvent.click(screen.getByText(locales.companions.dns.submit));
+    expect(await screen.findByText(/a\.example\.test A/)).toBeTruthy();
+    await act(async () => answerFirst({ data: [existing] }));
+    expect(await screen.findByText(/b\.example\.test A/)).toBeTruthy();
+    expect(screen.getByText(/a\.example\.test A/)).toBeTruthy();
+  });
+
+  it("a failed Uptime read says so, never that no monitor checks the resource", async () => {
+    const api = stubApi(ALL_RUNNING);
+    const get = api.get.getMockImplementation()!;
+    api.get.mockImplementation(async (url: string) => {
+      if (url.endsWith("/uptime")) throw new Error("uptime down");
+      return get(url);
+    });
+    await mountSwitcher(api, app);
+    expect(
+      await screen.findByText(locales.companions.uptime.failed),
+    ).toBeTruthy();
+    expect(screen.queryByText(locales.companions.uptime.none)).toBeNull();
   });
 
   it("searches logs across servers with the resource's uuid", async () => {

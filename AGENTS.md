@@ -319,8 +319,19 @@ console }`, calls the shell route and draws `PluginComponent id="terminal.view"`
   connection and resource, so only a record made here can be removed. A stored row is never enough on
   its own: listing and removing first need the resource in the current target's list (`exposed`:
   `resourceOf`, then the snapshot's revision), so a repoint or a narrowed token that hides it, or a list
-  that can't be read, refuses before any row is read or any DNS call runs. `setMonitorsPaused` is the hook for
-  pausing Uptime during deploys (ticket #10 decides when). Files, Tunnels and Reverse Proxy are ticket #19.
+  that can't be read, refuses before any row is read or any DNS call runs. `holds` also re-checks the
+  grant level the call was opened for (`levels`), so a grant lowered mid-way stops it. Create stores the
+  row first (`storeRecord`, one in-process queue, read back by exact handle), then calls
+  `dns.upsert-record`, and drops only the local row if that fails. Creates and removes for one resource
+  run in one queue (`serialized`, per `connectionId:uuid`), and a row whose DNS write is still out is in
+  `pendingRows`: not listed and not removable. `dns_records` is #13's only write-ahead row. After a
+  create or remove the frontend reads the list again, and only the newest read lands. The DELETE route needs
+  `{ "confirm": true }` or `?confirm=true` (`confirm-required`). `listOf` answers companion-failed when an
+  answer has no list it knows, so "couldn't read" is never "none". Monitors match by host and path prefix
+  (`monitorMatches`); a login by uuid, or by name only when unique among the server's databases.
+  `setMonitorsPaused` is the hook for
+  pausing Uptime during deploys (ticket #10 decides when); monitors already in the asked state are left alone, and a failure part way sets each monitor it changed
+  back to its own state from before (an unknown one is left as it is). Files, Tunnels and Reverse Proxy are ticket #19.
   Nothing here writes host or plugin settings. Frontend: `src/frontend/companions.ts` (`useCompanions`),
   `views/CompanionActions.tsx` (at the end of `ResourceDetail`'s Overview, with `useTabs()` as its shell)
   and `views/HostCompanions.tsx` (inside the host card, keyed by connection, server and `revision`).
