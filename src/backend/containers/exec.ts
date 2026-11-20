@@ -1,5 +1,4 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
-import { REDACTED_VALUE } from "@termix-ssh/plugin-sdk/operations";
 import type { Connections } from "../connections/service.js";
 import type { ServerStatuses } from "../ops/signals.js";
 import type { Resources } from "../resources/service.js";
@@ -157,39 +156,6 @@ function markedPid(line: string, nonce: string): number | null {
   if (!m || m[1] !== EXEC_MARK || m[2] !== nonce) return null;
   const pid = Number(m[3]);
   return pid > 1 && pid <= 0x7fffffff ? pid : null;
-}
-
-const PEM_BEGIN = /-----BEGIN ([A-Z0-9 ]{0,40})PRIVATE KEY-----/;
-
-/**
- * Masks private key blocks in lines that redactLog already went through: a
- * block's body, up to its END line (or the output's end), becomes one
- * REDACTED_VALUE line.
- */
-function keyBlockFilter(push: (line: string) => void) {
-  let open: string | null = null;
-  return (line: string) => {
-    if (open !== null) {
-      const at = line.indexOf(open);
-      if (at >= 0) {
-        push(line.slice(at));
-        open = null;
-      }
-      return;
-    }
-    const begin = PEM_BEGIN.exec(line);
-    if (!begin) {
-      push(line);
-      return;
-    }
-    const head = begin.index + begin[0].length;
-    const end = `-----END ${begin[1]}PRIVATE KEY-----`;
-    push(line.slice(0, head));
-    push(REDACTED_VALUE);
-    const at = line.indexOf(end, head);
-    if (at >= 0) push(line.slice(at));
-    else open = end;
-  };
 }
 
 /** The part of an ssh2 exec channel coolify.exec uses. */
@@ -414,6 +380,8 @@ export function createExec(ctx: PluginContext, deps: ExecDeps) {
         let ended = false;
         let pgid: number | null = null;
         let disposed = false;
+        // Set once the timeout or an abort won over the channel's open.
+        let lost = false;
         const nonce = nonceFor(request.command);
         const kill = () => {
           try {
@@ -497,8 +465,8 @@ export function createExec(ctx: PluginContext, deps: ExecDeps) {
           into.push(text);
           used += size;
         };
-        const outLines = keyBlockFilter(keep(out));
-        const errLines = keyBlockFilter(keep(err));
+        const outLines = keep(out);
+        const errLines = keep(err);
         const outSplit = lineSplitter(secrets, (lines) =>
           lines.forEach(outLines),
         );
@@ -569,11 +537,9 @@ export function createExec(ctx: PluginContext, deps: ExecDeps) {
           // Right before the exec is written: a changed target gets nothing.
           await deps.containers.assertSnapshotHolds(connectionId, snap);
           if (signal?.aborted) throw cancelled();
-          stream = await new Promise<ExecStream>((resolve, reject) => {
-            (connection.client as ExecClient).exec(
-              command,
-              { pty: false },
-              (e, opened) => (e ? reject(e) : resolve(opened)),
+          const opening = new Promise<ExecStream>((resolve, reject) => {
+            client.exec(command, { pty: false }, (e, opened) =>
+              e ? reject(e) : resolve(opened),
             );
           }).catch(() => {
             throw new ContainerError(
@@ -581,11 +547,40 @@ export function createExec(ctx: PluginContext, deps: ExecDeps) {
               "The command could not start on the Linked host.",
             );
           });
-          if (stopped) {
-            // Aborted or timed out while the channel opened.
+          // A channel that opens after the timeout or an abort won is closed
+          // unwritten: nothing ran in it, so there is no group to kill.
+          opening.then(
+            (late) => {
+              if (!lost) return;
+              try {
+                late.signal?.("KILL");
+              } catch {
+                // The channel may already be gone.
+              }
+              try {
+                late.close?.();
+              } catch {
+                // As above.
+              }
+            },
+            () => {},
+          );
+          let opened: ExecStream | null;
+          try {
+            opened = await Promise.race([opening, done.then(() => null)]);
+          } catch (e) {
+            lost = true;
+            throw e;
+          }
+          if (opened === null) {
+            lost = true;
+          } else if (stopped) {
+            // Capped or stopped as the channel opened: close it unwritten.
+            stream = opened;
             kill();
             await done;
           } else {
+            stream = opened;
             stream.on("data", reader(outSplit, true));
             stream.stderr?.on("data", reader(errSplit, false));
             stream.on("exit", (code) => {
@@ -621,6 +616,11 @@ export function createExec(ctx: PluginContext, deps: ExecDeps) {
         } finally {
           clearTimeout(timer);
           signal?.removeEventListener("abort", onAbort);
+        }
+        if (timedOut && !truncated) {
+          // What came without a newline yet, through the same masking and cap.
+          outSplit.end();
+          errSplit.end();
         }
         await shutdown();
         if (timedOut || truncated) exitCode = null;

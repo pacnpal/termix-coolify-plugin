@@ -188,3 +188,5 @@
 - The owner's "Allow running commands in containers through the API and MCP" switch in the connection
   editor, with a warning, and the action `coolify.connection-set-exec`; it needs Configure Coolify and a
   grantee can't change it
+- Logs and command output mask every private key block, also several on one line (a JSON array of
+  keys) and a block that never ends; a rejected connection edit no longer turns on running commands

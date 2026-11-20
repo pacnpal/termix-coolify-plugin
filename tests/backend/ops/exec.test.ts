@@ -957,3 +957,109 @@ describe("coolify.exec kills the command's own process group", () => {
     expect(docker.dispose).toHaveBeenCalled();
   });
 });
+
+describe("coolify.exec review fixes", () => {
+  it("masks every private key in a JSON array on one line", async () => {
+    const pem = (body: string) =>
+      `-----BEGIN RSA PRIVATE KEY-----\n${body}\n-----END RSA PRIVATE KEY-----`;
+    const line = JSON.stringify([
+      pem("fake-exec-key-one"),
+      pem("fake-exec-key-two"),
+      pem("fake-exec-key-three"),
+    ]);
+    const { runs, id } = await start({
+      docker: { exec: () => ran(`${line}\n`) },
+    });
+    const outcome = await runs.run("coolify.exec", {
+      connectionId: id,
+      uuid: WEB,
+      command: "cat keys.json",
+    });
+    expect(JSON.stringify(outcome.data)).not.toMatch(/fake-exec-key/);
+  });
+
+  it("a channel open that never answers ends at the timeout and frees the slot", async () => {
+    const { h, runs, id, docker } = await start({
+      docker: { exec: () => ran("ok\n"), openHang: true },
+    });
+    const outcome = await runs.run("coolify.exec", {
+      connectionId: id,
+      uuid: WEB,
+      command: "ls",
+      timeoutSec: 1,
+    });
+    expect(outcome.data).toMatchObject({ timedOut: true, exitCode: null });
+    expect(docker.dispose).toHaveBeenCalled();
+    // The channel opens late: it is closed, and nothing is written to it.
+    docker.opens[0]();
+    const late = docker.channels[0];
+    await vi.waitFor(() => expect(late.closed).toBe(true));
+    expect(late.signals).toContain("KILL");
+    expect(
+      (execCalls(docker)[0] as { script?: string }).script,
+    ).toBeUndefined();
+    // The slot was released.
+    void h;
+    await expect(
+      runs.run("coolify.exec", {
+        connectionId: id,
+        uuid: WEB,
+        command: "ls",
+        timeoutSec: 1,
+      }),
+    ).resolves.toBeTruthy();
+  });
+
+  it("a channel open that never answers ends at an abort", async () => {
+    const { h, id, docker } = await start({
+      docker: { exec: () => ran("ok\n"), openHang: true },
+    });
+    const abort = new AbortController();
+    const running = handler(
+      h,
+      abort.signal,
+    )({ connectionId: id, uuid: WEB, command: "ls", timeoutSec: 60 });
+    await vi.waitFor(() => expect(docker.opens).toHaveLength(1));
+    abort.abort();
+    await expect(running).rejects.toThrow(/cancel/i);
+    expect(docker.dispose).toHaveBeenCalled();
+  });
+
+  it("a timeout keeps the output received without a newline, still masked", async () => {
+    const { runs, id } = await start({
+      docker: {
+        exec: () => "hang",
+        partial: "starting DB_PASSWORD=fake-partial-secret",
+      },
+    });
+    const outcome = await runs.run("coolify.exec", {
+      connectionId: id,
+      uuid: WEB,
+      command: "printf starting; sleep 10",
+      timeoutSec: 1,
+    });
+    const data = outcome.data as { stdout: string; timedOut: boolean };
+    expect(data.timedOut).toBe(true);
+    expect(data.stdout).toContain("starting");
+    expect(data.stdout).not.toContain("fake-partial-secret");
+  });
+
+  it("a rejected PATCH leaves execEnabled unchanged", async () => {
+    const { h, id, connectionId } = await start({ execEnabled: false });
+    const res = await h.request("PATCH", `/connections/${id}`, {
+      execEnabled: true,
+      baseUrl: "not-a-url",
+    });
+    expect(res.status).toBe(400);
+    const row = h.db.sqlite
+      .prepare("SELECT exec_enabled FROM p_coolify_connections WHERE id = ?")
+      .get(connectionId) as { exec_enabled: number };
+    expect(row.exec_enabled).toBe(0);
+    const ok = await h.request("PATCH", `/connections/${id}`, {
+      execEnabled: true,
+      name: "Renamed",
+    });
+    expect(ok.status).toBe(200);
+    expect(ok.body).toMatchObject({ name: "Renamed", execEnabled: true });
+  });
+});

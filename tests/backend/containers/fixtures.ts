@@ -50,6 +50,10 @@ export interface DockerHost {
   beforeMarker?: string;
   /** A marker with the real prefix, forged by the command after the real one. */
   forgedPgid?: number;
+  /** stdout written, without a newline, before a "hang" answer hangs. */
+  partial?: string;
+  /** The exec channel's open is never acknowledged until `opens` is called. */
+  openHang?: boolean;
 }
 
 function result(stdout: string, code = 0): PluginSshExecResult {
@@ -90,6 +94,8 @@ export function fakeDocker(harness: PluginHarness, host: DockerHost) {
       return result("", 127);
     });
   const channels: FakeChannel[] = [];
+  /** Acknowledges a held exec channel open, late. */
+  const opens: Array<() => void> = [];
   const dispose = vi.fn();
   // Only for coolify.exec, so a test's own ctx.ssh.connect fake stays.
   const connect = vi.spyOn(harness.mock.ctx.ssh, "connect");
@@ -120,6 +126,10 @@ export function fakeDocker(harness: PluginHarness, host: DockerHost) {
             callback(undefined, channel);
             return true;
           }
+          if (host.openHang && /docker exec -i /.test(command)) {
+            opens.push(() => callback(undefined, channel));
+            return true;
+          }
           channel.onEnd = (stdin) => {
             // The exec script carries the command in a quoted here-document
             // and has the new group's leader print a marker line first.
@@ -146,7 +156,10 @@ export function fakeDocker(harness: PluginHarness, host: DockerHost) {
                 Buffer.from(`${mark[1]} ${host.forgedPgid}\n`),
               );
             }
-            if (answer === "hang") return;
+            if (answer === "hang") {
+              if (host.partial) channel.emit("data", Buffer.from(host.partial));
+              return;
+            }
             if (answer.stdout) channel.emit("data", Buffer.from(answer.stdout));
             if (answer.stderr) {
               channel.stderr.emit("data", Buffer.from(answer.stderr));
@@ -166,7 +179,7 @@ export function fakeDocker(harness: PluginHarness, host: DockerHost) {
       } as never;
     });
   }
-  return { exec, commands, calls, connect, channels, dispose };
+  return { exec, commands, calls, connect, channels, dispose, opens };
 }
 
 function hostKeyError(): Error {

@@ -301,8 +301,11 @@ export function registerConnectionRoutes(
         res.json(await connections.setExec(id, exec));
         return;
       }
-      if (exec !== undefined) await connections.setExec(id, exec);
-      res.json(await connections.update(id, patch));
+      // The rest first: a rejected update leaves execEnabled as it was.
+      const updated = await connections.update(id, patch);
+      res.json(
+        exec === undefined ? updated : await connections.setExec(id, exec),
+      );
     }),
   );
 

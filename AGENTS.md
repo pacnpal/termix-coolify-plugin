@@ -333,7 +333,11 @@ console }`, calls the shell route and draws `PluginComponent id="terminal.view"`
   from SSH choices; a Coolify `forbidden-ability` falls back to SSH. The count is capped at 10,000
   (`MAX_LINES`), never refused. The container name passes `assertContainerName` and is `shellQuote`d, and so
   is the line count; no secret is ever in the command.
-- Log redaction: every snapshot text and every followed line goes through `redactLog`: the snapshot's own
+- Log redaction: every snapshot text and every followed line goes through `redactLog`. It first masks
+  every private key block's body (`maskKeyBlocks`: several on a line, escaped `\n` or real newlines, and a
+  block without END to the end of the text; linear `indexOf` scans). `lineSplitter` keeps a block opened
+  by one line open (`keyEnd`) and drops the body lines until its END, and `openSecretStart` counts an open
+  block, so a long-line cut never splits one. Then the snapshot's own
   token and Access secret (`snapshot.secrets()`, unsealed from the same row) are replaced anywhere, then
   redact.ts's `maskCredentials`, then secret-named `name=value`/`"name": "value"` fields and
   `Authorization` credentials. Names are bounded (`{0,64}`) so a long line can't backtrack for long.
@@ -422,12 +426,14 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   prints `EXEC_MARK <nonce> <pid>` before the command runs. Only the first stdout line can be that marker;
   it is stripped before redaction and the cap, and a later or wrong-nonce one is plain output. The
   revision is checked right before connect and right before `client.exec`. Output goes through logs'
-  `lineSplitter` (redactLog with `snap.secrets()`), then a private key block mask, then the 64 KB cap;
+  `lineSplitter` (redactLog with `snap.secrets()`, key blocks included), then the 64 KB cap;
   the cap, `EXEC_RAW_CAP` per stream, the timeout or the handler's abort signal send KILL and close the
   channel, which ends only docker exec on the host, so `shutdown` then runs
   `docker exec <name> sh -c 'kill -KILL -<pgid> 2>/dev/null || kill -KILL <pgid>'` on the same
   connection (revision checked first, 5 s cap, a failure only logged) and then disposes. A command that
-  ended on its own gets no group kill. Without setsid the fallback kills only that shell. `stdout`/`stderr` are sensitive outputs; MCP gets them once through the logs
+  ended on its own gets no group kill. Without setsid the fallback kills only that shell. The channel open races the timeout and abort; one that opens late
+  is closed unwritten. A timeout flushes the splitters (output without a newline yet), masked and capped.
+  The PATCH route applies `execEnabled` only after the rest of the update succeeded. `stdout`/`stderr` are sensitive outputs; MCP gets them once through the logs
   handoff store (`takeExecOutput`). MCP refuses exec without `confirmed: true` (`MCP_CONFIRM_REQUIRED`).
   The audit holds only lengths and the exit code. Resources and server-status caches are invalidated
   after a run reaches SSH. `connections.setExec` is owner only and checks `configure` itself.
