@@ -1,6 +1,7 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import type { ResourceDto, ServerDto } from "../coolify/dto.js";
-import { CoolifyError } from "../coolify/http.js";
+import { createCoolifyApi, type CoolifyApi } from "../coolify/api.js";
+import { CoolifyError, type CoolifyHttp } from "../coolify/http.js";
 import {
   clampMinutes,
   createCoolifyMcp,
@@ -283,6 +284,27 @@ interface Read {
   snap: Snapshot;
   /** Throws target-changed (or not-found) once the snapshot no longer holds. */
   holds: () => Promise<void>;
+  /**
+   * The snapshot's request layer and API with `holds` as every request's
+   * beforeFetch: it runs after the request budget's wait, right before the
+   * fetch, so a change while a request queues sends nothing.
+   */
+  http: CoolifyHttp;
+  api: CoolifyApi;
+}
+
+/** `http` with `check` run right before each fetch (after any budget wait). */
+function guarded(http: CoolifyHttp, check: () => Promise<void>): CoolifyHttp {
+  return {
+    request: (method, path, opts = {}) =>
+      http.request(method, path, {
+        ...opts,
+        beforeFetch: async () => {
+          await opts.beforeFetch?.();
+          await check();
+        },
+      }),
+  };
 }
 
 /**
@@ -300,11 +322,9 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
 
   async function begin(connectionId: number): Promise<Read> {
     const snap = await deps.connections.snapshot(connectionId);
-    return {
-      connectionId,
-      snap,
-      holds: () => deps.containers.assertSnapshotHolds(connectionId, snap),
-    };
+    const holds = () => deps.containers.assertSnapshotHolds(connectionId, snap);
+    const http = guarded(snap.http, holds);
+    return { connectionId, snap, holds, http, api: createCoolifyApi(http) };
   }
 
   /** coolify.configure and the owner or a configure grant. */
@@ -315,8 +335,7 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
   }
 
   async function serverOf(read: Read, serverUuid: string): Promise<ServerDto> {
-    await read.holds();
-    return read.snap.api.server(serverUuid);
+    return read.api.server(serverUuid);
   }
 
   async function requireMetrics(read: Read, server: ServerDto): Promise<void> {
@@ -459,8 +478,7 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
       await requireMetrics(read, await serverOf(read, serverUuid));
       // Coolify's MCP first (off by default): any refusal falls to Sentinel.
       try {
-        await read.holds();
-        const data = await createCoolifyMcp(read.snap.http).serverMetrics(
+        const data = await createCoolifyMcp(read.http).serverMetrics(
           serverUuid,
           minutes,
         );
@@ -533,8 +551,7 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
       let ipsHidden = true;
       if (res.serverUuid && (await canConfigure(read))) {
         try {
-          await read.holds();
-          const settings = await read.snap.api.sentinelSettings(res.serverUuid);
+          const settings = await read.api.sentinelSettings(res.serverUuid);
           ipsHidden = settings.trafficIpMode !== "full";
         } catch (err) {
           if (err instanceof ConnectionError) throw err;
@@ -585,8 +602,7 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
       }
       // The server must be one this token sees, before anything changes.
       await serverOf(read, serverUuid);
-      await read.holds();
-      await read.snap.api.patchSentinel(serverUuid, {
+      await read.api.patchSentinel(serverUuid, {
         is_metrics_enabled: true,
       });
       return { enabled: true };
