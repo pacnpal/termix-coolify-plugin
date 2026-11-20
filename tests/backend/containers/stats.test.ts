@@ -4,6 +4,7 @@ import type { PluginWebSocketConnection } from "@termix-ssh/plugin-sdk/backend";
 import {
   parseDockerStats,
   STATS_INTERVAL_MS,
+  SUBSCRIBE_GAP_MS,
   statsCommand,
 } from "../../../src/backend/containers/stats.js";
 import { grant } from "../helpers/lifecycle.js";
@@ -321,5 +322,40 @@ describe("stats socket", () => {
       cause: "rate-limited",
     });
     expect(statsRuns()).toBe(1);
+  });
+
+  it("a superseded subscribe that fails later leaves the current stream alone", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const { open, connectionId, statsRuns, harness: h } = await start();
+    // The first subscribe's host check hangs, then fails after the second
+    // subscribe started streaming.
+    const checkAccess = h.mock.ctx.hosts.checkAccess.bind(h.mock.ctx.hosts);
+    let failFirst: (err: unknown) => void = () => undefined;
+    let calls = 0;
+    vi.spyOn(h.mock.ctx.hosts, "checkAccess").mockImplementation(
+      async (hostId, level) => {
+        calls++;
+        if (calls === 1) {
+          return new Promise((_resolve, reject) => {
+            failFirst = reject;
+          });
+        }
+        return checkAccess(hostId, level);
+      },
+    );
+    const { socket } = await open();
+    socket.message({ connectionId, uuid: "app-web-uuid" });
+    await settle();
+    await vi.advanceTimersByTimeAsync(SUBSCRIBE_GAP_MS + 10);
+    socket.message({ connectionId, uuid: "app-web-uuid" });
+    await settle();
+    expect(socket.sent.at(-1)).toMatchObject({ type: "stats" });
+    failFirst(new Error("host check failed"));
+    await settle();
+    expect(socket.closedWith).toBeNull();
+    expect(socket.sent.filter((m) => m.type === "error")).toEqual([]);
+    await vi.advanceTimersByTimeAsync(STATS_INTERVAL_MS);
+    await settle();
+    expect(statsRuns()).toBe(2);
   });
 });

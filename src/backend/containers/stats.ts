@@ -280,9 +280,25 @@ export function registerStatsSocket(
       }
     }
 
+    /**
+     * Each subscribe has its own generation. A newer one (or unsubscribe or
+     * close) bumps it, so an older lookup's answer or failure is dropped and
+     * can never stop the stream that replaced it.
+     */
     async function subscribe(body: Record<string, unknown>): Promise<void> {
       stop();
       const gen = generation;
+      try {
+        await subscribeAs(body, gen);
+      } catch (err) {
+        if (gen === generation) refuse(refusalOf(err));
+      }
+    }
+
+    async function subscribeAs(
+      body: Record<string, unknown>,
+      gen: number,
+    ): Promise<void> {
       const refusal = sessionRefusal();
       if (refusal) {
         refuse(refusal);
