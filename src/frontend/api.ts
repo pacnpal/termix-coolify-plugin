@@ -13,6 +13,8 @@ export interface ProbeStep {
   id: string;
   ok: boolean;
   cause?: string;
+  /** Set when the check had nothing to try: the ability is unknown. */
+  skipped?: "nothing-to-probe";
 }
 
 /** A connection as the backend returns it. It never carries a token. */
@@ -32,6 +34,8 @@ export interface Connection {
   cfAccess: boolean;
   lastCheckedAt: string | null;
   steps: ProbeStep[];
+  /** Changes when the connection's address, token or TLS settings change. */
+  revision: string;
 }
 
 export interface ConnectionInput {
@@ -44,7 +48,12 @@ export interface ConnectionInput {
   caCert?: string | null;
 }
 
-export type ConnectionPatch = Partial<ConnectionInput> & {
+/** null for both Cloudflare Access values clears them, as the backend allows. */
+export type ConnectionPatch = Partial<
+  Omit<ConnectionInput, "cfAccessId" | "cfAccessSecret">
+> & {
+  cfAccessId?: string | null;
+  cfAccessSecret?: string | null;
   autoSync?: boolean;
 };
 
@@ -56,48 +65,6 @@ export interface ProbeAnswer {
     scoped: boolean;
     steps: ProbeStep[];
   };
-}
-
-/** A Coolify server as host sync shows it. Never carries a key. */
-export interface SyncServer {
-  uuid: string;
-  name: string;
-  ip: string;
-  port: number;
-  user: string;
-  isTunnel: boolean;
-  isCoolifyHost: boolean;
-  reachable: boolean;
-  usable: boolean;
-}
-
-/** One server and the Termix host it is or would become. */
-export interface SyncRow {
-  server: SyncServer;
-  hostId: number | null;
-  status: "new" | "linked" | "gone" | "blocked";
-  /** needs-address, needs-credential or needs-tunnel-support. */
-  cause?: string;
-  mode: "coolify" | "termix";
-  addressOverride: string | null;
-  suggestedAddress: string | null;
-  credentialId: number | null;
-  tunnel: boolean;
-}
-
-export interface SyncChoice {
-  uuid: string;
-  include: boolean;
-  addressOverride?: string | null;
-  credentialId?: number | null;
-}
-
-export interface SyncResult {
-  uuid: string;
-  name: string;
-  status: "created" | "updated" | "blocked" | "skipped" | "gone" | "failed";
-  hostId: number | null;
-  cause?: string;
 }
 
 export type ResourceKind =
@@ -130,6 +97,65 @@ export interface ResourceList {
   rows: Resource[];
   counts: ResourceCounts;
   fetchedAt: string | null;
+}
+
+export type LifecycleVerb = "start" | "stop" | "restart" | "deploy";
+
+/** What a lifecycle route answers; status "pending" waits for an approval. */
+export interface LifecycleAnswer {
+  deploymentUuid: string | null;
+  status?: "pending";
+}
+
+/** GET /mcp: where the plugin's MCP endpoint is. */
+export interface McpInfo {
+  endpoint: string;
+}
+
+/** A Coolify server as host sync shows it. Never carries a key. */
+export interface SyncServer {
+  uuid: string;
+  name: string;
+  ip: string;
+  port: number;
+  user: string;
+  isTunnel: boolean;
+  isCoolifyHost: boolean;
+  reachable: boolean;
+  usable: boolean;
+}
+
+/** One server and the Termix host it is or would become. */
+export interface SyncRow {
+  server: SyncServer;
+  hostId: number | null;
+  status: "new" | "linked" | "gone" | "blocked";
+  /**
+   * needs-address, needs-credential, needs-ssh-terminal,
+   * ssh-terminal-too-old, needs-ssh-terminal-to-clear-tunnel,
+   * credential-not-found or credential-check-failed.
+   */
+  cause?: string;
+  mode: "coolify" | "termix";
+  addressOverride: string | null;
+  suggestedAddress: string | null;
+  credentialId: number | null;
+  tunnel: boolean;
+}
+
+export interface SyncChoice {
+  uuid: string;
+  include: boolean;
+  addressOverride?: string | null;
+  credentialId?: number | null;
+}
+
+export interface SyncResult {
+  uuid: string;
+  name: string;
+  status: "created" | "updated" | "blocked" | "skipped" | "gone" | "failed";
+  hostId: number | null;
+  cause?: string;
 }
 
 /** What the coolify-shell tab asks for. */
@@ -205,29 +231,6 @@ export function createApi(api: PluginApiClient) {
     async probeConnection(id: number): Promise<ProbeAnswer> {
       return (await api.post<ProbeAnswer>(`/connections/${id}/probe`)).data;
     },
-    async syncPreview(id: number): Promise<SyncRow[]> {
-      const rows = (await api.get<SyncRow[]>(`/connections/${id}/servers`))
-        .data;
-      return Array.isArray(rows) ? rows : [];
-    },
-    async syncApply(id: number, choices: SyncChoice[]): Promise<SyncResult[]> {
-      const results = (
-        await api.post<SyncResult[]>(`/connections/${id}/sync`, { choices })
-      ).data;
-      return Array.isArray(results) ? results : [];
-    },
-    async unlinkServer(
-      id: number,
-      uuid: string,
-      removeHost: boolean,
-    ): Promise<{ hostId: number; removed: boolean }> {
-      return (
-        await api.post<{ hostId: number; removed: boolean }>(
-          `/connections/${id}/servers/${encodeURIComponent(uuid)}/unlink`,
-          { removeHost },
-        )
-      ).data;
-    },
     /** Served from a 20 second cache unless refresh is set. */
     async listResources(
       id: number,
@@ -250,6 +253,59 @@ export function createApi(api: PluginApiClient) {
       return (
         await api.get<Resource>(
           `/connections/${id}/resources/${encodeURIComponent(uuid)}`,
+        )
+      ).data;
+    },
+    /**
+     * Starts, stops, restarts or deploys a resource or Part. The backend
+     * runs it as an action, on the server's Linked host when there is one.
+     */
+    async resourceAction(
+      id: number,
+      uuid: string,
+      verb: LifecycleVerb,
+      opts: { force?: boolean } = {},
+    ): Promise<LifecycleAnswer> {
+      const body = verb === "deploy" ? { force: opts.force === true } : {};
+      const data = (
+        await api.post<Partial<LifecycleAnswer>>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/${verb}`,
+          body,
+        )
+      ).data;
+      return {
+        deploymentUuid:
+          typeof data?.deploymentUuid === "string" ? data.deploymentUuid : null,
+        status: data?.status === "pending" ? "pending" : undefined,
+      };
+    },
+    /** Only the endpoint: the panel writes its own snippet, with a placeholder key. */
+    async getMcpInfo(): Promise<McpInfo | null> {
+      const data = (await api.get<{ endpoint?: unknown }>("/mcp")).data;
+      return typeof data?.endpoint === "string"
+        ? { endpoint: data.endpoint }
+        : null;
+    },
+    async syncPreview(id: number): Promise<SyncRow[]> {
+      const rows = (await api.get<SyncRow[]>(`/connections/${id}/servers`))
+        .data;
+      return Array.isArray(rows) ? rows : [];
+    },
+    async syncApply(id: number, choices: SyncChoice[]): Promise<SyncResult[]> {
+      const results = (
+        await api.post<SyncResult[]>(`/connections/${id}/sync`, { choices })
+      ).data;
+      return Array.isArray(results) ? results : [];
+    },
+    async unlinkServer(
+      id: number,
+      uuid: string,
+      removeHost: boolean,
+    ): Promise<{ hostId: number; removed: boolean }> {
+      return (
+        await api.post<{ hostId: number; removed: boolean }>(
+          `/connections/${id}/servers/${encodeURIComponent(uuid)}/unlink`,
+          { removeHost },
         )
       ).data;
     },

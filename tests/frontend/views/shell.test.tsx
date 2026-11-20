@@ -199,6 +199,10 @@ describe("open shell from a resource", () => {
         .find((r) => r.getAttribute("data-name") === name)!,
     );
     await screen.findByText(locales.detail.fields.coolifyStatus);
+    // Shells live in the detail's Shell view, next to the lifecycle header.
+    fireEvent.click(
+      screen.getByRole("button", { name: locales.detail.tabs.shell }),
+    );
     return rendered;
   }
 
@@ -235,5 +239,6 @@ describe("open shell from a resource", () => {
     expect(
       screen.queryByRole("button", { name: locales.detail.actions.shell }),
     ).toBeNull();
+    expect(screen.getByText(locales.detail.shell.noAccess)).toBeTruthy();
   });
 });
