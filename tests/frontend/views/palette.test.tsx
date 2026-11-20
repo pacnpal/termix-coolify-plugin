@@ -93,6 +93,7 @@ describe("command palette", () => {
       connectionId: 1,
       uuid: "app-web-uuid",
       console: "shell",
+      revision: "rev-before",
     });
     expect(screen.queryByText(locales.detail.fields.coolifyStatus)).toBeNull();
     // The next pick browses as usual.

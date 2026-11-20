@@ -276,7 +276,11 @@ aren't obvious from the code, and anything that has bitten you before.
   input uses `ops.fields.linkedServerUuid`: `ops.fields.serverUuid` is the optional filter of
   `coolify.list-resources-all`.
 - Frontend host surfaces: `src/frontend/linked.ts` reads a host's link from its own settings and shares one
-  sync preview per connection (five minutes) between badge dots and the host card. The host card shows the
+  sync preview per connection (five minutes) between badge dots and the host card. Each cached preview
+  records the revision it was read for; `useLinkedRow(link, revision)` (the host card passes the
+  connection's) refetches when it differs, and a dot, which has no revision, takes the newest one.
+  `SyncView` keys its preview on the connection's id and `revision`: a change clears rows, drafts and
+  results and loads again, and a request generation drops a late answer. The host card shows the
   tunnel line from the row's `tunnel` flag and opens the host editor with `shell.editHost`.
   `views/SshTerminalCheck.tsx` has the Open Plugins button (`useTabs().openSingletonTab("plugins")`) used
   by blocked sync rows, and the single SSH Terminal line `ProbeChecklist` adds when Coolify has tunnelled
@@ -319,9 +323,12 @@ aren't obvious from the code, and anything that has bitten you before.
   every user. Several matches answer HTTP 300 `{ choices }`; the frontend reads choices from a rejected axios
   call too. `ContainerError` has its own statuses (409 for `not-linked`), unlike `ConnectionError`'s 404.
 - Shell tab: `src/frontend/views/ShellTab.tsx` reads its tab data `{ connectionId, uuid, part?, container?,
-console }`, calls the shell route and draws `PluginComponent id="terminal.view"` with `hostConfig` and
+console, revision? }`, calls the shell route and draws `PluginComponent id="terminal.view"` with `hostConfig` and
   `executeCommand`; the fallback is a NoticePanel with the command to copy. Picking a container re-asks in
-  place. Shell host ids can be strings, so hosts are matched by `String(id)`, not `useHost`.
+  place; after a failed pick, Change container clears it and asks for the choices again (Retry keeps it).
+  `ShellView` is keyed by `keyOf(tab data)` (resource, part, console, container, revision; CoolifyTab's
+  `openShell` passes the connection's revision), so new tab data starts with no pick, and loads carry a
+  request generation. Shell host ids can be strings, so hosts are matched by `String(id)`, not `useHost`.
 - Logs: `src/backend/containers/logs.ts` (`readLogsRequest`, `logsCommand`, `redactLog`, `createLogs` with
   `snapshot` and `follow`), `sockets.ts` (`WS /logs`) and the `coolify.logs-tail` action in
   `ops/containers.ts` (refused without `confirm: true`, so MCP and ops reads are explicit). The containers
