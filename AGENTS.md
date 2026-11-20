@@ -491,9 +491,13 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   `abortable` (operations.ts), so a cancelled run throws its signal's reason before it starts; the wrapper
   only adds that check, so each handler's own permission and confirm checks still run. Long handlers
   watch the signal as they go: deploy with `wait`, exec (kills the remote process and closes the session),
-  logs-tail (`logs.snapshot` checks it after each await, so no `docker logs` starts after an abort) and the
-  deploying signal's loop. `ctx.ssh.exec` takes no signal, so a one-shot SSH command already sent (an
-  update check, install or reboot) runs to its own timeout.
+  logs-tail (`logs.snapshot` checks it after each await), server-updates-install and server-reboot
+  (`Target.signal`), tunnel-open (`tunnelOpen`'s signal) and the deploying signal's loop. Each checks the
+  signal once more after its last revision check, with no await before the SSH command, connect, Package
+  Manager call or forward: a cancel during that check starts nothing. Checked before `guard(...)`, not
+  inside it, since guard turns what its callback throws into ssh-failed. A shared update check takes no
+  signal (other callers join its run; it only reads). `ctx.ssh.exec` takes no signal, so a one-shot SSH
+  command already sent runs to its own timeout.
 - Palette (`src/frontend/index.tsx`): Deploy, Open shell and Logs open the Coolify tab on Resources with tab
   data `{ section: "resources", open?: "shell", tab?: "<detail view>" }`, Sync servers with
   `{ section: "sync" }`. CoolifyTab's `pick` opens a shell once (coolify.operate and `OPERATE_ACCESS`, the

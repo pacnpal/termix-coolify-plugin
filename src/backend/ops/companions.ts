@@ -123,7 +123,7 @@ export function registerCompanionOperations(
   });
 
   ctx.operations.register("coolify.companion", {
-    run: async (input, { runId }) => {
+    run: async (input, { runId, signal }) => {
       const kind = text(input.kind);
       const params = paramsOf(input);
       const id = connectionIdInput(input);
@@ -161,6 +161,7 @@ export function registerCompanionOperations(
             id,
             params,
             runId,
+            signal,
           );
         default:
           throw new ConnectionError("invalid-input", "Unknown kind");

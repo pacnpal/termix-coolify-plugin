@@ -668,6 +668,11 @@ export function createLogs(ctx: PluginContext, deps: LogsDeps) {
       );
     }
     await deps.containers.assertSnapshotHolds(connectionId, snap);
+    // Last check, with no await before the command: guard calls its callback
+    // synchronously, so a cancel during the revision check above never starts
+    // docker logs. Checked here, not inside the callback, because guard turns
+    // anything the callback throws into ssh-failed.
+    signal?.throwIfAborted();
     const result = await deps.containers.guard(where, () =>
       run(where.hostId, command, {
         timeoutMs: LOGS_TIMEOUT_MS,

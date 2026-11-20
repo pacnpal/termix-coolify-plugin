@@ -368,6 +368,9 @@ export function createExec(ctx: PluginContext, deps: ExecDeps) {
         if (signal?.aborted) throw cancelled();
 
         await deps.containers.assertSnapshotHolds(connectionId, snap);
+        // Again with no await before the connect: a cancel during the
+        // revision check opens no SSH connection.
+        if (signal?.aborted) throw cancelled();
         reached = true;
         const connection = await deps.containers.guard(where, () =>
           ctx.ssh.connect(hostId, {

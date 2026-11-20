@@ -58,15 +58,21 @@ export async function containerCompanionChange(
   id: number,
   params: Params,
   runId: string | null,
+  signal?: AbortSignal,
 ) {
   const uuid = text(params.uuid);
   switch (kind) {
     case "tunnel-open": {
-      const data = await companions.tunnelOpen(id, uuid, {
-        port: params.port,
-        part: params.part,
-        container: params.container,
-      });
+      const data = await companions.tunnelOpen(
+        id,
+        uuid,
+        {
+          port: params.port,
+          part: params.part,
+          container: params.container,
+        },
+        signal,
+      );
       if ("choices" in data) return choices(data);
       return {
         summary: `Forwarding ${data.bindHost}:${data.bindPort} on the Termix server to port ${data.targetPort} as ${data.name}`,

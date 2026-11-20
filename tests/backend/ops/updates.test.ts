@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OperationAction } from "@termix-ssh/plugin-sdk/operations";
 import { manifest, type PluginHarness } from "../helpers/plugin.js";
 import { withRunHistory } from "../helpers/run-history.js";
+import { PLATFORM_PROBE_COMMAND } from "@termix-ssh/plugin-sdk/host-commands";
 import { newestSecurity } from "../../../src/backend/ops/signals.js";
 import {
   fakePackageManager,
@@ -273,6 +274,101 @@ describe("the security updates signal", () => {
     });
     expect(newestSecurity({ security: null, checkedAt: null }, null)).toBe(
       null,
+    );
+  });
+});
+
+describe("cancelled update runs", () => {
+  /**
+   * A fake server whose run is aborted from the next actor read once armed:
+   * the access read inside connections.revision(), which the last check
+   * before each command awaits.
+   */
+  function abortable(h: PluginHarness) {
+    const abort = new AbortController();
+    const { calls, exec } = fakeSsh(h);
+    let armed = false;
+    const arm = () => {
+      armed = true;
+    };
+    const actor = h.mock.ctx.currentActor.bind(h.mock.ctx);
+    vi.spyOn(h.mock.ctx, "currentActor").mockImplementation(() => {
+      if (armed) {
+        armed = false;
+        abort.abort(new Error("cancelled"));
+      }
+      return actor();
+    });
+    return { abort, calls, exec, arm };
+  }
+
+  function run(h: PluginHarness, id: string, signal: AbortSignal) {
+    return (input: Record<string, unknown>) =>
+      Promise.resolve(
+        h.mock.operationHandlers
+          .get(id)!
+          .run(input, { runId: "r1", dryRun: false, signal, log: () => {} }),
+      );
+  }
+
+  it("an install cancelled during the last revision check never starts the upgrade", async () => {
+    const { h, id } = await start();
+    const { abort, calls, exec, arm } = abortable(h);
+    const answer = exec.getMockImplementation()!;
+    exec.mockImplementation(async (...args) => {
+      const out = await answer(...args);
+      if (args[1] === PLATFORM_PROBE_COMMAND) arm();
+      return out;
+    });
+    await expect(
+      run(
+        h,
+        "coolify.server-updates-install",
+        abort.signal,
+      )({
+        connectionId: id,
+        serverUuid: "srv-web1",
+        confirm: true,
+      }),
+    ).rejects.toThrow("cancelled");
+    expect(abort.signal.aborted).toBe(true);
+    expect(calls.some((c) => c.command.includes("apt-get -y upgrade"))).toBe(
+      false,
+    );
+  });
+
+  it("a reboot cancelled during the last revision check never reboots", async () => {
+    const { h, id, access } = await start({
+      permissions: [
+        "coolify.view",
+        "coolify.operate",
+        "coolify.configure",
+        "coolify.administer",
+      ],
+    });
+    const { abort, calls, arm } = abortable(h);
+    // The Linked host's access read is the last step before the revision
+    // checks that come right before the reboot command.
+    const answer = access.getMockImplementation()!;
+    access.mockImplementation(async (...args) => {
+      const out = await answer(...args);
+      arm();
+      return out;
+    });
+    await expect(
+      run(
+        h,
+        "coolify.server-reboot",
+        abort.signal,
+      )({
+        connectionId: id,
+        serverUuid: "srv-web1",
+        confirmName: "web-1",
+      }),
+    ).rejects.toThrow("cancelled");
+    expect(abort.signal.aborted).toBe(true);
+    expect(calls.some((c) => c.command.includes("systemctl reboot"))).toBe(
+      false,
     );
   });
 });

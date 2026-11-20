@@ -588,6 +588,9 @@ export function createUpdates(
     timeoutMs: number,
   ): Promise<PluginSshExecResult> {
     await holds(target.connectionId, target.snap);
+    // No await between this and the command: a cancel during the revision
+    // check above never starts it.
+    target.signal?.throwIfAborted();
     let result: PluginSshExecResult;
     try {
       result = await run(target.hostId, command, { timeoutMs });
@@ -631,6 +634,8 @@ export function createUpdates(
     failure: string,
   ): Promise<PluginOperationOutcome> {
     await holds(target.connectionId, target.snap);
+    // As in exec: nothing is awaited between this and the call.
+    target.signal?.throwIfAborted();
     let outcome: PluginOperationOutcome;
     try {
       outcome = await ctx.operations.invoke(actionId, {
@@ -689,6 +694,11 @@ export function createUpdates(
     hostId: number;
     snap: Snapshot;
     server: ServerDto;
+    /**
+     * The run's abort signal, for install and reboot. A check has none: its
+     * run is shared by every caller of the same server, and only reads.
+     */
+    signal?: AbortSignal;
   }
 
   /** Everything an action needs, checked in order; the first refusal wins. */
@@ -831,6 +841,7 @@ export function createUpdates(
       connectionId: number,
       rawUuid: unknown,
       body: { confirm?: unknown },
+      signal?: AbortSignal,
     ): Promise<InstallResult> {
       const target = await prepare(
         connectionId,
@@ -845,6 +856,7 @@ export function createUpdates(
           }
         },
       );
+      target.signal = signal;
       let result: InstallResult;
       let asked = false;
       try {
@@ -901,12 +913,14 @@ export function createUpdates(
       connectionId: number,
       rawUuid: unknown,
       body: { confirmName?: unknown },
+      signal?: AbortSignal,
     ): Promise<RebootResult> {
       const target = await prepare(connectionId, rawUuid, {
         permission: "administer",
         grant: "configure",
         host: "edit",
       });
+      target.signal = signal;
       const { server, hostId, uuid } = target;
       if (
         typeof body.confirmName !== "string" ||

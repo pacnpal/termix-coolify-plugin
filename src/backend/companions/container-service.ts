@@ -274,9 +274,12 @@ export function createContainerCompanions(
     where: ContainerPlace,
     name: string,
     sudo: boolean,
+    signal?: AbortSignal,
   ): Promise<string> {
     const container = assertContainerName(name);
     await holds(where.connectionId, where.snap);
+    // No await between this and docker inspect.
+    signal?.throwIfAborted();
     const stdout = await containers.guard(where, async () => {
       const result = await run(
         where.hostId,
@@ -395,6 +398,7 @@ export function createContainerCompanions(
       connectionId: number,
       uuid: string,
       input: unknown,
+      signal?: AbortSignal,
     ): Promise<TunnelAnswer | ShellChoices> {
       const raw = body(input);
       const port = readPort(raw.port);
@@ -424,7 +428,12 @@ export function createContainerCompanions(
         let oldStopped = !held;
         let forwardAsked = false;
         try {
-          const targetHost = await containerIp(where, container.name, sudo);
+          const targetHost = await containerIp(
+            where,
+            container.name,
+            sudo,
+            signal,
+          );
           if (held) {
             // The same actor reopening: the old forward goes first.
             await holds(connectionId, snap);
@@ -432,6 +441,9 @@ export function createContainerCompanions(
             oldStopped = true;
           }
           await holds(connectionId, snap);
+          // The last check, with no await before the forward is asked for:
+          // a cancel during the revision check opens nothing.
+          signal?.throwIfAborted();
           forwardAsked = true;
           const bound = await openForward(tunnels, {
             hostId: where.hostId,
