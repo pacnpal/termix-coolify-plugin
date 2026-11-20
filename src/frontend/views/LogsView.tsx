@@ -120,6 +120,10 @@ export function LogsView({
   const [attempt, setAttempt] = useState(0);
   const [following, setFollowing] = useState(false);
   const [follow, setFollow] = useState<Follow>({ kind: "off" });
+  // Where the followed lines come from, apart from the snapshot's source:
+  // a follow is always SSH, even on a snapshot read through Coolify. A new
+  // snapshot replaces the lines, so it clears this.
+  const [followSource, setFollowSource] = useState<LogSource | null>(null);
   const max = Number(count);
 
   // Request generation: only the newest load may set the snapshot, so an
@@ -135,6 +139,7 @@ export function LogsView({
   const load = useCallback(async () => {
     const mine = ++generation.current;
     setSnapshot({ kind: "loading" });
+    setFollowSource(null);
     try {
       const result = await api.logs(connectionId, target.uuid, {
         lines: max,
@@ -200,8 +205,10 @@ export function LogsView({
         } catch {
           return;
         }
-        if (message.type === "started") setFollow({ kind: "live" });
-        else if (message.type === "choices") {
+        if (message.type === "started") {
+          setFollow({ kind: "live" });
+          setFollowSource(message.source === "coolify" ? "coolify" : "ssh");
+        } else if (message.type === "choices") {
           // Several containers match over SSH: show the picker. Picking one
           // reloads with that container, and the follow subscribes again
           // with it (kept for this resource while the view lives).
@@ -308,8 +315,12 @@ export function LogsView({
           onClick={() => setAttempt((n) => n + 1)}
         />
         {snapshot.kind === "logs" && (
-          <StatusBadge tone={snapshot.source === "coolify" ? "info" : "idle"}>
-            {t(`logs.source.${snapshot.source}`)}
+          <StatusBadge
+            tone={
+              (followSource ?? snapshot.source) === "coolify" ? "info" : "idle"
+            }
+          >
+            {t(`logs.source.${followSource ?? snapshot.source}`)}
           </StatusBadge>
         )}
         {follow.kind === "live" && (

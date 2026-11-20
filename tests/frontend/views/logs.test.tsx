@@ -245,6 +245,20 @@ describe("Logs view", () => {
     expect(first.closed).toBe(true);
   });
 
+  it("the badge says SSH once a follow over SSH starts on a Coolify snapshot", async () => {
+    await openLogs({ source: "coolify", text: "c line\n" });
+    expect(await screen.findByText(G.source.coolify)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: G.follow }));
+    await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+    const ws = FakeWebSocket.all[0];
+    act(() => ws.open());
+    act(() =>
+      ws.receive({ type: "started", source: "ssh", container: "web-abc" }),
+    );
+    expect(await screen.findByText(G.source.ssh)).toBeTruthy();
+    expect(screen.queryByText(G.source.coolify)).toBeNull();
+  });
+
   it("explains not-linked from the route", async () => {
     const api = stubApi();
     const fallback = api.get.getMockImplementation()!;

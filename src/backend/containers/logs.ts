@@ -23,64 +23,77 @@ const LOGS_TIMEOUT_MS = 30_000;
 
 const UUID = /^[A-Za-z0-9_-]{1,64}$/;
 
-/**
- * `name=value`, `name: value` and `"name": "value"` where the name says it
- * holds a secret: env dumps, YAML and config echoes and JSON log lines. The
- * value is a quoted string through its closing quote (escapes honoured), or
- * else the rest of the line, which `maskField` narrows to one token where
- * that is the format's rule.
- */
-const SECRET_FIELD =
-  /(\b[\w.-]{0,64}(?:password|passwd|pwd|secret|token|api_?key|private_?key|access_?key|credentials?)[\w.-]{0,64}["']?\s{0,8}([:=])[ \t]{0,8})("(?:[^"\\\r\n]|\\.)*"|'(?:[^'\\\r\n]|\\.)*'|[^\r\n]*)/gi;
+/** A name that says its value is a secret, with its optional quote. */
+const NAME = String.raw`[\w.-]{0,64}(?:password|passwd|pwd|secret|token|api_?key|private_?key|access_?key|credentials?)[\w.-]{0,64}["']?`;
 
 /**
- * One secret field's replacement. A quoted value is masked whole. An
- * unterminated quote, or a YAML `name: value` that starts its line, masks
- * the rest of the line. Any other unquoted value (`NAME=value`, logfmt) runs
- * to the end of its token.
+ * A YAML `name: value` that starts its line with an unquoted value: the
+ * value is the rest of the line.
  */
-function maskField(
-  text: string,
-  head: string,
-  sep: string,
-  value: string,
-  offset: number,
-): string {
+const YAML_FIELD = new RegExp(
+  String.raw`^([ \t]*(?:-[ \t]+)?["']?${NAME}[ \t]{0,8}:[ \t]{1,8})(?!["'])[^\r\n]+`,
+  "gim",
+);
+
+/**
+ * `name=value`, `name: value` and `"name": "value"` anywhere: env dumps,
+ * logfmt, config echoes and JSON log lines. A quoted value runs through its
+ * closing quote (escapes honoured), an unterminated quote to the end of the
+ * line, and an unquoted value to the end of its own token (whitespace or
+ * `&`), so the next secret on the line is matched too.
+ */
+const SECRET_FIELD = new RegExp(
+  String.raw`(\b${NAME}\s{0,8}[:=][ \t]{0,8})("(?:[^"\\\r\n]|\\.)*"|'(?:[^'\\\r\n]|\\.)*'|["'][^\r\n]*|[^\s&]+)`,
+  "gi",
+);
+
+/** One secret field's value masked; a closed quote keeps its quotes. */
+function maskField(head: string, value: string): string {
   const quote = value[0];
   if ((quote === '"' || quote === "'") && value.length > 1) {
-    if (value.endsWith(quote))
+    if (value.endsWith(quote)) {
       return `${head}${quote}${REDACTED_VALUE}${quote}`;
+    }
   }
-  if (!value) return head;
-  const lineStart = text.lastIndexOf("\n", offset - 1) + 1;
-  const yaml =
-    sep === ":" && /^\s*(?:-\s+)?["']?$/.test(text.slice(lineStart, offset));
-  if (yaml || quote === '"' || quote === "'") return `${head}${REDACTED_VALUE}`;
-  const token = /^\S*/.exec(value)![0];
-  return `${head}${REDACTED_VALUE}${value.slice(token.length)}`;
+  return `${head}${REDACTED_VALUE}`;
 }
-/** An Authorization header's credential. */
+
+/** An Authorization or Proxy-Authorization header's credential, any length. */
+const AUTHORIZATION =
+  /(\b(?:proxy-)?authorization["']?\s{0,8}[:=]\s{0,8}["']?(?:(?:bearer|basic|token|digest)\s+)?)[A-Za-z0-9._~+/=|-]+/gi;
+/** A credential after an auth scheme word elsewhere in a line. */
 const AUTH_HEADER = /(\b(?:bearer|basic|token)\s+)[A-Za-z0-9._~+/=|-]{8,}/gi;
+/** Passes before redaction is taken as settled; each pass only masks more. */
+const MAX_PASSES = 4;
+
+function redactOnce(text: string): string {
+  return maskCredentials(text)
+    .replace(YAML_FIELD, `$1${REDACTED_VALUE}`)
+    .replace(SECRET_FIELD, (_m, head: string, value: string) =>
+      maskField(head, value),
+    )
+    .replace(AUTHORIZATION, `$1${REDACTED_VALUE}`)
+    .replace(AUTH_HEADER, `$1${REDACTED_VALUE}`);
+}
 
 /**
  * Log text with its secrets masked before it leaves the backend: the
  * connection's own token and Access secret anywhere, then what redact.ts
  * masks in a string (a URL's password, credential query parameters), then
- * secret-named fields and Authorization credentials.
+ * secret-named fields and Authorization credentials, repeated until the
+ * text stops changing (a fixed point, at most MAX_PASSES).
  */
 export function redactLog(text: string, secrets: readonly string[]): string {
   let out = text;
   for (const secret of secrets) {
     if (secret) out = out.split(secret).join(REDACTED_VALUE);
   }
-  out = maskCredentials(out);
-  return out
-    .replace(
-      SECRET_FIELD,
-      (_m, head: string, sep: string, value: string, offset: number) =>
-        maskField(out, head, sep, value, offset),
-    )
-    .replace(AUTH_HEADER, `$1${REDACTED_VALUE}`);
+  for (let pass = 0; pass < MAX_PASSES; pass += 1) {
+    const next = redactOnce(out);
+    if (next === out) break;
+    out = next;
+  }
+  return out;
 }
 
 export interface LogsRequest {

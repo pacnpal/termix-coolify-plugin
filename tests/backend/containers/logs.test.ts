@@ -27,6 +27,45 @@ describe("redactLog", () => {
     );
   });
 
+  it("masks every secret on a line, unquoted, quoted and next to a URL", () => {
+    for (const [line, leaks, kept] of [
+      [
+        "password=alpha token=bravo api_key=charlie",
+        ["alpha", "bravo", "charlie"],
+        [],
+      ],
+      [
+        'password=alpha secret="bravo two" token=charlie&api_key=delta user=bob',
+        ["alpha", "bravo", "two", "charlie", "delta"],
+        ["user=bob"],
+      ],
+      [
+        "db=postgres://app:fake-url-pass@db/app token=bravo done",
+        ["fake-url-pass", "bravo"],
+        ["postgres://app:", "done"],
+      ],
+    ] as const) {
+      const out = masked(line);
+      for (const leak of leaks) expect(out, line).not.toContain(leak);
+      for (const keep of kept) expect(out, line).toContain(keep);
+      // A fixed point: redacting again changes nothing.
+      expect(masked(out)).toBe(out);
+    }
+  });
+
+  it("masks Authorization and Proxy-Authorization credentials of any length", () => {
+    for (const line of [
+      "Authorization: Basic dTpw",
+      "Authorization: Bearer abc",
+      "proxy-authorization: Basic dTpw",
+      '{"Authorization": "Bearer abc"}',
+    ]) {
+      const out = masked(line);
+      expect(out, line).toContain("[redacted]");
+      expect(out, line).not.toMatch(/dTpw|abc/);
+    }
+  });
+
   it("masks unquoted env values to the end of the token and YAML values to the end of the line", () => {
     const env = masked("DB_PASSWORD=abc;def,ghi user=bob");
     for (const leak of ["abc", "def", "ghi"]) expect(env).not.toContain(leak);

@@ -339,7 +339,10 @@ console }`, calls the shell route and draws `PluginComponent id="terminal.view"`
   `Authorization` credentials. Names are bounded (`{0,64}`) so a long line can't backtrack for long.
   A quoted value is masked through its closing quote (escapes honoured); an unterminated quote or a YAML
   `name: value` starting its line masks the rest of the line; other unquoted values run to the end of
-  the token (`maskField`). Followed bytes go through `lineSplitter`: one streaming `TextDecoder` per
+  the token (whitespace or `&`, so every secret on a line is matched; YAML is its own `YAML_FIELD`
+  pass). Authorization and Proxy-Authorization credentials are masked at any length; a bare scheme word
+  (`Bearer x`) needs 8 characters. `redactLog` repeats the passes until the text stops changing (at most
+  `MAX_PASSES`). LogsView keeps the follow's own source (`followSource`) for its badge. Followed bytes go through `lineSplitter`: one streaming `TextDecoder` per
   stdout/stderr, and a line over MAX_LINE is cut only at a point `safeCut` proves changes nothing
   (redacting the halves equals redacting the whole), keeping 1 KiB (or twice the longest secret) back;
   with no safe cut the rest of that line becomes one `[redacted]`.
