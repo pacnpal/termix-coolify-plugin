@@ -143,10 +143,19 @@ aren't obvious from the code, and anything that has bitten you before.
   `{ text: true }`), `SECRET_FIELDS` (string fields any spec describes as a password or secret) and each
   array query parameter's `items`; arrays go out as one `name=value` per item (form, exploded).
   It also writes `RAW_FIELDS` (string fields described as YAML, Compose, a script, a Dockerfile, Nginx
-  config, labels or env text; masked whole), `LOG_ANSWERS` (operations whose 2xx schema, in any spec,
-  has a non-flag `logs`/`log`/`output`/`*_logs`/`*_output` property or one described as output; they
-  are sensitive, so `list-servers`, `get-server-by-uuid` and the database reads need a confirm because
-  of `validation_logs`) and `nullable` on params and body fields (the console's "Send null").
+  config, labels or env text; masked whole), `LOG_FIELDS` (per operation, every non-flag
+  `logs`/`log`/`output`/`*_logs`/`*_output` property, or string described as output, anywhere in its
+  2xx schema in any spec), `LOG_PURPOSE` and `nullable` on params and body fields (the console's "Send
+  null"). Body fields are the union of the body's own, allOf, oneOf and anyOf properties; a field is
+  required when the body or an allOf branch requires it, or every oneOf (anyOf) branch does.
+  The log rule: an operation is for logs (`LOG_PURPOSE`) when it is a read (GET, or POST to `.../logs`)
+  and its path has a `logs`, `deployments`, `executions` or `imports` segment, or log fields are at
+  least half of its answer's top-level properties. Those need `coolify.operate`, an operate grant and a
+  confirm (they are `isOperate` and sensitive). Any other answer that merely holds a log field
+  (`list-servers`, `get-server-by-uuid`, the database reads and `update-server-by-uuid`, through
+  `validation_logs`) is an ordinary read; `dispatch` masks the operation's `LOG_FIELDS` unless the call
+  is confirmed and the actor has `coolify.operate` and an operate grant. Revealing a log field needs
+  `coolify.operate` too. A server transfer's status stays operate by hand (its schema has no log field).
   `authorize` also applies `tokenAllows` (`token-ability`, 409), and `send` passes `beforeFetch` so the
   request layer checks the revision again after its budget and retry waits, right before each fetch.
   The console drops late answers with request generations (reveal, operation list, connections).

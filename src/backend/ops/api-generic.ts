@@ -14,14 +14,15 @@ import {
 } from "../coolify/generated/operations.js";
 import {
   OPERATION_SCHEMAS,
-  LOG_ANSWERS,
+  LOG_FIELDS,
+  LOG_PURPOSE,
   TEXT_ANSWERS,
   type OperationSchema,
 } from "../coolify/generated/schemas.js";
 import { CoolifyError } from "../coolify/http.js";
 import { fillPath, pathRules } from "../coolify/path.js";
 import { meetsMinVersion } from "../coolify/version.js";
-import { isMasked, redact } from "../redact.js";
+import { isMasked, maskKeys, redact } from "../redact.js";
 import type { Resources } from "../resources/service.js";
 import type { ServerStatuses } from "./signals.js";
 import { connectionIdInput } from "./connections.js";
@@ -101,7 +102,6 @@ const SERVER_TRANSFER_STATUS = new RegExp(`^/servers/${SEGMENT}/transfer$`);
 const INSTANCE_SETTINGS = /^\/(settings|mcp)(\/|$)|^\/(enable|disable)$/;
 const DEPLOYMENT_CANCEL = new RegExp(`^/deployments/${SEGMENT}/cancel$`);
 const TASK_RUN = new RegExp(`/scheduled-tasks/${SEGMENT}/execute$`);
-const IMPORT_STATUS = new RegExp(`/imports/${SEGMENT}$`);
 const ROLLBACK = new RegExp(`^/applications/${SEGMENT}/rollback$`);
 
 /**
@@ -129,15 +129,12 @@ function isAdminister(op: CoolifyOperation): boolean {
 function isOperate(op: CoolifyOperation): boolean {
   const { method, path } = op;
   if (path.endsWith("/logs")) return true;
+  // Reads for logs or command output, from the response schemas:
+  // deployments, executions and import status among them.
+  if (LOG_PURPOSE.has(op.id)) return true;
   if (method === "GET") {
-    return (
-      path === "/deployments" ||
-      path.startsWith("/deployments/") ||
-      path.endsWith("/executions") ||
-      SERVER_TRANSFER_STATUS.test(path) ||
-      // Judgement: an import's status holds the import command's output.
-      IMPORT_STATUS.test(path)
-    );
+    // Judgement: a transfer's status holds the migration log and error.
+    return SERVER_TRANSFER_STATUS.test(path);
   }
   if (method !== "POST") return false;
   return (
@@ -205,8 +202,8 @@ function sensitiveOp(op: CoolifyOperation): boolean {
   return (
     op.method === "DELETE" ||
     SECRET_PATH.test(op.path) ||
-    // Its answer carries logs or command output, by its response schema.
-    LOG_ANSWERS.has(op.id)
+    // A read for logs or command output (the generator's rule).
+    LOG_PURPOSE.has(op.id)
   );
 }
 
@@ -384,6 +381,11 @@ function shapeBody(op: CoolifyOperation, body: unknown): unknown {
     if (Object.hasOwn(given, field.name)) out[field.name] = given[field.name];
   }
   return out;
+}
+
+/** An operation's log and output fields, by its response schema. */
+function logFieldsOf(op: CoolifyOperation): readonly string[] {
+  return LOG_FIELDS[op.id] ?? [];
 }
 
 /** Follows a path of keys and indexes; undefined when it leads nowhere. */
@@ -580,6 +582,11 @@ export function createGenericApi(ctx: PluginContext, deps: GenericApiDeps) {
       }
       const body = shapeBody(op, parsed);
       const answer = await send(op, snap, params, body);
+      // Log and output fields come back only to an operator who confirmed.
+      const logsAllowed =
+        opts.confirmed === true &&
+        grantMeets(snap.view.access, "operate") &&
+        (await holds("coolify.operate"));
       return {
         method: op.method,
         operationId: op.id,
@@ -588,7 +595,9 @@ export function createGenericApi(ctx: PluginContext, deps: GenericApiDeps) {
           params,
           ...(body !== undefined ? { body } : {}),
         }) as ApiCallResult["request"],
-        data: redact(answer ?? null),
+        data: logsAllowed
+          ? redact(answer ?? null)
+          : maskKeys(redact(answer ?? null), logFieldsOf(op)),
       };
     },
 
@@ -689,12 +698,25 @@ export function createGenericApi(ctx: PluginContext, deps: GenericApiDeps) {
         throw err;
       }
       const value = at(answer, input.pointer);
+      const shown = maskKeys(redact(answer), logFieldsOf(op));
       if (
         value === undefined ||
         value === null ||
-        !isMasked(at(redact(answer), input.pointer))
+        !isMasked(at(shown, input.pointer))
       ) {
         throw new ApiCallError("not-masked", "That value is not a masked one");
+      }
+      if (
+        input.pointer.some((step) => logFieldsOf(op).includes(String(step))) &&
+        !(
+          grantMeets(connection.access, "operate") &&
+          (await holds("coolify.operate"))
+        )
+      ) {
+        throw new ApiCallError(
+          "forbidden",
+          "Revealing logs or command output needs the coolify.operate permission",
+        );
       }
       await ctx.audit.record({
         action: "coolify.api.reveal",

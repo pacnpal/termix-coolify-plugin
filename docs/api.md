@@ -157,9 +157,12 @@ Each operation needs what the same action needs in the app, whatever key or tool
   masked. Fields a spec describes as raw config, Compose, a script, a Dockerfile, Nginx config, labels or
   env text (a proxy's `configuration`, `docker_compose_raw`, `cloud_init_script` and the like) are masked
   whole. Only **Reveal** in the console shows a masked value.
-- Operations whose answer carries logs or command output, by their response schema (deployments, task and
-  backup executions, imports, `/logs`, and servers and databases, whose answers carry `validation_logs`),
-  are sensitive too: they need `coolify.api-call` or a confirm in the console.
+- Reads whose purpose is logs or command output (deployments, `/logs`, task, backup and cleanup
+  executions, and import status, found from Coolify's API description) need **Operate Coolify resources**,
+  an operate grant and a confirm, through `coolify.api-call` or the console. Any other answer that holds a
+  log or output field (a server's or database's `validation_logs`) is an ordinary read: that field comes
+  back masked unless the call is confirmed by someone with **Operate Coolify resources** and an operate
+  grant.
 - A token that can't read, or a logs read without `read:sensitive`, is refused before Coolify is asked
   (`token-ability`, 409). The connection is checked again right before each request is sent, after any
   wait for the request budget or a retry.

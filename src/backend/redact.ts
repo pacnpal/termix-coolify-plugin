@@ -60,6 +60,25 @@ function maskedValue(key: string, value: unknown): unknown {
   return REDACTED_VALUE;
 }
 
+/**
+ * A copy of `value` with every non-null value under one of `keys` masked, at
+ * any depth: an operation's log and output fields.
+ */
+export function maskKeys(value: unknown, keys: readonly string[]): unknown {
+  if (!keys.length || value === null || typeof value !== "object") {
+    return value;
+  }
+  if (Array.isArray(value)) return value.map((item) => maskKeys(item, keys));
+  return Object.fromEntries(
+    Object.entries(value).map(([key, inner]) => [
+      key,
+      keys.includes(key) && inner !== null && inner !== undefined
+        ? REDACTED_VALUE
+        : maskKeys(inner, keys),
+    ]),
+  );
+}
+
 /** Whether a redacted value hides something (whole, or inside a URL). */
 export function isMasked(value: unknown): boolean {
   return typeof value === "string" && value.includes(REDACTED_VALUE);

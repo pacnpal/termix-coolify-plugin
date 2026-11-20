@@ -25,6 +25,7 @@ const PRIVATE_KEY =
   "-----BEGIN FAKE PRIVATE KEY-----\nfake-key-material-api-test\n-----END FAKE PRIVATE KEY-----";
 const ENV_VALUE = "fake-env-value-api-test";
 const DB_PASSWORD = "fake-db-password-api-test";
+const VALIDATION_LOG = "fake-validation-log-api-test";
 const ALL = ["view", "operate", "configure", "administer", "mcp"];
 
 /** Coolify answers the tests need, besides the probe's. */
@@ -45,6 +46,10 @@ const ROUTES: Record<string, FakeAnswer> = {
     json: { uuid: "env-1", key: "API_SECRET", value: ENV_VALUE },
   },
   "GET /projects": { json: [{ uuid: "proj-1", name: "one" }] },
+  "GET /servers": {
+    json: [{ uuid: "srv-1", name: "one", validation_logs: VALIDATION_LOG }],
+  },
+  "POST /databases/db-1/imports": { status: 201, json: { activity_id: "a1" } },
   "GET /projects/proj-uuid/production": { json: { name: "production" } },
   "GET /applications/app-web-uuid/secret-manager": { json: {} },
   "GET /applications/app-web-uuid/previews/42": { json: { id: 42 } },
@@ -777,6 +782,60 @@ describe("generic Coolify API operations", () => {
     ).toEqual([]);
     h.mock.setActor(OWNER);
     expect(fake.calls).toEqual([]);
+  });
+});
+
+describe("generic API: log and output fields", () => {
+  it("a view-level list-servers needs no confirm and answers validation_logs masked", async () => {
+    await start({ permissions: ["view"] });
+    const read = await apiRead("list-servers");
+    expect(JSON.stringify(read.data)).not.toContain(VALIDATION_LOG);
+    expect(read.data).toMatchObject({
+      data: [{ uuid: "srv-1", validation_logs: "[redacted]" }],
+    });
+  });
+
+  it("a view-level get-deployment is refused, even confirmed", async () => {
+    const { fake } = await start({ permissions: ["view"] });
+    await expect(
+      apiRead("get-deployment-by-uuid", { uuid: "dep-1" }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    await expect(
+      apiCall("get-deployment-by-uuid", { uuid: "dep-1" }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    expect(fake.calls).toEqual([]);
+  });
+
+  it("an operate-level, confirmed get-deployment answers the logs", async () => {
+    await start({ permissions: ["view", "operate"] });
+    await expect(
+      apiRead("get-deployment-by-uuid", { uuid: "dep-1" }),
+    ).rejects.toMatchObject({ code: "confirm-required" });
+    const read = await apiCall("get-deployment-by-uuid", { uuid: "dep-1" });
+    expect(read.data).toMatchObject({ data: { uuid: "dep-1", logs: "build" } });
+  });
+
+  it("an operate-level, confirmed list-servers answers validation_logs", async () => {
+    await start({ permissions: ["view", "operate"] });
+    const read = await apiCall("list-servers");
+    expect(read.data).toMatchObject({
+      data: [{ validation_logs: VALIDATION_LOG }],
+    });
+  });
+
+  it("create-database-import sends the fields its oneOf branches declare", async () => {
+    const { fake } = await start();
+    await apiCall(
+      "create-database-import",
+      { uuid: "db-1" },
+      { source: "s3", s3_storage_uuid: "s3-1", path: "/b.dump", extra: 1 },
+    );
+    const [call] = sent(fake, "POST", "/databases/db-1/imports");
+    expect(JSON.parse(String(call.init?.body))).toEqual({
+      source: "s3",
+      s3_storage_uuid: "s3-1",
+      path: "/b.dump",
+    });
   });
 });
 

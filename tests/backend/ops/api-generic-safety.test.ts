@@ -6,12 +6,14 @@ import type {
 } from "../../../src/backend/connections/service.js";
 import { OPERATIONS } from "../../../src/backend/coolify/generated/operations.js";
 import {
-  LOG_ANSWERS,
+  LOG_FIELDS,
+  LOG_PURPOSE,
   OPERATION_SCHEMAS,
 } from "../../../src/backend/coolify/generated/schemas.js";
 import {
   createGenericApi,
   isSensitive,
+  requiredAccess,
   type GenericApiDeps,
 } from "../../../src/backend/ops/api-generic.js";
 
@@ -291,12 +293,28 @@ describe("generic API: answers with logs or command output", () => {
     "list-deployments-by-app-uuid",
     "get-database-import",
     "list-scheduled-task-executions-by-application-uuid",
+    "get-application-logs-by-uuid",
+  ])("%s is for logs or output, so it needs operate and a confirm", (id) => {
+    expect(LOG_PURPOSE.has(id), id).toBe(true);
+    expect(isSensitive(id), id).toBe(true);
+    expect(requiredAccess(id), id).toEqual({
+      permission: "coolify.operate",
+      grant: "operate",
+    });
+  });
+
+  it.each([
     "list-servers",
+    "get-server-by-uuid",
+    "list-databases",
+    "get-database-by-uuid",
   ])(
-    "%s answers logs or output (from its response schema), so it is sensitive",
+    "%s only carries a log field: a plain view read, with the field masked",
     (id) => {
-      expect(LOG_ANSWERS.has(id), id).toBe(true);
-      expect(isSensitive(id), id).toBe(true);
+      expect(LOG_PURPOSE.has(id), id).toBe(false);
+      expect(isSensitive(id), id).toBe(false);
+      expect(requiredAccess(id).permission, id).toBe("coolify.view");
+      expect(LOG_FIELDS[id], id).toContain("validation_logs");
     },
   );
 
@@ -361,5 +379,21 @@ describe("generated schemas keep nullability", () => {
       (f) => f.name === "redirect_url",
     );
     expect(field).toMatchObject({ type: "string", nullable: true });
+  });
+
+  it("create-database-import's body fields come from its oneOf branches", () => {
+    const fields = OPERATION_SCHEMAS["create-database-import"].body!;
+    expect(fields.map((f) => f.name)).toEqual(
+      expect.arrayContaining([
+        "source",
+        "upload_id",
+        "s3_storage_uuid",
+        "path",
+        "dump_all",
+      ]),
+    );
+    // Required in only one branch, so not required overall.
+    expect(fields.find((f) => f.name === "upload_id")?.required).toBe(false);
+    expect(fields.find((f) => f.name === "source")?.required).toBe(true);
   });
 });

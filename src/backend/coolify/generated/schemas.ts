@@ -42,7 +42,8 @@ interface Packed {
   textAnswers: string[];
   secretFields: string[];
   rawFields: string[];
-  logAnswers: string[];
+  logFields: Record<string, string[]>;
+  logPurpose: string[];
 }
 
 // JSON imports type tuples as arrays, so the shape is asserted here; the
@@ -71,5 +72,9 @@ export const SECRET_FIELDS: ReadonlySet<string> = new Set(packed.secretFields);
 /** Fields a vendored spec describes as raw config, Compose, a script or env text. */
 export const RAW_FIELDS: ReadonlySet<string> = new Set(packed.rawFields);
 
-/** Operations whose answer carries logs or command output, by response schema. */
-export const LOG_ANSWERS: ReadonlySet<string> = new Set(packed.logAnswers);
+/** The log and output fields of each operation's answer, by response schema. */
+export const LOG_FIELDS: Readonly<Record<string, readonly string[]>> =
+  packed.logFields;
+
+/** Reads whose purpose is logs or command output (see the generator's rule). */
+export const LOG_PURPOSE: ReadonlySet<string> = new Set(packed.logPurpose);

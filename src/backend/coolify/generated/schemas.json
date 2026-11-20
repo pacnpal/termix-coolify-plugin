@@ -1034,6 +1034,35 @@
       "required": false,
       "description": "DragonFly password"
     },
+    { "name": "source", "type": "string", "required": true },
+    { "name": "upload_id", "type": "string", "required": false },
+    { "name": "dump_all", "type": "boolean", "required": false },
+    {
+      "name": "replace_existing",
+      "type": "boolean",
+      "required": false,
+      "description": "Drop matching PostgreSQL objects before restoring a single-database archive."
+    },
+    {
+      "name": "keep_owners",
+      "type": "boolean",
+      "required": false,
+      "description": "Restore object owners and privileges from a single-database PostgreSQL archive. By default they are skipped, because the roles of another server usually do not exist."
+    },
+    {
+      "name": "restore_mysql_users",
+      "type": "boolean",
+      "required": false,
+      "description": "MySQL and MariaDB backups containing all databases: also restore the mysql system database (users, passwords, and privileges). By default the system databases are skipped, so the database keeps its o…"
+    },
+    {
+      "name": "sqlite_database",
+      "type": "string",
+      "required": false,
+      "description": "SQLite: the database file to restore into. Must be one of the database files. Defaults to the file named in the backup file name, else the first file."
+    },
+    { "name": "s3_storage_uuid", "type": "string", "required": false },
+    { "name": "path", "type": "string", "required": false },
     {
       "name": "influxdb_admin_user",
       "type": "string",
@@ -3832,12 +3861,16 @@
         54, 55, 56
       ]
     ],
-    "create-database-import": ["Import database backup", [12], []],
+    "create-database-import": [
+      "Import database backup",
+      [12],
+      [58, 59, 60, 61, 62, 63, 64, 65, 66]
+    ],
     "create-database-influxdb": [
       "Create (InfluxDB)",
       [],
       [
-        35, 36, 37, 38, 39, 58, 59, 60, 61, 62, 42, 43, 44, 45, 46, 47, 48, 49,
+        35, 36, 37, 38, 39, 67, 68, 69, 70, 71, 42, 43, 44, 45, 46, 47, 48, 49,
         50, 51, 52, 53, 54, 55, 56
       ]
     ],
@@ -3845,7 +3878,7 @@
       "Create (KeyDB)",
       [],
       [
-        35, 36, 37, 38, 39, 63, 64, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
+        35, 36, 37, 38, 39, 72, 73, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
         53, 54, 55, 56
       ]
     ],
@@ -3853,7 +3886,7 @@
       "Create (MariaDB)",
       [],
       [
-        35, 36, 37, 38, 39, 65, 66, 67, 68, 69, 42, 43, 44, 45, 46, 47, 48, 49,
+        35, 36, 37, 38, 39, 74, 75, 76, 77, 78, 42, 43, 44, 45, 46, 47, 48, 49,
         50, 51, 52, 53, 54, 55, 56
       ]
     ],
@@ -3861,7 +3894,7 @@
       "Create (MongoDB)",
       [],
       [
-        35, 36, 37, 38, 39, 70, 71, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
+        35, 36, 37, 38, 39, 79, 80, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
         53, 54, 55, 56
       ]
     ],
@@ -3869,7 +3902,7 @@
       "Create (MySQL)",
       [],
       [
-        35, 36, 37, 38, 39, 72, 73, 74, 75, 76, 42, 43, 44, 45, 46, 47, 48, 49,
+        35, 36, 37, 38, 39, 81, 82, 83, 84, 85, 42, 43, 44, 45, 46, 47, 48, 49,
         50, 51, 52, 53, 54, 55, 56
       ]
     ],
@@ -3877,7 +3910,7 @@
       "Create (PostgreSQL)",
       [],
       [
-        35, 36, 37, 38, 77, 78, 79, 80, 81, 82, 39, 42, 43, 44, 45, 46, 47, 48,
+        35, 36, 37, 38, 86, 87, 88, 89, 90, 91, 39, 42, 43, 44, 45, 46, 47, 48,
         49, 50, 51, 52, 53, 54, 55, 56
       ]
     ],
@@ -3885,79 +3918,79 @@
       "Create (Redis / Valkey)",
       [],
       [
-        35, 36, 37, 38, 39, 83, 84, 42, 43, 85, 45, 46, 47, 48, 49, 50, 51, 52,
+        35, 36, 37, 38, 39, 92, 93, 42, 43, 94, 45, 46, 47, 48, 49, 50, 51, 52,
         53, 54, 55, 56
       ]
     ],
     "create-database-sqlite": [
       "Create (SQLite)",
       [],
-      [35, 36, 37, 38, 39, 86, 42, 43, 44, 48, 49, 50, 51, 52, 53, 54, 55, 56]
+      [35, 36, 37, 38, 39, 95, 42, 43, 44, 48, 49, 50, 51, 52, 53, 54, 55, 56]
     ],
     "create-digitalocean-server": ["Create a server on DigitalOcean", [], null],
     "create-dockerfile-application": [
       "Create (Dockerfile without git)",
       [],
       [
-        87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103,
-        104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117,
-        118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131,
-        132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145,
-        146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159,
-        160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173,
-        174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184
+        96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110,
+        111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124,
+        125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138,
+        139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152,
+        153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166,
+        167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180,
+        181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193
       ]
     ],
     "create-dockerimage-application": [
       "Create (Docker Image without git)",
       [],
       [
-        87, 88, 89, 90, 185, 100, 93, 94, 95, 96, 97, 98, 101, 103, 104, 105,
-        106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119,
-        120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133,
-        134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147,
-        148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161,
-        162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175,
-        176, 177, 178, 179, 180, 181, 182, 183, 184
+        96, 97, 98, 99, 194, 109, 102, 103, 104, 105, 106, 107, 110, 112, 113,
+        114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127,
+        128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141,
+        142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155,
+        156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169,
+        170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183,
+        184, 185, 186, 187, 188, 189, 190, 191, 192, 193
       ]
     ],
     "create-env-by-application-uuid": [
       "Create Env",
       [0],
-      [186, 187, 188, 189, 190, 191, 192]
+      [195, 196, 197, 198, 199, 200, 201]
     ],
     "create-env-by-database-uuid": [
       "Create Env",
       [12],
-      [186, 187, 189, 190, 191]
+      [195, 196, 198, 199, 200]
     ],
     "create-env-by-service-uuid": [
       "Create Env",
       [13],
-      [186, 187, 189, 190, 191]
+      [195, 196, 198, 199, 200]
     ],
-    "create-environment": ["Create Environment", [16], [193]],
+    "create-environment": ["Create Environment", [16], [202]],
     "create-environment-shared-env": [
       "Create Environment Shared Env",
       [16, 17],
-      [1, 194, 195, 196, 191, 197]
+      [1, 203, 204, 205, 200, 206]
     ],
     "create-github-app": [
       "Create GitHub App",
       [],
-      [198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210]
+      [207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219]
     ],
     "create-gitlab-app": [
       "Create GitLab App",
       [],
-      [211, 212, 213, 202, 203, 214, 215, 216, 217, 218, 219]
+      [220, 221, 222, 211, 212, 223, 224, 225, 226, 227, 228]
     ],
     "create-hetzner-server": [
       "Create Hetzner Server",
       [],
       [
-        220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233,
-        234
+        229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242,
+        243
       ]
     ],
     "create-hostinger-server": [
@@ -3968,118 +4001,118 @@
     "create-preview-deployment-by-application-uuid": [
       "Create Preview Deployment",
       [0],
-      [235, 236, 237, 238, 239, 240, 241]
+      [244, 245, 246, 247, 248, 249, 250]
     ],
     "create-private-deploy-key-application": [
       "Create (Private - Deploy Key)",
       [],
       [
-        87, 88, 89, 90, 242, 243, 244, 93, 94, 245, 95, 96, 97, 98, 246, 99,
-        100, 247, 248, 249, 134, 135, 250, 251, 252, 253, 101, 102, 254, 103,
-        104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117,
-        118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131,
-        132, 133, 255, 256, 257, 258, 259, 260, 261, 262, 136, 137, 138, 139,
-        140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153,
-        154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167,
-        168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181,
-        182, 183, 184, 263
+        96, 97, 98, 99, 251, 252, 253, 102, 103, 254, 104, 105, 106, 107, 255,
+        108, 109, 256, 257, 258, 143, 144, 259, 260, 261, 262, 110, 111, 263,
+        112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125,
+        126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139,
+        140, 141, 142, 264, 265, 266, 267, 268, 269, 270, 271, 145, 146, 147,
+        148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161,
+        162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175,
+        176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189,
+        190, 191, 192, 193, 272
       ]
     ],
     "create-private-gitea-app-application": [
       "Create (Private - Gitea App)",
       [],
       [
-        87, 88, 89, 90, 264, 265, 244, 93, 94, 245, 95, 96, 97, 98, 246, 99,
-        100, 247, 248, 249, 134, 135, 250, 251, 252, 253, 101, 102, 254, 103,
-        104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117,
-        118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131,
-        132, 133, 255, 266, 257, 258, 259, 260, 261, 262, 136, 137, 138, 139,
-        140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 152, 153, 154,
-        155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168,
-        169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182,
-        183, 184, 263
+        96, 97, 98, 99, 273, 274, 253, 102, 103, 254, 104, 105, 106, 107, 255,
+        108, 109, 256, 257, 258, 143, 144, 259, 260, 261, 262, 110, 111, 263,
+        112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125,
+        126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139,
+        140, 141, 142, 264, 275, 266, 267, 268, 269, 270, 271, 145, 146, 147,
+        148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 161, 162,
+        163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176,
+        177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190,
+        191, 192, 193, 272
       ]
     ],
     "create-private-github-app-application": [
       "Create (Private - GH App)",
       [],
       [
-        87, 88, 89, 90, 267, 243, 244, 93, 94, 245, 95, 96, 97, 98, 246, 99,
-        100, 247, 248, 249, 134, 135, 250, 251, 252, 253, 101, 102, 254, 103,
-        104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117,
-        118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131,
-        132, 133, 255, 266, 257, 258, 259, 260, 261, 262, 136, 137, 138, 139,
-        140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153,
-        154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167,
-        168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181,
-        182, 183, 184, 263
+        96, 97, 98, 99, 276, 252, 253, 102, 103, 254, 104, 105, 106, 107, 255,
+        108, 109, 256, 257, 258, 143, 144, 259, 260, 261, 262, 110, 111, 263,
+        112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125,
+        126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139,
+        140, 141, 142, 264, 275, 266, 267, 268, 269, 270, 271, 145, 146, 147,
+        148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161,
+        162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175,
+        176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189,
+        190, 191, 192, 193, 272
       ]
     ],
-    "create-private-key": ["Create", [], [268, 269, 270]],
-    "create-project": ["Create", [], [271, 272]],
+    "create-private-key": ["Create", [], [277, 278, 279]],
+    "create-project": ["Create", [], [280, 281]],
     "create-project-shared-env": [
       "Create Project Shared Env",
       [16],
-      [1, 194, 195, 196, 191, 197]
+      [1, 203, 204, 205, 200, 206]
     ],
     "create-public-application": [
       "Create (Public)",
       [],
       [
-        87, 88, 89, 90, 243, 244, 273, 274, 245, 93, 94, 95, 96, 97, 98, 246,
-        99, 100, 247, 248, 249, 134, 135, 250, 251, 252, 253, 101, 102, 254,
-        103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116,
-        117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130,
-        131, 132, 133, 255, 256, 257, 258, 259, 260, 261, 262, 136, 137, 138,
-        139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152,
-        153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166,
-        167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180,
-        181, 182, 183, 184, 263
+        96, 97, 98, 99, 252, 253, 282, 283, 254, 102, 103, 104, 105, 106, 107,
+        255, 108, 109, 256, 257, 258, 143, 144, 259, 260, 261, 262, 110, 111,
+        263, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124,
+        125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138,
+        139, 140, 141, 142, 264, 265, 266, 267, 268, 269, 270, 271, 145, 146,
+        147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160,
+        161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174,
+        175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188,
+        189, 190, 191, 192, 193, 272
       ]
     ],
     "create-s3-storage": [
       "Create S3 Storage",
       [],
-      [275, 276, 277, 278, 279, 280, 281, 282, 283, 284, 285, 286]
+      [284, 285, 286, 287, 288, 289, 290, 291, 292, 293, 294, 295]
     ],
     "create-scheduled-task-by-application-uuid": [
       "Create Task",
       [0],
-      [287, 288, 289, 290, 291, 292, 293]
+      [296, 297, 298, 299, 300, 301, 302]
     ],
     "create-scheduled-task-by-service-uuid": [
       "Create Task",
       [13],
-      [287, 288, 289, 290, 291, 292, 293]
+      [296, 297, 298, 299, 300, 301, 302]
     ],
     "create-secret-manager-integration-token": [
       "Create Integration Token",
       [],
-      [294, 13, 295, 296, 297, 298, 299]
+      [303, 13, 304, 305, 306, 307, 308]
     ],
     "create-server": [
       "Create",
       [],
-      [300, 301, 302, 303, 304, 305, 306, 307, 308, 309, 310]
+      [309, 310, 311, 312, 313, 314, 315, 316, 317, 318, 319]
     ],
-    "create-server-destination": ["Create destination", [18], [268, 311, 312]],
+    "create-server-destination": ["Create destination", [18], [277, 320, 321]],
     "create-server-shared-env": [
       "Create Server Shared Env",
       [10],
-      [1, 194, 195, 196, 191, 197]
+      [1, 203, 204, 205, 200, 206]
     ],
     "create-service": [
       "Create service",
       [],
       [
-        313, 314, 315, 316, 317, 318, 319, 320, 321, 322, 323, 324, 325, 326,
-        148, 327
+        322, 323, 324, 325, 326, 327, 328, 329, 330, 331, 332, 333, 334, 335,
+        157, 336
       ]
     ],
     "create-service-database-import": [
       "Import service database backup",
       [19, 20],
-      []
+      [58, 59, 60, 61, 62, 63, 64, 65, 66]
     ],
     "create-service-dns-record": [
       "Create Service DNS Record",
@@ -4089,26 +4122,26 @@
     "create-storage-by-application-uuid": [
       "Create Storage",
       [0],
-      [328, 329, 330, 331, 332, 333]
+      [337, 338, 339, 340, 341, 342]
     ],
     "create-storage-by-database-uuid": [
       "Create Storage",
       [12],
-      [328, 329, 330, 331, 332, 333]
+      [337, 338, 339, 340, 341, 342]
     ],
     "create-storage-by-service-uuid": [
       "Create Storage",
       [13],
-      [328, 334, 329, 330, 331, 332, 333]
+      [337, 343, 338, 339, 340, 341, 342]
     ],
     "create-tag": ["Create", [], [13]],
-    "create-tag-by-application-uuid": ["Create Tag", [0], [335, 336]],
-    "create-tag-by-database-uuid": ["Create Tag", [12], [335, 336]],
-    "create-tag-by-service-uuid": ["Create Tag", [13], [335, 336]],
+    "create-tag-by-application-uuid": ["Create Tag", [0], [344, 345]],
+    "create-tag-by-database-uuid": ["Create Tag", [12], [344, 345]],
+    "create-tag-by-service-uuid": ["Create Tag", [13], [344, 345]],
     "create-team-shared-env": [
       "Create Team Shared Env",
       [],
-      [1, 194, 195, 196, 191, 197]
+      [1, 203, 204, 205, 200, 206]
     ],
     "create-vultr-server": ["Create Vultr Server", [], null],
     "delete-application-by-uuid": ["Delete", [0, 21, 22, 23, 24], null],
@@ -4367,7 +4400,7 @@
     "import-server-transfer-bundle": [
       "Import server transfer bundle",
       [],
-      [337, 338, 339, 340]
+      [346, 347, 348, 349]
     ],
     "list-application-destinations": ["List Destinations", [0], null],
     "list-application-rollback-images": ["List Rollback Images", [0], null],
@@ -4459,33 +4492,33 @@
     "login-server-registry": [
       "Log in to a registry on a server",
       [10],
-      [341, 342, 343]
+      [350, 351, 352]
     ],
     "logout-server-registry": [
       "Log out from a registry on a server",
       [10, 11],
       null
     ],
-    "migrate-application-by-uuid": ["Migrate to Server", [0], [344, 345]],
-    "migrate-database-by-uuid": ["Migrate to Server", [12], [344, 345]],
+    "migrate-application-by-uuid": ["Migrate to Server", [0], [353, 354]],
+    "migrate-database-by-uuid": ["Migrate to Server", [12], [353, 354]],
     "migrate-server-between-instances": [
       "Migrate server to another Coolify instance",
       [14],
-      [346, 347]
+      [355, 356]
     ],
-    "migrate-service-by-uuid": ["Migrate to Server", [13], [344, 345]],
-    "move-application-by-uuid": ["Move", [0], [348]],
-    "move-database-by-uuid": ["Move", [12], [348]],
-    "move-service-by-uuid": ["Move", [13], [348]],
+    "migrate-service-by-uuid": ["Migrate to Server", [13], [353, 354]],
+    "move-application-by-uuid": ["Move", [0], [357]],
+    "move-database-by-uuid": ["Move", [12], [357]],
+    "move-service-by-uuid": ["Move", [13], [357]],
     "patch-service-application-by-service-and-app-uuid": [
       "Update service application",
       [19, 81, 95],
-      [349, 350, 351, 352, 353, 354, 355, 356, 357, 358, 359, 360, 361, 362]
+      [358, 359, 360, 361, 362, 363, 364, 365, 366, 367, 368, 369, 370, 371]
     ],
     "patch-service-database-by-service-and-database-uuid": [
       "Update service database",
       [19, 20],
-      [351, 352, 363, 364, 365, 366, 367, 368]
+      [360, 361, 372, 373, 374, 375, 376, 377]
     ],
     "post-restart-service-application-by-service-and-app-uuid": [
       "Restart service application container",
@@ -4526,14 +4559,14 @@
     "replace-application-dns-record": [
       "Replace Application DNS Record",
       [15],
-      [10, 11, 369, 370, 12]
+      [10, 11, 378, 379, 12]
     ],
     "replace-service-dns-record": [
       "Replace Service DNS Record",
       [19],
-      [10, 11, 369, 370, 12]
+      [10, 11, 378, 379, 12]
     ],
-    "reset-server-host-key-by-uuid": ["Reset host key", [10], [371]],
+    "reset-server-host-key-by-uuid": ["Reset host key", [10], [380]],
     "restart-application-by-uuid": ["Restart", [0], null],
     "restart-database-by-uuid": ["Restart", [12], null],
     "restart-server-proxy": ["Restart server proxy", [10], null],
@@ -4543,7 +4576,7 @@
       [14, 82],
       null
     ],
-    "rollback-application-by-uuid": ["Rollback", [0], [372]],
+    "rollback-application-by-uuid": ["Rollback", [0], [381]],
     "run-application-storage-backup": [
       "Run application storage backup",
       [14, 25],
@@ -4554,7 +4587,7 @@
       [14, 25],
       null
     ],
-    "run-server-docker-cleanup": ["Run Docker cleanup", [10], [373, 374]],
+    "run-server-docker-cleanup": ["Run Docker cleanup", [10], [382, 383]],
     "run-service-storage-backup": [
       "Run service storage backup",
       [14, 25],
@@ -4563,27 +4596,27 @@
     "save-server-proxy-configuration": [
       "Save server proxy configuration",
       [10],
-      [375]
+      [384]
     ],
     "set-application-storage-backup-schedule": [
       "Set application storage backup schedule",
       [0, 103],
-      [376, 377, 378, 379, 380, 381, 382, 383, 384, 385, 386, 387, 388, 389, 34]
+      [385, 386, 387, 388, 389, 390, 391, 392, 393, 394, 395, 396, 397, 398, 34]
     ],
     "set-database-storage-backup-schedule": [
       "Set database storage backup schedule",
       [12, 103],
-      [376, 377, 378, 379, 380, 381, 382, 383, 384, 385, 386, 387, 388, 389, 34]
+      [385, 386, 387, 388, 389, 390, 391, 392, 393, 394, 395, 396, 397, 398, 34]
     ],
     "set-secret-manager-source": [
       "Set Secret Manager Source",
       [1, 2],
-      [8, 390]
+      [8, 399]
     ],
     "set-service-storage-backup-schedule": [
       "Set service storage backup schedule",
       [13, 103],
-      [376, 377, 378, 379, 380, 381, 382, 383, 384, 385, 386, 387, 388, 389, 34]
+      [385, 386, 387, 388, 389, 390, 391, 392, 393, 394, 395, 396, 397, 398, 34]
     ],
     "start-application-by-uuid": ["Start", [0, 104, 105], null],
     "start-database-by-uuid": ["Start", [12], null],
@@ -4606,22 +4639,22 @@
       "Update",
       [0],
       [
-        391, 392, 393, 394, 395, 396, 93, 92, 95, 96, 97, 98, 246, 99, 100, 247,
-        248, 249, 134, 135, 251, 252, 253, 101, 102, 254, 103, 104, 105, 106,
-        107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120,
-        121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 255,
-        256, 257, 258, 259, 260, 261, 262, 136, 137, 176, 177, 178, 179, 138,
-        139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152,
-        153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166,
-        167, 168, 169, 170, 171, 172, 180, 181, 183, 397
+        400, 401, 402, 403, 404, 405, 102, 101, 104, 105, 106, 107, 255, 108,
+        109, 256, 257, 258, 143, 144, 260, 261, 262, 110, 111, 263, 112, 113,
+        114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127,
+        128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141,
+        142, 264, 265, 266, 267, 268, 269, 270, 271, 145, 146, 185, 186, 187,
+        188, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159,
+        160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173,
+        174, 175, 176, 177, 178, 179, 180, 181, 189, 190, 192, 406
       ]
     ],
     "update-cloud-init-script-by-uuid": [
       "Update Cloud-init Script",
       [14],
-      [268, 398]
+      [277, 407]
     ],
-    "update-cloud-token-by-uuid": ["Update Cloud Provider Token", [68], [399]],
+    "update-cloud-token-by-uuid": ["Update Cloud Provider Token", [68], [408]],
     "update-current-team-discord-notifications": [
       "Update Discord notification settings",
       [],
@@ -4656,7 +4689,7 @@
       "Update",
       [12, 106],
       [
-        400, 401, 402, 23, 403, 404, 24, 405, 406, 407, 408, 409, 410, 411, 412,
+        409, 410, 411, 23, 412, 413, 24, 414, 415, 416, 417, 418, 419, 420, 421,
         33, 34
       ]
     ],
@@ -4664,37 +4697,37 @@
       "Update",
       [12],
       [
-        42, 43, 44, 413, 414, 47, 48, 49, 50, 51, 52, 53, 54, 415, 77, 78, 79,
-        80, 81, 82, 40, 41, 416, 417, 418, 419, 420, 57, 83, 84, 63, 64, 65, 66,
-        67, 68, 69, 421, 422, 423, 424, 72, 73, 74, 75, 76, 86, 425, 426, 427,
-        428, 429, 430, 431, 432
+        42, 43, 44, 422, 423, 47, 48, 49, 50, 51, 52, 53, 54, 424, 86, 87, 88,
+        89, 90, 91, 40, 41, 425, 426, 427, 428, 429, 57, 92, 93, 72, 73, 74, 75,
+        76, 77, 78, 430, 431, 432, 433, 81, 82, 83, 84, 85, 95, 434, 435, 436,
+        437, 438, 439, 440, 441
       ]
     ],
-    "update-destination-by-uuid": ["Update destination", [33], [268]],
+    "update-destination-by-uuid": ["Update destination", [33], [277]],
     "update-env-by-application-uuid": [
       "Update Env",
       [0],
-      [433, 434, 188, 189, 190, 191]
+      [442, 443, 197, 198, 199, 200]
     ],
     "update-env-by-database-uuid": [
       "Update Env",
       [12],
-      [433, 434, 189, 190, 191]
+      [442, 443, 198, 199, 200]
     ],
     "update-env-by-service-uuid": [
       "Update Env",
       [13],
-      [433, 434, 189, 190, 191]
+      [442, 443, 198, 199, 200]
     ],
-    "update-environment": ["Update Environment", [16, 17], [193, 435]],
+    "update-environment": ["Update Environment", [16, 17], [202, 444]],
     "update-environment-shared-env": [
       "Update Environment Shared Env",
       [16, 17, 35],
-      [436, 194, 195, 196, 191, 197]
+      [445, 203, 204, 205, 200, 206]
     ],
-    "update-envs-by-application-uuid": ["Update Envs (Bulk)", [0], [437]],
-    "update-envs-by-database-uuid": ["Update Envs (Bulk)", [12], [437]],
-    "update-envs-by-service-uuid": ["Update Envs (Bulk)", [13], [437]],
+    "update-envs-by-application-uuid": ["Update Envs (Bulk)", [0], [446]],
+    "update-envs-by-database-uuid": ["Update Envs (Bulk)", [12], [446]],
+    "update-envs-by-service-uuid": ["Update Envs (Bulk)", [13], [446]],
     "update-instance-email-settings": [
       "Update instance email settings",
       [],
@@ -4703,117 +4736,117 @@
     "update-integration-token-by-uuid": [
       "Update Integration Token",
       [36],
-      [268, 438, 439, 440, 441, 442]
+      [277, 447, 448, 449, 450, 451]
     ],
     "update-preview-domains-by-pull-request-id": [
       "Update Preview Domains",
       [14, 107],
-      [443, 444, 445]
+      [452, 453, 454]
     ],
-    "update-private-key": ["Update", [38], [268, 269, 446]],
-    "update-project-by-uuid": ["Update", [108], [271, 272]],
+    "update-private-key": ["Update", [38], [277, 278, 455]],
+    "update-project-by-uuid": ["Update", [108], [280, 281]],
     "update-project-shared-env": [
       "Update Project Shared Env",
       [16, 35],
-      [436, 194, 195, 196, 191, 197]
+      [445, 203, 204, 205, 200, 206]
     ],
     "update-s3-storage-by-uuid": [
       "Update S3 Storage",
       [80],
-      [447, 277, 448, 449, 450, 451, 282, 452, 453, 454, 286]
+      [456, 286, 457, 458, 459, 460, 291, 461, 462, 463, 295]
     ],
     "update-scheduled-task-by-application-uuid": [
       "Update Task",
       [0, 40],
-      [455, 456, 457, 290, 291, 292, 293]
+      [464, 465, 466, 299, 300, 301, 302]
     ],
     "update-scheduled-task-by-service-uuid": [
       "Update Task",
       [13, 40],
-      [455, 456, 457, 290, 291, 292, 293]
+      [464, 465, 466, 299, 300, 301, 302]
     ],
     "update-server-by-uuid": [
       "Update",
       [10],
       [
-        300, 301, 302, 303, 304, 305, 306, 458, 308, 459, 460, 461, 462, 463,
-        464, 465, 466, 467, 468, 469
+        309, 310, 311, 312, 313, 314, 315, 467, 317, 468, 469, 470, 471, 472,
+        473, 474, 475, 476, 477, 478
       ]
     ],
     "update-server-cloudflare-tunnel": [
       "Update Cloudflare Tunnel settings",
       [10],
-      [470]
+      [479]
     ],
     "update-server-docker-cleanup": [
       "Update Docker cleanup settings",
       [10],
-      [471, 472, 473, 373, 374, 474]
+      [480, 481, 482, 382, 383, 483]
     ],
     "update-server-image-scanning": [
       "Update image scanning settings",
       [10],
-      [475, 476, 477, 478, 479]
+      [484, 485, 486, 487, 488]
     ],
     "update-server-log-drains": [
       "Update log drain settings",
       [10],
-      [480, 481, 482, 483, 484, 485, 486, 487, 488, 489, 490, 491, 492, 493]
+      [489, 490, 491, 492, 493, 494, 495, 496, 497, 498, 499, 500, 501, 502]
     ],
     "update-server-proxy": [
       "Update server proxy",
       [10],
-      [494, 495, 496, 497, 498, 499]
+      [503, 504, 505, 506, 507, 508]
     ],
     "update-server-sentinel": [
       "Update Sentinel settings",
       [10],
       [
-        500, 501, 502, 503, 504, 505, 506, 507, 508, 509, 510, 511, 512, 513,
-        514
+        509, 510, 511, 512, 513, 514, 515, 516, 517, 518, 519, 520, 521, 522,
+        523
       ]
     ],
     "update-server-shared-env": [
       "Update Server Shared Env",
       [10, 35],
-      [436, 194, 195, 196, 191, 197]
+      [445, 203, 204, 205, 200, 206]
     ],
     "update-service-by-uuid": [
       "Update",
       [13],
-      [515, 516, 517, 323, 322, 324, 325, 326, 148, 149]
+      [524, 525, 526, 332, 331, 333, 334, 335, 157, 158]
     ],
     "update-storage-by-application-uuid": [
       "Update Storage",
       [0],
-      [518, 519, 520, 521, 522, 523, 524]
+      [527, 528, 529, 530, 531, 532, 533]
     ],
     "update-storage-by-database-uuid": [
       "Update Storage",
       [12],
-      [518, 519, 520, 521, 522, 523, 524]
+      [527, 528, 529, 530, 531, 532, 533]
     ],
     "update-storage-by-service-uuid": [
       "Update Storage",
       [13],
-      [518, 519, 520, 521, 522, 523, 524]
+      [527, 528, 529, 530, 531, 532, 533]
     ],
     "update-tag-by-uuid": ["Update", [48], [13]],
     "update-team-shared-env": [
       "Update Team Shared Env",
       [35],
-      [436, 194, 195, 196, 191, 197]
+      [445, 203, 204, 205, 200, 206]
     ],
-    "update-token-team": ["Update authenticated team", [], [525, 526]],
+    "update-token-team": ["Update authenticated team", [], [534, 535]],
     "updateGithubApp": [
       "Update GitHub App",
       [49],
-      [527, 528, 529, 530, 531, 532, 533, 534, 535, 536, 537, 538, 539]
+      [536, 537, 538, 539, 540, 541, 542, 543, 544, 545, 546, 547, 548]
     ],
     "updateGitlabApp": [
       "Update GitLab App",
       [50],
-      [540, 541, 542, 531, 532, 543, 544, 545, 546, 547, 539]
+      [549, 550, 551, 540, 541, 552, 553, 554, 555, 556, 548]
     ],
     "upload-database-import": ["Upload database import", [12], null],
     "upload-service-database-import": [
@@ -4827,7 +4860,7 @@
       null
     ],
     "validate-s3-storage-by-uuid": ["Validate S3 Storage", [80], null],
-    "validate-server-by-uuid": ["Validate", [10], [548]],
+    "validate-server-by-uuid": ["Validate", [10], [557]],
     "version": ["Version", [], null]
   },
   "textAnswers": ["healthcheck", "version"],
@@ -4868,26 +4901,44 @@
     "dockerfile",
     "script"
   ],
-  "logAnswers": [
+  "logFields": {
+    "get-application-logs-by-uuid": ["logs"],
+    "get-database-by-uuid": ["validation_logs"],
+    "get-database-import": ["output"],
+    "get-database-logs-by-uuid": ["logs"],
+    "get-deployment-by-uuid": ["logs"],
+    "get-preview-application-logs-by-pull-request-id": ["logs"],
+    "get-server-by-uuid": ["validation_logs"],
+    "get-service-application-logs-by-service-and-app-uuid": ["logs"],
+    "get-service-database-import": ["output"],
+    "get-service-database-logs-by-service-and-database-uuid": ["logs"],
+    "get-service-logs-by-uuid": ["logs"],
+    "list-backup-executions": ["message"],
+    "list-databases": ["validation_logs"],
+    "list-deployments": ["logs"],
+    "list-deployments-by-app-uuid": ["logs"],
+    "list-scheduled-task-executions-by-application-uuid": ["message"],
+    "list-scheduled-task-executions-by-service-uuid": ["message"],
+    "list-servers": ["validation_logs"],
+    "post-service-application-logs-by-service-and-app-uuid": ["logs"],
+    "update-server-by-uuid": ["validation_logs"]
+  },
+  "logPurpose": [
     "get-application-logs-by-uuid",
-    "get-database-by-uuid",
     "get-database-import",
     "get-database-logs-by-uuid",
     "get-deployment-by-uuid",
     "get-preview-application-logs-by-pull-request-id",
-    "get-server-by-uuid",
     "get-service-application-logs-by-service-and-app-uuid",
     "get-service-database-import",
     "get-service-database-logs-by-service-and-database-uuid",
     "get-service-logs-by-uuid",
     "list-backup-executions",
-    "list-databases",
     "list-deployments",
     "list-deployments-by-app-uuid",
     "list-scheduled-task-executions-by-application-uuid",
     "list-scheduled-task-executions-by-service-uuid",
-    "list-servers",
-    "post-service-application-logs-by-service-and-app-uuid",
-    "update-server-by-uuid"
+    "list-server-docker-cleanup-executions",
+    "post-service-application-logs-by-service-and-app-uuid"
   ]
 }
