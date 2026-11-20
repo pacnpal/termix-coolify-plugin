@@ -43,16 +43,23 @@ export function HostSection({ host, shell }: HostSectionProps) {
   const link = linkOf(host);
   const row = useLinkedRow(link);
   const [connectionName, setConnectionName] = useState<string | null>(null);
+  const [revision, setRevision] = useState<string | null>(null);
   const [unlinked, setUnlinked] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const connectionId = link?.connectionId ?? 0;
   useEffect(() => {
+    // A revision read for another connection never keys this one's card.
+    setRevision(null);
     if (!connectionId) return;
     let live = true;
     api
       .getConnection(connectionId)
-      .then((c) => live && setConnectionName(c?.name ?? null))
+      .then((c) => {
+        if (!live) return;
+        setConnectionName(c?.name ?? null);
+        setRevision(c?.revision ?? null);
+      })
       .catch(() => undefined);
     return () => {
       live = false;
@@ -135,7 +142,7 @@ export function HostSection({ host, shell }: HostSectionProps) {
         </div>
       )}
       {error && <NoticePanel tone="destructive" title={error} />}
-      <ServerUpdates link={link} />
+      <ServerUpdates link={link} revision={revision} />
       <div className="flex flex-wrap gap-2">
         <Button
           size="sm"

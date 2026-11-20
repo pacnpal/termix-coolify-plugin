@@ -242,6 +242,10 @@ console }`, calls the shell route and draws `PluginComponent id="terminal.view"`
   place. Shell host ids can be strings, so hosts are matched by `String(id)`, not `useHost`.
 - Server updates: `src/backend/updates/` (`service.ts` `createUpdates`, `routes.ts`) and
   `src/backend/ops/updates.ts`; the UI is `src/frontend/views/ServerUpdates.tsx` inside the host card.
+  `ServerUpdates` remounts its card on `connectionId:serverUuid:revision` (the revision from
+  `HostSection`'s connection read), so a changed link drops its answer and any open confirmation; each
+  request has a generation (only the newest sets state), and a confirmation keeps the key it was
+  opened for and acts only while that key is current.
   Coolify's `patch_check_result` is mapped by `toPatch` in `dto.ts` (an explicit `security_updates: null`
   stays unknown; a `patch_check_error` makes `updates` and `security` null with no items, whatever
   result is left, so the card, Install, the updates signal and the actions never read it as zero). Check and install go through `ctx.operations.invoke` of `package-manager.list-updates` /

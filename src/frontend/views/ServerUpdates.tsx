@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { PackageCheck, Power, RefreshCw } from "lucide-react";
 import {
   usePermission,
@@ -226,8 +233,41 @@ type Busy = "check" | "install" | "reboot" | null;
 /**
  * A Linked host's pending package updates: Coolify's last check, or the
  * plugin's own when newer, with Check now, Install updates and Reboot.
+ *
+ * Everything the card holds (its answer, an open confirmation, a pending
+ * action) belongs to one connection, server and connection revision: a
+ * change of any remounts it empty, so nothing shown or confirmed for one
+ * server can act on another.
  */
-export function ServerUpdates({ link }: { link: HostLink }) {
+export function ServerUpdates({
+  link,
+  revision,
+}: {
+  link: HostLink;
+  /** The connection's revision, once read. */
+  revision?: string | null;
+}) {
+  const key = `${link.connectionId}:${link.serverUuid}:${revision ?? ""}`;
+  const current = useRef(key);
+  current.current = key;
+  const isCurrent = useCallback(
+    (opened: string) => current.current === opened,
+    [],
+  );
+  return (
+    <UpdatesCard key={key} link={link} linkKey={key} isCurrent={isCurrent} />
+  );
+}
+
+function UpdatesCard({
+  link,
+  linkKey,
+  isCurrent,
+}: {
+  link: HostLink;
+  linkKey: string;
+  isCurrent: (key: string) => boolean;
+}) {
   const { t } = useTranslation();
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
@@ -236,24 +276,50 @@ export function ServerUpdates({ link }: { link: HostLink }) {
   const [data, setData] = useState<UpdatesAnswer | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState<Busy>(null);
-  const [asking, setAsking] = useState<"install" | "reboot" | null>(null);
+  // The confirmation keeps the link it was opened for.
+  const [asking, setAsking] = useState<{
+    kind: "install" | "reboot";
+    key: string;
+  } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const { connectionId, serverUuid } = link;
+  // Each request takes the next generation; only the newest may set state,
+  // and none may once the card is gone (its link changed).
+  const requests = useRef(0);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const begin = useCallback(() => {
+    const generation = ++requests.current;
+    return () =>
+      mounted.current && generation === requests.current && isCurrent(linkKey);
+  }, [isCurrent, linkKey]);
+
   const load = useCallback(async () => {
+    const latest = begin();
     try {
       const answer = await api.serverUpdates(connectionId, serverUuid);
+      if (!latest()) return;
       setData(answer && typeof answer === "object" ? answer : null);
       setLoadFailed(false);
     } catch {
-      setLoadFailed(true);
+      if (latest()) setLoadFailed(true);
     }
-  }, [api, connectionId, serverUuid]);
+  }, [api, begin, connectionId, serverUuid]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  /** An action may run only for the link its confirmation was opened for. */
+  const stillFor = (opened: string) =>
+    mounted.current && opened === linkKey && isCurrent(opened);
 
   const serverName = data?.server?.name ?? "";
   // The newest check wins, whichever ran it; a tie goes to the plugin's own.
@@ -275,26 +341,31 @@ export function ServerUpdates({ link }: { link: HostLink }) {
   const dockerCount = items(latest).filter((i) => i.risk === "docker").length;
 
   async function check() {
+    if (!stillFor(linkKey)) return;
+    const latest = begin();
     setBusy("check");
     setError(null);
     setNotice(null);
     try {
       const result = await api.checkServerUpdates(connectionId, serverUuid);
+      if (!latest()) return;
       setData((prev) =>
         prev ? { ...prev, fresh: result.fresh, via: result.via } : prev,
       );
     } catch (err) {
-      setError(errorText(t, err));
+      if (latest()) setError(errorText(t, err));
     } finally {
-      setBusy(null);
+      if (mounted.current) setBusy(null);
     }
   }
 
-  async function install() {
+  async function install(opened: string) {
+    if (!stillFor(opened)) return;
     setBusy("install");
     setError(null);
     try {
       const result = await api.installServerUpdates(connectionId, serverUuid);
+      if (!mounted.current) return;
       setAsking(null);
       setNotice(
         result.pending
@@ -303,23 +374,25 @@ export function ServerUpdates({ link }: { link: HostLink }) {
       );
       await load();
     } catch (err) {
-      setError(errorText(t, err));
+      if (mounted.current) setError(errorText(t, err));
     } finally {
-      setBusy(null);
+      if (mounted.current) setBusy(null);
     }
   }
 
-  async function reboot(name: string) {
+  async function reboot(opened: string, name: string) {
+    if (!stillFor(opened)) return;
     setBusy("reboot");
     setError(null);
     try {
       await api.rebootServer(connectionId, serverUuid, name);
+      if (!mounted.current) return;
       setAsking(null);
       setNotice(t("updates.rebootStarted", { server: serverName }));
     } catch (err) {
-      setError(errorText(t, err));
+      if (mounted.current) setError(errorText(t, err));
     } finally {
-      setBusy(null);
+      if (mounted.current) setBusy(null);
     }
   }
 
@@ -379,20 +452,20 @@ export function ServerUpdates({ link }: { link: HostLink }) {
       )}
       {notice && <NoticePanel title={notice} />}
       {error && <NoticePanel tone="destructive" title={error} />}
-      {data && asking === "install" && latest && (
+      {data && asking?.kind === "install" && latest && (
         <InstallConfirm
           server={serverName}
           status={latest}
           busy={busy === "install"}
-          onConfirm={() => void install()}
+          onConfirm={() => void install(asking.key)}
           onCancel={() => setAsking(null)}
         />
       )}
-      {data && asking === "reboot" && (
+      {data && asking?.kind === "reboot" && (
         <RebootConfirm
           server={serverName}
           busy={busy === "reboot"}
-          onConfirm={(name) => void reboot(name)}
+          onConfirm={(name) => void reboot(asking.key, name)}
           onCancel={() => setAsking(null)}
         />
       )}
@@ -414,7 +487,7 @@ export function ServerUpdates({ link }: { link: HostLink }) {
               size="sm"
               variant="outline"
               disabled={busy !== null}
-              onClick={() => setAsking("install")}
+              onClick={() => setAsking({ kind: "install", key: linkKey })}
             >
               {t("updates.install")}
             </Button>
@@ -424,7 +497,7 @@ export function ServerUpdates({ link }: { link: HostLink }) {
               size="sm"
               variant="outline"
               disabled={busy !== null}
-              onClick={() => setAsking("reboot")}
+              onClick={() => setAsking({ kind: "reboot", key: linkKey })}
             >
               <Power className="size-3.5" />
               {t("updates.reboot")}
