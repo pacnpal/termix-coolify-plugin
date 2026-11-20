@@ -1,7 +1,47 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { ContainerError, type Containers } from "../containers/service.js";
 import type { Logs } from "../containers/logs.js";
+import { handoffIdFor } from "../status/service.js";
 import { connectionIdInput } from "./connections.js";
+
+/** How long a logs-tail text waits for its MCP answer, in this process only. */
+const LOG_HANDOFF_TTL_MS = 60_000;
+/** The most log text held for handoffs at once; the oldest go first. */
+const LOG_HANDOFF_MAX_CHARS = 16 * 1024 * 1024;
+const logHandoffs = new Map<string, { text: string; expiresAt: number }>();
+
+function logKey(userId: string, handoffId: string): string {
+  return `${userId}\u0000${handoffId}`;
+}
+
+function sweepLogs(now: number): void {
+  let total = 0;
+  for (const [key, entry] of logHandoffs) {
+    if (entry.expiresAt <= now) logHandoffs.delete(key);
+    else total += entry.text.length;
+  }
+  for (const [key, entry] of logHandoffs) {
+    if (total <= LOG_HANDOFF_MAX_CHARS) break;
+    logHandoffs.delete(key);
+    total -= entry.text.length;
+  }
+}
+
+/**
+ * The redacted text of one logs-tail run, once, to the user who ran it.
+ * Run history never holds it (the output is sensitive), so the MCP answer
+ * takes it from here; another user, a second take or an expired entry gets
+ * null.
+ */
+export function takeLogText(userId: string, handoffId: unknown): string | null {
+  if (!userId || typeof handoffId !== "string") return null;
+  sweepLogs(Date.now());
+  const key = logKey(userId, handoffId);
+  const entry = logHandoffs.get(key);
+  if (!entry) return null;
+  logHandoffs.delete(key);
+  return entry.text;
+}
 
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -47,7 +87,7 @@ export function registerContainerOperations(
   });
 
   ctx.operations.register("coolify.logs-tail", {
-    run: async (input) => {
+    run: async (input, { runId }) => {
       // Logs carry secrets: an ops run or MCP call reads them only when the
       // caller asked for exactly that.
       if (input.confirm !== true) {
@@ -72,9 +112,21 @@ export function registerContainerOperations(
       const count = answer.text
         ? answer.text.replace(/\n$/, "").split("\n").length
         : 0;
+      const handoffId = handoffIdFor(runId);
+      const userId = ctx.currentActor() ?? "";
+      if (userId) {
+        sweepLogs(Date.now());
+        logHandoffs.set(logKey(userId, handoffId), {
+          text: answer.text,
+          expiresAt: Date.now() + LOG_HANDOFF_TTL_MS,
+        });
+      }
       return {
         summary: `${count} log lines from ${answer.source === "coolify" ? "Coolify" : "the server over SSH"}`,
-        data: { ...answer },
+        // text is already redacted (redactLog) and is a sensitive output, so
+        // core drops it before a run is stored; handoffId lets the MCP answer
+        // carry it.
+        data: { ...answer, handoffId },
       };
     },
   });

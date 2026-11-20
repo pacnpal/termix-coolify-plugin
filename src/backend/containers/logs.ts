@@ -25,10 +25,40 @@ const UUID = /^[A-Za-z0-9_-]{1,64}$/;
 
 /**
  * `name=value`, `name: value` and `"name": "value"` where the name says it
- * holds a secret: env dumps, config echoes and JSON log lines.
+ * holds a secret: env dumps, YAML and config echoes and JSON log lines. The
+ * value is a quoted string through its closing quote (escapes honoured), or
+ * else the rest of the line, which `maskField` narrows to one token where
+ * that is the format's rule.
  */
 const SECRET_FIELD =
-  /(\b[\w.-]{0,64}(?:password|passwd|pwd|secret|token|api_?key|private_?key|access_?key|credentials?)[\w.-]{0,64}["']?\s{0,8}[:=]\s{0,8}["']?)[^\s"',;&}]+/gi;
+  /(\b[\w.-]{0,64}(?:password|passwd|pwd|secret|token|api_?key|private_?key|access_?key|credentials?)[\w.-]{0,64}["']?\s{0,8}([:=])[ \t]{0,8})("(?:[^"\\\r\n]|\\.)*"|'(?:[^'\\\r\n]|\\.)*'|[^\r\n]*)/gi;
+
+/**
+ * One secret field's replacement. A quoted value is masked whole. An
+ * unterminated quote, or a YAML `name: value` that starts its line, masks
+ * the rest of the line. Any other unquoted value (`NAME=value`, logfmt) runs
+ * to the end of its token.
+ */
+function maskField(
+  text: string,
+  head: string,
+  sep: string,
+  value: string,
+  offset: number,
+): string {
+  const quote = value[0];
+  if ((quote === '"' || quote === "'") && value.length > 1) {
+    if (value.endsWith(quote))
+      return `${head}${quote}${REDACTED_VALUE}${quote}`;
+  }
+  if (!value) return head;
+  const lineStart = text.lastIndexOf("\n", offset - 1) + 1;
+  const yaml =
+    sep === ":" && /^\s*(?:-\s+)?["']?$/.test(text.slice(lineStart, offset));
+  if (yaml || quote === '"' || quote === "'") return `${head}${REDACTED_VALUE}`;
+  const token = /^\S*/.exec(value)![0];
+  return `${head}${REDACTED_VALUE}${value.slice(token.length)}`;
+}
 /** An Authorization header's credential. */
 const AUTH_HEADER = /(\b(?:bearer|basic|token)\s+)[A-Za-z0-9._~+/=|-]{8,}/gi;
 
@@ -43,8 +73,13 @@ export function redactLog(text: string, secrets: readonly string[]): string {
   for (const secret of secrets) {
     if (secret) out = out.split(secret).join(REDACTED_VALUE);
   }
-  return maskCredentials(out)
-    .replace(SECRET_FIELD, `$1${REDACTED_VALUE}`)
+  out = maskCredentials(out);
+  return out
+    .replace(
+      SECRET_FIELD,
+      (_m, head: string, sep: string, value: string, offset: number) =>
+        maskField(out, head, sep, value, offset),
+    )
     .replace(AUTH_HEADER, `$1${REDACTED_VALUE}`);
 }
 
@@ -209,12 +244,95 @@ export interface Following {
 }
 
 /** A line longer than this is sent in pieces, so the carry can't grow. */
-const MAX_LINE = 16 * 1024;
+export const MAX_LINE = 16 * 1024;
+/** Raw text kept back from a long line's cut, so a match can't straddle it. */
+const CUT_CONTEXT = 1024;
+/** Cut points tried before a long line is masked from there to its end. */
+const CUT_TRIES = 32;
 
-function chunkText(chunk: unknown): string {
-  if (typeof chunk === "string") return chunk;
-  if (chunk instanceof Uint8Array) return Buffer.from(chunk).toString("utf8");
-  return "";
+/** `text` in pieces of at most MAX_LINE. */
+function pieces(text: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < text.length; i += MAX_LINE) {
+    out.push(text.slice(i, i + MAX_LINE));
+  }
+  return out.length ? out : [""];
+}
+
+/**
+ * Where a long line can be cut so that redacting the two halves apart masks
+ * exactly what redacting it whole would: no secret, field or URL credential
+ * spans the cut. Tries `from`, then earlier whitespace. 0 when none works.
+ */
+function safeCut(text: string, secrets: readonly string[], from: number) {
+  const whole = redactLog(text, secrets);
+  let p = from;
+  for (let tries = 0; tries < CUT_TRIES && p > 0; tries += 1) {
+    const left = redactLog(text.slice(0, p), secrets);
+    if (left + redactLog(text.slice(p), secrets) === whole) return p;
+    const space = text.lastIndexOf(" ", p - 2);
+    p = space >= 0 ? space + 1 : p - CUT_CONTEXT;
+  }
+  return 0;
+}
+
+/**
+ * Turns one SSH stream's bytes into redacted lines. One UTF-8 decoder per
+ * stream keeps a character split across chunks whole. A line longer than
+ * MAX_LINE is cut only where `safeCut` allows, with at least CUT_CONTEXT
+ * (and the longest secret) kept back; when no safe cut exists the rest of
+ * that line is masked, so nothing is let through unredacted.
+ */
+export function lineSplitter(
+  secrets: readonly string[],
+  emit: (lines: string[]) => void,
+) {
+  const decoder = new TextDecoder("utf-8");
+  const keep = Math.max(CUT_CONTEXT, ...secrets.map((s) => s.length * 2));
+  let carry = "";
+  let skipping = false;
+
+  function take(text: string, final: boolean): void {
+    const parts = (carry + text).split(/\r?\n/);
+    carry = final ? "" : (parts.pop() ?? "");
+    const out: string[] = [];
+    for (const line of parts) {
+      if (skipping) {
+        skipping = false;
+        continue;
+      }
+      if (final && !line) continue;
+      out.push(...pieces(redactLog(line, secrets)));
+    }
+    if (skipping) {
+      carry = "";
+    } else {
+      while (carry.length > MAX_LINE + keep) {
+        const cut = safeCut(carry, secrets, carry.length - keep);
+        if (cut <= 0) {
+          out.push(REDACTED_VALUE);
+          carry = "";
+          skipping = true;
+          break;
+        }
+        out.push(...pieces(redactLog(carry.slice(0, cut), secrets)));
+        carry = carry.slice(cut);
+      }
+    }
+    if (out.length) emit(out);
+  }
+
+  return {
+    data(chunk: unknown): void {
+      if (typeof chunk === "string") take(chunk, false);
+      else if (chunk instanceof Uint8Array) {
+        take(decoder.decode(chunk, { stream: true }), false);
+      }
+    },
+    end(): void {
+      take(decoder.decode(), true);
+    },
+  };
 }
 
 export interface LogsDeps {
@@ -410,25 +528,22 @@ export function createLogs(ctx: PluginContext, deps: LogsDeps) {
           "docker logs could not start on the Linked host.",
         );
       }
-      let carry = "";
-      const onData = (chunk: unknown) => {
-        if (stopped) return;
-        const parts = (carry + chunkText(chunk)).split(/\r?\n/);
-        carry = parts.pop() ?? "";
-        while (carry.length > MAX_LINE) {
-          parts.push(carry.slice(0, MAX_LINE));
-          carry = carry.slice(MAX_LINE);
-        }
-        if (parts.length) {
-          sink.lines(parts.map((line) => redactLog(line, secrets)));
-        }
+      // stdout and stderr each keep their own partial line and decoder.
+      const emit = (lines: string[]) => {
+        if (!stopped) sink.lines(lines);
       };
-      stream.on("data", onData);
-      stream.stderr?.on("data", onData);
+      const out = lineSplitter(secrets, emit);
+      const err = lineSplitter(secrets, emit);
+      stream.on("data", (chunk) => {
+        if (!stopped) out.data(chunk);
+      });
+      stream.stderr?.on("data", (chunk) => {
+        if (!stopped) err.data(chunk);
+      });
       stream.on("close", () => {
         if (stopped) return;
-        if (carry) sink.lines([redactLog(carry, secrets)]);
-        carry = "";
+        out.end();
+        err.end();
         stop();
         sink.end();
       });

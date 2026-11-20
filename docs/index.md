@@ -187,7 +187,8 @@ session is unlocked, that you still hold the permission, the Grant and the conne
 that you can still open the Linked host. Very busy logs are thinned to about 2,000 lines a second.
 
 The action `coolify.logs-tail` (offered to the assistant and MCP) answers the same snapshot with its source,
-only with `confirm: true`. Its text is a sensitive output, so run history never keeps it. See
+only with `confirm: true`. Its text is a sensitive output, so run history never keeps it; over MCP the
+caller gets the masked text in the answer. See
 [the API](api.md).
 
 ## Use with an MCP client

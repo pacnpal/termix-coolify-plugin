@@ -337,6 +337,16 @@ console }`, calls the shell route and draws `PluginComponent id="terminal.view"`
   token and Access secret (`snapshot.secrets()`, unsealed from the same row) are replaced anywhere, then
   redact.ts's `maskCredentials`, then secret-named `name=value`/`"name": "value"` fields and
   `Authorization` credentials. Names are bounded (`{0,64}`) so a long line can't backtrack for long.
+  A quoted value is masked through its closing quote (escapes honoured); an unterminated quote or a YAML
+  `name: value` starting its line masks the rest of the line; other unquoted values run to the end of
+  the token (`maskField`). Followed bytes go through `lineSplitter`: one streaming `TextDecoder` per
+  stdout/stderr, and a line over MAX_LINE is cut only at a point `safeCut` proves changes nothing
+  (redacting the halves equals redacting the whole), keeping 1 KiB (or twice the longest secret) back;
+  with no safe cut the rest of that line becomes one `[redacted]`.
+- logs-tail over MCP: `text` is a sensitive output, so core drops it from run history and from what
+  `redactFields` passes on. The handler keeps the redacted text in memory (`takeLogText`, per user and
+  `handoffId`, 60 s, 16 MB at most) and `actionResult` in `mcp/server.ts` puts it back into that one
+  answer.
 - Follow socket: `ctx.asUser` needs `users:impersonate`, which the plugin doesn't have. Core runs a socket's
   events in the opener's actor context (its child runtime wraps them in `als.run`), and timers started in
   a handler keep it, so each message and each `RECHECK_MS` (15 s) check runs `ctx.currentActor() ===
@@ -346,7 +356,8 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   the follow. The follow runs `docker logs -f --tail 0` over `ctx.ssh.connect` with a pty, so closing the
   channel hangs it up; stop sends KILL, closes the channel and disposes. One follow per socket: a new
   subscribe stops the old one. Lines are batched every 250 ms, at most 500 a batch and 2,000 buffered
-  (older ones dropped with a `dropped` count), lines over 16 KiB split. Tests drive the handler from
+  (older ones dropped with a `dropped` count), lines over 16 KiB split. When docker logs ends, the
+  whole buffer is drained in batches before `ended`. A `choices` reply shows LogsView's picker. Tests drive the handler from
   `mock.wsRoutes` with a fake socket and must `setActor` to the socket's user, as core does.
 - Logs view: `src/frontend/views/LogsView.tsx` in ResourceDetail's `logs` tab, keyed by connection, uuid
   and `revision`, so switching resources or targets starts empty and closes the follow. Its loads keep only

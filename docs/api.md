@@ -162,7 +162,10 @@ Follows a container's logs live over SSH (`docker logs -f`, from now on). Send J
 It answers `started { source: "ssh", container }`, `lines { lines, dropped? }`, `choices`, `stopped`,
 `ended` (the container's log stream ended) and `error { cause, error }`. A socket runs one follow; a new
 subscribe stops the old one. At most 2,000 lines a second reach the socket (older ones are dropped and
-counted in `dropped`), and a line longer than 16 KiB is sent in pieces. Every line is masked as above.
+counted in `dropped`), and a line longer than 16 KiB is sent in pieces, cut only where no secret spans
+the cut. Every line is masked as above, quoted values whole. When the log stream ends, every buffered
+line is sent before `ended`. A `choices` answer means several containers match: subscribe again with
+`container`.
 
 Every message, and every 15 seconds while a follow runs, is checked: your session must be unlocked, and you
 must hold **Operate Coolify resources**, still pass the same grant and resource checks as the route, and
@@ -176,7 +179,9 @@ server and ends its SSH connection.
 A read, offered to the assistant and MCP. Inputs: `connectionId`, `uuid`, `confirm` (must be `true`: logs
 can hold secrets), and optionally `part`, `container`, `lines` (up to 10,000) and `timestamps`, checked
 like the route. Its data is `{ source, text, container? }`, or `{ choices }` when several containers
-match. `text` is a sensitive output: run history never keeps it.
+match. `text` is a sensitive output: run history never keeps it. Over MCP, `coolify__logs_tail` answers
+the (redacted) text once to the caller, cut at 8,000 characters like any tool output; `handoffId` is
+what it is taken by.
 
 ## The full Coolify API
 

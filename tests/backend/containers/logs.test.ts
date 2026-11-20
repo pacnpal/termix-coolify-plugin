@@ -4,6 +4,40 @@ import { OTHER, OWNER, type PluginHarness } from "../helpers/plugin.js";
 import { resourceLists } from "../helpers/resources.js";
 import { fakeDocker, HOST_ID, setSensitive, startShell } from "./fixtures.js";
 import { RECHECK_MS } from "../../../src/backend/containers/sockets.js";
+import { MAX_LINE, redactLog } from "../../../src/backend/containers/logs.js";
+
+describe("redactLog", () => {
+  const masked = (text: string) => redactLog(text, []);
+
+  it("masks the whole quoted value, spaces, commas and escaped quotes included", () => {
+    for (const [line, leaks] of [
+      ['{"password": "alpha beta gamma"}', ["alpha", "beta", "gamma"]],
+      ['{"password": "correct horse battery staple"}', ["horse", "staple"]],
+      ['{"api_key": " leading-secret"}', ["leading-secret"]],
+      ['{"token": "ab\\"cd, ef; gh"}', ["ab", "cd", "ef", "gh"]],
+      ["secret='one two'", ["one", "two"]],
+    ] as const) {
+      const out = masked(line);
+      for (const leak of leaks) expect(out, line).not.toContain(leak);
+      expect(out, line).toContain("[redacted]");
+    }
+    // The rest of the JSON stays.
+    expect(masked('{"password": "a b", "user": "bob"}')).toContain(
+      '"user": "bob"',
+    );
+  });
+
+  it("masks unquoted env values to the end of the token and YAML values to the end of the line", () => {
+    const env = masked("DB_PASSWORD=abc;def,ghi user=bob");
+    for (const leak of ["abc", "def", "ghi"]) expect(env).not.toContain(leak);
+    expect(env).toContain("user=bob");
+    const yaml = masked("  password: alpha beta gamma");
+    for (const leak of ["alpha", "beta", "gamma"]) {
+      expect(yaml).not.toContain(leak);
+    }
+    expect(masked("export API_KEY= spaced-out")).not.toContain("spaced-out");
+  });
+});
 
 let harness: PluginHarness | null = null;
 
@@ -614,6 +648,55 @@ describe("logs follow socket", () => {
         .flatMap((m) => m.lines as string[])
         .join("\n"),
     );
+  });
+
+  it("masks the token when it straddles the long-line split", async () => {
+    const { ssh, socket } = await following();
+    const stream = ssh.execs[0].stream;
+    stream.emit("data", Buffer.from("x".repeat(MAX_LINE - 5) + TOKEN));
+    stream.emit("data", Buffer.from("y".repeat(MAX_LINE * 2)));
+    stream.emit("data", Buffer.from(" password=" + "z".repeat(3)));
+    stream.emit("data", Buffer.from("zzzz-tail\nnext\n"));
+    await vi.waitFor(() =>
+      expect(
+        sentOf(socket, "lines").flatMap((m) => m.lines as string[]),
+      ).toContain("next"),
+    );
+    const pieces = sentOf(socket, "lines").flatMap((m) => m.lines as string[]);
+    expect(pieces.length).toBeGreaterThan(2);
+    for (const piece of pieces) {
+      expect(piece.length).toBeLessThanOrEqual(MAX_LINE);
+      for (const part of [TOKEN, TOKEN.slice(0, 6), TOKEN.slice(-6), "zzz"]) {
+        expect(piece).not.toContain(part);
+      }
+    }
+  });
+
+  it("keeps a multibyte character split across SSH chunks", async () => {
+    const { ssh, socket } = await following();
+    const bytes = Buffer.from("a界b\n");
+    ssh.execs[0].stream.emit("data", bytes.subarray(0, 2));
+    ssh.execs[0].stream.emit("data", bytes.subarray(2));
+    await vi.waitFor(() =>
+      expect(
+        sentOf(socket, "lines").flatMap((m) => m.lines as string[]),
+      ).toEqual(["a界b"]),
+    );
+  });
+
+  it("sends every buffered line before ended when docker logs closes", async () => {
+    const { ssh, socket } = await following();
+    const many = Array.from({ length: 1_000 }, (_, i) => `line ${i}`);
+    ssh.execs[0].stream.emit("data", Buffer.from(many.join("\n") + "\n"));
+    ssh.execs[0].stream.close();
+    await vi.waitFor(() => expect(sentOf(socket, "ended")).toHaveLength(1));
+    const sent = sentOf(socket, "lines").flatMap((m) => m.lines as string[]);
+    expect(sent).toEqual(many);
+    // ended comes after the last batch.
+    expect(socket.sent.at(-1)).toEqual({ type: "ended" });
+    for (const m of sentOf(socket, "lines")) {
+      expect((m.lines as string[]).length).toBeLessThanOrEqual(500);
+    }
   });
 
   it("a target change stops the follow on the next message", async () => {

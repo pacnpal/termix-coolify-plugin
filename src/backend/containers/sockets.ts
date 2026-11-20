@@ -244,7 +244,10 @@ export function registerLogSocket(
       },
       end() {
         if (done) return;
-        flush();
+        // Drain the bounded buffer (at most MAX_BUFFER lines, in batches of
+        // MAX_PER_FLUSH) so a container's last words are never dropped.
+        while (!done && (buffer.length || dropped)) flush();
+        if (done) return;
         stopFollow();
         send({ type: "ended" });
       },

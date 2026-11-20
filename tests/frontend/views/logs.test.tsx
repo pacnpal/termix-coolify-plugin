@@ -210,6 +210,41 @@ describe("Logs view", () => {
     expect(screen.getByText("fresh line")).toBeTruthy();
   });
 
+  it("a follow that answers choices shows the picker and follows the chosen container", async () => {
+    const { api } = await openLogs({ source: "coolify", text: "api line\n" });
+    const fallback = api.get.getMockImplementation()!;
+    api.get.mockImplementation(async (url: string) =>
+      url.includes("container=web-b")
+        ? { data: { source: "ssh", text: "b line\n", container: "web-b" } }
+        : fallback(url),
+    );
+    await screen.findByText("api line");
+    fireEvent.click(screen.getByRole("button", { name: G.follow }));
+    await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+    const first = FakeWebSocket.all[0];
+    act(() => first.open());
+    act(() =>
+      first.receive({
+        type: "choices",
+        choices: [
+          { name: "web-a", running: true, part: null },
+          { name: "web-b", running: true, part: null },
+        ],
+      }),
+    );
+    expect(await screen.findByText(G.pick.title)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /web-b/ }));
+    expect(await screen.findByText("b line")).toBeTruthy();
+    await waitFor(() => expect(FakeWebSocket.all).toHaveLength(2));
+    const second = FakeWebSocket.all[1];
+    act(() => second.open());
+    expect(second.sent[0]).toMatchObject({
+      type: "subscribe",
+      container: "web-b",
+    });
+    expect(first.closed).toBe(true);
+  });
+
   it("explains not-linked from the route", async () => {
     const api = stubApi();
     const fallback = api.get.getMockImplementation()!;

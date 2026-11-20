@@ -21,6 +21,7 @@ import {
   ToolbarSelect,
 } from "@termix-ssh/plugin-sdk/ui";
 import {
+  choicesOf,
   createApi,
   failureOf,
   type ContainerChoice,
@@ -200,7 +201,13 @@ export function LogsView({
           return;
         }
         if (message.type === "started") setFollow({ kind: "live" });
-        else if (message.type === "ended") setFollow({ kind: "ended" });
+        else if (message.type === "choices") {
+          // Several containers match over SSH: show the picker. Picking one
+          // reloads with that container, and the follow subscribes again
+          // with it (kept for this resource while the view lives).
+          const choices = choicesOf(message);
+          if (choices) setSnapshot({ kind: "choices", choices });
+        } else if (message.type === "ended") setFollow({ kind: "ended" });
         else if (message.type === "error") {
           setFollow({ kind: "failed", cause: String(message.cause ?? "") });
         } else if (message.type === "lines" && Array.isArray(message.lines)) {

@@ -171,4 +171,8 @@
   session, permission, grant, the connection's target and your host access on every message and every 15
   seconds
 - The action `coolify.logs-tail`, offered to the assistant and MCP, answers the same logs with
-  `confirm: true`; run history never keeps their text
+  `confirm: true`; run history never keeps their text, and over MCP the answer carries the masked text
+- Logs mask a quoted secret through its closing quote, YAML secrets to the end of the line and env values
+  to the end of the token, also when a long line is split; multibyte characters split across SSH chunks
+  stay whole, a follow sends its last lines before it ends, and a follow that finds several containers
+  shows the picker

@@ -213,7 +213,10 @@ describe("logs-tail operation", () => {
         timestamps: true,
         confirm: true,
       });
-      expect(outcome.data).toEqual(route.body);
+      // Plus the handoffId the MCP answer takes the text by.
+      const { handoffId, ...data } = outcome.data as Record<string, unknown>;
+      expect(typeof handoffId).toBe("string");
+      expect(data).toEqual(route.body);
       expect(route.body.source).toBe(sensitive ? "coolify" : "ssh");
     }
     // The text is a sensitive output: run history never keeps it.

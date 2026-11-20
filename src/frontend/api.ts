@@ -302,7 +302,8 @@ export type LogsResult =
   | ({ kind: "logs" } & LogsAnswer)
   | { kind: "choices"; choices: ContainerChoice[] };
 
-function choicesOf(data: unknown): ContainerChoice[] | null {
+/** The containers of a choices answer (a route body or a socket message). */
+export function choicesOf(data: unknown): ContainerChoice[] | null {
   const list = (data as { choices?: unknown } | null)?.choices;
   return Array.isArray(list) ? (list as ContainerChoice[]) : null;
 }
