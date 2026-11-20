@@ -1,0 +1,456 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import {
+  renderWithApp,
+  type RenderedPluginApp,
+} from "@termix-ssh/plugin-sdk/testing";
+import { listHostSections, SurfaceScope } from "@termix-ssh/plugin-sdk/ui";
+import type { PluginManifest } from "@termix-ssh/plugin-sdk/manifest";
+import type { PluginApiClient } from "@termix-ssh/plugin-sdk/frontend";
+import * as plugin from "../../../src/frontend/index";
+import manifestJson from "../../../manifest.json";
+import locales from "../../../locales/en.json";
+
+const manifest = manifestJson as unknown as PluginManifest;
+const ALL = [
+  "coolify.view",
+  "coolify.operate",
+  "coolify.configure",
+  "coolify.administer",
+];
+const U = locales.updates;
+
+const linked = {
+  id: 7,
+  userId: "user-1",
+  name: "web-1",
+  ip: "203.0.113.11",
+  port: 22,
+  username: "root",
+  pluginSettings: {
+    coolify: {
+      coolifyLinked: true,
+      coolifyConnectionId: "1",
+      coolifyServerUuid: "srv-web1",
+    },
+  },
+};
+
+const coolifyPatch = {
+  updates: 3,
+  security: 1,
+  rebootRequired: true,
+  checkedAt: "2026-11-18T10:00:00.000Z",
+  error: null,
+  items: [
+    {
+      package: "docker-ce",
+      newVersion: "5:27.0.1",
+      currentVersion: "5:26.1.0",
+      security: false,
+      risk: "docker",
+    },
+    {
+      package: "openssl",
+      newVersion: "3.0.2-0ubuntu1.18",
+      currentVersion: "3.0.2-0ubuntu1.17",
+      security: true,
+      risk: null,
+    },
+    {
+      package: "linux-image-generic",
+      newVersion: "5.15.0.130",
+      currentVersion: "5.15.0.125",
+      security: false,
+      risk: "kernel",
+    },
+  ],
+};
+
+function status(overrides: Record<string, unknown> = {}) {
+  return {
+    server: { uuid: "srv-web1", name: "web-1" },
+    hostId: 7,
+    coolify: coolifyPatch,
+    fresh: null,
+    via: null,
+    ...overrides,
+  };
+}
+
+function stubApi(answer = status()) {
+  const mocks = {
+    get: vi.fn(async (url: string) => ({
+      data: url.endsWith("/updates")
+        ? answer
+        : url === "/connections/1/servers"
+          ? []
+          : { id: 1, name: "Prod" },
+    })),
+    post: vi.fn(async (url: string, _body?: unknown) => ({
+      data: url.endsWith("/updates/check")
+        ? {
+            via: "ssh",
+            fresh: {
+              ...coolifyPatch,
+              updates: 1,
+              security: 0,
+              rebootRequired: false,
+              items: [coolifyPatch.items[0]],
+              checkedAt: "2026-11-19T09:00:00.000Z",
+            },
+          }
+        : url.endsWith("/updates/install")
+          ? {
+              via: "package-manager",
+              summary: "Upgraded all packages",
+              changed: true,
+              pending: false,
+              output: "",
+            }
+          : { via: "ssh", summary: "Rebooting web-1" },
+    })),
+    patch: vi.fn(async () => ({ data: {} })),
+    delete: vi.fn(async () => ({ data: {} })),
+    put: vi.fn(async () => ({ data: {} })),
+  };
+  return mocks as unknown as typeof mocks & PluginApiClient;
+}
+
+let rendered: RenderedPluginApp | null = null;
+
+afterEach(async () => {
+  await rendered?.deactivate();
+  rendered = null;
+  vi.restoreAllMocks();
+});
+
+async function renderSection(
+  api: ReturnType<typeof stubApi>,
+  permissions = ALL,
+) {
+  rendered = await renderWithApp(plugin, {
+    manifest,
+    locales,
+    api,
+    permissions,
+  });
+  const section = listHostSections().find(
+    (s) => s.id === "coolify" || s.id.endsWith(":coolify"),
+  );
+  if (!section) throw new Error("no coolify host section");
+  const Section = section.component;
+  render(
+    <SurfaceScope>
+      <Section
+        host={linked as never}
+        isVisible
+        shell={{ openSingletonTab: vi.fn() } as never}
+      />
+    </SurfaceScope>,
+  );
+  return screen.findByTestId("coolify-updates");
+}
+
+describe("server updates in the host section", () => {
+  it("shows Coolify's update summary: counts, security, reboot and when it was checked", async () => {
+    const card = await renderSection(stubApi());
+    await waitFor(() =>
+      expect(card.textContent).toContain(
+        U.summary.replace("{{count}}", "3").replace("{{security}}", "1"),
+      ),
+    );
+    expect(card.textContent).toContain(U.rebootRequired);
+    expect(card.textContent).toContain(U.dockerRisk.replace("{{count}}", "1"));
+    expect(card.textContent).toContain(U.source.coolify.split("{{")[0]);
+  });
+
+  it("check now shows the fresh result and which path ran", async () => {
+    const api = stubApi();
+    const card = await renderSection(api);
+    fireEvent.click(await within(card).findByRole("button", { name: U.check }));
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        "/connections/1/servers/srv-web1/updates/check",
+        {},
+      ),
+    );
+    await waitFor(() =>
+      expect(card.textContent).toContain(U.source.ssh.split("{{")[0]),
+    );
+    expect(card.textContent).toContain(
+      U.summary.replace("{{count}}", "1").replace("{{security}}", "0"),
+    );
+  });
+
+  it("updates install confirm lists packages and flags docker risk", async () => {
+    const api = stubApi();
+    const card = await renderSection(api);
+    fireEvent.click(
+      await within(card).findByRole("button", { name: U.install }),
+    );
+    const confirm = await within(card).findByRole("group", {
+      name: U.installConfirm.title
+        .replace("{{count}}", "3")
+        .replace("{{server}}", "web-1"),
+    });
+    const rows = within(confirm).getAllByRole("listitem");
+    expect(rows.map((r) => r.getAttribute("data-package"))).toEqual([
+      "docker-ce",
+      "openssl",
+      "linux-image-generic",
+    ]);
+    const docker = rows[0];
+    expect(docker.getAttribute("data-risk")).toBe("docker");
+    expect(docker.textContent).toContain(U.risk.docker);
+    expect(rows[1].getAttribute("data-risk")).toBeNull();
+    expect(rows[1].textContent).not.toContain(U.risk.docker);
+    expect(confirm.textContent).toContain(U.installConfirm.dockerWarning);
+    expect(api.post).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      within(confirm).getByRole("button", { name: U.installConfirm.confirm }),
+    );
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        "/connections/1/servers/srv-web1/updates/install",
+        { confirm: true },
+      ),
+    );
+    await waitFor(() =>
+      expect(card.textContent).toContain(
+        U.installed["package-manager"].replace(
+          "{{summary}}",
+          "Upgraded all packages",
+        ),
+      ),
+    );
+  });
+
+  it("reboot needs typed server name and warns that every app goes down", async () => {
+    const api = stubApi();
+    const card = await renderSection(api);
+    fireEvent.click(
+      await within(card).findByRole("button", { name: U.reboot }),
+    );
+    const confirm = await within(card).findByRole("group", {
+      name: U.rebootConfirm.title.replace("{{server}}", "web-1"),
+    });
+    expect(confirm.textContent).toContain(
+      U.rebootConfirm.warning.replace("{{server}}", "web-1"),
+    );
+    const go = within(confirm).getByRole("button", {
+      name: U.rebootConfirm.confirm,
+    }) as HTMLButtonElement;
+    const input = within(confirm).getByLabelText(
+      U.rebootConfirm.typeName.replace("{{server}}", "web-1"),
+    );
+    expect(go.disabled).toBe(true);
+    fireEvent.change(input, { target: { value: "web-2" } });
+    expect(go.disabled).toBe(true);
+    fireEvent.click(go);
+    expect(api.post).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: "web-1" } });
+    expect(go.disabled).toBe(false);
+    fireEvent.click(go);
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        "/connections/1/servers/srv-web1/reboot",
+        { confirmName: "web-1" },
+      ),
+    );
+  });
+
+  it("a failed Coolify check never shows Up to date, a count or Install", async () => {
+    const failed = {
+      ...coolifyPatch,
+      updates: 0,
+      security: 0,
+      rebootRequired: null,
+      items: [],
+      error: "apt-get update failed",
+    };
+    const card = await renderSection(stubApi(status({ coolify: failed })));
+    await waitFor(() =>
+      expect(card.textContent).toContain("apt-get update failed"),
+    );
+    expect(card.textContent).not.toContain(U.upToDate);
+    expect(card.textContent).not.toContain(
+      U.summary.replace("{{count}}", "0").replace("{{security}}", "0"),
+    );
+    expect(within(card).queryByRole("button", { name: U.install })).toBeNull();
+  });
+
+  it("shows Coolify's check when it is newer than the plugin's own, and offers Install", async () => {
+    const older = {
+      ...coolifyPatch,
+      updates: 0,
+      security: 0,
+      rebootRequired: false,
+      items: [],
+      checkedAt: "2026-11-17T08:00:00.000Z",
+    };
+    const card = await renderSection(
+      stubApi(status({ fresh: older, via: "ssh" })),
+    );
+    await waitFor(() =>
+      expect(card.textContent).toContain(
+        U.summary.replace("{{count}}", "3").replace("{{security}}", "1"),
+      ),
+    );
+    expect(card.textContent).toContain(U.source.coolify.split("{{")[0]);
+    expect(within(card).getByRole("button", { name: U.install })).toBeTruthy();
+  });
+
+  it("says why a check stopped: a changed connection or an untrusted host key", async () => {
+    const errors = U.errors as Record<string, string>;
+    for (const cause of [
+      "target-changed",
+      "host-key",
+      "check-failed",
+      "companions-unknown",
+    ]) {
+      const api = stubApi();
+      api.post.mockRejectedValueOnce({
+        response: { status: 409, data: { error: "x", cause } },
+      });
+      const card = await renderSection(api);
+      fireEvent.click(
+        await within(card).findByRole("button", { name: U.check }),
+      );
+      expect(errors[cause], cause).toBeTruthy();
+      await waitFor(() => expect(card.textContent).toContain(errors[cause]));
+      await rendered?.deactivate();
+      rendered = null;
+      cleanup();
+    }
+  });
+
+  it("hides install without operate and reboot without administer", async () => {
+    const card = await renderSection(stubApi(), ["coolify.view"]);
+    await waitFor(() =>
+      expect(card.textContent).toContain(
+        U.summary.replace("{{count}}", "3").replace("{{security}}", "1"),
+      ),
+    );
+    expect(within(card).queryByRole("button", { name: U.install })).toBeNull();
+    expect(within(card).queryByRole("button", { name: U.check })).toBeNull();
+    expect(within(card).queryByRole("button", { name: U.reboot })).toBeNull();
+  });
+});
+
+/** Renders the section for a host, with a way to switch it to another link. */
+async function renderSwitchable(api: ReturnType<typeof stubApi>) {
+  rendered = await renderWithApp(plugin, {
+    manifest,
+    locales,
+    api,
+    permissions: ALL,
+  });
+  const section = listHostSections().find(
+    (s) => s.id === "coolify" || s.id.endsWith(":coolify"),
+  );
+  if (!section) throw new Error("no coolify host section");
+  const Section = section.component;
+  const view = (host: unknown) => (
+    <SurfaceScope>
+      <Section
+        host={host as never}
+        isVisible
+        shell={{ openSingletonTab: vi.fn() } as never}
+      />
+    </SurfaceScope>
+  );
+  const { rerender } = render(view(linked));
+  return {
+    card: () => screen.getByTestId("coolify-updates"),
+    toWeb2: () =>
+      rerender(
+        view({
+          ...linked,
+          pluginSettings: {
+            coolify: {
+              ...linked.pluginSettings.coolify,
+              coolifyServerUuid: "srv-web2",
+            },
+          },
+        }),
+      ),
+  };
+}
+
+const web2 = status({
+  server: { uuid: "srv-web2", name: "web-2" },
+  coolify: { ...coolifyPatch, updates: 7, security: 2 },
+});
+
+/** An api whose web-1 answer comes from the given function. */
+function twoServers(web1: () => Promise<ReturnType<typeof status>>) {
+  const api = stubApi();
+  const base = api.get.getMockImplementation()!;
+  api.get.mockImplementation(async (url: string) =>
+    url.endsWith("/srv-web1/updates")
+      ? { data: await web1() }
+      : url.endsWith("/srv-web2/updates")
+        ? { data: web2 }
+        : base(url),
+  );
+  return api;
+}
+
+const sum = (count: number, security: number) =>
+  U.summary
+    .replace("{{count}}", String(count))
+    .replace("{{security}}", String(security));
+
+describe("server updates when the host's link changes", () => {
+  it("switching the link clears the data and closes the confirmation", async () => {
+    const view = await renderSwitchable(twoServers(async () => status()));
+    fireEvent.click(
+      await within(view.card()).findByRole("button", { name: U.install }),
+    );
+    await within(view.card()).findByRole("group");
+    view.toWeb2();
+    expect(within(view.card()).queryByRole("group")).toBeNull();
+    expect(view.card().textContent).not.toContain(sum(3, 1));
+    await waitFor(() => expect(view.card().textContent).toContain(sum(7, 2)));
+  });
+
+  it("a late answer for the old link is dropped", async () => {
+    let answerWeb1: (value: ReturnType<typeof status>) => void = () => {};
+    const view = await renderSwitchable(
+      twoServers(() => new Promise((resolve) => (answerWeb1 = resolve))),
+    );
+    view.toWeb2();
+    await waitFor(() => expect(view.card().textContent).toContain(sum(7, 2)));
+    answerWeb1(status());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(view.card().textContent).not.toContain(sum(3, 1));
+  });
+
+  it("confirming after a switch doesn't install on the new server", async () => {
+    const api = twoServers(async () => status());
+    const view = await renderSwitchable(api);
+    fireEvent.click(
+      await within(view.card()).findByRole("button", { name: U.install }),
+    );
+    const confirmButton = within(
+      await within(view.card()).findByRole("group"),
+    ).getByRole("button", { name: U.installConfirm.confirm });
+    view.toWeb2();
+    fireEvent.click(confirmButton);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(api.post).not.toHaveBeenCalledWith(
+      "/connections/1/servers/srv-web2/updates/install",
+      expect.anything(),
+    );
+  });
+});

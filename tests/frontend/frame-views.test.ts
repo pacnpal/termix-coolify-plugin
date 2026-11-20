@@ -3,33 +3,15 @@ import { checkFrameViews } from "@termix-ssh/plugin-sdk/testing";
 import * as plugin from "../../src/frontend/index";
 import manifest from "../../manifest.json";
 import locales from "../../locales/en.json";
+import { resourceAnswer, resourceRows } from "./fixtures";
+import { connectionFixture } from "./helpers";
 
-const connection = {
-  id: 1,
-  name: "Prod",
-  baseUrl: "https://coolify.example.test",
-  teamName: "Ops",
-  version: "v4.7.5",
-  scoped: false,
-  abilities: {
-    read: true,
-    sensitive: true,
-    keys: true,
-    root: false,
-    mcp: false,
-  },
-  lastError: null,
-  autoSync: false,
-  access: "owner",
-  allowPrivate: false,
-  caCert: null,
-  cfAccess: false,
-  lastCheckedAt: null,
-  steps: [],
-};
+const connection = connectionFixture({ teamName: "Ops" });
 
 const allCompanions = Object.fromEntries(
   [
+    "docker",
+    "sshTerminal",
     "files",
     "tunnels",
     "reverseProxy",
@@ -69,7 +51,7 @@ describe("sandboxed frame views", () => {
     const { refused, errors, rendered } = await checkFrameViews(plugin, {
       manifest: manifest as unknown as Record<string, unknown>,
       locales,
-      permissions: ["coolify.view", "coolify.configure"],
+      permissions: ["coolify.view", "coolify.configure", "coolify.mcp"],
       hosts: [linkedHost],
       respond: (method, path) => {
         if (method !== "GET") return {};
@@ -77,6 +59,13 @@ describe("sandboxed frame views", () => {
         if (/\/companions$/.test(path)) return allCompanions;
         if (/\/connections$/.test(path)) return [connection];
         if (/\/connections\/1\/servers$/.test(path)) return [];
+        if (/\/resources(\?|$)/.test(path)) return resourceAnswer;
+        if (/\/resources\/[^/]+$/.test(path)) return resourceRows[0];
+        if (/\/mcp$/.test(path)) {
+          return {
+            endpoint: "https://termix.example.test/plugin-api/coolify/mcp",
+          };
+        }
         if (/\/connections\/1$/.test(path)) return connection;
         return {};
       },

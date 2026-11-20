@@ -16,6 +16,17 @@ import { CompanionError } from "./detect.js";
 // for host status reads) and fields are picked by name; an answer with
 // nothing usable is companion-failed.
 
+/**
+ * What the adapters reach companions through: only ctx.operations.invoke,
+ * and `before`, run right before every call. The companions service's
+ * `before` checks the connection's snapshot, so its refusal (a
+ * ConnectionError) comes through as it is, not as companion-failed.
+ */
+export interface CompanionCaller {
+  operations: Pick<PluginContext["operations"], "invoke">;
+  before?: () => Promise<void>;
+}
+
 type Raw = Record<string, unknown>;
 
 function obj(value: unknown): Raw {
@@ -64,12 +75,13 @@ const FAILED_STATUS = /fail|error|denied|reject|cancel/i;
  * passed on.
  */
 async function invoke(
-  ctx: PluginContext,
+  ctx: CompanionCaller,
   actionId: string,
   plugin: string,
   options: { hostId?: number; input?: Record<string, unknown> },
   extra: { confirmed?: boolean } = {},
 ): Promise<unknown> {
+  await ctx.before?.();
   let outcome: PluginOperationOutcome;
   try {
     outcome = await ctx.operations.invoke(actionId, { ...options, ...extra });
@@ -105,7 +117,7 @@ export interface DnsRecordKey {
  * the longest suffix of `fqdn`. Answers its id (or its name, when the list
  * gives no id), or no-dns-zone.
  */
-async function zoneFor(ctx: PluginContext, fqdn: string): Promise<string> {
+async function zoneFor(ctx: CompanionCaller, fqdn: string): Promise<string> {
   const data = await invoke(ctx, "dns.list-zones", "dns", {});
   let best: { value: string; length: number } | null = null;
   for (const entry of listOf(data, ["rows", "zones", "items"])) {
@@ -125,7 +137,7 @@ async function zoneFor(ctx: PluginContext, fqdn: string): Promise<string> {
 
 /** Sets a record with dns.upsert-record; answers what removing it takes. */
 export async function dnsCreate(
-  ctx: PluginContext,
+  ctx: CompanionCaller,
   input: { fqdn: string; type: DnsType; content: string },
 ): Promise<DnsRecordKey> {
   const key: DnsRecordKey = {
@@ -143,7 +155,7 @@ export async function dnsCreate(
  * destructive; the person asked for this removal.
  */
 export async function dnsRemove(
-  ctx: PluginContext,
+  ctx: CompanionCaller,
   key: DnsRecordKey,
 ): Promise<void> {
   await invoke(
@@ -185,7 +197,7 @@ function monitorStatus(value: unknown): MonitorStatus {
 }
 
 /** Every monitor uptime.monitors lists. */
-export async function uptimeMonitors(ctx: PluginContext): Promise<Monitor[]> {
+export async function uptimeMonitors(ctx: CompanionCaller): Promise<Monitor[]> {
   const data = await invoke(ctx, "uptime.monitors", "uptime", {});
   return listOf(data, ["rows", "monitors", "items"]).flatMap((entry) => {
     const raw = obj(entry);
@@ -205,7 +217,7 @@ export async function uptimeMonitors(ctx: PluginContext): Promise<Monitor[]> {
 
 /** Pauses or resumes one monitor; both actions take `monitor`. */
 export async function uptimeSetPaused(
-  ctx: PluginContext,
+  ctx: CompanionCaller,
   monitor: string,
   paused: boolean,
 ): Promise<void> {
@@ -228,7 +240,7 @@ const MAX_LINE = 2000;
 
 /** log-search.search over Docker logs, with `query`, `source` and `limit`. */
 export async function logSearch(
-  ctx: PluginContext,
+  ctx: CompanionCaller,
   query: string,
 ): Promise<LogLine[]> {
   const data = await invoke(ctx, "log-search.search", "log-search", {
@@ -266,7 +278,7 @@ function valueOf(data: unknown, keys: string[]): number | null {
 
 /** The Linked host's security score and critical vulnerability count. */
 export async function securityCheck(
-  ctx: PluginContext,
+  ctx: CompanionCaller,
   hostId: number,
 ): Promise<SecuritySummary> {
   const status = await invoke(
@@ -306,7 +318,7 @@ export interface SavedLogin {
 
 /** The saved logins databases.list-connections lists for one host. */
 export async function databaseLogins(
-  ctx: PluginContext,
+  ctx: CompanionCaller,
   hostId: number,
 ): Promise<SavedLogin[]> {
   const data = await invoke(ctx, "databases.list-connections", "databases", {
@@ -345,7 +357,7 @@ export interface FailedBackup {
 
 /** Failed Termix backup jobs for one host, from backups.failed. */
 export async function backupsFailed(
-  ctx: PluginContext,
+  ctx: CompanionCaller,
   hostId: number,
 ): Promise<FailedBackup[]> {
   const data = await invoke(ctx, "backups.failed", "backups", { hostId });

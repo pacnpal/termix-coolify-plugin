@@ -48,6 +48,9 @@ export function companionCoolify() {
     "GET /servers/srv-web1": {
       json: { uuid: "srv-web1", name: "web-1", ip: "203.0.113.11", port: 22 },
     },
+    "GET /servers/srv-web2": {
+      json: { uuid: "srv-web2", name: "web-2", ip: "203.0.113.12", port: 22 },
+    },
     "GET /applications": {
       json: [
         {
@@ -284,6 +287,17 @@ export async function startCompanions(
   insert.run(connectionId, "srv-web1", HOST_ID);
   insert.run(connectionId, "srv-web2", HIDDEN_HOST_ID);
   return { harness, companions, fake, connectionId };
+}
+
+/** Points the connection at another token, so its revision changes. */
+export async function changeTarget(
+  harness: PluginHarness,
+  connectionId: number,
+): Promise<void> {
+  const sealed = await harness.mock.ctx.secrets.seal("fake-token-replaced");
+  harness.db.sqlite
+    .prepare("UPDATE p_coolify_connections SET token_sealed = ? WHERE id = ?")
+    .run(sealed, connectionId);
 }
 
 /** Gives `userId` a grant on the connection. */

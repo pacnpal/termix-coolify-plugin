@@ -66,10 +66,13 @@ Keep this section current when the plugin changes: what it does, how it is put t
 aren't obvious from the code, and anything that has bitten you before.
 
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
-  Where things stand: identity, permissions, admin settings, the vendored API and the tables exist, and
+  Where things stand: identity, permissions, admin settings, the vendored API and the tables exist,
   Connections work (routes, operations, the Connections view and the "Connect Coolify" onboarding step),
-  and host sync turns Coolify servers into locked Linked hosts. Companion plugins (DNS, Uptime, Log Search,
-  Security Center, Host Metrics, Databases, Backups) add their features when they run.
+  Resources can be browsed (Overview tiles, the Resources list, a resource's Overview detail) and deployed,
+  started, stopped and restarted, host sync turns Coolify servers into locked Linked hosts, container
+  shells and database consoles open in a `coolify-shell` tab, and a Linked host's card checks, installs
+  and reboots its server's updates. Companion plugins (DNS, Uptime, Log Search, Security Center, Host
+  Metrics, Databases, Backups) add their features when they run.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
 - Coolify calls: `src/backend/coolify/http.ts` is the only way to Coolify (ctx.fetch, Bearer and CF Access
@@ -85,6 +88,25 @@ aren't obvious from the code, and anything that has bitten you before.
   an unreachable URL. Another user's connection is always 404. Only owners reach a connection in 1.0; the
   grants table is read but nothing writes it. `remove` calls the `releaseLinkedHosts` hook first (host sync
   supplies it) and keeps the webhook row, which other connections to the same team share.
+- Probe: `abilities.root` is never inferred. `GET /settings/email` answers any root-team admin's token
+  whatever its abilities, so it is only the `settings` step; no read-only call needs `root` alone. Only
+  logs or key material prove `sensitive`. A check with nothing to try gets `skipped: "nothing-to-probe"`.
+- Writes to one connection are serialized by an in-memory per-connection lock (`withLock` in
+  `service.ts`): update (held through its probe, so updates apply in the order asked), remove, and storing
+  an explicit probe's result. This relies on the plugin backend being a single Node process per Termix
+  server; if that ever changes, the lock must move to the database. An explicit probe runs outside the
+  lock and stores its result under it only while the connection still points at the probed target
+  (`sameTarget`), so a probe of an old target is dropped. No path answers 409 for a write. Update
+  reads a stored secret only when the change keeps it and needs a probe; an unreadable one is refused
+  (400), and a replacement token or Cloudflare Access value repairs it.
+- Transport: `checkTransport` runs in `clientFor`, before any client exists. https is required; plain http
+  only for loopback (`localhost`, 127/8, ::1), or a private or link-local IP literal with `allowPrivate`.
+  Names are never trusted as private (the plugin can't resolve them; `coolify.lan` could be public). In `http.ts`, an HTML answer to a 4xx is `not-coolify` (never a token ability), and every
+  body read goes through `readText`, so a failed read is a typed `CoolifyError`.
+- The connection form: after a create it edits the saved row (no duplicates), and saving a failed
+  connection whose update didn't check again (same `lastCheckedAt`) calls the probe route, so a retry after
+  fixing Coolify isn't stuck. The backend still doesn't re-probe a plain rename.
+- Service logs are read per Part; `get-service-logs-by-uuid` needs a `sub_service_name` and is skipped.
 - Operation tests: the mock ctx records no run history, so `tests/backend/helpers/run-history.ts` applies
   the SDK's own `parseOperationInput` and `redactFields` around `ctx.operations.run`, as core does.
 - Coolify API: `vendor/coolify/` holds the v4.7.5, `main` and `next` specs as fetched (see its README).
@@ -96,41 +118,209 @@ aren't obvious from the code, and anything that has bitten you before.
   (`p_coolify_status_pages`); the SDK refuses camelCase. `servers.hostId` is a plain nullable integer, not
   `refHost`: a cascade would delete the row and its `addressOverride` when the host goes. The `host.deleted`
   handler sets it to NULL (unlinks) instead.
+- Resources: `src/backend/resources/` (service, routes) and `src/backend/ops/resources.ts`. The service
+  merges `/applications`, `/services` (each service followed by its Parts) and `/databases`, never
+  `/resources`, and caches the merged DTO list in the `cache` table (kind `resources`, 20 seconds) through
+  `src/backend/cache.ts`. Every read first asks `connections.revision(id)`, which checks access (so another
+  user never gets a cached row) and answers a hash of the address, sealed token, sealed Cloudflare Access
+  values and TLS settings. The cached rows carry that revision and in-flight fetches are keyed by it, so a
+  changed target never serves old rows, a caller after a change never joins an older fetch, and a fetch
+  that finishes after a change is not cached. Concurrent misses share one fetch. `invalidate(connectionId)`
+  is the hook for lifecycle actions: it advances an in-memory per-connection generation, drops the
+  in-flight fetches and the cached row. Cached rows carry their generation too, and a hit needs both the
+  revision and the generation to be current, so a write that lands after the drop is never served.
+  Generations are unique to each `createResources` instance (`<epoch>:<n>`, the epoch a random uuid), so
+  after a restart no row an old instance wrote matches and the cache starts cold.
+  `ResourceDto.serverName` comes from `server.name` or `destination.server.name` in the payload.
+  The MCP tool `list_resources` (`src/backend/mcp/server.ts`) runs `coolify.list-resources-all`.
+- Status words: `src/shared/resource-health.ts` (`resourceHealth`, `countResources`) is the one reading of a
+  Coolify status, imported by both the backend and the frontend. Exited is stopped, whatever its health
+  suffix. Degraded covers degraded, restarting, dead and unhealthy, as a state (`unhealthy`) or a suffix
+  (`running:unhealthy`). Parts aren't counted (their service's status covers them).
+- Frontend: `src/frontend/views/CoolifyTab.tsx` owns the SideNav, the selected connection and the shared
+  resource list (`useResources`). The list is keyed by the connection's id and `revision` (the same
+  non-secret hash, also on `ConnectionView`), and `ConnectionsView`'s `onSaved` puts a saved row back into
+  the tab, so editing the selected connection's target clears and reloads it. `ResourceDetail.tsx` lists its views in `DETAIL_TABS`; later views (shell,
+  logs, stats) add an id there. Filtering and grouping are pure functions in `resource-model.ts`.
+  `contributes.mobile` lists `coolify` and `coolify-shell`. `DETAIL_TABS` has `shell`, whose view holds the
+  Open shell and Open database console buttons (only with `canOperate`).
 - Host sync: `src/backend/sync/` (`mapping.ts` pure `planHost`, `credentials.ts` key copy, `locks.ts`,
   `service.ts` `createSync`, `routes.ts`) and `src/backend/ops/sync.ts`. `createSync` is async (it loads the
   lock set from `servers.hostId` before providing locks) and is made right after `createConnections`, whose
-  `releaseLinkedHosts` hook calls `sync.releaseConnection`. Key material comes only from
+  `releaseLinkedHosts` hook calls `sync.releaseConnection`. `apply`, `unlink` and `releaseConnection`
+  run through `serialized(connectionId, ...)`, one queue per connection (`locks.ts` is the host lock
+  provider, not a mutex); the `host.deleted` handler stays outside it because `release()` deletes hosts
+  while holding it. Removing a connection is one step of that queue: `releaseLinkedHosts` gets the row
+  deletion as a `deleteRows` continuation and `releaseConnection` runs it after releasing the hosts. Lock
+  order is always the connections service's `withLock` first, then the sync queue; sync never takes
+  `withLock`. `apply` also re-checks `ownedConnection` before its first host write and ends with the
+  `ConnectionError` if the connection is gone. A host `apply` created whose link row fails to save is
+  unlocked and deleted (`discardHost`). Key material comes only from
   `api.keyForCopy()` (not a DTO) and goes only to `ctx.credentials.createSshKey`; reuse is by fingerprint
-  among the connection's `credentialMode = "coolify"` rows. `ssh-keys` from the SDK needs `ssh2`, which only
+  among the connection's `credentialMode = "coolify"` rows, and only while the id is still in
+  `ctx.credentials.listSshKeys()` (a deleted copy is made again; an unreadable list blocks the server with
+  `credential-check-failed`). A failed copy stores `credentialMode = "copy-failed"` (`COPY_FAILED`), which
+  the preview reads as termix mode with `needs-credential`. Every stored id is checked before use:
+  `hostId` by `ctx.hosts.update` answering null (then a new host is made), picked credential ids by
+  `ctx.credentials.list()`, copied ones by `listSshKeys()`. `ssh-keys` from the SDK needs `ssh2`, which only
   Termix supplies, so it is imported lazily and only when Coolify sends no `public_key`. Tunnelled servers
-  are refused in `planTunnel` with `TUNNEL_CAUSE` (`needs-tunnel-support`); ticket #9 replaces that seam
-  with SSH Terminal's tunnel settings. The SDK tsconfig has no strict null checks, so a boolean `ok` does
-  not narrow a union: `HostPlan` names both fields on both sides. The mock ctx's `hosts.create` drops
-  `pluginSettings` and `pluginEnable`, so tests spy on the calls to check them.
+  go through `planTunnel`: the host address is the tunnel hostname and `pluginSettings["ssh-terminal"]`
+  gets SSH Terminal's own setting names from `SSH_TERMINAL_KEYS` (checked against SSH Terminal's
+  `src/backend/settings.ts`; keep them in that one constant), port 443, and the connection's Access token
+  only in `apply`, unsealed once from the snapshot (empty strings when the connection has none). Host
+  updates merge the keys they are given and keep the rest, so `planHost` never leaves a key it once wrote
+  out. `servers.tunnelApplied` (migration 0002) records that sync wrote tunnel settings on the row's
+  current host. It must never lag the host: it is saved true before the update that turns an existing
+  host's tunnel on (write-ahead), and in the same save that records a created host's id; it is cleared
+  only in the link save after a tunnel-off write succeeded. An abort leaves it true, which costs at most
+  one redundant clear. It is reset when the host is released or deleted (no host to track). 0002 backfills it to true on every row with a host:
+  for hosts linked before it, unknown counts as tunnelled (fail closed). A plain server whose row has it gets the tunnel switched
+  off and its hostname and token cleared once, and only while SSH Terminal runs (core skips settings for
+  a plugin that doesn't); otherwise `planHost` blocks it with `needs-ssh-terminal-to-clear-tunnel` and
+  the host is left untouched. Plain hosts that were never tunnelled get no SSH Terminal settings. `pluginEnable.docker` is only ever true and only
+  while Docker runs, which is also the only time core would take a write. `apply` and `preview` read the
+  connection once with `connections.snapshot()`: view (name, address, abilities, `revision`), client and
+  a lazy Access token from one row, so nothing is read again from the connection later. `apply` checks
+  `connections.revision()` against the snapshot after `api.servers()` and right before every write:
+  each row save, each key copy (the copier's `beforeWrite`, after the key reads), the folder, and each
+  host update or create (`beforeWrite` runs `assertSnapshotHolds`, with the owner check). It ends with
+  `target-changed` (409) when they differ; a host created just before is discarded, since its link row
+  is not saved. `discardHost` itself is not checked: it only undoes this sync's own write.
+  connection updates take #23's `withLock`, not the sync queue. Previews pass `cfAccess: null`. SSH Terminal
+  must be active at 1.2.0+ (`SSH_TERMINAL.minVersion`, semver order, pre-releases of 1.2.0 are below);
+  `ctx.plugins.list()` is read once per preview (only when a server is tunnelled) or apply and fails
+  closed: an unreadable list blocks tunnelled rows with `needs-ssh-terminal`. The SDK tsconfig has no
+  strict null checks, so a boolean `ok` does not narrow a union: `HostPlan` names both fields on both sides. The mock ctx's `hosts.create` drops
+  `pluginSettings` and `pluginEnable`, so tests spy on the calls to check them. `coolify.unlink`'s server
+  input uses `ops.fields.linkedServerUuid`: `ops.fields.serverUuid` is the optional filter of
+  `coolify.list-resources-all`.
 - Frontend host surfaces: `src/frontend/linked.ts` reads a host's link from its own settings and shares one
-  sync preview per connection (five minutes) between badge dots and the host card. The tab opens the sync
-  preview from `tab.data` `{ section: "sync", connectionId? }`; `section: "resources"` is for ticket #7.
-- Companions: `src/backend/companions/` (`detect.ts` `companions(ctx)` from `ctx.plugins.list`, cached 60 s
-  per ctx in a WeakMap; `adapters.ts`, the only code that calls another plugin; `service.ts`; `routes.ts`) and
-  `src/backend/ops/companions.ts` (`coolify.companion-read` for reads, `coolify.companion` for changes,
-  `coolify.companion-dns-remove` on its own because it is destructive and is the only call that passes
-  `confirmed: true` downstream, to `dns.delete-record`; one
-  `kind` per route). Every service method checks, in order: the Termix permission (`ctx.rbac.has`), the
-  connection grant rank (view < operate < configure < owner), that the companion runs, then for Linked hosts
-  `ctx.hosts.checkAccess(hostId, "view")`, failing closed. A missing companion is a `CompanionError`
-  (`companion-missing`, 404, with `plugin`), which `sendError` answers. Log search is `operate` (it shows
-  log output); DNS is `configure`. Every companion call is a documented action from the companions' published
-  references (docs.termix.site/plugins/<id>/reference), by its id and input names, through
-  `ctx.operations.invoke`; `operations.invokes` lists exactly those ids and `optionalDependencies` pins each
+  sync preview per connection (five minutes) between badge dots and the host card. The host card shows the
+  tunnel line from the row's `tunnel` flag and opens the host editor with `shell.editHost`.
+  `views/SshTerminalCheck.tsx` has the Open Plugins button (`useTabs().openSingletonTab("plugins")`) used
+  by blocked sync rows, and the single SSH Terminal line `ProbeChecklist` adds when Coolify has tunnelled
+  servers (it reads the sync preview; scoped tokens get none). That line reloads on the connection's
+  `revision` and `lastCheckedAt`, clears when the token turns scoped, and keeps only the newest answer
+  (a request generation, as in `useResources`). Host sync is the tab's
+  Servers section (`SyncView` for the selected connection, shown with `coolify.configure`); a connection's
+  Sync servers row action calls `ConnectionsView`'s `onSync`, which selects it there. `CoolifyTab` reads
+  `tab.data` `{ section, connectionId? }`: `"sync"` opens Servers (no id: the first connection the actor
+  owns with an unscoped token), and any section name opens that section on that connection. The request
+  is tracked by the `tab.data` object (the shell sets a new one on every opening), not by its values, so
+  the same action twice still applies. `SyncView` shows the address field on every row still in Coolify,
+  and the credential picker for `CREDENTIAL_CAUSES` (needs-credential, credential-not-found,
+  credential-check-failed). Rows blocked by `SSH_TERMINAL_CAUSES` (needs-ssh-terminal,
+  ssh-terminal-too-old, needs-ssh-terminal-to-clear-tunnel) can't be included and show the Open Plugins
+  button.
+- Lifecycle: `src/backend/resources/lifecycle.ts` has `lifecycle(api, uuid, verb, opts)` (a Part uses its
+  service's per-Part endpoints; a Part's deploy deploys its service) and `createLifecycle`, whose
+  `authorize` is the one access check for every lifecycle path: `coolify.operate`, owner or a grant of
+  operate/configure, and a uuid found in that connection's own resource list (a cache miss is checked once
+  fresh). `onHost` also needs the resource on the host's own server. Routes (`resources/routes.ts`) run the
+  resource-scope action on the Linked host (`sync.linkedHostFor`) or the server-scope one, and map a failed
+  outcome back to a status and cause. `sync.linkOfHost(hostId)` is the reverse lookup handlers use. Every
+  action that reaches Coolify calls `resources.invalidate(connectionId)` afterwards (success or failure),
+  and a waited deploy calls it again when the deployment ends, so the next read refetches and an
+  in-flight fetch from before the action is dropped.
+- Shells: `src/backend/ssh.ts` (`SshRunner` over `ctx.ssh.exec`, `isHostKeyError`) and
+  `src/backend/containers/` (`commands.ts` name check, `DB_CONSOLES`, `shellCommand`; `resolver.ts` docker ps
+  filters; `service.ts` the checks; `routes.ts`) and `src/backend/ops/containers.ts`. Order of checks:
+  `connections.snapshot(id)` once, lifecycle's `authorize` (operate permission, owner or operate/configure
+  grant, uuid in the connection's own list; a Part is authorized too and must have the path's uuid as its
+  parent), Linked host (`sync.linkedHostFor`, else 409 `not-linked`), the actor's
+  `ctx.hosts.checkAccess(hostId, "connect")` (else 403 `no-host-access`), the snapshot's revision checked
+  again, then SSH, and the revision once more before the command is answered (409 `target-changed`).
+  Fingerprints come from the snapshot's client. Container names are refused outside `[A-Za-z0-9_.-]` or with
+  a leading `-`; every other value goes through `shellQuote`. Console scripts only name the container's own
+  variables and are one quoted `sh -c` argument, so `$` expands in the container. A password reaches a
+  client only through an env variable (PGPASSWORD, MYSQL_PWD, REDISCLI_AUTH, clickhouse-client's own
+  CLICKHOUSE_PASSWORD; mongosh reads `process.env` in `--eval`), never argv, which `ps` on the host shows to
+  every user. Several matches answer HTTP 300 `{ choices }`; the frontend reads choices from a rejected axios
+  call too. `ContainerError` has its own statuses (409 for `not-linked`), unlike `ConnectionError`'s 404.
+- Shell tab: `src/frontend/views/ShellTab.tsx` reads its tab data `{ connectionId, uuid, part?, container?,
+console }`, calls the shell route and draws `PluginComponent id="terminal.view"` with `hostConfig` and
+  `executeCommand`; the fallback is a NoticePanel with the command to copy. Picking a container re-asks in
+  place. Shell host ids can be strings, so hosts are matched by `String(id)`, not `useHost`.
+- Server updates: `src/backend/updates/` (`service.ts` `createUpdates`, `routes.ts`) and
+  `src/backend/ops/updates.ts`; the UI is `src/frontend/views/ServerUpdates.tsx` inside the host card.
+  `ServerUpdates` remounts its card on `connectionId:serverUuid:revision` (the revision from
+  `HostSection`'s connection read), so a changed link drops its answer and any open confirmation; each
+  request has a generation (only the newest sets state), and a confirmation keeps the key it was
+  opened for and acts only while that key is current.
+  Coolify's `patch_check_result` is mapped by `toPatch` in `dto.ts` (an explicit `security_updates: null`
+  stays unknown; a `patch_check_error` makes `updates` and `security` null with no items, whatever
+  result is left, so the card, Install, the updates signal and the actions never read it as zero). Check and install go through `ctx.operations.invoke` of `package-manager.list-updates` /
+  `upgrade-all` when that plugin is active, else SSH (`sshRunner` from `ssh.ts`) with fixed commands built
+  from `host-commands` (no request value ever reaches a command; root or `sudo -n`). Reboot is always SSH.
+  The plugin list decides the path; when it can't be read, check and install refuse (409
+  `companions-unknown`) rather than use SSH. The SSH check reports each step's exit status in a marker
+  line (`checkCommand`, its own `LISTING`, not the SDK's, which hides failures); a failed or missing
+  refresh or listing is 502 `check-failed`, never zero updates.
+  Refresh steps: apt `apt-get update`, dnf and yum `makecache`; pacman has none (`pacman -Sy` alone risks
+  a partial upgrade) and lists with pacman-contrib's `checkupdates` (a temporary database; without it the
+  check fails). Concurrent checks of one server under the same revision and generation share one run
+  (`checks`, keyed by connection, server, revision and generation), so an older run never overwrites a
+  newer one.
+  A failure on the Package Manager path is reported, never retried over SSH, so that plugin's read only
+  setting can't be bypassed. Order of checks (`prepare`): permission (operate, administer to reboot),
+  `connections.snapshot(id)` once, the snapshot's grant (operate, configure to reboot), confirm, the
+  server read from the snapshot's own client (a uuid that connection's Coolify doesn't have is 404,
+  whatever link row is left), Linked host (409 `not-linked`), host share level (connect to check, edit to
+  install or reboot; a host access read that throws refuses), then the revision again. The revision is
+  checked once more right before every SSH command, Package Manager call and kept-check write (409
+  `target-changed`). `UpdateError` has its own statuses (409 for `not-linked`, `host-key` with a fixed
+  message, never core's text). The plugin's own last check is kept in `cache` as kind
+  `updates:<serverUuid>` with the revision and the per-instance generation (`<epoch>:<n>`, advanced by
+  install and reboot) it was read under, and written and served only while both are current.
+  Install and reboot, once they reached the server (even when they failed), drop that row, then call
+  `servers.invalidate` and `resources.invalidate`. The mock ctx's `hosts.checkAccess`
+  only knows hosts given up front, so tests spy on it, on `ssh.exec`, on `operations.invoke` and on
+  `plugins.list` (`tests/backend/updates/fixtures.ts`).
+- MCP may deploy and restart without `allowMcpChanges` (`MCP_CHANGES_EXEMPT` in `mcp/server.ts`).
+- Signals (`src/backend/ops/signals.ts`) read resources from the resources cache and server statuses from a
+  `servers` cache kind (a minute, no addresses or keys kept) through `createServerStatuses`, made in
+  `index.ts`. That cache works like the resources cache: rows carry `connections.revision(id)` and a
+  per-instance generation (`<epoch>:<n>`) that `invalidate` advances, a hit needs both to be current,
+  in-flight fetches are keyed by id, revision and generation (invalidate drops them), and a fetch is
+  cached only if neither changed while it ran. The degraded
+  count is `countResources`, so exited (with any health suffix) is stopped and never counts; bare
+  `unhealthy` does. Updates come from Coolify's own patch check (`ServerDto.patch.security`), not the
+  updates service's own checks. The deployment events are emitted only by a deploy run with `wait`;
+  container-restarted and server-unreachable are declared for later polling.
+- Other plugins: `src/backend/plugins.ts` is the one read of `ctx.plugins.list()` (`activePlugins`, null
+  when unreadable) and the one table of their ids (`COMPANION_PLUGINS`: docker, sshTerminal,
+  packageManager and the companions). Sync, server updates and companions all go through it; each treats
+  null as unknown, never as "not running" (sync blocks tunnelled rows, updates refuses with
+  `companions-unknown`, companions answer `companions-unknown` 409).
+- Companions: `src/backend/companions/` (`detect.ts` `companions(ctx)`, read fresh on every call, the
+  frontend's `useCompanions` caches it a minute; `adapters.ts`, the only code that calls another plugin;
+  `service.ts`; `routes.ts` with its own `handle` for `CompanionError`) and `src/backend/ops/companions.ts`
+  (`coolify.companion-read` for reads, `coolify.companion` for changes, `coolify.companion-dns-remove` on
+  its own because it is destructive and is the only call that passes `confirmed: true` downstream, to
+  `dns.delete-record`; one `kind` per route). Every service method checks, in order: the Termix
+  permission (`ctx.rbac.has`), `connections.snapshot(id)` once and its grant rank (view < operate <
+  configure < owner), that the companion runs, a resource from the shared resource cache
+  (`resources.get`, a miss checked once fresh, as lifecycle does) or a server path that is linked to the
+  connection (`sync.linkedHostFor`, else `not-linked`) and that the snapshot's Coolify still has
+  (`snap.api.server`, else Coolify's 404), then for Linked hosts `ctx.hosts.checkAccess(hostId, "view")`,
+  failing closed. The adapters reach companions through a `CompanionCaller` whose `before` checks the
+  snapshot's revision right before every `ctx.operations.invoke`, and reads check it again before they
+  answer, so a target change ends with `target-changed`. A missing companion is a `CompanionError`
+  (`companion-missing`, 404, with `plugin`). Log search is `operate` (it shows log output); DNS is
+  `configure`. Every companion call is a documented action from the companions' published references
+  (docs.termix.site/plugins/<id>/reference), by its id and input names, through `ctx.operations.invoke`;
+  `operations.invokes` lists exactly those ids (and Package Manager's) and `optionalDependencies` pins each
   companion to `~` the version its reference documents. The references list no service methods, so no
   service is called and there is no `requires`. They don't describe outputs either: answers are read as
   `{ rows }` lists or `{ value }` host reads, fields picked by name, and a failed run is `companion-failed`
   with a fixed message. DNS: `dns.list-zones` (longest matching zone, its `id` or else its `name`),
   `dns.upsert-record` and `dns.delete-record` take `zone`, `type`, `name`, `content`; the
   `dns_records.handle` column holds exactly those four as JSON text, and removal looks the row up by id,
-  connection and resource, so only a record made here
-  can be removed. `setMonitorsPaused` is the hook for pausing Uptime during deploys (ticket #10 decides
-  when). Files, Tunnels and Reverse Proxy are ticket #19. Frontend: `src/frontend/companions.ts`
-  (`useCompanions`), `views/CompanionActions.tsx` (for the resource view to mount) and
-  `views/HostCompanions.tsx` (inside the host card). Opening Uptime or Databases uses
-  `openSingletonTab("uptime")` and `("databases")`.
+  connection and resource, so only a record made here can be removed. `setMonitorsPaused` is the hook for
+  pausing Uptime during deploys (ticket #10 decides when). Files, Tunnels and Reverse Proxy are ticket #19.
+  Nothing here writes host or plugin settings. Frontend: `src/frontend/companions.ts` (`useCompanions`),
+  `views/CompanionActions.tsx` (at the end of `ResourceDetail`'s Overview, with `useTabs()` as its shell)
+  and `views/HostCompanions.tsx` (inside the host card, keyed by connection, server and `revision`).
+  `DnsRecords` keeps its rows with the `connectionId:uuid` they were read for and drops a confirm answered
+  after the view moved to another resource. Opening Uptime or Databases uses `openSingletonTab("uptime")`
+  and `("databases")`.

@@ -1,6 +1,5 @@
 import type { Request, Response, Router } from "express";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
-import { CompanionError } from "../companions/detect.js";
 import { CoolifyError, toRouteError } from "../coolify/http.js";
 import {
   ConnectionError,
@@ -18,11 +17,6 @@ type Handler = (req: Request, res: Response) => Promise<unknown>;
 export function sendError(ctx: PluginContext, res: Response, err: unknown) {
   if (err instanceof ConnectionError) {
     return res.status(err.status).json({ error: err.message, cause: err.code });
-  }
-  if (err instanceof CompanionError) {
-    return res
-      .status(err.status)
-      .json({ error: err.message, cause: err.code, plugin: err.plugin });
   }
   const { status, body } = toRouteError(err);
   if (!(err instanceof CoolifyError)) {
@@ -45,7 +39,7 @@ export function safe(ctx: PluginContext, fn: Handler): Handler {
 /** A connection id from the path; a malformed one reads as missing. */
 export function idParam(req: Request): number {
   const raw = String(req.params.id ?? "");
-  const id = /^\d{1,15}$/.test(raw) ? Number(raw) : NaN;
+  const id = /^\d{1,15}$/.test(raw) ? Number(raw) : Number.NaN;
   if (!Number.isSafeInteger(id) || id <= 0) {
     throw new ConnectionError("not-found", "Coolify connection not found");
   }
@@ -172,7 +166,7 @@ export function registerConnectionRoutes(
    *       400:
    *         description: Missing or invalid fields
    *       403:
-   *         description: Missing coolify.configure
+   *         description: Missing coolify.view or coolify.configure
    *       409:
    *         description: Coolify is older than 4.4
    */
@@ -269,9 +263,11 @@ export function registerConnectionRoutes(
    *       200:
    *         description: The changed connection, without any token
    *       400:
-   *         description: Invalid fields
+   *         description: >-
+   *           Invalid fields, or the change needs a stored token or Cloudflare
+   *           Access value that can't be read and wasn't sent again
    *       403:
-   *         description: Missing coolify.configure, or not the owner
+   *         description: Missing coolify.view or coolify.configure, or not the owner
    *       404:
    *         description: No such connection, or another user's
    *       409:
@@ -312,7 +308,7 @@ export function registerConnectionRoutes(
    *       200:
    *         description: The removed connection
    *       403:
-   *         description: Missing coolify.configure, or not the owner
+   *         description: Missing coolify.view or coolify.configure, or not the owner
    *       404:
    *         description: No such connection, or another user's
    */

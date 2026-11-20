@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useState } from "react";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -27,6 +29,8 @@ const manifest = manifestJson as unknown as PluginManifest;
 const ALL = ["coolify.view", "coolify.operate", "coolify.configure"];
 
 const NONE_RUNNING = {
+  docker: false,
+  sshTerminal: false,
   files: false,
   tunnels: false,
   reverseProxy: false,
@@ -329,6 +333,89 @@ describe("companion UI", () => {
         "/connections/1/resources/app-web-uuid/dns/4",
       ),
     );
+  });
+
+  it("a DNS record of one resource is never removed under another", async () => {
+    const api = stubApi(ALL_RUNNING);
+    const other = { ...app, uuid: "app-two-uuid", name: "two" };
+    // The other resource's list never answers, so nothing replaces A's rows.
+    const get = api.get.getMockImplementation()!;
+    api.get.mockImplementation(async (url: string) =>
+      url.includes("app-two-uuid") ? new Promise(() => {}) : get(url),
+    );
+    let pick: (r: Resource) => void = () => {};
+    function Switcher() {
+      const [r, setR] = useState<Resource>(app);
+      pick = setR;
+      return <CompanionActions connectionId={1} resource={r} shell={shell()} />;
+    }
+    const host = {
+      activate(a: TermixApp) {
+        a.registerTab("coolify", () => <Switcher />, {
+          titleKey: "tab.title",
+          singleton: true,
+          hostless: true,
+        });
+      },
+    };
+    rendered = await renderWithApp(host, {
+      manifest,
+      locales,
+      api,
+      permissions: ALL,
+    });
+    rendered.renderTab("coolify");
+    const confirm = async () => {
+      const dialog = await screen.findByRole("alertdialog");
+      fireEvent.click(
+        within(dialog).getByRole("button", {
+          name: locales.companions.dns.removeConfirm.confirm,
+        }),
+      );
+    };
+
+    // A confirm opened for A, answered after the view moved to B: nothing.
+    fireEvent.click(
+      (await screen.findAllByText(locales.companions.dns.remove))[0],
+    );
+    await screen.findByRole("alertdialog");
+    act(() => pick(other));
+    await confirm();
+    // A's rows are gone at once, before B's list answers.
+    await waitFor(() =>
+      expect(screen.queryByText(/b\.example\.test A/)).toBeNull(),
+    );
+    expect(screen.queryByText(locales.companions.dns.remove)).toBeNull();
+    expect(api.delete).not.toHaveBeenCalled();
+  });
+
+  it("the host card never shows one server's readings for another", async () => {
+    const api = await mount(ALL_RUNNING);
+    const get = api.get.getMockImplementation()!;
+    api.get.mockImplementation(async (url: string) =>
+      url.includes("srv-web2") ? new Promise(() => {}) : get(url),
+    );
+    const Section = hostSection();
+    const s = shell();
+    const view = (host: typeof linkedHost) => (
+      <SurfaceScope>
+        <Section host={host as never} isVisible shell={s as never} />
+      </SurfaceScope>
+    );
+    const score = locales.companions.security.score.replace("{{score}}", "82");
+    const { rerender } = render(view(linkedHost));
+    expect(await screen.findByText(score)).toBeTruthy();
+    const moved = {
+      ...linkedHost,
+      pluginSettings: {
+        coolify: {
+          ...linkedHost.pluginSettings.coolify,
+          coolifyServerUuid: "srv-web2",
+        },
+      },
+    };
+    rerender(view(moved));
+    await waitFor(() => expect(screen.queryByText(score)).toBeNull());
   });
 
   it("searches logs across servers with the resource's uuid", async () => {

@@ -1,9 +1,10 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { OTHER, type PluginHarness } from "../helpers/plugin.js";
 import {
   DB_PASSWORD,
   HOST_ID,
   TOKEN,
+  changeTarget,
   grant,
   startCompanions,
 } from "./fixtures.js";
@@ -83,6 +84,8 @@ describe("companion detection", () => {
     const res = await h.request("GET", "/companions");
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
+      docker: false,
+      sshTerminal: false,
       files: false,
       tunnels: false,
       reverseProxy: false,
@@ -440,9 +443,11 @@ describe("Linked host companions", () => {
     expect(all.status).toBe(200);
     expect(all.body).toEqual({
       hostId: HOST_ID,
+      // In the shared resource list's order: services and their Parts,
+      // then databases.
       databases: [
-        { uuid: "db-main-uuid", name: "main-db", saved: true },
         { uuid: "svc-n8n-db", name: "postgresql", saved: false },
+        { uuid: "db-main-uuid", name: "main-db", saved: true },
       ],
     });
     expect(JSON.stringify([one.body, all.body])).not.toContain(DB_PASSWORD);
@@ -586,5 +591,94 @@ describe("access", () => {
     expect(sent).not.toContain(DB_PASSWORD);
     expect(JSON.stringify(bodies)).not.toContain(TOKEN);
     expect(JSON.stringify(bodies)).not.toContain(DB_PASSWORD);
+  });
+});
+
+describe("fails closed", () => {
+  it("an unreadable plugin list is companions-unknown, never companion-missing", async () => {
+    const { harness: h, connectionId, companions } = await start();
+    vi.spyOn(h.mock.ctx.plugins, "list").mockRejectedValue(
+      new Error("no plugins:read"),
+    );
+    const map = await h.request("GET", "/companions");
+    expect(map.status).toBe(409);
+    expect(map.body.cause).toBe("companions-unknown");
+    for (const route of routes(connectionId)) {
+      const res = await h.request(route.method, route.path, route.body);
+      expect(res.status, route.path).toBe(409);
+      expect(res.body.cause, route.path).toBe("companions-unknown");
+    }
+    expect(companions.calls).toEqual([]);
+  });
+
+  it("a DNS record is not set when the connection's target changes first", async () => {
+    const { harness: h, connectionId, companions } = await start();
+    const zones = companions.actions["dns.list-zones"];
+    companions.actions["dns.list-zones"] = async (input, hostId) => {
+      await changeTarget(h, connectionId);
+      return zones(input, hostId);
+    };
+    const res = await h.request(
+      "POST",
+      `/connections/${connectionId}/resources/app-web-uuid/dns`,
+      { fqdn: "a.example.test", type: "A", content: "203.0.113.11" },
+    );
+    expect(res.status).toBe(409);
+    expect(res.body.cause).toBe("target-changed");
+    expect(companions.calls.map((c) => c.name)).toEqual(["dns.list-zones"]);
+    expect(
+      h.db.sqlite.prepare("SELECT * FROM p_coolify_dns_records").all(),
+    ).toEqual([]);
+  });
+
+  it("a host read answers nothing once the connection's target changed", async () => {
+    const { harness: h, connectionId, companions } = await start();
+    const status = companions.actions["security-center.status"];
+    companions.actions["security-center.status"] = async (input, hostId) => {
+      await changeTarget(h, connectionId);
+      return status(input, hostId);
+    };
+    const res = await h.request(
+      "GET",
+      `/connections/${connectionId}/servers/srv-web1/security`,
+    );
+    expect(res.status).toBe(409);
+    expect(res.body.cause).toBe("target-changed");
+    expect(companions.calls.map((c) => c.name)).toEqual([
+      "security-center.status",
+    ]);
+  });
+
+  it("a link row for a server the connection's Coolify doesn't have is not found", async () => {
+    const { harness: h, connectionId, companions } = await start();
+    h.db.sqlite
+      .prepare(
+        "INSERT INTO p_coolify_servers (connection_id, server_uuid, host_id) VALUES (?, ?, ?)",
+      )
+      .run(connectionId, "srv-gone", HOST_ID);
+    for (const kind of [
+      "security",
+      "backups-failed",
+      "host-metrics",
+      "db-logins",
+    ]) {
+      const res = await h.request(
+        "GET",
+        `/connections/${connectionId}/servers/srv-gone/${kind}`,
+      );
+      expect(res.status, kind).toBe(404);
+    }
+    expect(companions.calls).toEqual([]);
+  });
+
+  it("reads resources from the shared resource cache, not Coolify every time", async () => {
+    const { harness: h, connectionId, fake } = await start();
+    const apps = () =>
+      fake.calls.filter((c) => c.path === "/applications").length;
+    const path = `/connections/${connectionId}/resources/app-web-uuid/uptime`;
+    expect((await h.request("GET", path)).status).toBe(200);
+    const first = apps();
+    expect((await h.request("GET", path)).status).toBe(200);
+    expect(apps()).toBe(first);
   });
 });

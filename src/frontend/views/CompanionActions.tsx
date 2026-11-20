@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Database, Globe, Search, Trash2, Activity } from "lucide-react";
 import {
   usePermission,
@@ -75,62 +75,93 @@ function DnsRecords({
   const api = useMemo(() => createApi(client), [client]);
   const confirm = useConfirm();
   const domains = domainsOf(resource.fqdns);
-  const [records, setRecords] = useState<DnsRecord[]>([]);
+  // Everything here belongs to one target: rows, form and errors read from
+  // another connection or resource are never shown or acted on.
+  const target = `${connectionId}:${resource.uuid}`;
+  const current = useRef(target);
+  current.current = target;
+  const [records, setRecords] = useState<{
+    target: string;
+    rows: DnsRecord[];
+  }>({ target, rows: [] });
+  const rows = records.target === target ? records.rows : [];
   const [open, setOpen] = useState(false);
-  const [fqdn, setFqdn] = useState(domains[0] ?? "");
+  const firstDomain = domains[0] ?? "";
+  const [fqdn, setFqdn] = useState(firstDomain);
   const [content, setContent] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
+    setRecords({ target, rows: [] });
+    setOpen(false);
+    setFqdn(firstDomain);
+    setContent("");
+    setError(null);
     api
       .listDnsRecords(connectionId, resource.uuid)
-      .then((rows) => live && setRecords(rows))
+      .then((list) => live && setRecords({ target, rows: list }))
       .catch(() => undefined);
     return () => {
       live = false;
     };
-  }, [api, connectionId, resource.uuid]);
+  }, [api, connectionId, resource.uuid, target, firstDomain]);
+
+  /** Keeps a change only while the view still shows the target it was for. */
+  function update(forTarget: string, fn: (rows: DnsRecord[]) => DnsRecord[]) {
+    setRecords((prev) =>
+      prev.target === forTarget
+        ? { target: forTarget, rows: fn(prev.rows) }
+        : prev,
+    );
+  }
 
   async function create() {
+    const forTarget = target;
     setError(null);
     try {
       const made = await api.createDnsRecord(connectionId, resource.uuid, {
         fqdn,
         ...(content.trim() ? { content: content.trim() } : {}),
       });
-      setRecords((rows) => [...rows, made]);
+      update(forTarget, (list) => [...list, made]);
+      if (current.current !== forTarget) return;
       setOpen(false);
       setContent("");
     } catch {
-      setError(t("companions.dns.failed"));
+      if (current.current === forTarget) setError(t("companions.dns.failed"));
     }
   }
 
   async function remove(record: DnsRecord) {
+    const forTarget = target;
     const ok = await confirm({
       title: t("companions.dns.removeConfirm.title", { fqdn: record.fqdn }),
       description: t("companions.dns.removeConfirm.description"),
       confirmLabel: t("companions.dns.removeConfirm.confirm"),
       destructive: true,
     });
-    if (!ok) return;
+    // The view moved to another resource while the confirm was open: what
+    // was confirmed is no longer what is shown, so nothing runs.
+    if (!ok || current.current !== forTarget) return;
     const id = record.id;
     setError(null);
     try {
       await api.removeDnsRecord(connectionId, resource.uuid, id);
-      setRecords((rows) => rows.filter((r) => r.id !== id));
+      update(forTarget, (list) => list.filter((r) => r.id !== id));
     } catch {
-      setError(t("companions.dns.removeFailed"));
+      if (current.current === forTarget) {
+        setError(t("companions.dns.removeFailed"));
+      }
     }
   }
 
-  if (!domains.length && !records.length) return null;
+  if (!domains.length && !rows.length) return null;
   return (
     <div className="flex flex-col gap-2" data-companion="dns">
-      {records.length > 0 && (
+      {rows.length > 0 && (
         <ul className="flex flex-col gap-1 text-xs">
-          {records.map((r) => (
+          {rows.map((r) => (
             <li key={r.id} className="flex items-center gap-2">
               <span className="font-mono">
                 {t("companions.dns.record", {

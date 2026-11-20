@@ -16,27 +16,32 @@ import {
 import { useCompanions } from "../companions";
 import type { HostLink } from "../linked";
 
-/** Loads one answer while `on`; a failed read leaves it null, which hides it. */
+/**
+ * Loads one answer while `on`; a failed read leaves it null, which hides it.
+ * The answer is kept with the key it was read for, so another server's (or
+ * an older target's) answer is never shown, and only the newest load lands.
+ */
 function useAnswer<T>(on: boolean, load: () => Promise<T>, key: string) {
-  const [value, setValue] = useState<T | null>(null);
+  const [state, setState] = useState<{ key: string; value: T | null }>({
+    key,
+    value: null,
+  });
   // The latest loader; `key` names what it reads, so a new key loads again.
   const loader = useRef(load);
   loader.current = load;
   useEffect(() => {
-    if (!on) {
-      setValue(null);
-      return;
-    }
+    setState({ key, value: null });
+    if (!on) return;
     let live = true;
     loader
       .current()
-      .then((v) => live && setValue(v ?? null))
-      .catch(() => live && setValue(null));
+      .then((v) => live && setState({ key, value: v ?? null }))
+      .catch(() => live && setState({ key, value: null }));
     return () => {
       live = false;
     };
   }, [on, key]);
-  return value;
+  return state.key === key ? state.value : null;
 }
 
 function securityTone(answer: SecurityAnswer) {
@@ -54,16 +59,19 @@ function securityTone(answer: SecurityAnswer) {
 export function HostCompanions({
   link,
   shell,
+  revision,
 }: {
   link: HostLink;
   shell: Pick<ShellApi, "openSingletonTab">;
+  /** The connection's target hash: a new one reads everything again. */
+  revision?: string | null;
 }) {
   const { t } = useTranslation();
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
   const map = useCompanions();
   const { connectionId, serverUuid } = link;
-  const key = `${connectionId}:${serverUuid}`;
+  const key = `${connectionId}:${serverUuid}:${revision ?? ""}`;
 
   const security = useAnswer<SecurityAnswer>(
     !!map?.securityCenter,

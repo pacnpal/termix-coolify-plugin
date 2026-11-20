@@ -7,6 +7,7 @@ import {
   type Connections,
 } from "../connections/service.js";
 import { dbClient, type Tables } from "../db.js";
+import type { Resources } from "../resources/service.js";
 import type { Sync } from "../sync/service.js";
 import {
   backupsFailed,
@@ -17,6 +18,7 @@ import {
   securityCheck,
   uptimeMonitors,
   uptimeSetPaused,
+  type CompanionCaller,
   type DnsRecordKey,
   type DnsType,
   type FailedBackup,
@@ -184,60 +186,72 @@ function loginMatches(login: SavedLogin, resource: ResourceDto): boolean {
 /**
  * The companion-plugin features. Every method acts for ctx.currentActor() and
  * checks, in order: the Termix permission, the actor's access to the
- * connection (owner, or a grant at the level the feature needs), that the
- * companion runs, and, for anything on a Linked host, the actor's own access
- * to that host. Nothing sent to a companion carries a token or secret.
+ * connection (owner, or a grant at the level the feature needs), read once
+ * with `snapshot`, that the companion runs (an unreadable plugin list is
+ * companions-unknown), a resource from that connection's own list or a server
+ * its own Coolify has, and, for anything on a Linked host, the actor's own
+ * access to that host. The snapshot's revision is checked again right before
+ * every companion call, and before a read answers, so a target change ends
+ * it with target-changed. Nothing sent to a companion carries a token or
+ * secret.
  */
 export function createCompanions(
   ctx: PluginContext,
-  deps: { tables: Tables; connections: Connections; sync: Sync },
+  deps: {
+    tables: Tables;
+    connections: Connections;
+    resources: Pick<Resources, "get" | "byServer">;
+    sync: Pick<Sync, "linkedHostFor">;
+  },
 ) {
   const t = deps.tables;
-  const { connections, sync } = deps;
+  const { connections, resources, sync } = deps;
 
-  async function need(connectionId: number, level: Level): Promise<void> {
+  type Snapshot = Awaited<ReturnType<Connections["snapshot"]>>;
+
+  /** The permission and grant a feature needs, on one read of the connection. */
+  async function need(connectionId: number, level: Level): Promise<Snapshot> {
     const permitted = await ctx.rbac.has(level).catch(() => false);
     if (!permitted) throw forbidden(`This needs coolify.${level}`);
-    const access = await connections.access(connectionId);
-    if (!access) {
-      throw new ConnectionError("not-found", "Coolify connection not found");
-    }
-    if (RANK[access] < RANK[level]) {
+    // Read once: every later step is checked against this target. Another
+    // user's connection is not-found here.
+    const snap = await connections.snapshot(connectionId);
+    if (RANK[snap.view.access] < RANK[level]) {
       throw forbidden(`Your grant on this connection doesn't allow this`);
+    }
+    return snap;
+  }
+
+  /** Fails closed unless the connection still points at the snapshot's target. */
+  async function holds(connectionId: number, snap: Snapshot): Promise<void> {
+    if ((await connections.revision(connectionId)) !== snap.view.revision) {
+      throw new ConnectionError(
+        "target-changed",
+        "The connection's address, token or Access settings changed. Try again.",
+      );
     }
   }
 
+  /** What the adapters call companions through: the snapshot is checked first. */
+  function guarded(connectionId: number, snap: Snapshot): CompanionCaller {
+    return {
+      operations: ctx.operations,
+      before: () => holds(connectionId, snap),
+    };
+  }
+
+  /** One of the connection's own resources, from the shared resource cache. */
   async function resourceOf(
     connectionId: number,
     uuid: string,
   ): Promise<ResourceDto> {
     if (!UUID.test(uuid)) throw resourceNotFound();
-    const api = await connections.api(connectionId);
-    const [applications, services, databases] = await Promise.all([
-      api.applications(),
-      api.services(),
-      api.databases(),
-    ]);
-    const found = [...applications, ...databases, ...services].find(
-      (r) => r.uuid === uuid,
-    );
+    // A miss is checked once more, fresh, as lifecycle does.
+    const found =
+      (await resources.get(connectionId, uuid)) ??
+      (await resources.get(connectionId, uuid, { refresh: true }));
     if (!found) throw resourceNotFound();
     return found;
-  }
-
-  async function resourcesOn(
-    connectionId: number,
-    serverUuid: string,
-  ): Promise<ResourceDto[]> {
-    const api = await connections.api(connectionId);
-    const [applications, services, databases] = await Promise.all([
-      api.applications(),
-      api.services(),
-      api.databases(),
-    ]);
-    return [...applications, ...databases, ...services].filter(
-      (r) => r.serverUuid === serverUuid,
-    );
   }
 
   /** The Linked host of a server, when the actor may see it. Fails closed. */
@@ -255,6 +269,24 @@ export function createCompanions(
       throw forbidden("You have no access to this server's Linked host");
     }
     return hostId;
+  }
+
+  /**
+   * A server path's Linked host: linked to this connection, still in the
+   * connection's own Coolify (a uuid it doesn't have is Coolify's 404,
+   * whatever link row is left), and one the actor may see.
+   */
+  async function serverHost(
+    connectionId: number,
+    snap: Snapshot,
+    serverUuid: string,
+  ): Promise<number> {
+    if (!UUID.test(serverUuid)) throw notLinked();
+    if (!(await sync.linkedHostFor(connectionId, serverUuid))) {
+      throw notLinked();
+    }
+    await snap.api.server(serverUuid);
+    return hostOf(connectionId, serverUuid);
   }
 
   async function storedRecord(
@@ -284,15 +316,26 @@ export function createCompanions(
 
   async function matchedMonitors(
     connectionId: number,
+    snap: Snapshot,
     uuid: string,
   ): Promise<Monitor[]> {
     const resource = await resourceOf(connectionId, uuid);
     const names = hostnamesOf(resource.fqdns);
     if (!names.size) return [];
-    return (await uptimeMonitors(ctx)).filter((m) => {
+    return (await uptimeMonitors(guarded(connectionId, snap))).filter((m) => {
       const host = hostnameOfUrl(m.url);
       return host !== null && names.has(host);
     });
+  }
+
+  /** A read's answer, only while the connection still points at the snapshot. */
+  async function answer<T>(
+    connectionId: number,
+    snap: Snapshot,
+    value: T,
+  ): Promise<T> {
+    await holds(connectionId, snap);
+    return value;
   }
 
   return {
@@ -336,7 +379,7 @@ export function createCompanions(
       uuid: string,
       body: DnsCreateBody,
     ): Promise<DnsRecordView> {
-      await need(connectionId, "configure");
+      const snap = await need(connectionId, "configure");
       await requireCompanion(ctx, "dns");
       if (typeof body.fqdn !== "string") throw invalid("fqdn is required");
       const fqdn = body.fqdn.trim().toLowerCase().replace(/\.$/, "");
@@ -357,15 +400,18 @@ export function createCompanions(
         if (!resource.serverUuid) {
           throw invalid("content is required for this resource");
         }
-        const api = await connections.api(connectionId);
-        content = (await api.server(resource.serverUuid)).ip.trim();
+        content = (await snap.api.server(resource.serverUuid)).ip.trim();
       }
       const type = (body.type as DnsType | undefined) ?? typeFor(content);
       if (!type || !contentFits(type, content)) {
         throw invalid("content does not fit the record type");
       }
 
-      const key = await dnsCreate(ctx, { fqdn, type, content });
+      const key = await dnsCreate(guarded(connectionId, snap), {
+        fqdn,
+        type,
+        content,
+      });
 
       const db = await dbClient(ctx);
       await db.insert(t.dnsRecords).values({
@@ -401,12 +447,12 @@ export function createCompanions(
       uuid: string,
       recordId: number,
     ): Promise<{ id: number; removed: true }> {
-      await need(connectionId, "configure");
+      const snap = await need(connectionId, "configure");
       await requireCompanion(ctx, "dns");
       const row = await storedRecord(connectionId, uuid, recordId);
       const handle = parseHandle(row.handle);
       if (!handle) throw new CompanionError("companion-failed", "dns");
-      await dnsRemove(ctx, handle);
+      await dnsRemove(guarded(connectionId, snap), handle);
       await (
         await dbClient(ctx)
       )
@@ -421,9 +467,10 @@ export function createCompanions(
       connectionId: number,
       uuid: string,
     ): Promise<{ monitors: Monitor[] }> {
-      await need(connectionId, "view");
+      const snap = await need(connectionId, "view");
       await requireCompanion(ctx, "uptime");
-      return { monitors: await matchedMonitors(connectionId, uuid) };
+      const monitors = await matchedMonitors(connectionId, snap, uuid);
+      return answer(connectionId, snap, { monitors });
     },
 
     /**
@@ -435,11 +482,12 @@ export function createCompanions(
       uuid: string,
       paused: boolean,
     ): Promise<{ monitors: string[] }> {
-      await need(connectionId, "operate");
+      const snap = await need(connectionId, "operate");
       await requireCompanion(ctx, "uptime");
-      const monitors = await matchedMonitors(connectionId, uuid);
+      const monitors = await matchedMonitors(connectionId, snap, uuid);
+      const caller = guarded(connectionId, snap);
       for (const monitor of monitors) {
-        await uptimeSetPaused(ctx, monitor.id, paused);
+        await uptimeSetPaused(caller, monitor.id, paused);
       }
       return { monitors: monitors.map((m) => m.id) };
     },
@@ -449,14 +497,18 @@ export function createCompanions(
       connectionId: number,
       uuid: string,
     ): Promise<{ source: "docker"; query: string; results: LogLine[] }> {
-      await need(connectionId, "operate");
+      const snap = await need(connectionId, "operate");
       await requireCompanion(ctx, "logSearch");
       const resource = await resourceOf(connectionId, uuid);
-      return {
-        source: "docker",
+      const results = await logSearch(
+        guarded(connectionId, snap),
+        resource.uuid,
+      );
+      return answer(connectionId, snap, {
+        source: "docker" as const,
         query: resource.uuid,
-        results: await logSearch(ctx, resource.uuid),
-      };
+        results,
+      });
     },
 
     /** Security Center's score and critical findings for a server's Linked host. */
@@ -464,10 +516,11 @@ export function createCompanions(
       connectionId: number,
       serverUuid: string,
     ): Promise<SecuritySummary & { hostId: number }> {
-      await need(connectionId, "view");
+      const snap = await need(connectionId, "view");
       await requireCompanion(ctx, "securityCenter");
-      const hostId = await hostOf(connectionId, serverUuid);
-      return { hostId, ...(await securityCheck(ctx, hostId)) };
+      const hostId = await serverHost(connectionId, snap, serverUuid);
+      const summary = await securityCheck(guarded(connectionId, snap), hostId);
+      return answer(connectionId, snap, { hostId, ...summary });
     },
 
     /** Failed Termix backup jobs on a server's Linked host. */
@@ -475,10 +528,11 @@ export function createCompanions(
       connectionId: number,
       serverUuid: string,
     ): Promise<{ hostId: number; jobs: FailedBackup[] }> {
-      await need(connectionId, "view");
+      const snap = await need(connectionId, "view");
       await requireCompanion(ctx, "backups");
-      const hostId = await hostOf(connectionId, serverUuid);
-      return { hostId, jobs: await backupsFailed(ctx, hostId) };
+      const hostId = await serverHost(connectionId, snap, serverUuid);
+      const jobs = await backupsFailed(guarded(connectionId, snap), hostId);
+      return answer(connectionId, snap, { hostId, jobs });
     },
 
     /** The Coolify resource counts the Host Metrics card shows. */
@@ -491,18 +545,18 @@ export function createCompanions(
       services: number;
       databases: number;
     }> {
-      await need(connectionId, "view");
+      const snap = await need(connectionId, "view");
       await requireCompanion(ctx, "hostMetrics");
-      const hostId = await hostOf(connectionId, serverUuid);
-      const on = await resourcesOn(connectionId, serverUuid);
+      const hostId = await serverHost(connectionId, snap, serverUuid);
+      const on = await resources.byServer(connectionId, serverUuid);
       const count = (kind: ResourceDto["kind"]) =>
         on.filter((r) => r.kind === kind).length;
-      return {
+      return answer(connectionId, snap, {
         hostId,
         applications: count("application"),
         services: count("service"),
         databases: count("database"),
-      };
+      });
     },
 
     /** Whether a Coolify database has a saved login in the Databases plugin. */
@@ -514,21 +568,21 @@ export function createCompanions(
       saved: boolean;
       logins: SavedLogin[];
     }> {
-      await need(connectionId, "view");
+      const snap = await need(connectionId, "view");
       await requireCompanion(ctx, "databases");
       const resource = await resourceOf(connectionId, uuid);
       if (!isDatabase(resource)) {
         throw invalid("Only a database has saved logins");
       }
       const hostId = await hostOf(connectionId, resource.serverUuid);
-      const logins = (await databaseLogins(ctx, hostId)).filter((l) =>
-        loginMatches(l, resource),
-      );
-      return {
+      const logins = (
+        await databaseLogins(guarded(connectionId, snap), hostId)
+      ).filter((l) => loginMatches(l, resource));
+      return answer(connectionId, snap, {
         hostId,
         saved: logins.length > 0,
         logins,
-      };
+      });
     },
 
     /** The Coolify databases on a server and whether each has a saved login. */
@@ -539,21 +593,21 @@ export function createCompanions(
       hostId: number;
       databases: { uuid: string; name: string; saved: boolean }[];
     }> {
-      await need(connectionId, "view");
+      const snap = await need(connectionId, "view");
       await requireCompanion(ctx, "databases");
-      const hostId = await hostOf(connectionId, serverUuid);
-      const databases = (await resourcesOn(connectionId, serverUuid)).filter(
-        isDatabase,
-      );
-      const logins = await databaseLogins(ctx, hostId);
-      return {
+      const hostId = await serverHost(connectionId, snap, serverUuid);
+      const databases = (
+        await resources.byServer(connectionId, serverUuid)
+      ).filter(isDatabase);
+      const logins = await databaseLogins(guarded(connectionId, snap), hostId);
+      return answer(connectionId, snap, {
         hostId,
         databases: databases.map((r) => ({
           uuid: r.uuid,
           name: r.name,
           saved: logins.some((l) => loginMatches(l, r)),
         })),
-      };
+      });
     },
   };
 }

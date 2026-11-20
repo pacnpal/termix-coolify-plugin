@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OperationAction } from "@termix-ssh/plugin-sdk/operations";
 import { manifest, type PluginHarness } from "../helpers/plugin.js";
 import { withRunHistory } from "../helpers/run-history.js";
-import { DB_PASSWORD, TOKEN, startCompanions } from "../companions/fixtures.js";
+import {
+  DB_PASSWORD,
+  TOKEN,
+  changeTarget,
+  startCompanions,
+} from "../companions/fixtures.js";
 
 let harness: PluginHarness | null = null;
 
@@ -180,6 +185,23 @@ describe("companion operations", () => {
       .filter(([, options]) => options?.confirmed === true)
       .map(([actionId]) => actionId);
     expect(confirmed).toEqual(["dns.delete-record"]);
+  });
+
+  it("monitors are not paused when the connection's target changes first", async () => {
+    const { harness: h, runs, id, companions } = await start();
+    const monitors = companions.actions["uptime.monitors"];
+    companions.actions["uptime.monitors"] = async (input, hostId) => {
+      await changeTarget(h, Number(id));
+      return monitors(input, hostId);
+    };
+    await expect(
+      runs.run("coolify.companion", {
+        connectionId: id,
+        kind: "uptime-pause",
+        params: { uuid: "app-web-uuid" },
+      }),
+    ).rejects.toMatchObject({ code: "target-changed" });
+    expect(companions.calls.map((c) => c.name)).toEqual(["uptime.monitors"]);
   });
 
   it("coolify.companion no longer accepts dns-remove", async () => {

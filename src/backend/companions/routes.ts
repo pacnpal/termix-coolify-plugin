@@ -1,7 +1,28 @@
-import type { Request, Router } from "express";
+import type { Request, Response, Router } from "express";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
-import { idParam, safe } from "../connections/routes.js";
+import { idParam, sendError } from "../connections/routes.js";
+import { CompanionError } from "./detect.js";
 import type { Companions } from "./service.js";
+
+/** Like connections' `safe`, with CompanionError's own answer. Never throws. */
+function handle(
+  ctx: PluginContext,
+  fn: (req: Request, res: Response) => Promise<unknown>,
+) {
+  return async (req: Request, res: Response) => {
+    try {
+      await fn(req, res);
+    } catch (err) {
+      if (err instanceof CompanionError) {
+        res
+          .status(err.status)
+          .json({ error: err.message, cause: err.code, plugin: err.plugin });
+        return;
+      }
+      sendError(ctx, res, err);
+    }
+  };
+}
 
 function param(req: Request, name: string): string {
   return String(req.params[name] ?? "");
@@ -46,7 +67,7 @@ export function registerCompanionRoutes(
   router.get(
     "/companions",
     view,
-    safe(ctx, async (_req, res) => {
+    handle(ctx, async (_req, res) => {
       res.json(await companions.map());
     }),
   );
@@ -83,7 +104,7 @@ export function registerCompanionRoutes(
   router.get(
     "/connections/:id/resources/:uuid/dns",
     view,
-    safe(ctx, async (req, res) => {
+    handle(ctx, async (req, res) => {
       res.json(await companions.dnsList(idParam(req), param(req, "uuid")));
     }),
   );
@@ -145,7 +166,7 @@ export function registerCompanionRoutes(
     "/connections/:id/resources/:uuid/dns",
     view,
     configure,
-    safe(ctx, async (req, res) => {
+    handle(ctx, async (req, res) => {
       const body =
         req.body && typeof req.body === "object" && !Array.isArray(req.body)
           ? (req.body as Record<string, unknown>)
@@ -199,7 +220,7 @@ export function registerCompanionRoutes(
     "/connections/:id/resources/:uuid/dns/:recordId",
     view,
     configure,
-    safe(ctx, async (req, res) => {
+    handle(ctx, async (req, res) => {
       res.json(
         await companions.dnsRemove(
           idParam(req),
@@ -244,7 +265,7 @@ export function registerCompanionRoutes(
   router.get(
     "/connections/:id/resources/:uuid/uptime",
     view,
-    safe(ctx, async (req, res) => {
+    handle(ctx, async (req, res) => {
       res.json(await companions.uptime(idParam(req), param(req, "uuid")));
     }),
   );
@@ -286,7 +307,7 @@ export function registerCompanionRoutes(
     "/connections/:id/log-search",
     view,
     operate,
-    safe(ctx, async (req, res) => {
+    handle(ctx, async (req, res) => {
       const uuid = typeof req.query.uuid === "string" ? req.query.uuid : "";
       res.json(await companions.logSearch(idParam(req), uuid));
     }),
@@ -327,7 +348,7 @@ export function registerCompanionRoutes(
   router.get(
     "/connections/:id/servers/:uuid/security",
     view,
-    safe(ctx, async (req, res) => {
+    handle(ctx, async (req, res) => {
       res.json(await companions.security(idParam(req), param(req, "uuid")));
     }),
   );
@@ -366,7 +387,7 @@ export function registerCompanionRoutes(
   router.get(
     "/connections/:id/servers/:uuid/backups-failed",
     view,
-    safe(ctx, async (req, res) => {
+    handle(ctx, async (req, res) => {
       res.json(
         await companions.backupsFailed(idParam(req), param(req, "uuid")),
       );
@@ -408,7 +429,7 @@ export function registerCompanionRoutes(
   router.get(
     "/connections/:id/servers/:uuid/host-metrics",
     view,
-    safe(ctx, async (req, res) => {
+    handle(ctx, async (req, res) => {
       res.json(await companions.hostMetrics(idParam(req), param(req, "uuid")));
     }),
   );
@@ -449,7 +470,7 @@ export function registerCompanionRoutes(
   router.get(
     "/connections/:id/servers/:uuid/db-logins",
     view,
-    safe(ctx, async (req, res) => {
+    handle(ctx, async (req, res) => {
       res.json(await companions.dbLogins(idParam(req), param(req, "uuid")));
     }),
   );
@@ -492,7 +513,7 @@ export function registerCompanionRoutes(
   router.get(
     "/connections/:id/resources/:uuid/db-login",
     view,
-    safe(ctx, async (req, res) => {
+    handle(ctx, async (req, res) => {
       res.json(await companions.dbLogin(idParam(req), param(req, "uuid")));
     }),
   );

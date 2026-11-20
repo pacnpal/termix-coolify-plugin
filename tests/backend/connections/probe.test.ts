@@ -54,10 +54,10 @@ describe("ability probe", () => {
       "team",
       "keys",
       "logs",
-      "root",
+      "settings",
     ]);
-    expect(step(result, "root")).toEqual({
-      id: "root",
+    expect(step(result, "settings")).toEqual({
+      id: "settings",
       ok: false,
       cause: "forbidden-ability",
     });
@@ -134,6 +134,84 @@ describe("ability probe", () => {
       ok: false,
       cause: "forbidden-ability",
     });
+  });
+
+  it("scoped token with only service parts still detects read:sensitive", async () => {
+    const fake = healthyCoolify({
+      "GET /team": forbidden,
+      "GET /applications": { json: [] },
+      "GET /databases": { json: [] },
+      "GET /services": {
+        json: [
+          {
+            id: 5,
+            uuid: "svc-uuid",
+            name: "stack",
+            applications: [{ id: 6, uuid: "svc-app-uuid", name: "web" }],
+            databases: [],
+          },
+        ],
+      },
+      "GET /services/svc-uuid/applications/svc-app-uuid/logs": {
+        json: { logs: "a line" },
+      },
+    });
+    const result = await probeWith(fake);
+    expect(result.scoped).toBe(true);
+    expect(result.abilities.sensitive).toBe(true);
+    expect(step(result, "logs")).toEqual({ id: "logs", ok: true });
+    expect(
+      fake.calls.some(
+        (c) => c.path === "/services/svc-uuid/applications/svc-app-uuid/logs",
+      ),
+    ).toBe(true);
+  });
+
+  it("says there was nothing to probe instead of claiming the token can't read logs", async () => {
+    const result = await probeWith(
+      healthyCoolify({
+        "GET /team": forbidden,
+        "GET /applications": { json: [] },
+        "GET /databases": { json: [] },
+        "GET /services": { json: [] },
+      }),
+    );
+    expect(result.abilities.sensitive).toBe(false);
+    expect(step(result, "logs")).toEqual({
+      id: "logs",
+      ok: false,
+      skipped: "nothing-to-probe",
+    });
+
+    const noKeys = await probeWith(
+      healthyCoolify({ "GET /security/keys": { json: [] } }),
+    );
+    expect(noKeys.abilities.keys).toBe(false);
+    expect(step(noKeys, "keys")).toEqual({
+      id: "keys",
+      ok: false,
+      skipped: "nothing-to-probe",
+    });
+  });
+
+  it("email settings access does not imply root or sensitive", async () => {
+    const result = await probeWith(
+      healthyCoolify({
+        "GET /settings/email": { json: { smtp_enabled: false } },
+        "GET /security/keys/key-uuid": {
+          json: { id: 3, uuid: "key-uuid", name: "deploy key" },
+        },
+        "GET /applications/app-web-uuid/logs": forbidden,
+      }),
+    );
+    expect(result.abilities).toMatchObject({
+      keys: false,
+      sensitive: false,
+      root: false,
+    });
+    // Reading instance settings is recorded as its own step, not an ability.
+    expect(step(result, "settings")).toEqual({ id: "settings", ok: true });
+    expect(step(result, "root")).toBeUndefined();
   });
 
   it("stops at the first step when Coolify can't be reached, with a cause", async () => {
