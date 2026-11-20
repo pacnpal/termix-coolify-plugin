@@ -2,6 +2,7 @@ import type {
   PluginFetch,
   PluginFetchInit,
 } from "@termix-ssh/plugin-sdk/backend";
+import { REDACTED_VALUE } from "@termix-ssh/plugin-sdk/operations";
 import { trimTrailing } from "../text.js";
 
 /** Everything needed to reach one Coolify instance. Holds the token unsealed: never log or return it. */
@@ -70,7 +71,9 @@ export const CAUSE_MESSAGES: Record<CoolifyCause, string> = {
   "unsupported-version": "This plugin needs Coolify 4.4 or newer",
 };
 
-type QueryValue = string | number | boolean | undefined;
+type QueryScalar = string | number | boolean;
+/** An array is sent as one name=value per item (OpenAPI form, exploded). */
+type QueryValue = QueryScalar | QueryScalar[] | undefined;
 
 export interface CoolifyRequestOptions {
   query?: Record<string, QueryValue>;
@@ -79,6 +82,32 @@ export interface CoolifyRequestOptions {
   retry?: boolean;
   /** Read the answer as plain text (Coolify's /version and /health). */
   text?: boolean;
+  /**
+   * Masks every answer string that holds the token or the Cloudflare Access
+   * secret, for answers passed on as they came (the generic API).
+   */
+  scrubSecrets?: boolean;
+  /**
+   * Runs right before each fetch, after the request budget's wait and any
+   * retry's backoff. A throw sends nothing.
+   */
+  beforeFetch?: () => Promise<void>;
+}
+
+/** `value` with every string that contains one of `secrets` masked. */
+function scrub(value: unknown, secrets: readonly string[]): unknown {
+  if (typeof value === "string") {
+    return secrets.some((secret) => value.includes(secret))
+      ? REDACTED_VALUE
+      : value;
+  }
+  if (Array.isArray(value)) return value.map((v) => scrub(v, secrets));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([k, v]) => [k, scrub(v, secrets)]),
+    );
+  }
+  return value;
 }
 
 export interface CoolifyHttp {
@@ -107,15 +136,40 @@ function apiBase(baseUrl: string): string {
   return `${trimTrailing(baseUrl.trim(), "/")}/api/v1`;
 }
 
+/**
+ * The request URL. Refuses a path that URL parsing would change (".", "..",
+ * their percent-encoded forms, backslashes, a query or fragment in the path):
+ * fetch would send it to a different endpoint than the one the caller's
+ * access was checked for. Nothing is sent then.
+ */
 function buildUrl(
   baseUrl: string,
   path: string,
   query?: Record<string, QueryValue>,
 ): string {
-  const url = `${apiBase(baseUrl)}${path.startsWith("/") ? path : `/${path}`}`;
+  const rest = path.startsWith("/") ? path : `/${path}`;
+  const base = apiBase(baseUrl);
+  const url = `${base}${rest}`;
+  let sent: string | null = null;
+  let expected: string | null = null;
+  try {
+    sent = new URL(url).pathname;
+    expected = `${new URL(base).pathname}${rest}`;
+  } catch {
+    // Not a URL at all: refused below.
+  }
+  if (sent === null || sent !== expected) {
+    throw new CoolifyError(
+      "validation",
+      0,
+      "The request path is not a plain Coolify API path",
+    );
+  }
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query ?? {})) {
-    if (value !== undefined) params.append(key, String(value));
+    for (const item of value === undefined ? [] : [value].flat()) {
+      params.append(key, String(item));
+    }
   }
   const qs = params.toString();
   return qs ? `${url}?${qs}` : url;
@@ -328,6 +382,7 @@ export function createCoolifyHttp(
       const canRetry = verb === "GET" && options.retry !== false;
       for (let attempt = 0; ; attempt++) {
         await takeSlot();
+        await options.beforeFetch?.();
         let response: Response;
         try {
           response = await fetch(url, init(verb, options.body));
@@ -335,7 +390,12 @@ export function createCoolifyHttp(
           throw new CoolifyError("unreachable", 0);
         }
         if (response.status >= 200 && response.status < 300) {
-          return (await success(response, options.text === true)) as T;
+          const answer = await success(response, options.text === true);
+          if (!options.scrubSecrets) return answer as T;
+          const secrets = [target.token, target.cfAccess?.secret ?? ""].filter(
+            (secret) => secret !== "",
+          );
+          return scrub(answer, secrets) as T;
         }
         if (canRetry && attempt < RETRIES && retryable(response.status)) {
           await sleep(retryAfterMs(response) ?? BACKOFF_MS[attempt]);

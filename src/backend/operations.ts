@@ -8,6 +8,10 @@ import type { Resources } from "./resources/service.js";
 import { registerCompanionOperations } from "./ops/companions.js";
 import type { StatusPages } from "./status/service.js";
 import { registerConnectionOperations } from "./ops/connections.js";
+import {
+  registerGenericApiOperations,
+  type GenericApi,
+} from "./ops/api-generic.js";
 import { registerContainerOperations } from "./ops/containers.js";
 import { registerLifecycleOperations } from "./ops/lifecycle.js";
 import { registerResourceOperations } from "./ops/resources.js";
@@ -32,6 +36,7 @@ export interface Services {
   updates: Updates;
   companions: Companions;
   statusPages: StatusPages;
+  genericApi: GenericApi;
 }
 
 /**
@@ -51,4 +56,5 @@ export function registerOperations(
   registerUpdateOperations(ctx, services.updates);
   registerCompanionOperations(ctx, services.companions);
   registerStatusPageOperations(ctx, services.statusPages);
+  registerGenericApiOperations(ctx, services.genericApi);
 }

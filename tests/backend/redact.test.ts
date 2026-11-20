@@ -103,3 +103,71 @@ describe("redact", () => {
     expect(redact(null)).toBeNull();
   });
 });
+
+describe("redact: credentials inside values", () => {
+  const PW = "fake-db-password-redact";
+
+  it("masks a URL's userinfo password in any field, at any depth", () => {
+    const out = redact({
+      note: { list: [`see postgres://admin:${PW}@db:5432/app for it`] },
+    });
+    expect(JSON.stringify(out)).not.toContain(PW);
+    expect(out).toEqual({
+      note: {
+        list: [`see postgres://admin:${REDACTED_VALUE}@db:5432/app for it`],
+      },
+    });
+  });
+
+  it("masks credential query parameters and keeps the others", () => {
+    expect(
+      redact({ link: `https://x.test/a?token=${PW}&page=2&Password=${PW}` }),
+    ).toEqual({
+      link: `https://x.test/a?token=${REDACTED_VALUE}&page=2&Password=${REDACTED_VALUE}`,
+    });
+    expect(redact({ link: `https://x.test/a?key=${PW}` })).toEqual({
+      link: `https://x.test/a?key=${REDACTED_VALUE}`,
+    });
+  });
+
+  it("keeps a *_db_url as a URL with its password masked; an unparsable one is masked whole", () => {
+    expect(
+      redact({
+        internal_db_url: `postgres://postgres:${PW}@db-uuid:5432/postgres`,
+        external_db_url: "not a url",
+      }),
+    ).toEqual({
+      internal_db_url: `postgres://postgres:${REDACTED_VALUE}@db-uuid:5432/postgres`,
+      external_db_url: REDACTED_VALUE,
+    });
+  });
+
+  it.each([
+    "manual_webhook_secret_github",
+    "influxdb_admin_password",
+    "deploy_key",
+    "api_token",
+    "client_secret",
+    "dsn",
+  ])("masks %s (by name or from the vendored schemas)", (key) => {
+    expect(redact({ [key]: PW })).toEqual({ [key]: REDACTED_VALUE });
+  });
+
+  it.each([
+    "configuration",
+    "custom_nginx_configuration",
+    "cloud_init_script",
+    "script",
+    "docker_compose",
+    "dockerfile",
+  ])("masks the raw config, Compose or script field %s whole", (key) => {
+    const raw = `services:\n  traefik:\n    environment:\n      - CF_DNS_API_TOKEN=${PW}`;
+    expect(redact({ [key]: raw })).toEqual({ [key]: REDACTED_VALUE });
+  });
+
+  it("leaves plain values and an env var's name alone", () => {
+    expect(
+      redact({ key: "DB_URL", fqdn: "https://app.test/a?page=2", port: 5432 }),
+    ).toEqual({ key: "DB_URL", fqdn: "https://app.test/a?page=2", port: 5432 });
+  });
+});

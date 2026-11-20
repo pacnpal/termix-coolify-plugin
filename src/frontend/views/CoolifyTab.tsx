@@ -6,7 +6,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Boxes, LayoutDashboard, Plug, Rocket, Server } from "lucide-react";
+import {
+  Boxes,
+  Braces,
+  LayoutDashboard,
+  Plug,
+  Rocket,
+  Server,
+} from "lucide-react";
 import type { TabProps } from "@termix-ssh/plugin-sdk/frontend";
 import {
   usePermission,
@@ -25,6 +32,7 @@ import {
 } from "@termix-ssh/plugin-sdk/ui";
 import { createApi, type Api, type Connection } from "../api";
 import type { ResourceHealth } from "../../shared/resource-health";
+import { ApiConsoleView } from "./ApiConsoleView";
 import { ConnectionsView, syncable } from "./ConnectionsView";
 import { OverviewView } from "./OverviewView";
 import { ResourceDetail } from "./ResourceDetail";
@@ -33,14 +41,19 @@ import { SyncView } from "./SyncView";
 import type { HealthFilter } from "./resource-model";
 import { useResources } from "./useResources";
 
-/** The sections, in SideNav order. Servers is host sync for one connection. */
-export type Section = "overview" | "resources" | "servers" | "connections";
+/**
+ * The sections, in SideNav order. Servers is host sync for one connection;
+ * the API console picks its own connection.
+ */
+export type Section =
+  "overview" | "resources" | "servers" | "connections" | "api";
 
 const SECTIONS: readonly string[] = [
   "overview",
   "resources",
   "servers",
   "connections",
+  "api",
 ];
 
 /** What the tab was opened for, from its data. */
@@ -221,6 +234,7 @@ export function CoolifyTab({ tab, shell }: TabProps) {
       ? [{ id: "servers", label: t("nav.servers"), icon: Server }]
       : []),
     { id: "connections", label: t("nav.connections"), icon: Plug },
+    { id: "api", label: t("apiConsole.title"), icon: Braces },
   ];
 
   const picker =
@@ -249,6 +263,8 @@ export function CoolifyTab({ tab, shell }: TabProps) {
         onSync={canConfigure ? syncFrom : undefined}
       />
     );
+  } else if (section === "api") {
+    body = <ApiConsoleView />;
   } else if (!connection) {
     body = (
       <EmptyState

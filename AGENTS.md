@@ -80,6 +80,9 @@ aren't obvious from the code, and anything that has bitten you before.
   `CoolifyCause`). `toRouteError` sends fixed messages only, never what Coolify sent back, because Coolify can
   echo a token. `/version` and `/health` answer `text/html`, so they use `{ text: true }`; any other HTML
   body is `not-coolify`. `dto.ts` picks fields by name (no spreads), `api.ts` calls paths from `OPERATIONS`.
+  Path parameters go through `fillPath` in `coolify/path.ts` (one segment: no dot-only values, slashes,
+  backslashes or `%`; spec enums and integers enforced), and `buildUrl` refuses any path that URL parsing
+  would change. fetch resolves `..`, so without both a checked operation could reach another endpoint.
 - Connections: `src/backend/connections/` (service, probe, routes) and `src/backend/ops/connections.ts`.
   Tokens are sealed with `ctx.secrets.seal`. The `abilities` column holds the probe summary
   (`{ abilities, scoped, teamId, steps }`), since there is no column for scope or the checklist.
@@ -111,9 +114,58 @@ aren't obvious from the code, and anything that has bitten you before.
   the SDK's own `parseOperationInput` and `redactFields` around `ctx.operations.run`, as core does.
 - Coolify API: `vendor/coolify/` holds the v4.7.5, `main` and `next` specs as fetched (see its README).
   `npm run gen:coolify` writes `src/backend/coolify/generated/operations.ts` (`OPERATIONS`,
-  `EXCLUDED_OPERATIONS`). `docs/coverage.md` must list every operation; `tests/backend/coverage.test.ts`
-  enforces it. There are no generated schema types: openapi-typescript needs a TypeScript 5 alias, and the
-  registry CI's lockfile-lint (`--validate-package-names`) rejects npm aliases. DTOs are written by hand.
+  `EXCLUDED_OPERATIONS`) and `schemas.json` with its accessor `schemas.ts` (each operation's parameters
+  and top-level body fields, from the newest spec that has it, for the generic API and the console's
+  forms). The JSON stores each distinct parameter and body field once and operations refer to them by
+  index: as repeated TypeScript literals it was most of the bundle and failed SonarCloud's duplication
+  gate. `docs/coverage.md` must list every
+  operation; `tests/backend/coverage.test.ts` enforces it. There are no generated schema types:
+  openapi-typescript needs a TypeScript 5 alias, and the registry CI's lockfile-lint
+  (`--validate-package-names`) rejects npm aliases. DTOs are written by hand.
+- Generic API: `src/backend/ops/api-generic.ts`. `requiredAccess(operationId)` gives the Termix permission
+  and grant level by path and method rules, first match wins: excluded (throws), administer, operate
+  (including reads with log or command output), other GET is view, the rest configure. `createGenericApi`
+  (`dispatch`, `list`, `reveal`) applies permission, grant and the known token ability before calling
+  Coolify; Coolify checks the rest of the token itself. The `upload-*` imports are refused (`ctx.fetch` only
+  sends strings). A 404 from a Coolify older than the spec that documents an operation becomes
+  `unsupported-by-instance`. The console routes (`src/backend/api/routes.ts`) call the same service; a
+  DELETE also needs `confirmText` equal to the operation id. Reveal re-reads Coolify, is audited and
+  answers `Cache-Control: no-store`. `isSensitive` (every DELETE, plus `SECRET_PATH`: envs, `/security`,
+  cloud tokens, secret manager, logs, notifications, SMTP, S3, registries, Git apps) and every non-GET
+  need `dispatch(..., { confirmed: true })`; `coolify.api-read` refuses sensitive ones (MCP runs it as a
+  read, without Allow changes) and the api-call handler passes `confirmed` because core confirms every
+  destructive run. Each call uses one `connections.snapshot()` (its `http` is the request layer) and
+  checks `connections.revision()` right before the request (`target-changed`). Bodies are cut to the
+  spec's top-level fields. Answers go through `scrubSecrets` in `http.ts` (masks strings holding the
+  token or Access secret) and `redact`. Every non-GET invalidates the resources and server-status caches
+  in a `finally`. `secrets-unreadable` is 409: it is the token's ability, not the user's access.
+  The generator also writes `TEXT_ANSWERS` (operations whose 2xx answer lists no JSON type; sent with
+  `{ text: true }`), `SECRET_FIELDS` (string fields any spec describes as a password or secret) and each
+  array query parameter's `items`; arrays go out as one `name=value` per item (form, exploded).
+  It also writes `RAW_FIELDS` (string fields described as YAML, Compose, a script, a Dockerfile, Nginx
+  config, labels or env text; masked whole), `LOG_FIELDS` (per operation, every non-flag
+  `logs`/`log`/`output`/`*_logs`/`*_output` property, or string described as output, anywhere in its
+  2xx schema in any spec), `LOG_PURPOSE` and `nullable` on params and body fields (the console's "Send
+  null"). Body fields are the union of the body's own, allOf, oneOf and anyOf properties; a field is
+  required when the body or an allOf branch requires it, or every oneOf (anyOf) branch does.
+  The log rule: an operation is for logs (`LOG_PURPOSE`) when it is a read (GET, or POST to `.../logs`)
+  and its path has a `logs`, `deployments`, `executions` or `imports` segment, or log fields are at
+  least half of its answer's top-level properties. Those need `coolify.operate`, an operate grant and a
+  confirm (they are `isOperate` and sensitive). Any other answer that merely holds a log field
+  (`list-servers`, `get-server-by-uuid`, the database reads and `update-server-by-uuid`, through
+  `validation_logs`) is an ordinary read; `dispatch` masks the operation's `LOG_FIELDS` unless the call
+  is confirmed and the actor has `coolify.operate` and an operate grant. Revealing a log field needs
+  `coolify.operate` too. A server transfer's status stays operate by hand (its schema has no log field).
+  `authorize` also applies `tokenAllows` (`token-ability`, 409), and `send` passes `beforeFetch` so the
+  request layer checks the revision again after its budget and retry waits, right before each fetch.
+  The console drops late answers with request generations (reveal, operation list, connections).
+- Redaction: `src/backend/redact.ts` is the one redactor for the generic API, the console and every MCP
+  tool result. It masks secret keys (`SECRET_KEY`, including `*_key` and `*_db_url`, plus
+  `SECRET_FIELDS`) and, in every other string at any depth, a URL's userinfo password and credential
+  query parameters (`maskCredentials`). A secret `*_url` that parses as a URL keeps its shape with the
+  password masked. `isMasked` (a string holding `[redacted]`) is what `maskedPaths` and reveal use, so
+  reveal (configure, a sensitive token, audited) is the only way an unmasked value comes back. DTOs
+  carry no URLs or passwords.
 - Tables: `src/backend/tables.ts`, migrations in `migrations/`. Table names are snake_case
   (`p_coolify_status_pages`); the SDK refuses camelCase. `servers.hostId` is a plain nullable integer, not
   `refHost`: a cascade would delete the row and its `addressOverride` when the host goes. The `host.deleted`

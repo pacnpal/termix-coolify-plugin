@@ -106,6 +106,77 @@ and optionally `part`, `container` and `console`, checked like the route. Its da
 | `coolify.status-page-create` | `POST /plugin-api/coolify/connections/:id/status-pages` | `/operations/coolify.status-page-create/run` | `operations:run` | `coolify__status_page_create` | `curl -X POST "$TERMIX/operations/coolify.status-page-create/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","title":"Shop status","resources":["<resource uuid>"]}}'` |
 | `coolify.status-page-rotate` | `POST /plugin-api/coolify/status-pages/:id/rotate` | `/operations/coolify.status-page-rotate/run` | `operations:run` | `coolify__status_page_rotate` | `curl -X POST "$TERMIX/operations/coolify.status-page-rotate/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"id":"1"},"confirmed":true}'` |
 | `coolify.status-page-revoke` | `DELETE /plugin-api/coolify/status-pages/:id` | `/operations/coolify.status-page-revoke/run` | `operations:run` | `coolify__status_page_revoke` | `curl -X POST "$TERMIX/operations/coolify.status-page-revoke/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"id":"1"},"confirmed":true}'` |
+| `coolify.list-api-reads` | `GET /plugin-api/coolify/connections/:id/api/operations?reads=1` | `/operations/coolify.list-api-reads/run` | `operations:read` or `operations:run` | `coolify__list_api_reads` | `curl -X POST "$TERMIX/operations/coolify.list-api-reads/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'` |
+| `coolify.list-api-operations` | `GET /plugin-api/coolify/connections/:id/api/operations` | `/operations/coolify.list-api-operations/run` | `operations:read` or `operations:run` | `coolify__list_api_operations` | `curl -X POST "$TERMIX/operations/coolify.list-api-operations/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'` |
+| `coolify.api-read` | `POST /plugin-api/coolify/connections/:id/api/call` | `/operations/coolify.api-read/run` | `operations:read` or `operations:run` | `coolify__api_read` | `curl -X POST "$TERMIX/operations/coolify.api-read/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","operationId":"get-application-by-uuid","params":"{\"uuid\":\"<app uuid>\"}"}}'` |
+| `coolify.api-call` | `POST /plugin-api/coolify/connections/:id/api/call` | `/operations/coolify.api-call/run` | `operations:run` | `coolify__api_call` | `curl -X POST "$TERMIX/operations/coolify.api-call/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","operationId":"deploy-by-tag-or-uuid","params":"{\"uuid\":\"<app uuid>\"}"},"confirmed":true}'` |
+
+## The full Coolify API
+
+Every operation in Coolify's API (the vendored specs list them all) can be run through two operations:
+
+- `coolify.api-read` runs a read (GET). `coolify.list-api-reads` lists the ones you may run.
+- `coolify.api-call` runs any operation, after a confirm. `coolify.list-api-operations` lists the ones you may
+  call.
+
+`params` holds the path and query parameters as a JSON object, and `body` the request body as JSON. Both are
+secret inputs, so request bodies that carry keys or env values never enter run history. The run records the
+method, operation id and path, and the request and answer with secrets masked.
+
+Each operation needs what the same action needs in the app, whatever key or tool calls it:
+
+| Operations                                                                                                                                                                                                                                                         | Termix permission    | Grant               |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------- | ------------------- |
+| Every DELETE; creating a server; starting, completing or importing a server transfer or migration; cloud provisioning and cloud tokens (Hetzner, DigitalOcean, Vultr, Hostinger, cloud-init scripts); instance settings, including turning Coolify's MCP on or off | `coolify.administer` | configure, or owner |
+| Start, stop, restart, deploy, rollback, cancel a deployment, run a scheduled task or a backup; reads that carry log or command output: `…/logs`, everything under `/deployments`, `…/executions`, a server transfer's status and a database import's status        | `coolify.operate`    | operate             |
+| Any other GET                                                                                                                                                                                                                                                      | `coolify.view`       | view                |
+| Everything else (edits, envs, creates, keys, storage, DNS, notifications)                                                                                                                                                                                          | `coolify.configure`  | configure           |
+
+- `POST /disable`, which would turn Coolify's API off and lock the plugin out, is never run, even when its
+  operation id is given directly.
+- The two file upload imports (`upload-database-import`, `upload-service-database-import`) can't go through
+  the plugin. Import from a path on the server or from S3 with `create-database-import` instead.
+- Operations newer than the connection's Coolify are hidden and refused. When an older Coolify answers 404 or
+  405 for an operation it doesn't have yet, the answer is `unsupported-by-instance` (409 from the routes).
+- **Sensitive operations** run only through `coolify.api-call` (which asks for a confirm) or after a confirm
+  in the console: every DELETE, and anything that reads or writes env values, private keys, cloud and
+  integration tokens, secret-manager references, logs, notification and SMTP settings, S3 and registry
+  credentials or GitHub and GitLab apps. `coolify.api-read` refuses them with `confirm-required`, and
+  `coolify.list-api-reads` leaves them out.
+- Over MCP, `coolify__api_read` is a read tool and `coolify__api_call` follows **Allow changes over MCP** and
+  needs `confirmed`, so MCP never reaches a sensitive operation without both.
+- `params` may hold only the operation's own path and query parameters (anything else is refused), and
+  `body` is cut to the top-level fields the spec declares; an operation without a JSON body gets none.
+- Each call reads the connection once and checks, right before asking Coolify, that its address, token,
+  Access token and TLS settings are still the same; otherwise it ends with `target-changed` (409).
+- Any string in an answer that holds the connection's token or Access secret is masked, as well as the
+  usual secret fields, every field a Coolify spec describes as a password or secret, fields named
+  `*_password`, `*_secret`, `*_key`, `*_token`, `*_db_url` and `dsn`, and, in any string at any depth, the
+  password in a URL (`postgres://user:[redacted]@host`) and query parameters such as `password=`, `token=`
+  or `key=`. A database's `internal_db_url` and `external_db_url` come back as URLs with the password
+  masked. Fields a spec describes as raw config, Compose, a script, a Dockerfile, Nginx config, labels or
+  env text (a proxy's `configuration`, `docker_compose_raw`, `cloud_init_script` and the like) are masked
+  whole. Only **Reveal** in the console shows a masked value.
+- Reads whose purpose is logs or command output (deployments, `/logs`, task, backup and cleanup
+  executions, and import status, found from Coolify's API description) need **Operate Coolify resources**,
+  an operate grant and a confirm, through `coolify.api-call` or the console. Any other answer that holds a
+  log or output field (a server's or database's `validation_logs`) is an ordinary read: that field comes
+  back masked unless the call is confirmed by someone with **Operate Coolify resources** and an operate
+  grant.
+- A token that can't read, or a logs read without `read:sensitive`, is refused before Coolify is asked
+  (`token-ability`, 409). The connection is checked again right before each request is sent, after any
+  wait for the request budget or a retry.
+- Array query parameters (such as `system_github_apps[]` of `check-server-import`) take a JSON list and are
+  sent as one `name=value` per item. Operations whose answer is text (`version`, `healthcheck`) answer the
+  text. Errors carry fixed messages and a `cause`, never Coolify's own text.
+- Every call that isn't a GET drops the plugin's cached resource list and server statuses, whether it
+  worked or not, so the Coolify tab and status tiles read Coolify again.
+
+The in-app **API console** (Coolify tab) draws a form for each operation. Plain reads run at once; sensitive
+reads and anything else ask
+for a confirm, and a DELETE asks you to type the operation id. Secrets in answers are masked. With
+`coolify.configure`, configure access and a token with `read:sensitive`, you can reveal one value at a time;
+each reveal is audited and nothing is kept.
 
 ## MCP
 

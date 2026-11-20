@@ -395,6 +395,25 @@ The same is available as actions: `coolify.status-page-list`, `coolify.status-pa
 and rotate answer a `handoffId`, and the link is taken once with it. See [Status page URLs](api.md#status-page-urls).
 Listing needs **View Coolify**; the rest need **Configure Coolify**.
 
+## The full Coolify API
+
+Everything in Coolify's API is reachable from Termix, checked against your permissions:
+
+- The **API console** in the Coolify tab lists every operation you may call on a connection, with a form for
+  its parameters and body. Plain reads run at once; reads of secrets or logs and anything that changes
+  Coolify ask first, and a delete asks you
+  to type the operation id. Secrets in answers are masked. With **Configure Coolify**, configure access and a
+  token with `read:sensitive`, **Reveal** shows one value; each reveal is recorded in the audit log and
+  nothing is kept.
+- The actions `coolify.api-read` (reads) and `coolify.api-call` (anything, after a confirm) do the same from
+  the CLI, Automations, the operations API and the plugin's MCP endpoint, where `coolify__api_call` follows
+  **Allow changes over MCP**.
+
+Each operation needs what the same thing needs in the app: reads need **View Coolify**, logs, deployments
+and lifecycle need **Operate Coolify resources**, deletes, server transfers, cloud provisioning and instance settings
+need **Administer Coolify**, and everything else **Configure Coolify**. Coolify's own "turn the API off" is
+never run. See the [API and MCP reference](api.md#the-full-coolify-api) for the full rules.
+
 ## Permissions
 
 Admins and users get all five by default. Admins can take any of them away per role.

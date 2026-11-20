@@ -1,6 +1,7 @@
 import type { Router } from "express";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { defineTables } from "./db.js";
+import { registerApiConsoleRoutes } from "./api/routes.js";
 import { registerCompanionRoutes } from "./companions/routes.js";
 import { createCompanions } from "./companions/service.js";
 import { createConnections } from "./connections/service.js";
@@ -14,6 +15,7 @@ import {
 import { registerMcpRoutes } from "./mcp/routes.js";
 import { createContainers } from "./containers/service.js";
 import { registerContainerRoutes } from "./containers/routes.js";
+import { createGenericApi } from "./ops/api-generic.js";
 import { registerOperations } from "./operations.js";
 import { createSync, type Sync } from "./sync/service.js";
 import { registerSyncRoutes } from "./sync/routes.js";
@@ -47,6 +49,11 @@ export async function activate(ctx: PluginContext): Promise<void> {
     servers,
     sync,
   });
+  const genericApi = createGenericApi(ctx, {
+    connections,
+    resources,
+    servers,
+  });
   const companions = createCompanions(ctx, {
     tables,
     connections,
@@ -67,6 +74,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
   registerContainerRoutes(router, ctx, containers);
   registerUpdateRoutes(router, ctx, updates);
   registerCompanionRoutes(router, ctx, companions);
+  registerApiConsoleRoutes(router, ctx, genericApi);
   registerMcpRoutes(router, ctx);
   registerStatusRoutes(router, ctx, statusPages);
   registerOperations(ctx, {
@@ -80,6 +88,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
     updates,
     companions,
     statusPages,
+    genericApi,
   });
   await statusPages.start();
 }

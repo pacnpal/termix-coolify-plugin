@@ -112,6 +112,59 @@ export interface McpInfo {
   endpoint: string;
 }
 
+export interface ApiParam {
+  name: string;
+  in: "path" | "query";
+  required: boolean;
+  type: string;
+  /** The spec allows null. */
+  nullable?: boolean;
+  description?: string;
+}
+
+export interface ApiBodyField {
+  name: string;
+  type: string;
+  /** The spec allows null. */
+  nullable?: boolean;
+  required: boolean;
+  description?: string;
+}
+
+/** A Coolify API operation the user may call, with what its form needs. */
+export interface ApiOperation {
+  id: string;
+  method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
+  path: string;
+  minVersion: string;
+  permission: string;
+  /** A delete, or one that reads or writes secrets: it always asks first. */
+  sensitive?: boolean;
+  summary: string;
+  params: ApiParam[];
+  body: ApiBodyField[] | null;
+}
+
+export type JsonPointer = (string | number)[];
+
+export interface ApiCallRequest {
+  operationId: string;
+  params: Record<string, unknown>;
+  body?: unknown;
+  confirmed?: boolean;
+  confirmText?: string;
+}
+
+/** One call's answer: redacted, with the paths of the masked values. */
+export interface ApiCallAnswer {
+  method: string;
+  operationId: string;
+  path: string;
+  request: unknown;
+  data: unknown;
+  masked: JsonPointer[];
+}
+
 /** A Coolify server as host sync shows it. Never carries a key. */
 export interface SyncServer {
   uuid: string;
@@ -378,6 +431,36 @@ export function createApi(api: PluginApiClient) {
     },
     async probeConnection(id: number): Promise<ProbeAnswer> {
       return (await api.post<ProbeAnswer>(`/connections/${id}/probe`)).data;
+    },
+    async listApiOperations(id: number): Promise<ApiOperation[]> {
+      const data = (
+        await api.get<{ operations?: ApiOperation[] }>(
+          `/connections/${id}/api/operations`,
+        )
+      ).data;
+      return Array.isArray(data?.operations) ? data.operations : [];
+    },
+    async callApi(id: number, request: ApiCallRequest): Promise<ApiCallAnswer> {
+      return (
+        await api.post<ApiCallAnswer>(`/connections/${id}/api/call`, request)
+      ).data;
+    },
+    /** One masked value, fresh from Coolify. Audited; never kept. */
+    async revealApiValue(
+      id: number,
+      request: {
+        operationId: string;
+        params: Record<string, unknown>;
+        pointer: JsonPointer;
+      },
+    ): Promise<string> {
+      const data = (
+        await api.post<{ value?: unknown }>(
+          `/connections/${id}/api/reveal`,
+          request,
+        )
+      ).data;
+      return typeof data?.value === "string" ? data.value : "";
     },
     /** Served from a 20 second cache unless refresh is set. */
     async listResources(

@@ -903,10 +903,12 @@ export function createConnections(
     async snapshot(id: number): Promise<{
       view: ConnectionView;
       api: CoolifyApi;
+      /** The request layer for that same target, for the generic API. */
+      http: CoolifyHttp;
       cfAccess: () => Promise<CoolifyTarget["cfAccess"]>;
     }> {
       const { row: found, access } = await reach(id);
-      const { api } = await cachedClient(found);
+      const { api, http } = await cachedClient(found);
       let cfAccess: Promise<CoolifyTarget["cfAccess"]> | null = null;
       const unsealAccess = async () => {
         const cfId = await unsealOrNull(found.cfAccessIdSealed);
@@ -916,6 +918,7 @@ export function createConnections(
       return {
         view: toView(found, access),
         api,
+        http,
         cfAccess: () => (cfAccess ??= unsealAccess()),
       };
     },

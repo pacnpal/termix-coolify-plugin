@@ -1358,6 +1358,130 @@
             "assistant": false,
             "mcp": false
           }
+        },
+        {
+          "id": "coolify.list-api-reads",
+          "titleKey": "ops.listApiReads.title",
+          "descriptionKey": "ops.listApiReads.description",
+          "icon": "BookOpen",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.listDescription",
+              "optionsFrom": "coolify.list-connections"
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.list-api-operations",
+          "titleKey": "ops.listApiOperations.title",
+          "descriptionKey": "ops.listApiOperations.description",
+          "icon": "BookOpen",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.listDescription",
+              "optionsFrom": "coolify.list-connections"
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.api-read",
+          "titleKey": "ops.apiRead.title",
+          "descriptionKey": "ops.apiRead.description",
+          "icon": "FileSearch",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "operationId",
+              "type": "select",
+              "labelKey": "ops.fields.operationId.label",
+              "descriptionKey": "ops.fields.operationId.description",
+              "optionsFrom": "coolify.list-api-reads",
+              "required": true
+            },
+            {
+              "key": "params",
+              "type": "secret",
+              "labelKey": "ops.fields.apiParams.label",
+              "descriptionKey": "ops.fields.apiParams.description"
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.api-call",
+          "titleKey": "ops.apiCall.title",
+          "descriptionKey": "ops.apiCall.description",
+          "icon": "Send",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "operationId",
+              "type": "select",
+              "labelKey": "ops.fields.operationId.label",
+              "descriptionKey": "ops.fields.operationId.description",
+              "optionsFrom": "coolify.list-api-operations",
+              "required": true
+            },
+            {
+              "key": "params",
+              "type": "secret",
+              "labelKey": "ops.fields.apiParams.label",
+              "descriptionKey": "ops.fields.apiParams.description"
+            },
+            {
+              "key": "body",
+              "type": "secret",
+              "labelKey": "ops.fields.body.label",
+              "descriptionKey": "ops.fields.body.description"
+            }
+          ],
+          "risk": "destructive",
+          "permission": "operate",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
         }
       ],
       "resources": [

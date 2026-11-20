@@ -130,3 +130,31 @@
   `coolify.status-page-create`, `coolify.status-page-rotate`, `coolify.status-page-revoke`). Run history
   never holds a page's link: create and rotate answer a handoff id, and the link is taken once over MCP,
   with the MCP tool `take_status_page_url`, or with `POST /plugin-api/coolify/status-pages/handoff/:id`
+
+- The full Coolify API through Termix: `coolify.api-read` runs any Coolify read and `coolify.api-call` any
+  operation after a confirm, each checked against the permission, connection access and token that
+  operation needs (deletes and instance settings need **Administer Coolify**, logs need **Operate Coolify resources**).
+  Request parameters and bodies never enter run history, and answers are masked. Coolify's "turn the API
+  off" is never run, and operations newer than the connection's Coolify are hidden
+- Deletes and operations that read or write secrets (envs, keys, tokens, logs, notification, S3, registry
+  and Git app settings) run only through `coolify.api-call` or after a confirm in the console, never through
+  `coolify.api-read`, so over MCP they need **Allow changes over MCP** and a confirm. Calls through the full
+  API check that the connection still points at the same Coolify before they run, send only the body fields
+  the operation declares, mask the connection's own token wherever an answer repeats it, and refresh the
+  resource list and status tiles after a change
+- Answers through the full API, the console and MCP mask passwords inside URLs (a database's connection
+  URLs keep their shape with the password masked), credential query parameters, and every field a Coolify
+  spec describes as a password or secret. `version` and `healthcheck` answer their text, and array query
+  parameters such as `check-server-import`'s app lists are sent
+- Raw config, Compose files, scripts and env text in answers are masked whole, and reads whose answer
+  is logs or command output (deployments, executions, imports) need Operate Coolify resources and ask
+  first, while log fields in other answers (a server's validation logs) come back masked unless an
+  operator confirms, both found from Coolify's own API description. The API console keeps only the newest answer
+  when you switch connections or reveal twice, retries loading connections on Refresh, and can send null
+  to clear a nullable field
+- Request bodies through the full API offer the fields of every variant Coolify accepts (such as a
+  database import from an upload or from S3)
+- The API console in the Coolify tab: a form for every Coolify operation. Plain reads run at once, reads of
+  secrets or logs and changes ask
+  first and a delete asks you to type the operation id. Masked values can be revealed one at a time with
+  **Configure Coolify** and a token with `read:sensitive`; each reveal is audited
