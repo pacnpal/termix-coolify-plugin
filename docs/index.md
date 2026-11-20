@@ -288,7 +288,9 @@ Coolify has no API to check, install or reboot, so the plugin does it on the Lin
   updates runs its `package-manager.upgrade-all` on the host, so that plugin's own rules apply (turn on
   Packages for the host there, and its read only setting is respected).
 - **Without it**, the plugin uses SSH on the Linked host with fixed commands for apt, dnf, yum or pacman.
-  The SSH login must be root or have passwordless sudo, as Coolify itself needs.
+  The SSH login must be root or have passwordless sudo, as Coolify itself needs. Every check refreshes the
+  package lists first; on Arch it uses `checkupdates` from pacman-contrib, which never touches the real
+  package database, and without it the check fails rather than read stale lists.
 
 **Install updates** shows every package it would change, with the Docker restarts highlighted, and runs
 only after you confirm. **Reboot** asks you to type the server's exact name and warns that every Coolify

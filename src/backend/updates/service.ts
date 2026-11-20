@@ -253,20 +253,23 @@ const LIST_STATUS = "__COOLIFY_LIST_STATUS__=";
 /**
  * The listing alone, so its own exit status is what the marker reads (the
  * SDK's listing hides failures behind a pipe or `|| true`). dnf and yum
- * check-update exit 100 when updates are pending; pacman -Qu exits 1 when
- * none are, and its errors are caught by their "error:" lines.
+ * check-update exit 100 when updates are pending. pacman has no safe
+ * refresh (`pacman -Sy` alone risks a partial upgrade), so it lists with
+ * pacman-contrib's `checkupdates`, which syncs a temporary copy of the
+ * database: 0 with updates, 2 with none, anything else (or not installed,
+ * 127) fails the check.
  */
 const LISTING: Record<NonNullable<PackageManager>, string> = {
   apt: "apt list --upgradable 2>/dev/null",
   dnf: "dnf -q check-update 2>/dev/null",
   yum: "yum -q check-update 2>/dev/null",
-  pacman: "pacman -Qu 2>&1",
+  pacman: "checkupdates 2>&1",
 };
 const LIST_OK: Record<NonNullable<PackageManager>, number[]> = {
   apt: [0],
   dnf: [0, 100],
   yum: [0, 100],
-  pacman: [0, 1],
+  pacman: [0, 2],
 };
 const REFRESH: Partial<Record<NonNullable<PackageManager>, string>> = {
   apt: "apt-get update -qq",
@@ -349,7 +352,7 @@ export function parseCheck(
     statusOf(output, REFRESH_STATUS) !== 0 ||
     listed === null ||
     !LIST_OK[pkg].includes(listed) ||
-    (pkg === "pacman" && /^error:/m.test(listing))
+    (pkg === "pacman" && /^(error:|==> ERROR)/im.test(listing))
   ) {
     return {
       updates: null,
@@ -477,6 +480,8 @@ export function createUpdates(
   const generations = new Map<number, number>();
   const generationOf = (connectionId: number) =>
     `${epoch}:${generations.get(connectionId) ?? 0}`;
+  // Checks running now, by connection, server, revision and generation.
+  const checks = new Map<string, Promise<CheckResult>>();
 
   type Snapshot = Awaited<ReturnType<Connections["snapshot"]>>;
 
@@ -712,6 +717,52 @@ export function createUpdates(
     return target;
   }
 
+  /** One check of a server, kept while its revision and generation hold. */
+  async function runCheck(target: Target): Promise<CheckResult> {
+    const checkedAt = new Date().toISOString();
+    const generation = generationOf(target.connectionId);
+    let result: CheckResult;
+    if (await packageManagerRuns()) {
+      const outcome = await invoke(
+        target,
+        PM_LIST,
+        "Package Manager could not list updates",
+      );
+      result = {
+        via: "package-manager",
+        fresh: fromPackageManager(outcome.data, checkedAt),
+      };
+    } else {
+      const pkg = await platform(target);
+      const out = await exec(target, checkCommand(pkg), 180_000);
+      const fresh = parseCheck(pkg, out.stdout, checkedAt);
+      if (fresh.error) {
+        throw new UpdateError(
+          "check-failed",
+          "The package lists could not be read on the server",
+        );
+      }
+      result = { via: "ssh", fresh };
+    }
+    // Kept under the revision and generation it was read with, and only
+    // while both hold: an install or reboot meanwhile makes it stale.
+    await holds(target.connectionId, target.snap);
+    if (generationOf(target.connectionId) !== generation) return result;
+    const kept: KeptCheck = {
+      revision: target.snap.view.revision,
+      generation,
+      status: result.fresh,
+      via: result.via,
+    };
+    await cache.write(
+      target.connectionId,
+      kindOf(target.uuid),
+      kept,
+      Date.now(),
+    );
+    return result;
+  }
+
   return {
     /** Coolify's last check and the plugin's own. Works without a Linked host. */
     async status(connectionId: number, rawUuid: unknown): Promise<UpdatesView> {
@@ -730,50 +781,31 @@ export function createUpdates(
       };
     },
 
-    /** Re-reads pending updates and keeps the result. */
+    /**
+     * Re-reads pending updates and keeps the result. Every caller is checked
+     * on its own; callers of one server under the same revision and
+     * generation share one run, so an older run can never finish last and
+     * overwrite a newer one.
+     */
     async check(connectionId: number, rawUuid: unknown): Promise<CheckResult> {
       const target = await prepare(connectionId, rawUuid, {
         permission: "operate",
         grant: "operate",
         host: "connect",
       });
-      const checkedAt = new Date().toISOString();
-      const generation = generationOf(connectionId);
-      let result: CheckResult;
-      if (await packageManagerRuns()) {
-        const outcome = await invoke(
-          target,
-          PM_LIST,
-          "Package Manager could not list updates",
-        );
-        result = {
-          via: "package-manager",
-          fresh: fromPackageManager(outcome.data, checkedAt),
-        };
-      } else {
-        const pkg = await platform(target);
-        const out = await exec(target, checkCommand(pkg), 180_000);
-        const fresh = parseCheck(pkg, out.stdout, checkedAt);
-        if (fresh.error) {
-          throw new UpdateError(
-            "check-failed",
-            "The package lists could not be read on the server",
-          );
-        }
-        result = { via: "ssh", fresh };
-      }
-      // Kept under the revision and generation it was read with, and only
-      // while both hold: an install or reboot meanwhile makes it stale.
-      await holds(connectionId, target.snap);
-      if (generationOf(connectionId) !== generation) return result;
-      const kept: KeptCheck = {
-        revision: target.snap.view.revision,
-        generation,
-        status: result.fresh,
-        via: result.via,
-      };
-      await cache.write(connectionId, kindOf(target.uuid), kept, Date.now());
-      return result;
+      const key = [
+        connectionId,
+        target.uuid,
+        target.snap.view.revision,
+        generationOf(connectionId),
+      ].join(":");
+      const pending = checks.get(key);
+      if (pending) return pending;
+      const started = runCheck(target).finally(() => {
+        if (checks.get(key) === started) checks.delete(key);
+      });
+      checks.set(key, started);
+      return started;
     },
 
     /** Upgrades every package. Needs confirm === true. */

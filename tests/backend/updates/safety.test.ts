@@ -284,6 +284,44 @@ describe("server updates fail closed", () => {
     expect(status.body).toMatchObject({ fresh: null, via: null });
   });
 
+  it("overlapping checks of one server share one run, so an older one can't overwrite a newer", async () => {
+    const { h, web1 } = await start();
+    const ssh = fakeSsh(h);
+    const real = ssh.exec.getMockImplementation()!;
+    let reached = () => {};
+    let release = () => {};
+    const atCheck = new Promise<void>((resolve) => (reached = resolve));
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let listings = 0;
+    ssh.exec.mockImplementation(async (...args) => {
+      if (!args[1].includes("apt list --upgradable")) return real(...args);
+      listings += 1;
+      if (listings === 1) {
+        // The first check is slow and reads the server as it was then.
+        reached();
+        await released;
+        return real(...args);
+      }
+      const answer = await real(...args);
+      return {
+        ...answer,
+        stdout: answer.stdout.replace(/^(?!curl)[a-z].*\n/gm, ""),
+      };
+    });
+    const first = h.request("POST", `${web1}/updates/check`, {});
+    await atCheck;
+    const second = h.request("POST", `${web1}/updates/check`, {});
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    release();
+    const [a, b] = await Promise.all([first, second]);
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    const kept = await h.request("GET", `${web1}/updates`);
+    // Whatever ran last for the newest caller is what stays.
+    expect(kept.body.fresh.updates).toBe(b.body.fresh.updates);
+    expect(listings).toBe(1);
+  });
+
   it("a check still running when install ends is not kept", async () => {
     const { h, web1 } = await start();
     const ssh = fakeSsh(h);

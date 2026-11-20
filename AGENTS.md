@@ -255,6 +255,11 @@ console }`, calls the shell route and draws `PluginComponent id="terminal.view"`
   `companions-unknown`) rather than use SSH. The SSH check reports each step's exit status in a marker
   line (`checkCommand`, its own `LISTING`, not the SDK's, which hides failures); a failed or missing
   refresh or listing is 502 `check-failed`, never zero updates.
+  Refresh steps: apt `apt-get update`, dnf and yum `makecache`; pacman has none (`pacman -Sy` alone risks
+  a partial upgrade) and lists with pacman-contrib's `checkupdates` (a temporary database; without it the
+  check fails). Concurrent checks of one server under the same revision and generation share one run
+  (`checks`, keyed by connection, server, revision and generation), so an older run never overwrites a
+  newer one.
   A failure on the Package Manager path is reported, never retried over SSH, so that plugin's read only
   setting can't be bypassed. Order of checks (`prepare`): permission (operate, administer to reboot),
   `connections.snapshot(id)` once, the snapshot's grant (operate, configure to reboot), confirm, the
