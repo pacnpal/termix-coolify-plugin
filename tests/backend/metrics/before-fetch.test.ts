@@ -53,7 +53,10 @@ function setup(changeDuringWait: (method: string, path: string) => boolean) {
     rbac: { has: async () => true },
   } as unknown as PluginContext;
   const metrics = createMetrics(ctx, {
-    connections: { snapshot: async () => snap } as never,
+    connections: {
+      snapshot: async () => snap,
+      access: async () => "owner",
+    } as never,
     containers: {
       target: async () => {
         throw new Error("unused");

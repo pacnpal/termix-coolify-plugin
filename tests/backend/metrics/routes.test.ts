@@ -304,13 +304,36 @@ describe("resource metrics", () => {
     ]);
   });
 
-  it("checks the uuid as one path segment, as every Coolify path does", async () => {
-    const { resource, harness: h } = await start();
-    const ssh = fakeSentinel(h, HISTORY);
-    // A uuid that can't be one segment is never looked up or sent.
-    expect((await resource("a%2Fb", "metrics")).status).toBe(404);
-    expect(ssh.commands).toEqual([]);
-  });
+  // Each form the shared path-segment check refuses, on its own: none of them
+  // may reach the resource list, Coolify or Sentinel, by route or action.
+  const BAD_SEGMENTS: Array<[string, string]> = [
+    ["slash", "a/b"],
+    ["backslash", "a\\b"],
+    ["dot-only segment", ".."],
+    ["control character", "a\u0001b"],
+    ["space", "a b"],
+    ["shell character", "a;b"],
+    ["percent-encoded slash", "a%2Fb"],
+  ];
+
+  for (const [name, bad] of BAD_SEGMENTS) {
+    it(`refuses a uuid with a ${name} before any lookup`, async () => {
+      const { resource, fake, connectionId, harness: h } = await start();
+      const ssh = fakeSentinel(h, HISTORY);
+      const before = fake.calls.length;
+      if (!bad.includes("/") && bad !== "..") {
+        const routed = await resource(encodeURIComponent(bad), "metrics");
+        expect(routed.status, name).toBe(404);
+      }
+      await expect(
+        h.mock.ctx.operations.run("coolify.resource-metrics", {
+          input: { connectionId: String(connectionId), uuid: bad },
+        }),
+      ).rejects.toMatchObject({ code: "not-found" });
+      expect(fake.calls.slice(before), name).toEqual([]);
+      expect(ssh.commands, name).toEqual([]);
+    });
+  }
 
   it("needs coolify.operate", async () => {
     const { resource, harness: h } = await start({

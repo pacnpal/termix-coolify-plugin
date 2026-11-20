@@ -383,4 +383,29 @@ describe("stats socket", () => {
     expect(socket.sent.at(-1)).toMatchObject({ cause: "target-changed" });
     expect(socket.closedWith).toBe(1008);
   });
+
+  it("a change while docker stats runs withholds that sample", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { open, connectionId, docker, harness: h } = await start();
+    const { socket } = await open();
+    socket.message({ connectionId, uuid: "app-web-uuid" });
+    await settle();
+    const samples = () => socket.sent.filter((m) => m.type === "stats").length;
+    expect(samples()).toBe(1);
+    const inner = docker.exec.getMockImplementation()!;
+    docker.exec.mockImplementation(async (target, command, opts) => {
+      const answer = await inner(target, command, opts);
+      if (/docker stats /.test(command)) {
+        h.db.sqlite
+          .prepare("UPDATE p_coolify_connections SET base_url = ?")
+          .run("https://other.example.test");
+      }
+      return answer;
+    });
+    await vi.advanceTimersByTimeAsync(STATS_INTERVAL_MS);
+    await settle();
+    expect(samples()).toBe(1);
+    expect(socket.sent.at(-1)).toMatchObject({ cause: "target-changed" });
+    expect(socket.closedWith).toBe(1008);
+  });
 });
