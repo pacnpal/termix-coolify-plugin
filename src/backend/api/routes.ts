@@ -131,7 +131,8 @@ export function registerApiConsoleRoutes(
    *     description: >-
    *       Runs one vendored Coolify operation with the same checks as
    *       coolify.api-read and coolify.api-call: the operation's own Termix
-   *       permission, the grant level and the token. Anything but a GET needs
+   *       permission, the grant level and the token. Anything but a GET, and
+   *       a GET that reads secrets or logs (envs, keys, tokens, logs), needs
    *       confirmed true; a DELETE also needs confirmText equal to the
    *       operation id. The answer is redacted, with the paths of the masked
    *       values in masked.
@@ -181,27 +182,26 @@ export function registerApiConsoleRoutes(
       const id = idParam(req);
       const body = bodyOf(req);
       const operationId = operationIdOf(body);
-      const method = METHOD_OF.get(operationId);
-      if (method && method !== "GET") {
-        if (body.confirmed !== true) {
-          throw new ApiCallError(
-            "confirm-required",
-            `${operationId} changes Coolify; confirm it first`,
-          );
-        }
-        if (method === "DELETE" && body.confirmText !== operationId) {
-          throw new ApiCallError(
-            "confirm-required",
-            `Type ${operationId} to confirm this delete`,
-          );
-        }
+      if (
+        METHOD_OF.get(operationId) === "DELETE" &&
+        body.confirmed === true &&
+        body.confirmText !== operationId
+      ) {
+        throw new ApiCallError(
+          "confirm-required",
+          `Type ${operationId} to confirm this delete`,
+        );
       }
-      const result = await api.dispatch({
-        connectionId: id,
-        operationId,
-        params: body.params,
-        body: body.body,
-      });
+      // dispatch refuses a change or a sensitive read without confirmed.
+      const result = await api.dispatch(
+        {
+          connectionId: id,
+          operationId,
+          params: body.params,
+          body: body.body,
+        },
+        { confirmed: body.confirmed === true },
+      );
       res.json({ ...result, masked: maskedPaths(result.data) });
     }),
   );
@@ -245,7 +245,9 @@ export function registerApiConsoleRoutes(
    *       400:
    *         description: Not a read, or not a masked value
    *       403:
-   *         description: Missing coolify.configure, configure access, or a token that reads secrets
+   *         description: Missing coolify.configure or configure access
+   *       409:
+   *         description: The connection's token can't read secrets (secrets-unreadable)
    *       404:
    *         description: No such connection for this user
    */

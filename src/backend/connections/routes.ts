@@ -39,7 +39,7 @@ export function safe(ctx: PluginContext, fn: Handler): Handler {
 /** A connection id from the path; a malformed one reads as missing. */
 export function idParam(req: Request): number {
   const raw = String(req.params.id ?? "");
-  const id = /^\d{1,15}$/.test(raw) ? Number(raw) : NaN;
+  const id = /^\d{1,15}$/.test(raw) ? Number(raw) : Number.NaN;
   if (!Number.isSafeInteger(id) || id <= 0) {
     throw new ConnectionError("not-found", "Coolify connection not found");
   }
@@ -166,7 +166,7 @@ export function registerConnectionRoutes(
    *       400:
    *         description: Missing or invalid fields
    *       403:
-   *         description: Missing coolify.configure
+   *         description: Missing coolify.view or coolify.configure
    *       409:
    *         description: Coolify is older than 4.4
    */
@@ -263,9 +263,11 @@ export function registerConnectionRoutes(
    *       200:
    *         description: The changed connection, without any token
    *       400:
-   *         description: Invalid fields
+   *         description: >-
+   *           Invalid fields, or the change needs a stored token or Cloudflare
+   *           Access value that can't be read and wasn't sent again
    *       403:
-   *         description: Missing coolify.configure, or not the owner
+   *         description: Missing coolify.view or coolify.configure, or not the owner
    *       404:
    *         description: No such connection, or another user's
    *       409:
@@ -306,7 +308,7 @@ export function registerConnectionRoutes(
    *       200:
    *         description: The removed connection
    *       403:
-   *         description: Missing coolify.configure, or not the owner
+   *         description: Missing coolify.view or coolify.configure, or not the owner
    *       404:
    *         description: No such connection, or another user's
    */

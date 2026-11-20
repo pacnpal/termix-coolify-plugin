@@ -21,6 +21,8 @@ import { CoolifyError } from "../coolify/http.js";
 import { fillPath, pathRules } from "../coolify/path.js";
 import { meetsMinVersion } from "../coolify/version.js";
 import { redact } from "../redact.js";
+import type { Resources } from "../resources/service.js";
+import type { ServerStatuses } from "./signals.js";
 import { connectionIdInput } from "./connections.js";
 
 export type CoolifyPermission =
@@ -57,7 +59,7 @@ export type ApiCallErrorCode =
   | "not-masked"
   | "secrets-unreadable";
 
-const ERROR_STATUS: Record<ApiCallErrorCode, 400 | 403 | 404> = {
+const ERROR_STATUS: Record<ApiCallErrorCode, 400 | 403 | 404 | 409> = {
   excluded: 403,
   "upload-unsupported": 400,
   "unknown-operation": 404,
@@ -66,13 +68,14 @@ const ERROR_STATUS: Record<ApiCallErrorCode, 400 | 403 | 404> = {
   "invalid-input": 400,
   "confirm-required": 400,
   "not-masked": 400,
-  "secrets-unreadable": 403,
+  // The token's ability, not the user's access: like Coolify refusing it.
+  "secrets-unreadable": 409,
 };
 
 /** A refusal by the plugin itself, before asking Coolify. */
 export class ApiCallError extends Error {
   readonly code: ApiCallErrorCode;
-  readonly status: 400 | 403 | 404;
+  readonly status: 400 | 403 | 404 | 409;
 
   constructor(code: ApiCallErrorCode, message: string) {
     super(message);
@@ -186,6 +189,28 @@ export function requiredAccess(operationId: string): RequiredAccess {
   return classify(known(operationId));
 }
 
+/**
+ * Paths whose requests or answers carry secrets: env values, private keys,
+ * cloud and integration tokens, secret-manager references, logs (which need
+ * read:sensitive), notification and SMTP settings, S3 and registry
+ * credentials, and GitHub and GitLab app secrets.
+ */
+const SECRET_PATH =
+  /\/envs(\/|$)|^\/security\/|^\/cloud-tokens(\/|$)|\/secret-manager(\/|$)|\/logs$|^\/notifications\/|^\/settings\/email$|^\/s3-storages(\/|$)|\/registries(\/|$)|^\/(github|gitlab)-apps(\/|$)/;
+
+function sensitiveOp(op: CoolifyOperation): boolean {
+  return op.method === "DELETE" || SECRET_PATH.test(op.path);
+}
+
+/**
+ * Deletes and operations that read or write secrets. They run only when the
+ * caller explicitly allowed it (`confirmed`), never through coolify.api-read,
+ * which MCP runs as a read without "Allow changes over MCP".
+ */
+export function isSensitive(operationId: string): boolean {
+  return sensitiveOp(known(operationId));
+}
+
 const RANK: Record<GrantLevel, number> = { view: 1, operate: 2, configure: 3 };
 
 /** Whether the actor's access to a connection reaches a grant level. */
@@ -220,6 +245,8 @@ export interface ApiOperationView extends OperationSchema {
   path: string;
   minVersion: string;
   permission: CoolifyPermission;
+  /** A delete, or an operation that reads or writes secrets. */
+  sensitive: boolean;
 }
 
 export interface ApiCallInput {
@@ -318,6 +345,25 @@ function buildRequest(
   return { path, query };
 }
 
+/**
+ * The body as sent: only the top-level fields the operation declares, so
+ * nothing the spec doesn't list reaches Coolify. An operation without a JSON
+ * body gets none.
+ */
+function shapeBody(op: CoolifyOperation, body: unknown): unknown {
+  const fields = OPERATION_SCHEMAS[op.id]?.body;
+  if (body === undefined || !fields) return undefined;
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw invalid("body must be a JSON object");
+  }
+  const given = body as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const field of fields) {
+    if (Object.hasOwn(given, field.name)) out[field.name] = given[field.name];
+  }
+  return out;
+}
+
 /** Follows a path of keys and indexes; undefined when it leads nowhere. */
 function at(value: unknown, pointer: readonly (string | number)[]): unknown {
   let current = value;
@@ -352,16 +398,29 @@ export function maskedPaths(
  * permission, the grant level or ownership, and what is known of the token;
  * Coolify checks the rest of the token's abilities itself).
  */
-export function createGenericApi(ctx: PluginContext, connections: Connections) {
+export interface GenericApiDeps {
+  connections: Connections;
+  resources: Pick<Resources, "invalidate">;
+  servers: Pick<ServerStatuses, "invalidate">;
+}
+
+export function createGenericApi(ctx: PluginContext, deps: GenericApiDeps) {
+  const { connections } = deps;
   async function holds(permission: CoolifyPermission): Promise<boolean> {
     return ctx.rbac.has(permission);
   }
 
+  type Snapshot = Awaited<ReturnType<Connections["snapshot"]>>;
+
+  /**
+   * The operation-level checks, then one read of the connection: everything
+   * after is about that snapshot's target.
+   */
   async function authorize(
     connectionId: number,
     operationId: string,
     opts: { readOnly?: boolean } = {},
-  ): Promise<{ op: CoolifyOperation; connection: ConnectionView }> {
+  ): Promise<{ op: CoolifyOperation; snap: Snapshot }> {
     refuseExcluded(operationId);
     if (UNSUPPORTED_UPLOADS.has(operationId)) {
       throw new ApiCallError(
@@ -383,33 +442,41 @@ export function createGenericApi(ctx: PluginContext, connections: Connections) {
         `${operationId} needs the ${access.permission} permission`,
       );
     }
-    const connection = await connections.get(connectionId);
-    if (!connection) {
-      throw new ConnectionError("not-found", "Coolify connection not found");
-    }
-    if (!grantMeets(connection.access, access.grant)) {
+    const snap = await connections.snapshot(connectionId);
+    if (!grantMeets(snap.view.access, access.grant)) {
       throw new ApiCallError(
         "forbidden",
         `${operationId} needs ${access.grant} access to this connection`,
       );
     }
-    if (!meetsMinVersion(versionOf(connection), op.minVersion)) {
+    if (!meetsMinVersion(versionOf(snap.view), op.minVersion)) {
       throw new CoolifyError("unsupported-by-instance", 0);
     }
-    return { op, connection };
+    return { op, snap };
+  }
+
+  /** Fails closed unless the connection still points at the snapshot's target. */
+  async function assertSnapshotHolds(snap: Snapshot): Promise<void> {
+    if ((await connections.revision(snap.view.id)) !== snap.view.revision) {
+      throw new ConnectionError(
+        "target-changed",
+        "The connection's address, token or Access settings changed. Run it again.",
+      );
+    }
   }
 
   async function send(
     op: CoolifyOperation,
-    connection: ConnectionView,
+    snap: Snapshot,
     params: Record<string, unknown>,
     body: unknown,
   ): Promise<unknown> {
     const { path, query } = buildRequest(op, params);
-    const http = await connections.http(connection.id);
+    await assertSnapshotHolds(snap);
     try {
-      return await http.request<unknown>(op.method, path, {
+      return await snap.http.request<unknown>(op.method, path, {
         query,
+        scrubSecrets: true,
         ...(body !== undefined ? { body } : {}),
       });
     } catch (err) {
@@ -419,11 +486,19 @@ export function createGenericApi(ctx: PluginContext, connections: Connections) {
       if (
         err instanceof CoolifyError &&
         err.cause === "not-found" &&
-        !meetsMinVersion(versionOf(connection), documentedFrom(op))
+        !meetsMinVersion(versionOf(snap.view), documentedFrom(op))
       ) {
         throw new CoolifyError("unsupported-by-instance", err.status);
       }
       throw err;
+    } finally {
+      // A write may change resources or servers, whether or not it worked.
+      if (op.method !== "GET") {
+        await Promise.all([
+          deps.resources.invalidate(snap.view.id),
+          deps.servers.invalidate(snap.view.id),
+        ]);
+      }
     }
   }
 
@@ -437,22 +512,40 @@ export function createGenericApi(ctx: PluginContext, connections: Connections) {
       return connection;
     },
 
-    /** Calls one operation. `readOnly` refuses anything but GET. */
+    /**
+     * Calls one operation. `readOnly` refuses anything but GET. A change or
+     * a sensitive operation needs `confirmed`: the caller explicitly allowed
+     * it (a confirm in the console, or core's confirm of coolify.api-call).
+     */
     async dispatch(
       input: ApiCallInput,
-      opts: { readOnly?: boolean } = {},
+      opts: { readOnly?: boolean; confirmed?: boolean } = {},
     ): Promise<ApiCallResult> {
-      const { op, connection } = await authorize(
+      const { op, snap } = await authorize(
         input.connectionId,
         input.operationId,
         opts,
       );
+      const sensitive = sensitiveOp(op);
+      if (opts.readOnly && sensitive) {
+        throw new ApiCallError(
+          "confirm-required",
+          `${op.id} reads secrets or logs; use coolify.api-call, which asks first`,
+        );
+      }
+      if ((op.method !== "GET" || sensitive) && opts.confirmed !== true) {
+        throw new ApiCallError(
+          "confirm-required",
+          `${op.id} ${op.method === "GET" ? "reads secrets or logs" : "changes Coolify"}; confirm it first`,
+        );
+      }
       const params = parseParams(input.params);
-      const body = parseJson(input.body, "body");
-      if (op.method === "GET" && body !== undefined) {
+      const parsed = parseJson(input.body, "body");
+      if (op.method === "GET" && parsed !== undefined) {
         throw invalid(`${op.id} takes no body`);
       }
-      const answer = await send(op, connection, params, body);
+      const body = shapeBody(op, parsed);
+      const answer = await send(op, snap, params, body);
       return {
         method: op.method,
         operationId: op.id,
@@ -488,7 +581,9 @@ export function createGenericApi(ctx: PluginContext, connections: Connections) {
         if (EXCLUDED_OPERATIONS.has(op.id) || UNSUPPORTED_UPLOADS.has(op.id)) {
           continue;
         }
-        if (opts.readsOnly && op.method !== "GET") continue;
+        if (opts.readsOnly && (op.method !== "GET" || sensitiveOp(op))) {
+          continue;
+        }
         const access = classify(op);
         if (!held.has(access.permission)) {
           held.set(access.permission, await holds(access.permission));
@@ -507,6 +602,7 @@ export function createGenericApi(ctx: PluginContext, connections: Connections) {
           path: op.path,
           minVersion: op.minVersion,
           permission: access.permission,
+          sensitive: sensitiveOp(op),
           ...OPERATION_SCHEMAS[op.id],
         });
       }
@@ -521,11 +617,12 @@ export function createGenericApi(ctx: PluginContext, connections: Connections) {
     async reveal(
       input: ApiCallInput & { pointer: (string | number)[] },
     ): Promise<string> {
-      const { op, connection } = await authorize(
+      const { op, snap } = await authorize(
         input.connectionId,
         input.operationId,
         { readOnly: true },
       );
+      const connection = snap.view;
       if (
         !(await holds("coolify.configure")) ||
         !grantMeets(connection.access, "configure")
@@ -545,7 +642,7 @@ export function createGenericApi(ctx: PluginContext, connections: Connections) {
       const details = `${op.id} ${input.pointer.join("/")}`;
       let answer: unknown;
       try {
-        answer = await send(op, connection, params, undefined);
+        answer = await send(op, snap, params, undefined);
       } catch (err) {
         await ctx.audit.record({
           action: "coolify.api.reveal",
@@ -655,12 +752,18 @@ export function registerGenericApiOperations(
     run: async (input) => {
       const operationId = operationIdInput(input);
       refuseExcluded(operationId);
-      const result = await api.dispatch({
-        connectionId: connectionIdInput(input),
-        operationId,
-        params: input.params,
-        body: input.body,
-      });
+      // coolify.api-call is destructive: core runs it only after a confirm,
+      // and MCP passes confirmed only when the client set it (and "Allow
+      // changes over MCP" is on), so reaching the handler is that consent.
+      const result = await api.dispatch(
+        {
+          connectionId: connectionIdInput(input),
+          operationId,
+          params: input.params,
+          body: input.body,
+        },
+        { confirmed: true },
+      );
       return {
         summary: `Called ${result.operationId} (${result.method} ${result.path})`,
         changed: result.method !== "GET",

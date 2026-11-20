@@ -2,6 +2,8 @@ import type {
   PluginFetch,
   PluginFetchInit,
 } from "@termix-ssh/plugin-sdk/backend";
+import { REDACTED_VALUE } from "@termix-ssh/plugin-sdk/operations";
+import { trimTrailing } from "../text.js";
 
 /** Everything needed to reach one Coolify instance. Holds the token unsealed: never log or return it. */
 export interface CoolifyTarget {
@@ -78,6 +80,27 @@ export interface CoolifyRequestOptions {
   retry?: boolean;
   /** Read the answer as plain text (Coolify's /version and /health). */
   text?: boolean;
+  /**
+   * Masks every answer string that holds the token or the Cloudflare Access
+   * secret, for answers passed on as they came (the generic API).
+   */
+  scrubSecrets?: boolean;
+}
+
+/** `value` with every string that contains one of `secrets` masked. */
+function scrub(value: unknown, secrets: readonly string[]): unknown {
+  if (typeof value === "string") {
+    return secrets.some((secret) => value.includes(secret))
+      ? REDACTED_VALUE
+      : value;
+  }
+  if (Array.isArray(value)) return value.map((v) => scrub(v, secrets));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([k, v]) => [k, scrub(v, secrets)]),
+    );
+  }
+  return value;
 }
 
 export interface CoolifyHttp {
@@ -103,7 +126,7 @@ const MAX_RETRY_AFTER_MS = 10_000;
 const TIMEOUT_MS = 30_000;
 
 function apiBase(baseUrl: string): string {
-  return `${baseUrl.trim().replace(/\/+$/, "")}/api/v1`;
+  return `${trimTrailing(baseUrl.trim(), "/")}/api/v1`;
 }
 
 /**
@@ -178,12 +201,31 @@ function toFieldMap(errors: unknown): Record<string, string[]> | undefined {
   return fields;
 }
 
-async function readJson(response: Response): Promise<unknown> {
+/** The body as text, or null when it can't be read (a reset mid-body). */
+async function readText(response: Response): Promise<string | null> {
   try {
-    return JSON.parse(await response.text());
+    return await response.text();
   } catch {
     return null;
   }
+}
+
+function parseJson(text: string | null): unknown {
+  if (text === null) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/** An HTML page, not one of Coolify's JSON API answers. */
+function isHtml(response: Response, text: string | null): boolean {
+  if (text === null || text.trim() === "") return false;
+  return (
+    looksLikeHtml(text) ||
+    /text\/html/i.test(response.headers.get("content-type") ?? "")
+  );
 }
 
 function retryable(status: number): boolean {
@@ -265,9 +307,15 @@ export function createCoolifyHttp(
         status,
       );
     }
+    if (status === 429) return new CoolifyError("rate-limited", status);
+    if (status >= 500) return new CoolifyError("upstream", status);
+    // Every other answer is read once. An HTML page (a proxy's or a login
+    // page) is not Coolify's API, so its status says nothing about the token.
+    const text = await readText(response);
+    if (isHtml(response, text)) return new CoolifyError("not-coolify", status);
     if (status === 401) return new CoolifyError("unauthorized", status);
     if (status === 403) {
-      const body = (await readJson(response)) as { message?: unknown } | null;
+      const body = parseJson(text) as { message?: unknown } | null;
       const message = typeof body?.message === "string" ? body.message : "";
       return new CoolifyError(
         /api is disabled/i.test(message) ? "api-disabled" : "forbidden-ability",
@@ -279,7 +327,7 @@ export function createCoolifyHttp(
       return new CoolifyError("unsupported-by-instance", status);
     }
     if (status === 422) {
-      const body = (await readJson(response)) as { errors?: unknown } | null;
+      const body = parseJson(text) as { errors?: unknown } | null;
       return new CoolifyError(
         "validation",
         status,
@@ -287,7 +335,6 @@ export function createCoolifyHttp(
         toFieldMap(body?.errors) ?? {},
       );
     }
-    if (status === 429) return new CoolifyError("rate-limited", status);
     return new CoolifyError("upstream", status);
   }
 
@@ -295,7 +342,8 @@ export function createCoolifyHttp(
     response: Response,
     asText: boolean,
   ): Promise<unknown> {
-    const text = await response.text();
+    const text = await readText(response);
+    if (text === null) throw new CoolifyError("unreachable", response.status);
     if (asText) {
       if (looksLikeHtml(text)) {
         throw new CoolifyError("not-coolify", response.status);
@@ -332,7 +380,12 @@ export function createCoolifyHttp(
           throw new CoolifyError("unreachable", 0);
         }
         if (response.status >= 200 && response.status < 300) {
-          return (await success(response, options.text === true)) as T;
+          const answer = await success(response, options.text === true);
+          if (!options.scrubSecrets) return answer as T;
+          const secrets = [target.token, target.cfAccess?.secret ?? ""].filter(
+            (secret) => secret !== "",
+          );
+          return scrub(answer, secrets) as T;
         }
         if (canRetry && attempt < RETRIES && retryable(response.status)) {
           await sleep(retryAfterMs(response) ?? BACKOFF_MS[attempt]);

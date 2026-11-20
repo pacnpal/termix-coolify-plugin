@@ -116,9 +116,29 @@ describe("API console routes", () => {
     ).toBe(404);
   });
 
-  it("a GET operation runs without confirm and answers masked values with their paths", async () => {
+  it("a plain GET runs without confirm", async () => {
     const { h, id, fake } = await start();
-    const answer = await h.request("POST", `/connections/${id}/api/call`, ENVS);
+    const answer = await h.request("POST", `/connections/${id}/api/call`, {
+      operationId: "list-servers",
+    });
+    expect(answer.status).toBe(200);
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  it("a GET that reads secrets needs confirmed and answers masked values with their paths", async () => {
+    const { h, id, fake } = await start();
+    const refused = await h.request(
+      "POST",
+      `/connections/${id}/api/call`,
+      ENVS,
+    );
+    expect(refused.status).toBe(400);
+    expect(refused.body.cause).toBe("confirm-required");
+    expect(fake.calls).toEqual([]);
+    const answer = await h.request("POST", `/connections/${id}/api/call`, {
+      ...ENVS,
+      confirmed: true,
+    });
     expect(answer.status).toBe(200);
     expect(answer.body).toMatchObject({
       method: "GET",
@@ -284,7 +304,7 @@ describe("API console routes", () => {
       ...ENVS,
       pointer: [0, "value"],
     });
-    expect(answer.status).toBe(403);
+    expect(answer.status).toBe(409);
     expect(answer.body.cause).toBe("secrets-unreadable");
     expect(fake.calls).toEqual([]);
   });

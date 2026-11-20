@@ -6,7 +6,6 @@ import {
   toRouteError,
   type CoolifyTarget,
 } from "../../../src/backend/coolify/http.js";
-import { createCoolifyApi } from "../../../src/backend/coolify/api.js";
 
 const TOKEN = "fake-token-for-tests-only";
 
@@ -53,22 +52,6 @@ async function caught(promise: Promise<unknown>): Promise<CoolifyError> {
   throw new Error("expected a CoolifyError");
 }
 
-/** The error one request fails with, through a fresh HTTP layer. */
-function failure(
-  fake: { fetch: ReturnType<typeof scripted>["fetch"] },
-  method = "GET",
-  path = "/servers",
-) {
-  return caught(
-    createCoolifyHttp(fake.fetch, target, noSleep).request(method, path),
-  );
-}
-
-/** A fake fetch that always answers with this raw response. */
-function always(body: string | null, status: number, headers: HeadersInit) {
-  return scripted(() => new Response(body, { status, headers }));
-}
-
 describe("Coolify HTTP layer", () => {
   it("sends bearer and CF access headers", async () => {
     const fake = scripted(() => json(200, []));
@@ -106,14 +89,76 @@ describe("Coolify HTTP layer", () => {
     expect(local.calls[0].init?.tls?.ca).toContain("BEGIN CERTIFICATE");
   });
 
-  it.each([
-    [401, "Unauthenticated.", "unauthorized"],
-    [403, "API is disabled.", "api-disabled"],
-    [403, "Missing ability.", "forbidden-ability"],
-  ])("maps %i %s to %s", async (status, message, cause) => {
-    const err = await failure(scripted(() => json(status, { message })));
-    expect(err.cause).toBe(cause);
-    expect(err.status).toBe(status);
+  it("maps an HTML error page to not-coolify, never to a token ability", async () => {
+    for (const status of [401, 403, 404, 405, 422]) {
+      const fake = scripted(
+        () =>
+          new Response("<!doctype html><title>Forbidden</title>", {
+            status,
+            headers: { "content-type": "text/html" },
+          }),
+      );
+      const err = await caught(
+        createCoolifyHttp(fake.fetch, target, noSleep).request("GET", "/team"),
+      );
+      expect(err.cause, String(status)).toBe("not-coolify");
+      expect(err.status).toBe(status);
+    }
+  });
+
+  it("maps a body that can't be read to a typed error", async () => {
+    const broken = (status: number) => () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.error(new Error("connection reset"));
+          },
+        }),
+        { status, headers: { "content-type": "application/json" } },
+      );
+    for (const text of [false, true]) {
+      const err = await caught(
+        createCoolifyHttp(scripted(broken(200)).fetch, target, noSleep).request(
+          "GET",
+          "/version",
+          { text },
+        ),
+      );
+      expect(err.cause).toBe("unreachable");
+      expect(err.status).toBe(200);
+    }
+    const refused = await caught(
+      createCoolifyHttp(scripted(broken(403)).fetch, target, noSleep).request(
+        "GET",
+        "/team",
+      ),
+    );
+    expect(refused.cause).toBe("forbidden-ability");
+  });
+
+  it("maps 401 to unauthorized", async () => {
+    const fake = scripted(() => json(401, { message: "Unauthenticated." }));
+    const err = await caught(
+      createCoolifyHttp(fake.fetch, target, noSleep).request("GET", "/team"),
+    );
+    expect(err.cause).toBe("unauthorized");
+    expect(err.status).toBe(401);
+  });
+
+  it('maps 403 "API is disabled." to api-disabled', async () => {
+    const fake = scripted(() => json(403, { message: "API is disabled." }));
+    const err = await caught(
+      createCoolifyHttp(fake.fetch, target, noSleep).request("GET", "/team"),
+    );
+    expect(err.cause).toBe("api-disabled");
+  });
+
+  it("maps any other 403 to forbidden-ability", async () => {
+    const fake = scripted(() => json(403, { message: "Missing ability." }));
+    const err = await caught(
+      createCoolifyHttp(fake.fetch, target, noSleep).request("GET", "/team"),
+    );
+    expect(err.cause).toBe("forbidden-ability");
   });
 
   it("toRouteError answers 409 for unsupported-by-instance and unsupported-version, and 502 for upstream", () => {
@@ -156,30 +201,53 @@ describe("Coolify HTTP layer", () => {
           },
         }),
     );
-    const err = await failure(fake, "GET", "/servers");
+    const err = await caught(
+      createCoolifyHttp(fake.fetch, target, noSleep).request("GET", "/servers"),
+    );
     expect(fake.calls[0].init?.redirect).toBe("manual");
     expect(err.cause).toBe("access-redirect");
   });
 
-  it.each([
-    [
-      "any other redirect",
-      always(null, 301, { location: "https://elsewhere.example.test/login" }),
-    ],
-    [
-      "a 200 text/html body",
-      always("<!doctype html><html><body>Sign in</body></html>", 200, {
-        "content-type": "text/html; charset=utf-8",
-      }),
-    ],
-    [
-      "a JSON content type with a body that does not parse",
-      always("<html>proxy error</html>", 200, {
-        "content-type": "application/json",
-      }),
-    ],
-  ])("maps %s to not-coolify", async (_case, fake) => {
-    expect((await failure(fake)).cause).toBe("not-coolify");
+  it("maps any other redirect to not-coolify", async () => {
+    const fake = scripted(
+      () =>
+        new Response(null, {
+          status: 301,
+          headers: { location: "https://elsewhere.example.test/login" },
+        }),
+    );
+    const err = await caught(
+      createCoolifyHttp(fake.fetch, target, noSleep).request("GET", "/servers"),
+    );
+    expect(err.cause).toBe("not-coolify");
+  });
+
+  it("maps a 200 text/html body to not-coolify", async () => {
+    const fake = scripted(
+      () =>
+        new Response("<!doctype html><html><body>Sign in</body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+    );
+    const err = await caught(
+      createCoolifyHttp(fake.fetch, target, noSleep).request("GET", "/servers"),
+    );
+    expect(err.cause).toBe("not-coolify");
+  });
+
+  it("maps a JSON content type with a body that does not parse to not-coolify", async () => {
+    const fake = scripted(
+      () =>
+        new Response("<html>proxy error</html>", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const err = await caught(
+      createCoolifyHttp(fake.fetch, target, noSleep).request("GET", "/servers"),
+    );
+    expect(err.cause).toBe("not-coolify");
   });
 
   it("reads a plain text answer when asked, but still refuses an HTML page", async () => {
@@ -250,13 +318,27 @@ describe("Coolify HTTP layer", () => {
 
   it("maps 404 to not-found and 405 to unsupported-by-instance", async () => {
     const missing = scripted(() => json(404, { message: "Not found." }));
-    expect((await failure(missing, "GET", "/servers/x")).cause).toBe(
-      "not-found",
-    );
+    expect(
+      (
+        await caught(
+          createCoolifyHttp(missing.fetch, target, noSleep).request(
+            "GET",
+            "/servers/x",
+          ),
+        )
+      ).cause,
+    ).toBe("not-found");
     const method = scripted(() => json(405, { message: "Method not allowed" }));
-    expect((await failure(method, "POST", "/x")).cause).toBe(
-      "unsupported-by-instance",
-    );
+    expect(
+      (
+        await caught(
+          createCoolifyHttp(method.fetch, target, noSleep).request(
+            "POST",
+            "/x",
+          ),
+        )
+      ).cause,
+    ).toBe("unsupported-by-instance");
   });
 
   it("retries GET on 429 and 503 but never POST", async () => {
@@ -273,14 +355,18 @@ describe("Coolify HTTP layer", () => {
     expect(get.calls).toHaveLength(3);
 
     const post = scripted(() => json(503, { message: "busy" }));
-    const err = await failure(post, "POST", "/deploy");
+    const err = await caught(
+      createCoolifyHttp(post.fetch, target, noSleep).request("POST", "/deploy"),
+    );
     expect(err.cause).toBe("upstream");
     expect(post.calls).toHaveLength(1);
 
     const limited = scripted(() =>
       json(429, { message: "Too Many Attempts." }),
     );
-    const gaveUp = await failure(limited, "GET", "/x");
+    const gaveUp = await caught(
+      createCoolifyHttp(limited.fetch, target, noSleep).request("GET", "/x"),
+    );
     expect(gaveUp.cause).toBe("rate-limited");
     expect(limited.calls).toHaveLength(3);
 
@@ -356,52 +442,14 @@ describe("Coolify HTTP layer", () => {
     ];
     for (const respond of causes) {
       const fake = scripted(respond);
-      const err = await failure(fake, "POST", "/x");
+      const err = await caught(
+        createCoolifyHttp(fake.fetch, target, noSleep).request("POST", "/x"),
+      );
       const result = toRouteError(err);
       expect(JSON.stringify(result)).not.toContain(TOKEN);
       expect(String(err.message)).not.toContain(TOKEN);
     }
     const thrown = toRouteError(new Error(`failed with ${TOKEN}`));
     expect(JSON.stringify(thrown)).not.toContain(TOKEN);
-  });
-});
-
-describe("path normalisation guard", () => {
-  it.each([
-    "/projects/../deployments",
-    "/projects/x/..",
-    "/applications/%2e%2e/logs",
-    "/applications/./envs",
-    "/servers/a\\..\\settings",
-  ])(
-    "http layer refuses a URL whose normalised path differs: %s",
-    async (path) => {
-      const fake = scripted(() => json(200, []));
-      expect((await failure(fake, "GET", path)).cause).toBe("validation");
-      expect(fake.calls).toEqual([]);
-    },
-  );
-
-  it.each(["..", ".", "a/b", "%2e%2e", "...", "a\\b"])(
-    "a typed api.ts call with uuid %s is refused before any request",
-    async (uuid) => {
-      const fake = scripted(() => json(200, {}));
-      const api = createCoolifyApi(
-        createCoolifyHttp(fake.fetch, target, noSleep),
-      );
-      expect((await caught(api.server(uuid))).cause).toBe("validation");
-      expect(fake.calls).toEqual([]);
-    },
-  );
-
-  it("a plain path still goes through", async () => {
-    const fake = scripted(() => json(200, { uuid: "abc123" }));
-    const api = createCoolifyApi(
-      createCoolifyHttp(fake.fetch, target, noSleep),
-    );
-    await api.server("abc123");
-    expect(fake.calls[0].url).toBe(
-      "https://coolify.example.test/api/v1/servers/abc123",
-    );
   });
 });

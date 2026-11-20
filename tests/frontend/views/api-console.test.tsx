@@ -41,6 +41,7 @@ const OPERATIONS = [
     path: "/servers",
     minVersion: "4.4.0",
     permission: "coolify.view",
+    sensitive: false,
     summary: "List",
     params: [],
     body: null,
@@ -51,6 +52,7 @@ const OPERATIONS = [
     path: "/applications/{uuid}/envs",
     minVersion: "4.4.0",
     permission: "coolify.view",
+    sensitive: true,
     summary: "List Envs",
     params: [{ name: "uuid", in: "path", required: true, type: "string" }],
     body: null,
@@ -61,6 +63,7 @@ const OPERATIONS = [
     path: "/deploy",
     minVersion: "4.4.0",
     permission: "coolify.operate",
+    sensitive: false,
     summary: "Deploy",
     params: [{ name: "uuid", in: "query", required: false, type: "string" }],
     body: null,
@@ -71,6 +74,7 @@ const OPERATIONS = [
     path: "/applications/{uuid}",
     minVersion: "4.4.0",
     permission: "coolify.administer",
+    sensitive: true,
     summary: "Delete",
     params: [{ name: "uuid", in: "path", required: true, type: "string" }],
     body: null,
@@ -149,11 +153,12 @@ function fillUuid() {
   });
 }
 
-/** Runs the env list read and waits for its masked values. */
+/** Runs the env list read, confirms it, and waits for its masked values. */
 async function runEnvs() {
   await openOperation("list-envs-by-application-uuid");
   fillUuid();
   fireEvent.click(screen.getByRole("button", { name: L.run }));
+  fireEvent.click(await screen.findByRole("button", { name: L.confirmLabel }));
   expect(await screen.findByText(L.masked)).toBeTruthy();
 }
 
@@ -189,15 +194,19 @@ describe("API console", () => {
     expect(await screen.findByText(/srv-1/)).toBeTruthy();
   });
 
-  it("builds the request from the generated form", async () => {
+  it("builds the request from the generated form; a read of secrets asks first", async () => {
     const api = await openConsole(VIEW);
     await openOperation("list-envs-by-application-uuid");
     fillUuid();
     fireEvent.click(screen.getByRole("button", { name: L.run }));
+    const prompt = await screen.findByRole("button", { name: L.confirmLabel });
+    expect(api.post).not.toHaveBeenCalled();
+    fireEvent.click(prompt);
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith("/connections/1/api/call", {
         operationId: "list-envs-by-application-uuid",
         params: { uuid: "app-web-uuid" },
+        confirmed: true,
       }),
     );
   });

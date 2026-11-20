@@ -709,15 +709,18 @@ describe("generic Coolify API operations", () => {
       )?.enum,
     ).toEqual(["applications", "services", "databases"]);
     const { fake } = await start();
-    await expectInvalidReads(
-      "get-secret-manager-source",
-      ["servers", "settings", "deployments", ".."].map((resource_type) => ({
+    // It reads secret-manager settings, so it runs only through api-call.
+    for (const resource_type of ["servers", "settings", "deployments", ".."]) {
+      await expect(
+        apiCall("get-secret-manager-source", {
+          resource_type,
+          uuid: "app-web-uuid",
+        }),
         resource_type,
-        uuid: "app-web-uuid",
-      })),
-    );
+      ).rejects.toMatchObject({ code: "invalid-input" });
+    }
     expect(fake.calls).toEqual([]);
-    await apiRead("get-secret-manager-source", {
+    await apiCall("get-secret-manager-source", {
       resource_type: "applications",
       uuid: "app-web-uuid",
     });
@@ -757,6 +760,36 @@ describe("generic Coolify API operations", () => {
 });
 
 describe("generic API over MCP", () => {
+  it("api-read refuses env, key and log reads, so MCP can't read secrets without Allow changes", async () => {
+    const { harness: h, fake, connectionId } = await start();
+    for (const [operationId, params] of [
+      ["list-envs-by-application-uuid", { uuid: "app-web-uuid" }],
+      ["get-private-key-by-uuid", { uuid: "key-1" }],
+      ["get-application-logs-by-uuid", { uuid: "app-web-uuid" }],
+    ] as const) {
+      const reply = await handleMcp(h.mock.ctx, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "coolify__api_read",
+          arguments: {
+            connectionId,
+            operationId,
+            params: JSON.stringify(params),
+          },
+        },
+      });
+      const result = reply?.result as {
+        isError: boolean;
+        content: { text: string }[];
+      };
+      expect(result.isError, operationId).toBe(true);
+      expect(result.content[0].text, operationId).toContain("api-call");
+    }
+    expect(fake.calls).toEqual([]);
+  });
+
   it("api-call is refused without allowMcpChanges; api-read is a read tool", async () => {
     const { harness: h, fake, connectionId } = await start();
     const refused = await handleMcp(h.mock.ctx, {

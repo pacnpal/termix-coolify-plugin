@@ -1,0 +1,263 @@
+import { randomUUID } from "node:crypto";
+import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
+import { createCache } from "../cache.js";
+import type { CoolifyApi } from "../coolify/api.js";
+import type { ResourceDto } from "../coolify/dto.js";
+import { ConnectionError, type Connections } from "../connections/service.js";
+import type { Tables } from "../db.js";
+import {
+  countResources,
+  type ResourceCounts,
+} from "../../shared/resource-health.js";
+
+/** Statuses are cached this long (the design's "Errors and limits"). */
+export const RESOURCE_TTL_MS = 20_000;
+
+/** The cache kind holding a connection's merged resource list. */
+export const RESOURCES_CACHE_KIND = "resources";
+
+export interface ResourcesDeps {
+  tables: Tables;
+  connections: Connections;
+  /** The clock, for tests. */
+  now?: () => number;
+}
+
+/** Where a fetch gets its client and checks the revision before caching. */
+interface FetchSource {
+  api: () => Promise<CoolifyApi>;
+  revision: () => Promise<string | null>;
+}
+
+export interface ResourceList {
+  rows: ResourceDto[];
+  fetchedAt: number;
+}
+
+/**
+ * The cached value: the rows, the connection revision they came from and the
+ * invalidate generation they were fetched in. A hit needs both to be current.
+ */
+interface CachedRows {
+  revision: string;
+  generation: string;
+  rows: ResourceDto[];
+}
+
+const notFound = () =>
+  new ConnectionError("not-found", "Coolify connection not found");
+
+/**
+ * A connection's applications, services (each followed by its Parts) and
+ * databases as one list of stripped DTOs, read from Coolify's per-type lists
+ * and never from the heavy `/resources`. Every call checks the actor's access
+ * to the connection first, so another user's connection is a 404 even when
+ * the cache holds its rows. The in-flight fetches are keyed by the
+ * connection's revision and by a generation that `invalidate` advances, and
+ * the cached rows carry both. A cache hit counts only when both are current,
+ * so rows read before a changed address, token or TLS setting, or before an
+ * invalidate, are never served, even when their write lands after the drop.
+ * Generations are unique to each instance (`<epoch>:<n>`, the epoch a random
+ * uuid), so after a restart no row an old instance wrote ever matches: the
+ * cache starts cold, which costs one fetch.
+ */
+export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
+  const cache = createCache(ctx, deps.tables);
+  const now = deps.now ?? Date.now;
+  // One fetch per connection revision at a time; callers that miss together
+  // share it, and a caller after a change never joins a fetch from before it.
+  const inflight = new Map<string, Promise<ResourceList>>();
+  // Advanced by invalidate(); a fetch commits only under the one it began in.
+  const epoch = randomUUID();
+  const generations = new Map<number, number>();
+  const generationOf = (connectionId: number) =>
+    `${epoch}:${generations.get(connectionId) ?? 0}`;
+
+  /** The connection's current revision, or a 404. */
+  async function reach(connectionId: number): Promise<string> {
+    const revision = await deps.connections.revision(connectionId);
+    if (!revision) throw notFound();
+    return revision;
+  }
+
+  /** The actor's own client and revision, each checking their access. */
+  function actorSource(connectionId: number): FetchSource {
+    return {
+      api: () => deps.connections.api(connectionId),
+      revision: () => deps.connections.revision(connectionId),
+    };
+  }
+
+  /** One fetch per key at a time; callers that miss together share it. */
+  function shared(
+    connectionId: number,
+    revision: string,
+    source?: FetchSource,
+  ): Promise<ResourceList> {
+    const generation = generationOf(connectionId);
+    const key = `${connectionId}:${revision}:${generation}`;
+    const pending = inflight.get(key);
+    if (pending) return pending;
+    const started = fetchList(
+      connectionId,
+      revision,
+      generation,
+      source,
+    ).finally(() => {
+      if (inflight.get(key) === started) inflight.delete(key);
+    });
+    inflight.set(key, started);
+    return started;
+  }
+
+  async function fetchList(
+    connectionId: number,
+    revision: string,
+    generation: string,
+    source: FetchSource = actorSource(connectionId),
+  ): Promise<ResourceList> {
+    const api = await source.api();
+    const [applications, services, databases] = await Promise.all([
+      api.applications(),
+      api.services(),
+      api.databases(),
+    ]);
+    const list = {
+      rows: [...applications, ...services, ...databases],
+      fetchedAt: now(),
+    };
+    // Cached only while the connection still has the revision the fetch
+    // started under and nothing invalidated it since. The rows carry both, so
+    // a change or an invalidate that lands after this check (even one whose
+    // drop finishes before this write does) never serves them.
+    const current = await source.revision();
+    if (current === revision && generationOf(connectionId) === generation) {
+      const value: CachedRows = { revision, generation, rows: list.rows };
+      await cache.write(
+        connectionId,
+        RESOURCES_CACHE_KIND,
+        value,
+        list.fetchedAt,
+      );
+    }
+    return list;
+  }
+
+  async function load(
+    connectionId: number,
+    opts: { refresh?: boolean } = {},
+  ): Promise<ResourceList> {
+    const revision = await reach(connectionId);
+    if (!opts.refresh) {
+      const hit = await cache.fresh<Partial<CachedRows>>(
+        connectionId,
+        RESOURCES_CACHE_KIND,
+        RESOURCE_TTL_MS,
+        now(),
+      );
+      const value = hit?.value;
+      if (
+        hit &&
+        value?.revision === revision &&
+        value.generation === generationOf(connectionId) &&
+        Array.isArray(value.rows)
+      ) {
+        return { rows: value.rows, fetchedAt: hit.fetchedAt };
+      }
+    }
+    return shared(connectionId, revision);
+  }
+
+  return {
+    /** The list with the time it was fetched, for "updated" labels. */
+    load,
+
+    async list(
+      connectionId: number,
+      opts: { refresh?: boolean } = {},
+    ): Promise<ResourceDto[]> {
+      return (await load(connectionId, opts)).rows;
+    },
+
+    /** A resource or a Part by uuid, from the same cached list, or null. */
+    async get(
+      connectionId: number,
+      uuid: string,
+      opts: { refresh?: boolean } = {},
+    ): Promise<ResourceDto | null> {
+      const { rows } = await load(connectionId, opts);
+      return rows.find((r) => r.uuid === uuid) ?? null;
+    },
+
+    async byServer(
+      connectionId: number,
+      serverUuid: string,
+    ): Promise<ResourceDto[]> {
+      return (await load(connectionId)).rows.filter(
+        (r) => r.serverUuid === serverUuid,
+      );
+    },
+
+    /** Running, degraded, stopped and deploying, Parts left out. */
+    async counts(
+      connectionId: number,
+      serverUuid?: string,
+    ): Promise<ResourceCounts> {
+      const rows = (await load(connectionId)).rows;
+      return countResources(
+        serverUuid ? rows.filter((r) => r.serverUuid === serverUuid) : rows,
+      );
+    },
+
+    /** Drops the cached list, after a change like a deploy or a stop. */
+    async invalidate(connectionId: number): Promise<void> {
+      generations.set(connectionId, (generations.get(connectionId) ?? 0) + 1);
+      for (const key of [...inflight.keys()]) {
+        if (key.startsWith(`${connectionId}:`)) inflight.delete(key);
+      }
+      await cache.drop(connectionId, RESOURCES_CACHE_KIND);
+    },
+
+    /**
+     * Background refresh with no actor (the status pages): fetches through
+     * the connection's unattended snapshot and writes the cache under that
+     * snapshot's revision, sharing a fetch already in flight for it. Returns
+     * nothing, so no rows reach a caller whose access wasn't checked.
+     */
+    async refreshUnattended(connectionId: number): Promise<void> {
+      const snap = await deps.connections.unattendedSnapshot(connectionId);
+      if (!snap) throw notFound();
+      await shared(connectionId, snap.revision, {
+        api: snap.api,
+        revision: async () =>
+          (await deps.connections.unattendedSnapshot(connectionId))?.revision ??
+          null,
+      });
+    },
+
+    /**
+     * The cached list at any age, without an access check or a fetch, but
+     * only rows cached under `revision` and the current generation. Only for
+     * the public status page, which checks the owner and shows a filtered
+     * view of it.
+     */
+    async peekCached(
+      connectionId: number,
+      revision: string,
+    ): Promise<ResourceList | null> {
+      const hit = await cache.read<Partial<CachedRows>>(
+        connectionId,
+        RESOURCES_CACHE_KIND,
+      );
+      const value = hit?.value;
+      return hit &&
+        value?.revision === revision &&
+        value.generation === generationOf(connectionId) &&
+        Array.isArray(value.rows)
+        ? { rows: value.rows, fetchedAt: hit.fetchedAt }
+        : null;
+    },
+  };
+}
+
+export type Resources = ReturnType<typeof createResources>;

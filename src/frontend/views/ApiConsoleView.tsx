@@ -253,7 +253,7 @@ function OperationRunner({
       return;
     }
     const extra: { confirmed?: boolean; confirmText?: string } = {};
-    if (op.method !== "GET") {
+    if (op.method !== "GET" || op.sensitive === true) {
       if (isDelete) {
         if (!typedOk) return;
         extra.confirmed = true;
@@ -261,10 +261,15 @@ function OperationRunner({
       } else {
         const ok = await confirm({
           title: t("apiConsole.confirmTitle", { operation: op.id }),
-          description: t("apiConsole.confirmDescription", {
-            method: op.method,
-            path: op.path,
-          }),
+          description: t(
+            op.method === "GET"
+              ? "apiConsole.confirmSensitive"
+              : "apiConsole.confirmDescription",
+            {
+              method: op.method,
+              path: op.path,
+            },
+          ),
           confirmLabel: t("apiConsole.confirmLabel"),
           destructive: false,
         });
