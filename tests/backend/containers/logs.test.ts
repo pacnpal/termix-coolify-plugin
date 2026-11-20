@@ -49,7 +49,122 @@ function leakedSlice(pieces: string[], secret: string): string | null {
   return null;
 }
 
+/** A seeded PRNG (mulberry32): the same cases every run. */
+function prng(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+describe("long-line redaction property", () => {
+  // Secrets use only [A-Z0-9] (and @ in URL passwords); filler, keys and the
+  // mask are lower case, so any run of six of them in the output is a leak.
+  const LEAK = /[A-Z0-9@]{6}/;
+  const CASES = 500;
+
+  it("never emits six characters of a secret, whatever the shape, length or chunking", () => {
+    const rand = prng(20261120);
+    const int = (lo: number, hi: number) =>
+      lo + Math.floor(rand() * (hi - lo + 1));
+    const pick = <T>(list: readonly T[]) => list[int(0, list.length - 1)];
+    // Secrets are slices of one seeded pool at random offsets: building
+    // each character apart cost more than the redaction under test.
+    let pool = "";
+    for (let i = 0; i < 256 * 1024; i += 1) {
+      pool += "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[int(0, 35)];
+    }
+    const upper = (n: number) => {
+      const at = int(0, pool.length - n);
+      return pool.slice(at, at + n);
+    };
+    const words = [
+      "lorem",
+      "ipsum",
+      "dolor",
+      "sit",
+      "amet",
+      "x.y",
+      "a-b",
+      "q&r",
+      "s/t",
+    ];
+    let fillerPool = "";
+    while (fillerPool.length < 64 * 1024) fillerPool += pick(words) + " ";
+    const filler = (n: number) => {
+      const at = int(0, fillerPool.length - n);
+      return fillerPool.slice(at, at + n);
+    };
+    const withAt = (n: number) => {
+      const s = upper(n);
+      const at = int(1, n - 2);
+      return s.slice(0, at) + "@" + s.slice(at + 1);
+    };
+    const shapes: ((n: number) => string)[] = [
+      (n) => `postgres://app:${upper(n)}@db/app`,
+      (n) => `postgres://app:${withAt(n)}@db/app`,
+      (n) => `{"password": "${upper(n)}"}`,
+      (n) => `secret='${upper(n)}'`,
+      (n) => `token=${upper(n)}`,
+      (n) => `db_password=${upper(n)}`,
+      (n) => `Authorization: Basic ${upper(n)}`,
+      (n) => `proxy-authorization: Bearer ${upper(n)}`,
+    ];
+    const failures: number[] = [];
+    const started = performance.now();
+    for (let c = 0; c < CASES; c += 1) {
+      const token = upper(int(1024, 30 * 1024));
+      const access = upper(int(1024, 4096));
+      const target = int(1, 5) * MAX_LINE;
+      let line =
+        rand() < 0.15 ? `password: ${upper(int(1024, 30 * 1024))} ` : "";
+      while (line.length < target) {
+        const r = rand();
+        line += filler(int(1, 6000)) + " ";
+        if (r < 0.15) line += token + " ";
+        else if (r < 0.25) line += access + " ";
+        else line += pick(shapes)(int(1024, 30 * 1024)) + " ";
+      }
+      // The whole line, redacted at once, shows no secret: the shapes are
+      // ones redactLog masks.
+      const whole = redactLog(line, [token, access]);
+      const wholeLeak = LEAK.exec(whole);
+      expect(
+        wholeLeak &&
+          whole.slice(Math.max(0, wholeLeak.index - 60), wholeLeak.index + 20),
+        `case ${c} whole`,
+      ).toBeNull();
+      const sent: string[] = [];
+      const split = lineSplitter([token, access], (l) => sent.push(...l));
+      for (let i = 0; i < line.length;) {
+        const size = int(1, 8192);
+        split.data(Buffer.from(line.slice(i, i + size)));
+        i += size;
+      }
+      split.data(Buffer.from("\n"));
+      split.end();
+      if (sent.some((piece) => LEAK.test(piece) || piece.length > MAX_LINE)) {
+        failures.push(c);
+      }
+    }
+    expect(failures, `${failures.length} of ${CASES} cases leaked`).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(3000);
+  });
+});
+
 describe("long-line cuts with an open secret", () => {
+  it("Codex's repro: a URL password with an @ in it", () => {
+    const sent = streamed(
+      "postgres://app:abc@" + "x".repeat(20000) + "@db/app",
+    );
+    expect(sent.join("")).not.toContain("xxxxxx");
+    expect(sent.join("")).not.toContain("abc@");
+  });
+
   it("Codex's repro: a URL password longer than the window", () => {
     const sent = streamed("postgres://app:" + "x".repeat(20000) + "@db/app");
     expect(sent.join("")).not.toContain("xxxxxx");

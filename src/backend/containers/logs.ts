@@ -63,11 +63,15 @@ function maskField(head: string, value: string): string {
   return `${head}${REDACTED_VALUE}`;
 }
 
-/** An Authorization or Proxy-Authorization header's credential, any length. */
+/**
+ * An Authorization or Proxy-Authorization header's credential, any length.
+ * Brackets count, so a credential with the connection token masked inside
+ * it stays one run and its tail is masked too.
+ */
 const AUTHORIZATION =
-  /(\b(?:proxy-)?authorization["']?\s{0,8}[:=]\s{0,8}["']?(?:(?:bearer|basic|token|digest)\s+)?)[A-Za-z0-9._~+/=|-]+/gi;
+  /(\b(?:proxy-)?authorization["']?\s{0,8}[:=]\s{0,8}["']?(?:(?:bearer|basic|token|digest)\s+)?)[A-Za-z0-9._~+/=|[\]-]+/gi;
 /** A credential after an auth scheme word elsewhere in a line. */
-const AUTH_HEADER = /(\b(?:bearer|basic|token)\s+)[A-Za-z0-9._~+/=|-]{8,}/gi;
+const AUTH_HEADER = /(\b(?:bearer|basic|token)\s+)[A-Za-z0-9._~+/=|[\]-]{8,}/gi;
 /** Passes before redaction is taken as settled; each pass only masks more. */
 const MAX_PASSES = 4;
 
@@ -302,12 +306,12 @@ const YAML_HEAD = new RegExp(
 /** An auth credential's head, either kind. */
 const AUTH_HEAD =
   /\b(?:(?:proxy-)?authorization["']?\s{0,8}[:=]\s{0,8}["']?(?:(?:bearer|basic|token|digest)\s+)?|(?:bearer|basic|token)\s+)/gi;
-/** Where an unquoted secret value ends. */
-const VALUE_END = /[\s&]/g;
-/** Where an auth credential ends. */
-const CREDENTIAL_END = /[^A-Za-z0-9._~+/=|-]/g;
-/** Where a URL's userinfo ends: its `@`, or what can't be in it. */
-const USERINFO_END = /[\s/?#@]/;
+/**
+ * Where an open secret context ends at a cut: only whitespace. `@`, `/`,
+ * `&` and every other mid-token character keep it open (a password may hold
+ * any of them), so an over-long line is masked too much, never too little.
+ */
+const CONTEXT_END = /\s/g;
 
 /** The index of `text[from]`'s closing quote, honouring backslashes, or -1. */
 function closingQuote(text: string, from: number): number {
@@ -333,8 +337,11 @@ export function openSecretStart(text: string): number {
   const note = (at: number) => {
     if (open < 0 || at < open) open = at;
   };
-  const url = text.lastIndexOf("://");
-  if (url >= 0 && !USERINFO_END.test(text.slice(url + 3))) {
+  // The first `scheme://` of the last token: open until whitespace.
+  let lastSpace = text.length - 1;
+  while (lastSpace >= 0 && !/\s/.test(text[lastSpace])) lastSpace -= 1;
+  const url = text.indexOf("://", lastSpace + 1);
+  if (url >= 0) {
     let start = url;
     while (
       start > 0 &&
@@ -360,8 +367,8 @@ export function openSecretStart(text: string): number {
       SECRET_HEAD.lastIndex = close + 1;
       continue;
     }
-    VALUE_END.lastIndex = value;
-    const end = VALUE_END.exec(text);
+    CONTEXT_END.lastIndex = value;
+    const end = CONTEXT_END.exec(text);
     if (!end) {
       note(m.index);
       break;
@@ -372,8 +379,8 @@ export function openSecretStart(text: string): number {
   let last: RegExpExecArray | null = null;
   for (let m = AUTH_HEAD.exec(text); m; m = AUTH_HEAD.exec(text)) last = m;
   if (last) {
-    CREDENTIAL_END.lastIndex = last.index + last[0].length;
-    if (!CREDENTIAL_END.exec(text)) note(last.index);
+    CONTEXT_END.lastIndex = last.index + last[0].length;
+    if (!CONTEXT_END.exec(text)) note(last.index);
   }
   return open;
 }
@@ -433,7 +440,18 @@ export function lineSplitter(
           break;
         }
         const prefix = carry.slice(0, cut);
-        const openAt = openSecretStart(prefix);
+        let openAt = openSecretStart(prefix);
+        // The connection's own secrets can be longer than safeCut's window:
+        // one that starts before the cut and runs past it is open too. The
+        // kept-back context is at least twice the longest, so it is whole.
+        for (const secret of secrets) {
+          if (!secret) continue;
+          const at = carry.indexOf(
+            secret,
+            Math.max(0, cut - secret.length + 1),
+          );
+          if (at >= 0 && at < cut && (openAt < 0 || at < openAt)) openAt = at;
+        }
         if (openAt >= 0) {
           // A secret is open at the cut: mask from its start (from the word
           // before it, so nothing bounded straddles) to the end of the line.
