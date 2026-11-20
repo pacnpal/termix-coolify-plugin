@@ -46,10 +46,10 @@ describe("authz.json", () => {
     const prefix = `/plugin-api/${manifest.id}`;
     for (const [key, entry] of Object.entries(authz.routes) as [
       string,
-      { permission: string | string[]; body?: unknown },
+      { permission?: string | string[]; body?: unknown },
     ][]) {
       const [method, fullPath] = key.split(" ");
-      const declared = ([] as string[]).concat(entry.permission);
+      const declared = ([] as string[]).concat(entry.permission ?? []);
       const answer = async (permissions: string[]) => {
         const harness = await startPlugin({
           fetch: healthyCoolify().fetch,

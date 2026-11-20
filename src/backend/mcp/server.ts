@@ -3,12 +3,14 @@ import type {
   PluginOperationInvokeOptions,
   PluginOperationOutcome,
 } from "@termix-ssh/plugin-sdk/backend";
-import type {
-  OperationAction,
-  OperationField,
+import {
+  redactFields,
+  type OperationAction,
+  type OperationField,
 } from "@termix-ssh/plugin-sdk/operations";
 import en from "../../../locales/en.json";
 import { redact } from "../redact.js";
+import { handoffIdOf, takeOnceUrl } from "../status/service.js";
 
 /** The MCP protocol version this endpoint speaks when a client asks for another. */
 export const MCP_PROTOCOL_VERSION = "2025-06-18";
@@ -342,7 +344,90 @@ export const EXTRA_TOOLS: McpExtraTool[] = [
       );
     },
   },
+  {
+    name: "take_status_page_url",
+    description:
+      "Take, once, the URL of a status page you published or gave a new link with an action whose answer had a handoffId (after an approval, or through Termix's operations API). Only you can take it, only once, and only within 5 minutes; it is never stored.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        handoffId: {
+          type: "string",
+          description:
+            "The handoffId from coolify.status-page-create or coolify.status-page-rotate (the run id).",
+        },
+      },
+      required: ["handoffId"],
+      additionalProperties: false,
+    },
+    annotations: {
+      title: "Take a status page URL",
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
+    async call(ctx, args) {
+      const handoffId = handoffIdOf(args.handoffId);
+      const userId = ctx.currentActor() ?? "";
+      const allowed = userId ? await ctx.rbac.has("configure") : false;
+      const url = handoffId && allowed ? takeOnceUrl(userId, handoffId) : null;
+      if (!url) {
+        return textResult(
+          {
+            status: "not-found",
+            error:
+              "Nothing to hand over: the URL was taken already, expired after 5 minutes, or belongs to another run or user. Give the page a new link to get one.",
+            errorCode: "not-found",
+          },
+          true,
+        );
+      }
+      return {
+        content: [{ type: "text", text: shownOnce(url) }],
+        isError: false,
+      };
+    },
+  },
 ];
+
+/** The text that carries a status page URL in one MCP answer, never stored. */
+function shownOnce(url: string): string {
+  return `Status page URL (shown once, not stored): ${url}`;
+}
+
+/** Actions whose run hands a status page URL over once (Task 18's handoff). */
+const URL_HANDOFF_ACTIONS = new Set([
+  "coolify.status-page-create",
+  "coolify.status-page-rotate",
+]);
+
+/**
+ * An action's result: sensitive outputs replaced, as core does before a run
+ * is stored or shown, and for a status page create or rotate that finished
+ * here, its URL added once as a second item.
+ */
+function actionResult(
+  ctx: PluginContext,
+  action: OperationAction,
+  outcome: PluginOperationOutcome,
+): McpToolResult {
+  const data = redactFields(action.outputs, outcome.data);
+  const result = toolResult(
+    outcome.data === undefined ? outcome : { ...outcome, data },
+  );
+  if (result.isError || !URL_HANDOFF_ACTIONS.has(action.id)) return result;
+  const handoffId = handoffIdOf(
+    (outcome.data as { handoffId?: unknown } | undefined)?.handoffId,
+  );
+  const url = handoffId
+    ? takeOnceUrl(ctx.currentActor() ?? "", handoffId)
+    : null;
+  if (!url) return result;
+  return {
+    ...result,
+    content: [...result.content, { type: "text", text: shownOnce(url) }],
+  };
+}
 
 const RESERVED = new Set(["hostId", "resourceKey", "dryRun", "confirmed"]);
 
@@ -384,7 +469,11 @@ async function callAction(
   }
   options.via = "mcp";
   try {
-    return toolResult(await ctx.operations.run(action.id, options));
+    return actionResult(
+      ctx,
+      action,
+      await ctx.operations.run(action.id, options),
+    );
   } catch (err) {
     return errorResult(err);
   }

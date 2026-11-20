@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pencil, RefreshCw, Rocket, Stethoscope, Trash2 } from "lucide-react";
+import {
+  Globe,
+  Pencil,
+  RefreshCw,
+  Rocket,
+  Stethoscope,
+  Trash2,
+} from "lucide-react";
 import {
   usePermission,
   usePluginApi,
@@ -30,6 +37,7 @@ import {
   useConnectionForm,
 } from "./ConnectionForm";
 import { McpPanel } from "./McpPanel";
+import { StatusPagesView } from "./StatusPagesView";
 
 function ConnectionEditor({
   api,
@@ -119,6 +127,7 @@ export function ConnectionsView({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Connection | "new" | null>(null);
+  const [publishing, setPublishing] = useState<Connection | null>(null);
 
   // Request generations: a list answer is applied only when it is the latest
   // load and no change (save, probe, removal) landed after it was asked for.
@@ -263,6 +272,14 @@ export function ConnectionsView({
                       <RefreshCw className="size-3.5" />
                     </ListRowAction>
                   )}
+                  {canConfigure && c.access === "owner" && (
+                    <ListRowAction
+                      label={t("statusPages.open")}
+                      onClick={() => setPublishing(c)}
+                    >
+                      <Globe className="size-3.5" />
+                    </ListRowAction>
+                  )}
                   <ListRowAction
                     label={t("connections.actions.probe")}
                     onClick={() => void probe(c)}
@@ -285,6 +302,13 @@ export function ConnectionsView({
         </PanelList>
       )}
       {canUseMcp && <McpPanel api={api} />}
+      {publishing && (
+        <StatusPagesView
+          api={api}
+          connection={publishing}
+          onClose={() => setPublishing(null)}
+        />
+      )}
       {editing !== null && (
         <ConnectionEditor
           api={api}

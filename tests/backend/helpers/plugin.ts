@@ -19,6 +19,8 @@ export const manifest = manifestJson as unknown as PluginManifest;
 
 export const OWNER = "user-1";
 export const OTHER = "user-2";
+/** Sent as the test user for a request with no signed-in user (a public route). */
+export const ANON = "anon";
 
 export interface PluginHarness {
   mock: MockPluginContext;
@@ -30,6 +32,12 @@ export interface PluginHarness {
     body?: unknown,
     user?: string,
   ) => Promise<{ status: number; body: any }>;
+  /** Calls a route and keeps the answer as text with its headers (HTML pages). */
+  raw: (
+    method: string,
+    path: string,
+    user?: string,
+  ) => Promise<{ status: number; headers: Headers; text: string }>;
   close: () => Promise<void>;
   /** Where the router is served, or null with `serve: false`. */
   address: AddressInfo | null;
@@ -84,7 +92,8 @@ export async function startPlugin(
     const app = express();
     app.use(express.json());
     app.use((req, _res, next) => {
-      mock.setActor(String(req.headers["x-test-user"] ?? OWNER));
+      const user = String(req.headers["x-test-user"] ?? OWNER);
+      mock.setActor(user === ANON ? undefined : user);
       next();
     });
     app.use((req, res, next) => router!(req, res, next));
@@ -112,6 +121,16 @@ export async function startPlugin(
       });
       const text = await response.text();
       return { status: response.status, body: text ? JSON.parse(text) : null };
+    },
+    async raw(method, path, user = OWNER) {
+      const response = await fetch(`http://127.0.0.1:${address?.port}${path}`, {
+        method,
+        headers: { "x-test-user": user },
+      });
+      const text = await response.text();
+      // A public request has no user; later direct ctx calls act as the owner.
+      if (user === ANON) mock.setActor(OWNER);
+      return { status: response.status, headers: response.headers, text };
     },
     async close() {
       if (server) {

@@ -6,6 +6,7 @@ import type { Tables } from "./db.js";
 import type { Lifecycle } from "./resources/lifecycle.js";
 import type { Resources } from "./resources/service.js";
 import { registerCompanionOperations } from "./ops/companions.js";
+import type { StatusPages } from "./status/service.js";
 import { registerConnectionOperations } from "./ops/connections.js";
 import { registerContainerOperations } from "./ops/containers.js";
 import { registerLifecycleOperations } from "./ops/lifecycle.js";
@@ -18,6 +19,7 @@ import { registerSyncOperations } from "./ops/sync.js";
 import { registerUpdateOperations } from "./ops/updates.js";
 import type { Sync } from "./sync/service.js";
 import type { Updates } from "./updates/service.js";
+import { registerStatusPageOperations } from "./ops/status-pages.js";
 
 export interface Services {
   tables: Tables;
@@ -29,6 +31,7 @@ export interface Services {
   servers: ServerStatuses;
   updates: Updates;
   companions: Companions;
+  statusPages: StatusPages;
 }
 
 /**
@@ -47,4 +50,5 @@ export function registerOperations(
   registerContainerOperations(ctx, services.containers);
   registerUpdateOperations(ctx, services.updates);
   registerCompanionOperations(ctx, services.companions);
+  registerStatusPageOperations(ctx, services.statusPages);
 }

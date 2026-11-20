@@ -13,6 +13,18 @@
       "capture": {
         "coolify.connection": "id"
       }
+    },
+    {
+      "as": "owner",
+      "method": "POST",
+      "path": "/plugin-api/coolify/connections/{{coolify.connection}}/status-pages",
+      "body": {
+        "title": "authz-own-page",
+        "resources": ["authz-resource-uuid"]
+      },
+      "capture": {
+        "coolify.status-page": "id"
+      }
     }
   ],
   "routes": {
@@ -450,6 +462,85 @@
       },
       "allowed": "any",
       "note": "Answers 404 companion-missing unless the Databases plugin runs, and the authz run installs no companions"
+    },
+    "GET /plugin-api/coolify/connections/:id/status-pages": {
+      "access": "user",
+      "permission": "coolify.view",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      }
+    },
+    "POST /plugin-api/coolify/connections/:id/status-pages": {
+      "access": "user",
+      "permission": "coolify.configure",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      },
+      "body": {
+        "title": "authz-other-page",
+        "resources": ["authz-resource-uuid"]
+      }
+    },
+    "POST /plugin-api/coolify/status-pages/:id/rotate": {
+      "access": "user",
+      "permission": "coolify.configure",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.status-page"
+      },
+      "params": {
+        "id": "coolify.status-page"
+      },
+      "destructive": true
+    },
+    "DELETE /plugin-api/coolify/status-pages/:id": {
+      "access": "user",
+      "permission": "coolify.configure",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.status-page"
+      },
+      "params": {
+        "id": "coolify.status-page"
+      },
+      "destructive": true
+    },
+    "POST /plugin-api/coolify/status-pages/handoff/:handoffId": {
+      "access": "user",
+      "permission": "coolify.configure",
+      "params": {
+        "handoffId": "=authz-handoff-none"
+      },
+      "expect": {
+        "key-ops-read": "refuse",
+        "key-ops-run": "refuse"
+      },
+      "allowed": "any",
+      "note": "Needs a session or an unscoped key: core refuses keys scoped to operations on every plugin route but /mcp, and those keys take the URL with the MCP tool take_status_page_url. Nothing waits to be handed over in the authz run, so an allowed caller gets 404."
+    },
+    "GET /plugin-api/coolify/status/:token": {
+      "access": "public",
+      "params": {
+        "token": "=authz-unknown-token-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "allowed": "any",
+      "note": "No login. A real token is shown once and only inside a URL, so the run can't use one; every caller gets the same 404 for this unknown token."
+    },
+    "GET /plugin-api/coolify/status/:token.json": {
+      "access": "public",
+      "params": {
+        "token": "=authz-unknown-token-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "allowed": "any",
+      "note": "No login. A real token is shown once and only inside a URL, so the run can't use one; every caller gets the same 404 for this unknown token."
     }
   }
 }

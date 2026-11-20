@@ -20,6 +20,9 @@ import { registerSyncRoutes } from "./sync/routes.js";
 import { createServerStatuses } from "./ops/signals.js";
 import { createUpdates } from "./updates/service.js";
 import { registerUpdateRoutes } from "./updates/routes.js";
+import { rememberBaseUrlMiddleware } from "./status/base-url.js";
+import { createStatusPages } from "./status/service.js";
+import { PUBLIC_STATUS_PATHS, registerStatusRoutes } from "./status/routes.js";
 
 export async function activate(ctx: PluginContext): Promise<void> {
   const tables = await defineTables(ctx);
@@ -50,7 +53,13 @@ export async function activate(ctx: PluginContext): Promise<void> {
     resources,
     sync,
   });
-  const router = ctx.http.router<Router>();
+  const statusPages = createStatusPages(ctx, {
+    tables,
+    connections,
+    resources,
+  });
+  const router = ctx.http.router<Router>({ public: PUBLIC_STATUS_PATHS });
+  router.use(rememberBaseUrlMiddleware(ctx) as never);
   registerConnectionRoutes(router, ctx, connections);
   registerResourceRoutes(router, ctx, resources);
   registerSyncRoutes(router, ctx, sync);
@@ -59,6 +68,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
   registerUpdateRoutes(router, ctx, updates);
   registerCompanionRoutes(router, ctx, companions);
   registerMcpRoutes(router, ctx);
+  registerStatusRoutes(router, ctx, statusPages);
   registerOperations(ctx, {
     tables,
     connections,
@@ -69,7 +79,9 @@ export async function activate(ctx: PluginContext): Promise<void> {
     servers,
     updates,
     companions,
+    statusPages,
   });
+  await statusPages.start();
 }
 
 export async function deactivate(): Promise<void> {

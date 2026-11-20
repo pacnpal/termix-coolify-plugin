@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { createCache } from "../cache.js";
+import type { CoolifyApi } from "../coolify/api.js";
 import type { ResourceDto } from "../coolify/dto.js";
 import { ConnectionError, type Connections } from "../connections/service.js";
 import type { Tables } from "../db.js";
@@ -20,6 +21,12 @@ export interface ResourcesDeps {
   connections: Connections;
   /** The clock, for tests. */
   now?: () => number;
+}
+
+/** Where a fetch gets its client and checks the revision before caching. */
+interface FetchSource {
+  api: () => Promise<CoolifyApi>;
+  revision: () => Promise<string | null>;
 }
 
 export interface ResourceList {
@@ -73,12 +80,43 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
     return revision;
   }
 
+  /** The actor's own client and revision, each checking their access. */
+  function actorSource(connectionId: number): FetchSource {
+    return {
+      api: () => deps.connections.api(connectionId),
+      revision: () => deps.connections.revision(connectionId),
+    };
+  }
+
+  /** One fetch per key at a time; callers that miss together share it. */
+  function shared(
+    connectionId: number,
+    revision: string,
+    source?: FetchSource,
+  ): Promise<ResourceList> {
+    const generation = generationOf(connectionId);
+    const key = `${connectionId}:${revision}:${generation}`;
+    const pending = inflight.get(key);
+    if (pending) return pending;
+    const started = fetchList(
+      connectionId,
+      revision,
+      generation,
+      source,
+    ).finally(() => {
+      if (inflight.get(key) === started) inflight.delete(key);
+    });
+    inflight.set(key, started);
+    return started;
+  }
+
   async function fetchList(
     connectionId: number,
     revision: string,
     generation: string,
+    source: FetchSource = actorSource(connectionId),
   ): Promise<ResourceList> {
-    const api = await deps.connections.api(connectionId);
+    const api = await source.api();
     const [applications, services, databases] = await Promise.all([
       api.applications(),
       api.services(),
@@ -92,7 +130,7 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
     // started under and nothing invalidated it since. The rows carry both, so
     // a change or an invalidate that lands after this check (even one whose
     // drop finishes before this write does) never serves them.
-    const current = await deps.connections.revision(connectionId);
+    const current = await source.revision();
     if (current === revision && generationOf(connectionId) === generation) {
       const value: CachedRows = { revision, generation, rows: list.rows };
       await cache.write(
@@ -127,17 +165,7 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
         return { rows: value.rows, fetchedAt: hit.fetchedAt };
       }
     }
-    const generation = generationOf(connectionId);
-    const key = `${connectionId}:${revision}:${generation}`;
-    const pending = inflight.get(key);
-    if (pending) return pending;
-    const started = fetchList(connectionId, revision, generation).finally(
-      () => {
-        if (inflight.get(key) === started) inflight.delete(key);
-      },
-    );
-    inflight.set(key, started);
-    return started;
+    return shared(connectionId, revision);
   }
 
   return {
@@ -188,6 +216,46 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
         if (key.startsWith(`${connectionId}:`)) inflight.delete(key);
       }
       await cache.drop(connectionId, RESOURCES_CACHE_KIND);
+    },
+
+    /**
+     * Background refresh with no actor (the status pages): fetches through
+     * the connection's unattended snapshot and writes the cache under that
+     * snapshot's revision, sharing a fetch already in flight for it. Returns
+     * nothing, so no rows reach a caller whose access wasn't checked.
+     */
+    async refreshUnattended(connectionId: number): Promise<void> {
+      const snap = await deps.connections.unattendedSnapshot(connectionId);
+      if (!snap) throw notFound();
+      await shared(connectionId, snap.revision, {
+        api: snap.api,
+        revision: async () =>
+          (await deps.connections.unattendedSnapshot(connectionId))?.revision ??
+          null,
+      });
+    },
+
+    /**
+     * The cached list at any age, without an access check or a fetch, but
+     * only rows cached under `revision` and the current generation. Only for
+     * the public status page, which checks the owner and shows a filtered
+     * view of it.
+     */
+    async peekCached(
+      connectionId: number,
+      revision: string,
+    ): Promise<ResourceList | null> {
+      const hit = await cache.read<Partial<CachedRows>>(
+        connectionId,
+        RESOURCES_CACHE_KIND,
+      );
+      const value = hit?.value;
+      return hit &&
+        value?.revision === revision &&
+        value.generation === generationOf(connectionId) &&
+        Array.isArray(value.rows)
+        ? { rows: value.rows, fetchedAt: hit.fetchedAt }
+        : null;
     },
   };
 }

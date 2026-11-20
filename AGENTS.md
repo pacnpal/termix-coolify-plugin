@@ -72,7 +72,7 @@ aren't obvious from the code, and anything that has bitten you before.
   started, stopped and restarted, host sync turns Coolify servers into locked Linked hosts, container
   shells and database consoles open in a `coolify-shell` tab, and a Linked host's card checks, installs
   and reboots its server's updates. Companion plugins (DNS, Uptime, Log Search, Security Center, Host
-  Metrics, Databases, Backups) add their features when they run.
+  Metrics, Databases, Backups) add their features when they run, and owners can publish public status pages.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
 - Coolify calls: `src/backend/coolify/http.ts` is the only way to Coolify (ctx.fetch, Bearer and CF Access
@@ -133,6 +133,32 @@ aren't obvious from the code, and anything that has bitten you before.
   after a restart no row an old instance wrote matches and the cache starts cold.
   `ResourceDto.serverName` comes from `server.name` or `destination.server.name` in the payload.
   The MCP tool `list_resources` (`src/backend/mcp/server.ts`) runs `coolify.list-resources-all`.
+- Status pages: `src/backend/status/` (service, render, routes, base-url) and `src/backend/ops/status-pages.ts`.
+  Tokens are 32 random bytes (base64url); only the sha256 is stored (`tokenHash`, unique), checked again with
+  `crypto.timingSafeEqual`. Revoke sets `revokedAt`; unknown, revoked or switched-off (`allowStatusPages`)
+  pages answer 404. The public routes are the router's `public` paths (core's limit of 120 public requests
+  a minute per address applies; don't raise `publicRateLimit`) and read only the resource cache, never
+  Coolify. A view reads the connection once with `connections.unattendedSnapshot()` (owner, `revision`, a
+  lazy client; no actor check) and answers the same 404 as an unknown token when the connection is gone or
+  `ctx.rbac.hasFor(owner, "view")` is false. `resources.peekCached(id, revision)` serves only rows cached
+  under that revision and the current generation, so a repointed connection never shows the old target's
+  rows, and a page still shows only its chosen uuids. Views that arrive together share one read, keyed by
+  token hash and a page generation that rotate and revoke advance before and after their write, so a view
+  after a rotate never joins an older read. The `status-refresh` job (60 s, jitter, in `sandbox.schedules`)
+  refreshes that cache with `resources.refreshUnattended`, through the same snapshot, revision and
+  generation keys as signed-in reads (it shares their in-flight fetch), and skips connections whose owner
+  lost `view`. Never return what it reads to a caller. It calls `keepAwake("status pages", active)` and
+  backs off 1, 2, 5, 15 minutes per connection. A page URL's base is the create/rotate request's own
+  `ctx.http.baseUrl(req)`. Operations have no request, so `base-url.ts` keeps each signed-in user's own last
+  address (memory and kv `publicBaseUrl:<userId>`) and uses only the same actor's; with none the URL is
+  relative. Never share one remembered address between users: a Host header is the caller's to choose, and
+  it would steer another user's secret link. The URL never enters run history: create and
+  rotate return `{ id, handoffId, url }` with `url` a `sensitive` output, and stash it in memory
+  (`stashOnceUrl`, 5 minutes, once, per user and run id) for the MCP `tools/call` answer,
+  `take_status_page_url` or `POST /status-pages/handoff/:handoffId`. The MCP endpoint applies
+  `redactFields(action.outputs)` to every action's data, as core does. Uptime is a `deps.uptime` hook,
+  not wired to the Uptime companion yet, so pages show no uptime. The resource list has no deploy result yet, so
+  `lastDeployOk` is null.
 - Status words: `src/shared/resource-health.ts` (`resourceHealth`, `countResources`) is the one reading of a
   Coolify status, imported by both the backend and the frontend. Exited is stopped, whatever its health
   suffix. Degraded covers degraded, restarting, dead and unhealthy, as a state (`unhealthy`) or a suffix

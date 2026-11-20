@@ -318,6 +318,27 @@ export interface DbLoginsAnswer {
   databases: { uuid: string; name: string; saved: boolean }[];
 }
 
+/** A public status page as its owner sees it. Never its link or token. */
+export interface StatusPage {
+  id: number;
+  connectionId: number;
+  title: string;
+  resources: string[];
+  createdAt: string | null;
+}
+
+export interface StatusPageList {
+  /** False while an admin has turned public status pages off. */
+  allowed: boolean;
+  pages: StatusPage[];
+}
+
+/** A create or rotate answer: the link, shown this once. */
+export interface StatusPageLink {
+  id: number;
+  url: string;
+}
+
 /** What a failed call answers: a plain message and a cause the UI translates. */
 export interface ApiFailure {
   error: string;
@@ -405,6 +426,39 @@ export function createApi(api: PluginApiClient) {
           typeof data?.deploymentUuid === "string" ? data.deploymentUuid : null,
         status: data?.status === "pending" ? "pending" : undefined,
       };
+    },
+    async listStatusPages(connectionId: number): Promise<StatusPageList> {
+      const data = (
+        await api.get<Partial<StatusPageList>>(
+          `/connections/${connectionId}/status-pages`,
+        )
+      ).data;
+      return {
+        allowed: data?.allowed !== false,
+        pages: Array.isArray(data?.pages) ? data.pages : [],
+      };
+    },
+    /** The answer's url carries the token: show it once, never keep it. */
+    async createStatusPage(
+      connectionId: number,
+      input: { title: string; resources: string[] },
+    ): Promise<StatusPageLink> {
+      const data = (
+        await api.post<StatusPageLink>(
+          `/connections/${connectionId}/status-pages`,
+          input,
+        )
+      ).data;
+      return { id: data.id, url: data.url };
+    },
+    async rotateStatusPage(id: number): Promise<StatusPageLink> {
+      const data = (
+        await api.post<StatusPageLink>(`/status-pages/${id}/rotate`)
+      ).data;
+      return { id: data.id, url: data.url };
+    },
+    async revokeStatusPage(id: number): Promise<void> {
+      await api.delete(`/status-pages/${id}`);
     },
     /** Only the endpoint: the panel writes its own snippet, with a placeholder key. */
     async getMcpInfo(): Promise<McpInfo | null> {

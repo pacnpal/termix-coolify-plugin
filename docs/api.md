@@ -102,6 +102,10 @@ fingerprints for the server, when it has them.
 The action `coolify.shell-command` is a read, offered to the assistant and MCP. Inputs: `connectionId`, `uuid`,
 and optionally `part`, `container` and `console`, checked like the route. Its data is
 `{ hostId, container, command }`, or `{ choices }` when several containers match.
+| `coolify.status-page-list` | `GET /plugin-api/coolify/connections/:id/status-pages` | `/operations/coolify.status-page-list/run` | `operations:read` or `operations:run` | `coolify__status_page_list` | `curl -X POST "$TERMIX/operations/coolify.status-page-list/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{}}'` |
+| `coolify.status-page-create` | `POST /plugin-api/coolify/connections/:id/status-pages` | `/operations/coolify.status-page-create/run` | `operations:run` | `coolify__status_page_create` | `curl -X POST "$TERMIX/operations/coolify.status-page-create/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","title":"Shop status","resources":["<resource uuid>"]}}'` |
+| `coolify.status-page-rotate` | `POST /plugin-api/coolify/status-pages/:id/rotate` | `/operations/coolify.status-page-rotate/run` | `operations:run` | `coolify__status_page_rotate` | `curl -X POST "$TERMIX/operations/coolify.status-page-rotate/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"id":"1"},"confirmed":true}'` |
+| `coolify.status-page-revoke` | `DELETE /plugin-api/coolify/status-pages/:id` | `/operations/coolify.status-page-revoke/run` | `operations:run` | `coolify__status_page_revoke` | `curl -X POST "$TERMIX/operations/coolify.status-page-revoke/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"id":"1"},"confirmed":true}'` |
 
 ## MCP
 
@@ -128,6 +132,8 @@ address and a client config example. The Connections view shows the same under *
   - `list_hosts`: the Termix hosts linked to Coolify servers. Empty until host sync arrives.
   - `list_resources`: the applications, services and databases of a connection, with each service's parts.
     It runs `coolify.list-resources-all`.
+  - `take_status_page_url`: takes a status page URL once, by the `handoffId` a create or rotate answered
+    (see below).
 - **Changes over MCP are off by default.** Read tools always work, and so do deploy and restart in both
   scopes: `coolify__deploy`, `coolify__restart` (on a Linked host's resource) and `coolify__resource_deploy`,
   `coolify__resource_restart` (by connection and uuid, for resources with no Linked host). Every other change
@@ -139,3 +145,32 @@ address and a client config example. The Connections view shows the same under *
   someone approves it in Termix.
 - **Output** is `{ status, summary, data }` as text. Tokens, passwords, keys, env values and compose files are
   masked at any depth, and `data` longer than 8,000 characters is cut with a note.
+
+## Status page URLs
+
+A status page's URL carries its token, so run history never holds it. `coolify.status-page-create` and
+`coolify.status-page-rotate` answer `{ id, handoffId }` as data and put the URL only in the `url` output,
+which is marked sensitive, so Termix drops it before the run is stored or shown. The run's summary names the
+page's title, never its URL. The URL waits in the plugin's memory for 5 minutes, for the same user only, and
+can be taken once:
+
+- **Over the plugin's MCP endpoint**, a create or rotate that finishes in the same `tools/call` answers with
+  a second text item, `Status page URL (shown once, not stored): <url>`.
+- **After an approval, or from `/operations/<id>/run`**, take it with the `handoffId` (the run id):
+  - `POST /plugin-api/coolify/status-pages/handoff/<handoffId>` answers `{ url }`. It needs **Configure
+    Coolify** and a signed-in session or an unscoped API key. A key scoped to `operations:*` is refused here.
+  - The MCP tool `take_status_page_url` with `{ "handoffId": "<handoffId>" }`. A key scoped to
+    `operations:run` with **Use the Coolify MCP endpoint** uses this one.
+
+A second take, another user, another run's id or an expired entry gets nothing. Give the page a new link to
+get a URL again.
+
+**Which address a URL starts with.** Because the URL carries the token, it is only ever built from an address
+the same user sent. The plugin routes (`POST …/status-pages`, `POST …/rotate`) use the address of that request.
+An operation has no request, so it uses the address that user's own last signed-in request to the plugin came
+in on; if that user has sent none, the URL is relative (`/plugin-api/coolify/status/<token>`), to be put after
+your Termix address. Another user's address is never used, and an address that isn't `http` or `https` is
+ignored.
+
+The page itself is `GET /plugin-api/coolify/status/<token>` (HTML) or `…/status/<token>.json`, with no
+login.

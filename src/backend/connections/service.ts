@@ -920,6 +920,27 @@ export function createConnections(
       };
     },
 
+    /**
+     * One read of the connection for background or public work with no actor
+     * (status pages): its owner, its revision and a client for that same
+     * target, built on first use. Null when the connection is gone. It skips
+     * the access check, so the caller checks the owner's access before using
+     * anything it reads.
+     */
+    async unattendedSnapshot(id: number): Promise<{
+      userId: string;
+      revision: string;
+      api: () => Promise<CoolifyApi>;
+    } | null> {
+      const found = await row(id);
+      if (!found) return null;
+      return {
+        userId: found.userId,
+        revision: revisionOf(found),
+        api: async () => (await cachedClient(found)).api,
+      };
+    },
+
     async api(id: number): Promise<CoolifyApi> {
       return (await cachedClient((await reach(id)).row)).api;
     },

@@ -116,3 +116,17 @@
 - Actions `coolify.companion-read` (offered to the assistant and MCP) and `coolify.companion` for the
   same features, including pausing and resuming a resource's Uptime monitors, and the destructive
   `coolify.companion-dns-remove`, which asks for a confirm before it deletes a DNS record made here
+- Public, read-only status pages: in Connections, publish a page for the resources you pick. It shows each
+  one's name, status and last deploy, never uuids, servers,
+  domains, logs or secrets. The link is shown once and only its hash is stored; give a page a new link or
+  revoke it at any time. Pages are served from the plugin's cache with a strict Content-Security-Policy and
+  no scripts, refresh every 30 seconds, and say "Status may be out of date" when the status is over 5
+  minutes old. While a page is published the plugin checks Coolify every minute, backing off after errors
+- Turning off "Allow public status pages" refuses new pages, and existing pages answer "not found"
+- A page answers "not found" once its connection is gone or its owner loses View Coolify, and the
+  background check stops for it. After a connection's address or token changes, a page shows nothing from
+  the old target, and only its chosen resources from the new one
+- Actions to list, publish, rotate and revoke status pages (`coolify.status-page-list`,
+  `coolify.status-page-create`, `coolify.status-page-rotate`, `coolify.status-page-revoke`). Run history
+  never holds a page's link: create and rotate answer a handoff id, and the link is taken once over MCP,
+  with the MCP tool `take_status_page_url`, or with `POST /plugin-api/coolify/status-pages/handoff/:id`
