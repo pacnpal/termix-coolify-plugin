@@ -382,6 +382,26 @@ export function createCompanions(
   // database if the backend ever runs as more than one process.
   let storing: Promise<unknown> = Promise.resolve();
 
+  // DNS creates and removes for one resource run one at a time, so a remove
+  // never runs while a create's DNS write is still out.
+  // ponytail: in-process queues, as sync's `serialized`; move to the
+  // database if the backend ever runs as more than one process.
+  const dnsQueues = new Map<string, Promise<unknown>>();
+  function serialized<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const run = (dnsQueues.get(key) ?? Promise.resolve()).then(fn, fn);
+    const tail = run.catch(() => undefined);
+    dnsQueues.set(key, tail);
+    void tail.then(() => {
+      if (dnsQueues.get(key) === tail) dnsQueues.delete(key);
+    });
+    return run;
+  }
+
+  // Rows written ahead of their DNS write: not listed and not removable
+  // until that write succeeds. A restart forgets them, and the row (made
+  // before the write) then lists like any other.
+  const pendingRows = new Set<number>();
+
   /** Inserts a DNS row and answers exactly that row. */
   function storeRecord(
     connectionId: number,
@@ -439,7 +459,9 @@ export function createCompanions(
         ),
       )
       .limit(1)) as DnsRow[];
-    if (!row) throw new CompanionError("dns-record-not-found", "dns");
+    if (!row || pendingRows.has(row.id)) {
+      throw new CompanionError("dns-record-not-found", "dns");
+    }
     return row;
   }
 
@@ -494,7 +516,8 @@ export function createCompanions(
           ),
         )
         .orderBy(t.dnsRecords.id)) as DnsRow[];
-      return rows.map(toDnsView);
+      // A record whose DNS write is still out isn't one yet.
+      return rows.filter((r) => !pendingRows.has(r.id)).map(toDnsView);
     },
 
     /**
@@ -541,19 +564,24 @@ export function createCompanions(
       // makes can always be listed and removed. Only if the write fails is
       // the stored row dropped (never the record in DNS: the write may have
       // touched one that was already there).
-      const row = await storeRecord(connectionId, resource.uuid, fqdn, key);
-      try {
-        await dnsUpsert(caller, key);
-      } catch (err) {
-        await (
-          await dbClient(ctx)
-        )
-          .delete(t.dnsRecords)
-          .where(eq(t.dnsRecords.id, row.id));
-        await ctx.db.persist();
-        throw err;
-      }
-      return toDnsView(row);
+      return serialized(`${connectionId}:${resource.uuid}`, async () => {
+        const row = await storeRecord(connectionId, resource.uuid, fqdn, key);
+        pendingRows.add(row.id);
+        try {
+          await dnsUpsert(caller, key);
+        } catch (err) {
+          await (
+            await dbClient(ctx)
+          )
+            .delete(t.dnsRecords)
+            .where(eq(t.dnsRecords.id, row.id));
+          await ctx.db.persist();
+          throw err;
+        } finally {
+          pendingRows.delete(row.id);
+        }
+        return toDnsView(row);
+      });
     },
 
     /**
@@ -570,17 +598,19 @@ export function createCompanions(
       // The stored row alone proves nothing about the current target: the
       // resource must still be one it exposes, or nothing is removed.
       await exposed(connectionId, snap, uuid);
-      const row = await storedRecord(connectionId, uuid, recordId);
-      const handle = parseHandle(row.handle);
-      if (!handle) throw new CompanionError("companion-failed", "dns");
-      await dnsRemove(guarded(connectionId, snap), handle);
-      await (
-        await dbClient(ctx)
-      )
-        .delete(t.dnsRecords)
-        .where(eq(t.dnsRecords.id, row.id));
-      await ctx.db.persist();
-      return { id: row.id, removed: true };
+      return serialized(`${connectionId}:${uuid}`, async () => {
+        const row = await storedRecord(connectionId, uuid, recordId);
+        const handle = parseHandle(row.handle);
+        if (!handle) throw new CompanionError("companion-failed", "dns");
+        await dnsRemove(guarded(connectionId, snap), handle);
+        await (
+          await dbClient(ctx)
+        )
+          .delete(t.dnsRecords)
+          .where(eq(t.dnsRecords.id, row.id));
+        await ctx.db.persist();
+        return { id: row.id, removed: true as const };
+      });
     },
 
     /** Uptime monitors whose URL is on one of the resource's domains. */
@@ -607,22 +637,34 @@ export function createCompanions(
       await requireCompanion(ctx, "uptime");
       const monitors = await matchedMonitors(connectionId, snap, uuid);
       const caller = guarded(connectionId, snap);
-      const changed: string[] = [];
+      // Each monitor's state before this call, read from Uptime's own
+      // status: "paused" is paused; up, down and pending are not; anything
+      // else is unknown.
+      const before = (m: Monitor): boolean | null =>
+        m.status === "paused" ? true : m.status === "unknown" ? null : false;
+      // A monitor already in the asked state is left alone: this call never
+      // touches it, so it can never set it back either.
+      const todo = monitors.filter((m) => before(m) !== paused);
+      const changed: Monitor[] = [];
       try {
-        for (const monitor of monitors) {
+        for (const monitor of todo) {
           await uptimeSetPaused(caller, monitor.id, paused);
-          changed.push(monitor.id);
+          changed.push(monitor);
         }
       } catch (err) {
-        // No partial change is left behind: the monitors this call already
-        // changed are set back, unguarded, since this only undoes its own
-        // writes. A failed undo can't be helped; the first error is answered.
-        for (const id of changed.reverse()) {
-          await uptimeSetPaused(ctx, id, !paused).catch(() => undefined);
+        // No partial change is left behind: each monitor this call changed
+        // goes back to its own state from before, unguarded, since this only
+        // undoes its own writes. One whose state before was unknown is left
+        // as it is, rather than guessed. A failed undo can't be helped; the
+        // first error is answered.
+        for (const monitor of changed.reverse()) {
+          const was = before(monitor);
+          if (was === null) continue;
+          await uptimeSetPaused(ctx, monitor.id, was).catch(() => undefined);
         }
         throw err;
       }
-      return { monitors: changed };
+      return { monitors: changed.map((m) => m.id) };
     },
 
     /** Log Search over Docker logs, with the resource uuid as the query. */

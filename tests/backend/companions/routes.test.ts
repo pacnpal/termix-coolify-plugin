@@ -879,6 +879,45 @@ describe("review findings", () => {
     expect(one.body.id).not.toBe(two.body.id);
   });
 
+  it("a record still being created is not listed, and a remove waits for the create", async () => {
+    const { harness: h, connectionId, companions } = await start();
+    let release: () => void = () => {};
+    let started: () => void = () => {};
+    const inUpsert = new Promise<void>((r) => (started = r));
+    companions.actions["dns.upsert-record"] = async () => {
+      started();
+      await new Promise<void>((r) => (release = r));
+      return { summary: "record set", changed: true };
+    };
+    const creating = h.request("POST", dnsPath(connectionId), {
+      fqdn: "a.example.test",
+    });
+    await inUpsert;
+    const [pending] = rows(h) as { id: number }[];
+    expect(pending).toBeTruthy();
+    // Not visible to another client while the DNS write runs.
+    const listed = await h.request("GET", dnsPath(connectionId));
+    expect(listed.status).toBe(200);
+    expect(listed.body).toEqual([]);
+    // A remove of that id waits behind the create, and runs after it.
+    const removing = h.request(
+      "DELETE",
+      `${dnsPath(connectionId)}/${pending.id}`,
+      { confirm: true },
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    expect(companions.calls.map((c) => c.name)).not.toContain(
+      "dns.delete-record",
+    );
+    release();
+    expect((await creating).status).toBe(201);
+    expect((await removing).status).toBe(200);
+    const names = companions.calls.map((c) => c.name);
+    expect(names.indexOf("dns.delete-record")).toBeGreaterThan(
+      names.indexOf("dns.upsert-record"),
+    );
+  });
+
   it("the record's handle is stored before the DNS write, and dropped if that write fails", async () => {
     const { harness: h, connectionId, companions } = await start();
     let storedFirst = -1;

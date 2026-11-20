@@ -344,7 +344,8 @@ read, every one of them hides and their routes and actions answer `companions-un
 - **Uptime.** Uptime can't create HTTP monitors for another plugin, so **Create monitor in Uptime** opens the
   Uptime tab. A monitor belongs to a resource when it checks the resource's host at or under its path
   (`/app` covers `/app/health`, not `/admin`). A resource's monitors can be paused and resumed with the
-  `coolify.companion` action; if one fails part way, the ones already changed are set back.
+  `coolify.companion` action. Monitors already paused (or running) are left alone, and if one fails part
+  way, each monitor already changed goes back to how it was.
 - **Log Search** searches every server's Docker logs and can't filter by host. The results say where they
   came from.
 - **Databases** only shows names: logins and database names, never a password. A login matches a database

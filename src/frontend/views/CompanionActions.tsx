@@ -176,6 +176,27 @@ function DnsRecords({
     );
   }
 
+  /**
+   * Reads the list again after a create or remove. Only the newest read
+   * lands, so an older answer (the first read, still out when the change
+   * landed) is dropped and can't lose a record: this one has them all.
+   */
+  function reload(forTarget: string) {
+    const mine = ++listRead.current;
+    api
+      .listDnsRecords(connectionId, resource.uuid)
+      .then((list) => {
+        if (
+          mounted.current &&
+          mine === listRead.current &&
+          current.current === forTarget
+        ) {
+          setRecords({ target: forTarget, rows: list });
+        }
+      })
+      .catch(() => undefined);
+  }
+
   async function create() {
     const forTarget = target;
     setError(null);
@@ -185,6 +206,7 @@ function DnsRecords({
         ...(content.trim() ? { content: content.trim() } : {}),
       });
       update(forTarget, (list) => [...list, made]);
+      reload(forTarget);
       if (current.current !== forTarget) return;
       setOpen(false);
       setContent("");
@@ -209,6 +231,7 @@ function DnsRecords({
     try {
       await api.removeDnsRecord(connectionId, resource.uuid, id);
       update(forTarget, (list) => list.filter((r) => r.id !== id));
+      reload(forTarget);
     } catch {
       if (current.current === forTarget) {
         setError(t("companions.dns.removeFailed"));

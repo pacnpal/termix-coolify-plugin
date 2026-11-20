@@ -569,17 +569,55 @@ describe("companion UI", () => {
   it("an earlier DNS list answer never undoes a create that finished first", async () => {
     const api = stubApi(ALL_RUNNING);
     const get = api.get.getMockImplementation()!;
-    let answerList: (v: unknown) => void = () => {};
+    // Only the first read is answered by the test; the read after the
+    // create stays out.
+    let answerList: ((v: unknown) => void) | null = null;
     api.get.mockImplementation(async (url: string) =>
       url.endsWith("/dns")
-        ? new Promise((resolve) => (answerList = resolve))
+        ? new Promise((resolve) => (answerList ??= resolve))
         : get(url),
     );
     await mountSwitcher(api, app);
     fireEvent.click(await screen.findByText(locales.companions.dns.create));
     fireEvent.click(screen.getByText(locales.companions.dns.submit));
     expect(await screen.findByText(/a\.example\.test A/)).toBeTruthy();
-    await act(async () => answerList({ data: [] }));
+    await act(async () => answerList?.({ data: [] }));
+    expect(screen.getByText(/a\.example\.test A/)).toBeTruthy();
+  });
+
+  it("a create during the first list read loses none of the records already there", async () => {
+    const api = stubApi(ALL_RUNNING);
+    const get = api.get.getMockImplementation()!;
+    const existing = {
+      id: 4,
+      fqdn: "b.example.test",
+      type: "A",
+      content: "203.0.113.11",
+      createdAt: "2026-11-19T10:00:00.000Z",
+    };
+    const created = {
+      id: 5,
+      fqdn: "a.example.test",
+      type: "A",
+      content: "203.0.113.11",
+      createdAt: "2026-11-19T11:00:00.000Z",
+    };
+    let answerFirst: (v: unknown) => void = () => {};
+    let lists = 0;
+    api.get.mockImplementation(async (url: string) => {
+      if (!url.endsWith("/dns")) return get(url);
+      lists += 1;
+      // The first read hangs; any later one sees both records.
+      return lists === 1
+        ? new Promise((resolve) => (answerFirst = resolve))
+        : { data: [existing, created] };
+    });
+    await mountSwitcher(api, app);
+    fireEvent.click(await screen.findByText(locales.companions.dns.create));
+    fireEvent.click(screen.getByText(locales.companions.dns.submit));
+    expect(await screen.findByText(/a\.example\.test A/)).toBeTruthy();
+    await act(async () => answerFirst({ data: [existing] }));
+    expect(await screen.findByText(/b\.example\.test A/)).toBeTruthy();
     expect(screen.getByText(/a\.example\.test A/)).toBeTruthy();
   });
 
