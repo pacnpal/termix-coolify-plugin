@@ -92,13 +92,8 @@ describe("container companion routes", () => {
     expect(calls.forward).toEqual([
       [
         HOST_ID,
-        {
-          name: `web:${HOST_ID}:coolify-app-web-uuid`,
-          targetHost: "10.0.1.5",
-          targetPort: 3000,
-          bindHost: "127.0.0.1",
-          persist: false,
-        },
+        { targetHost: "10.0.1.5", targetPort: 3000, bindHost: "127.0.0.1" },
+        { name: `web:${HOST_ID}:coolify-app-web-uuid` },
       ],
     ]);
     expect(
@@ -119,6 +114,18 @@ describe("container companion routes", () => {
       closed: true,
     });
     expect(calls.stop).toEqual([[`web:${HOST_ID}:coolify-app-web-uuid`]]);
+
+    // Tunnels' stop holds off retries; a new forward of the same name works.
+    const again = await h.request(
+      "POST",
+      `${base(connectionId, "app-web-uuid")}/tunnel`,
+      { port: 3000 },
+    );
+    expect(again.status).toBe(200);
+    expect(calls.forward).toHaveLength(2);
+    expect(calls.forward[1]![2]).toEqual({
+      name: `web:${HOST_ID}:coolify-app-web-uuid`,
+    });
   });
 
   it("container IP that doesn't parse is refused", async () => {

@@ -559,8 +559,11 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   passes (`isContainerIp`: 10/8, 172.16/12, 192.168/16, fc00::/7). The registry (`forwards`, by tunnel
   name) records the actor and port: close needs both to match (`tunnel-not-found`), another actor's name
   is `tunnel-in-use`, and `TUNNELS_MAX_PER_ACTOR` (5) is `too-many-tunnels`. It is per process and a
-  restart forgets it. The forward asks for `bindHost: "127.0.0.1"`, `persist: false`; Tunnels' answer is
-  passed on. The web UI URL is a sensitive output of `coolify.companion`; the handler keeps it in the logs
+  restart forgets it. The call is `forward(hostId, { targetHost, targetPort, bindHost: "127.0.0.1" },
+{ name })` (checked against Plugin-Tunnels' `src/backend/service.ts`; the name goes in the third
+  argument and must be `web:<hostId>:<id>`), and Tunnels' `bindHost`/`bindPort` are passed on. Close is
+  `stop(name)`, never the answer's `close()`, which doesn't survive the process boundary; a later forward
+  of the same name opens again. The web UI URL is a sensitive output of `coolify.companion`; the handler keeps it in the logs
   handoff store (`holdHandoff`, `web-ui:<handoffId>`) and `actionResult` puts it back once
   (`takeWebUiUrl`). `MCP_CONFIRM_REQUIRED_KINDS` makes MCP refuse tunnel-open and web-ui without
   `confirmed: true`. Frontend: `views/ContainerCompanions.tsx` (in ResourceDetail's Overview, keyed by

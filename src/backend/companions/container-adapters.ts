@@ -11,10 +11,19 @@ import { CompanionError, COMPANION_PLUGINS, missing } from "./detect.js";
 //
 // Unlike adapters.ts, these call services: Tunnels and Reverse Proxy publish
 // no action that forwards a port or opens a web endpoint, only the services
-// tunnels.access 1.0.0 and reverse-proxy.endpoints 1.0.0. Their references
-// name no methods, so the method names follow the design's "Companion
-// plugins" section; a provider without them reads as companion-missing
-// (fail closed).
+// tunnels.access 1.0.0 and reverse-proxy.endpoints 1.0.0. Their published
+// references name no methods; the calls here are checked against the
+// providers' source (Plugin-Tunnels and Plugin-Reverse-Proxy,
+// src/backend/service.ts):
+// - tunnels.access.forward(sourceHostId, { targetHost, targetPort, bindHost?,
+//   bindPort? }, { name?, idleTimeoutMs? }) answers { bindHost, bindPort,
+//   close() }. The name must be "web:<sourceHostId>:<id>". Tunnels checks the
+//   actor's host connect access itself. close() is a function and may not
+//   cross the process boundary, so the forward is stopped with stop(name),
+//   which holds off retries until the next forward of that name.
+// - reverse-proxy.endpoints.available() and open({ hostId, target: { host,
+//   port, scheme, ignoreCert? } }) answering { url }.
+// A provider without these methods reads as companion-missing (fail closed).
 
 // --- File Manager -----------------------------------------------------
 
@@ -252,13 +261,15 @@ export async function openForward(
 ): Promise<ForwardAnswer> {
   const answer = obj(
     await attempt(TUNNELS, () =>
-      tunnels.forward!(input.hostId, {
-        name: input.name,
-        targetHost: input.targetHost,
-        targetPort: input.targetPort,
-        bindHost: "127.0.0.1",
-        persist: false,
-      }),
+      tunnels.forward!(
+        input.hostId,
+        {
+          targetHost: input.targetHost,
+          targetPort: input.targetPort,
+          bindHost: "127.0.0.1",
+        },
+        { name: input.name },
+      ),
     ),
   );
   const bindPort = Number(answer.bindPort ?? answer.localPort ?? answer.port);

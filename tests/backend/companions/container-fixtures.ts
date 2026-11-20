@@ -42,10 +42,36 @@ export function fakeServices(
     open: [],
   };
   const services = {
+    // Shaped as Plugin-Tunnels' src/backend/service.ts: forward(sourceHostId,
+    // { targetHost, targetPort, bindHost?, bindPort? }, { name?, idleTimeoutMs? }).
+    // The name is "web:<sourceHostId>:<id>" in the options, as Tunnels checks.
     "tunnels.access": {
       async forward(...args: unknown[]) {
         calls.forward.push(args);
-        return { bindHost: "127.0.0.1", bindPort: options.bindPort ?? 41234 };
+        const [hostId, target, opts] = args as [
+          number,
+          Record<string, unknown>,
+          { name?: unknown } | undefined,
+        ];
+        const allowed = ["targetHost", "targetPort", "bindHost", "bindPort"];
+        if (Object.keys(target ?? {}).some((k) => !allowed.includes(k))) {
+          throw new Error("unknown target field");
+        }
+        if (
+          typeof target.targetHost !== "string" ||
+          typeof target.targetPort !== "number"
+        ) {
+          throw new Error("targetHost and targetPort are required");
+        }
+        const name = opts?.name;
+        if (typeof name !== "string" || !name.startsWith(`web:${hostId}:`)) {
+          throw new Error('Forward names must be "web:<hostId>:<id>"');
+        }
+        return {
+          bindHost: "127.0.0.1",
+          bindPort: options.bindPort ?? 41234,
+          close: async () => undefined,
+        };
       },
       async stop(...args: unknown[]) {
         calls.stop.push(args);
