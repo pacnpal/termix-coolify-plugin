@@ -31,9 +31,16 @@ export function useCompanions(): CompanionMap | null {
   const [map, setMap] = useState<CompanionMap | null>(null);
   useEffect(() => {
     let live = true;
-    void cachedCompanions(api).then((m) => live && setMap(m));
+    const read = () =>
+      void cachedCompanions(api).then((m) => live && setMap(m));
+    read();
+    // Read again once the cache is stale, so a companion installed or
+    // stopped (or a failed first read) shows within a minute. Every mounted
+    // view shares the one cached promise, so this is one request a minute.
+    const timer = setInterval(read, MAX_AGE_MS);
     return () => {
       live = false;
+      clearInterval(timer);
     };
   }, [api]);
   return map;

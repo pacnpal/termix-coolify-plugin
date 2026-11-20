@@ -123,6 +123,8 @@ function DnsRecords({
   // A new target remounts this view; a confirm the old one opened then
   // answers into an unmounted view and must run nothing.
   const mounted = useRef(false);
+  // The generation of the list read; a change since it began drops it.
+  const listRead = useRef(0);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -147,9 +149,17 @@ function DnsRecords({
     setFqdn(firstDomain);
     setContent("");
     setError(null);
+    // A create or remove that lands first bumps listRead, so this older
+    // answer can't undo it.
+    const mine = ++listRead.current;
     api
       .listDnsRecords(connectionId, resource.uuid)
-      .then((list) => live && setRecords({ target, rows: list }))
+      .then(
+        (list) =>
+          live &&
+          mine === listRead.current &&
+          setRecords({ target, rows: list }),
+      )
       .catch(() => undefined);
     return () => {
       live = false;
@@ -158,6 +168,7 @@ function DnsRecords({
 
   /** Keeps a change only while the view still shows the target it was for. */
   function update(forTarget: string, fn: (rows: DnsRecord[]) => DnsRecord[]) {
+    listRead.current += 1;
     setRecords((prev) =>
       prev.target === forTarget
         ? { target: forTarget, rows: fn(prev.rows) }
@@ -283,19 +294,26 @@ function UptimeStatus({
   const { t } = useTranslation();
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
-  const [monitors, begin] = useTargetAnswer<UptimeMonitor[]>(target);
+  const [read, begin] = useTargetAnswer<
+    { monitors: UptimeMonitor[] } | { failed: true }
+  >(target);
 
   useEffect(() => {
     const land = begin();
     api
       .uptime(connectionId, resource.uuid)
-      .then((a) => land(a?.monitors ?? []))
-      .catch(() => land([]));
+      .then((a) => land({ monitors: a?.monitors ?? [] }))
+      // A failed read proves nothing about the monitors: it says so.
+      .catch(() => land({ failed: true }));
   }, [api, begin, connectionId, resource.uuid, target]);
+  const monitors = read && "monitors" in read ? read.monitors : null;
 
   return (
     <div className="flex flex-col gap-1 text-xs" data-companion="uptime">
       <p className="font-medium">{t("companions.uptime.title")}</p>
+      {read && "failed" in read && (
+        <p className="text-muted-foreground">{t("companions.uptime.failed")}</p>
+      )}
       {monitors && monitors.length === 0 && (
         <p className="text-muted-foreground">{t("companions.uptime.none")}</p>
       )}

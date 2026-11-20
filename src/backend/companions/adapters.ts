@@ -50,14 +50,18 @@ function num(value: unknown): number | null {
   return null;
 }
 
-/** The first list among `keys` of an answer, or the answer when it is one. */
-function listOf(value: unknown, keys: string[]): unknown[] {
+/**
+ * The first list among `keys` of an answer, or the answer when it is one.
+ * An answer with no list it recognizes is companion-failed: "couldn't read"
+ * is never reported as "none". An explicit empty list is empty.
+ */
+function listOf(value: unknown, keys: string[], plugin: string): unknown[] {
   if (Array.isArray(value)) return value;
   const raw = obj(value);
   for (const key of keys) {
     if (Array.isArray(raw[key])) return raw[key] as unknown[];
   }
-  return [];
+  throw new CompanionError("companion-failed", plugin);
 }
 
 function first(raw: Raw, keys: string[]): unknown {
@@ -120,7 +124,7 @@ export interface DnsRecordKey {
 async function zoneFor(ctx: CompanionCaller, fqdn: string): Promise<string> {
   const data = await invoke(ctx, "dns.list-zones", "dns", {});
   let best: { value: string; length: number } | null = null;
-  for (const entry of listOf(data, ["rows", "zones", "items"])) {
+  for (const entry of listOf(data, ["rows", "zones", "items"], "dns")) {
     const raw = obj(entry);
     const name = str(first(raw, ["name", "zone", "domain"]))
       ?.toLowerCase()
@@ -135,19 +139,25 @@ async function zoneFor(ctx: CompanionCaller, fqdn: string): Promise<string> {
   return best.value;
 }
 
-/** Sets a record with dns.upsert-record; answers what removing it takes. */
-export async function dnsCreate(
+/** What setting and removing a record take: its zone, type, name and content. */
+export async function dnsKey(
   ctx: CompanionCaller,
   input: { fqdn: string; type: DnsType; content: string },
 ): Promise<DnsRecordKey> {
-  const key: DnsRecordKey = {
+  return {
     zone: await zoneFor(ctx, input.fqdn),
     type: input.type,
     name: input.fqdn,
     content: input.content,
   };
+}
+
+/** Sets a record with dns.upsert-record. */
+export async function dnsUpsert(
+  ctx: CompanionCaller,
+  key: DnsRecordKey,
+): Promise<void> {
   await invoke(ctx, "dns.upsert-record", "dns", { input: { ...key } });
-  return key;
 }
 
 /**
@@ -199,20 +209,22 @@ function monitorStatus(value: unknown): MonitorStatus {
 /** Every monitor uptime.monitors lists. */
 export async function uptimeMonitors(ctx: CompanionCaller): Promise<Monitor[]> {
   const data = await invoke(ctx, "uptime.monitors", "uptime", {});
-  return listOf(data, ["rows", "monitors", "items"]).flatMap((entry) => {
-    const raw = obj(entry);
-    const id = str(raw.id);
-    const url = str(first(raw, ["url", "target", "address"]));
-    if (!id || !url) return [];
-    return [
-      {
-        id,
-        name: str(raw.name) ?? url,
-        url,
-        status: monitorStatus(first(raw, ["status", "state"])),
-      },
-    ];
-  });
+  return listOf(data, ["rows", "monitors", "items"], "uptime").flatMap(
+    (entry) => {
+      const raw = obj(entry);
+      const id = str(raw.id);
+      const url = str(first(raw, ["url", "target", "address"]));
+      if (!id || !url) return [];
+      return [
+        {
+          id,
+          name: str(raw.name) ?? url,
+          url,
+          status: monitorStatus(first(raw, ["status", "state"])),
+        },
+      ];
+    },
+  );
 }
 
 /** Pauses or resumes one monitor; both actions take `monitor`. */
@@ -246,7 +258,7 @@ export async function logSearch(
   const data = await invoke(ctx, "log-search.search", "log-search", {
     input: { source: "docker", query, limit: MAX_LINES },
   });
-  return listOf(data, ["results", "rows", "lines", "hits"])
+  return listOf(data, ["results", "rows", "lines", "hits"], "log-search")
     .slice(0, MAX_LINES)
     .flatMap((entry) => {
       const raw = obj(entry);
@@ -324,27 +336,29 @@ export async function databaseLogins(
   const data = await invoke(ctx, "databases.list-connections", "databases", {
     hostId,
   });
-  return listOf(data, ["rows", "logins", "connections", "items"]).flatMap(
-    (entry) => {
-      const raw = obj(entry);
-      const id =
-        typeof raw.id === "number" && Number.isFinite(raw.id)
-          ? raw.id
-          : str(raw.id);
-      // A row for another host is not this host's, whatever was answered.
-      const other = num(raw.hostId);
-      if (id === null || (other !== null && other !== hostId)) return [];
-      return [
-        {
-          id,
-          name: str(raw.name),
-          engine: str(first(raw, ["engine", "type"])),
-          database: str(first(raw, ["database", "databaseName"])),
-          username: str(first(raw, ["username", "user"])),
-        },
-      ];
-    },
-  );
+  return listOf(
+    data,
+    ["rows", "logins", "connections", "items"],
+    "databases",
+  ).flatMap((entry) => {
+    const raw = obj(entry);
+    const id =
+      typeof raw.id === "number" && Number.isFinite(raw.id)
+        ? raw.id
+        : str(raw.id);
+    // A row for another host is not this host's, whatever was answered.
+    const other = num(raw.hostId);
+    if (id === null || (other !== null && other !== hostId)) return [];
+    return [
+      {
+        id,
+        name: str(raw.name),
+        engine: str(first(raw, ["engine", "type"])),
+        database: str(first(raw, ["database", "databaseName"])),
+        username: str(first(raw, ["username", "user"])),
+      },
+    ];
+  });
 }
 
 // --- Backups (backups.failed) ------------------------------------------
@@ -361,17 +375,19 @@ export async function backupsFailed(
   hostId: number,
 ): Promise<FailedBackup[]> {
   const data = await invoke(ctx, "backups.failed", "backups", { hostId });
-  return listOf(data, ["rows", "jobs", "failed", "items"]).flatMap((entry) => {
-    const raw = obj(entry);
-    const id = str(raw.id);
-    const other = num(raw.hostId);
-    if (!id || (other !== null && other !== hostId)) return [];
-    return [
-      {
-        id,
-        name: str(first(raw, ["name", "title"])) ?? id,
-        failedAt: str(first(raw, ["failedAt", "lastFailureAt", "at"])),
-      },
-    ];
-  });
+  return listOf(data, ["rows", "jobs", "failed", "items"], "backups").flatMap(
+    (entry) => {
+      const raw = obj(entry);
+      const id = str(raw.id);
+      const other = num(raw.hostId);
+      if (!id || (other !== null && other !== hostId)) return [];
+      return [
+        {
+          id,
+          name: str(first(raw, ["name", "title"])) ?? id,
+          failedAt: str(first(raw, ["failedAt", "lastFailureAt", "at"])),
+        },
+      ];
+    },
+  );
 }

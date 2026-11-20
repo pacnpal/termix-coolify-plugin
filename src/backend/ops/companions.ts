@@ -70,7 +70,11 @@ export function registerCompanionOperations(
         case "security": {
           const data = await companions.security(id, server);
           return {
-            summary: `Score ${data.score ?? "unknown"}, ${count(data.critical ?? 0, "critical finding")}`,
+            summary: `Score ${data.score ?? "unknown"}, ${
+              data.critical === null
+                ? "critical count unknown"
+                : count(data.critical, "critical finding")
+            }`,
             data,
           };
         }

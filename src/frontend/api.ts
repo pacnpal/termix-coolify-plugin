@@ -523,7 +523,9 @@ export function createApi(api: PluginApiClient) {
       uuid: string,
       recordId: number,
     ): Promise<void> {
-      await api.delete(`${resourcePath(id, uuid)}/dns/${recordId}`);
+      await api.delete(
+        `${resourcePath(id, uuid)}/dns/${recordId}?confirm=true`,
+      );
     },
     async uptime(
       id: number,
