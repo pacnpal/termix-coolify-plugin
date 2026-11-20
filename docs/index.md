@@ -498,7 +498,7 @@ part's Overview shows a **Companion plugins** group. Each button hides while its
   normalized. A storage's mount path inside the container isn't on the server, so it isn't offered.
 - **Reach from here** reads the container's internal address with `docker inspect` over SSH and asks
   Tunnels to forward the port you enter to it. Only a private container address is used (10/8, 172.16/12,
-  192.168/16 or IPv6 unique local); loopback, `0.0.0.0`, link-local addresses such as `169.254.169.254` and
+  192.168/16 or IPv6 unique local, IPv4 first when a container has both); loopback, `0.0.0.0`, link-local addresses such as `169.254.169.254` and
   public addresses are refused (`bad-container-ip`). The plugin asks Tunnels to listen on the Termix
   server's `127.0.0.1`; Tunnels decides, and the answer shows where it listens. The forward is named
   `web:<hostId>:coolify-<uuid>` and isn't saved in your Tunnels list. **Stop** closes it, and only a

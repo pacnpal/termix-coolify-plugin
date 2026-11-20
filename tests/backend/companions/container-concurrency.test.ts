@@ -90,22 +90,22 @@ describe("container companions: concurrent opens", () => {
     expect(calls.forward).toHaveLength(1);
   });
 
-  it("two concurrent opens of one resource open it once", async () => {
+  it("two concurrent opens of one resource run one after the other", async () => {
     const { harness: h, connectionId, calls } = await startSeven();
     grant(h, connectionId, OTHER, "operate");
-    for (const [uuid, users] of [
-      [SEVEN[0]!, [OWNER, OWNER]],
-      [SEVEN[1]!, [OWNER, OTHER]],
-    ] as const) {
-      const answers = await Promise.all(
-        users.map((user) => open(h, connectionId, uuid, user)),
-      );
-      expect(answers.filter((a) => a.status === 200)).toHaveLength(1);
-      expect(
-        answers.filter((a) => a.body.cause === "tunnel-in-use"),
-      ).toHaveLength(1);
-    }
-    expect(calls.forward).toHaveLength(2);
-    expect(calls.stop).toEqual([]);
+    // The same person: the second reopens it, so one forward is left open.
+    const same = await Promise.all(
+      [OWNER, OWNER].map((user) => open(h, connectionId, SEVEN[0]!, user)),
+    );
+    expect(same.map((a) => a.status)).toEqual([200, 200]);
+    // Two people: the second finds it in use.
+    const two = await Promise.all(
+      [OWNER, OTHER].map((user) => open(h, connectionId, SEVEN[1]!, user)),
+    );
+    expect(two.map((a) => a.status).sort()).toEqual([200, 409]);
+    expect(two.find((a) => a.status === 409)!.body.cause).toBe("tunnel-in-use");
+    expect([...calls.live.keys()].sort()).toEqual(
+      [SEVEN[0]!, SEVEN[1]!].map((u) => `web:7:coolify-${u}`).sort(),
+    );
   });
 });

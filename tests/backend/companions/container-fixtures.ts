@@ -26,6 +26,8 @@ export interface CompanionCalls {
   stop: unknown[][];
   available: number;
   open: unknown[][];
+  /** Forwards Tunnels has open now, by name, with their target port. */
+  live: Map<string, number>;
 }
 
 /**
@@ -33,14 +35,31 @@ export interface CompanionCalls {
  * design's "Companion plugins" section calls them, recording every call.
  */
 export function fakeServices(
-  options: { proxyReady?: boolean; bindPort?: number } = {},
+  options: {
+    proxyReady?: boolean;
+    bindPort?: number;
+    /** How long forward and stop take, so calls can overlap. */
+    delayMs?: number | (() => number);
+  } = {},
 ) {
   const calls: CompanionCalls = {
     forward: [],
     stop: [],
     available: 0,
     open: [],
+    live: new Map(),
   };
+  const wait = () =>
+    options.delayMs
+      ? new Promise((r) =>
+          setTimeout(
+            r,
+            typeof options.delayMs === "function"
+              ? options.delayMs()
+              : options.delayMs,
+          ),
+        )
+      : Promise.resolve();
   const services = {
     // Shaped as Plugin-Tunnels' src/backend/service.ts: forward(sourceHostId,
     // { targetHost, targetPort, bindHost?, bindPort? }, { name?, idleTimeoutMs? }).
@@ -67,6 +86,8 @@ export function fakeServices(
         if (typeof name !== "string" || !name.startsWith(`web:${hostId}:`)) {
           throw new Error('Forward names must be "web:<hostId>:<id>"');
         }
+        await wait();
+        calls.live.set(name, target.targetPort);
         return {
           bindHost: "127.0.0.1",
           bindPort: options.bindPort ?? 41234,
@@ -75,6 +96,8 @@ export function fakeServices(
       },
       async stop(...args: unknown[]) {
         calls.stop.push(args);
+        await wait();
+        calls.live.delete(String(args[0]));
         return true;
       },
     },
@@ -139,12 +162,16 @@ export async function startCompanions(
     running?: string[];
     permissions?: string[];
     proxyReady?: boolean;
+    delayMs?: number | (() => number);
     services?: Record<string, object>;
     settings?: Record<string, unknown>;
   } = {},
 ) {
   const running = options.running ?? [FILES, TUNNELS, REVERSE_PROXY];
-  const fakes = fakeServices({ proxyReady: options.proxyReady });
+  const fakes = fakeServices({
+    proxyReady: options.proxyReady,
+    delayMs: options.delayMs,
+  });
   const fake = healthyCoolify({
     ...resourceLists(),
     "GET /servers/srv-vps1-uuid": {

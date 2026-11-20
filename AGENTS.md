@@ -546,8 +546,8 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   `src/backend/ops/container-companions.ts`, whose `files-paths` and `tunnel-open`/`tunnel-close`/`web-ui`
   kinds `ops/companions.ts` dispatches to. These are the only service calls into other plugins (in
   `requires`, optional): Tunnels and Reverse Proxy publish no action that forwards a port or opens an
-  endpoint. Their references name no methods, so `forward`/`stop` and `available`/`open` follow the design,
-  and a provider without them is `companion-missing`. Paths: `coolify.view`, `connections.snapshot` once,
+  endpoint. Their references name no methods; `forward`/`stop` and `available`/`open` are checked against
+  the providers' source, and a provider without them is `companion-missing`. Paths: `coolify.view`, `connections.snapshot` once,
   `companions(ctx)` (unreadable list: `companions-unknown`), the uuid in the connection's own list
   (`resources.get`, a miss once fresh), the Linked host and the actor's `view` access to it, then the
   storages read (revision checked in `beforeFetch` and before answering). File storages must stay under
@@ -555,24 +555,30 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   are normalized and may be anywhere but `/`; `..` is refused. Tunnels and web UI: snapshot once, the
   companion running, `containers.target` (lifecycle's `authorize`), the companion's service, then
   `containers.locate` (Linked host, `connect` access, revision, docker ps), `docker inspect` with a fixed
-  format and the docker ps name, revision again, then the companion call. Only a private container IP
-  passes (`isContainerIp`: 10/8, 172.16/12, 192.168/16, fc00::/7). The registry (`forwards`, by tunnel
+  format (each network's `IPAddress` and `GlobalIPv6Address`) and the docker ps name, revision again, then the companion call. Only a private container IP
+  passes (`isContainerIp`: 10/8, 172.16/12, 192.168/16, fc00::/7), IPv4 first; IPv6 goes to Tunnels
+  and Reverse Proxy without brackets. The registry (`forwards`, by tunnel
   name) records the actor and port: close needs both to match (`tunnel-not-found`), another actor's name
-  is `tunnel-in-use`, and `TUNNELS_MAX_PER_ACTOR` (5) is `too-many-tunnels`. An open reserves its name
-  and slot (`pending`) synchronously right after those checks, before any await, so concurrent opens can't
-  pass the cap or open one name twice (a pending name is `tunnel-in-use` and can't be closed); every
-  failure gives the reservation back (or restores the forward it was reopening) and stops a forward
-  Tunnels may have opened. It is per process and a restart forgets it. The call is `forward(hostId, { targetHost, targetPort, bindHost: "127.0.0.1" },
+  is `tunnel-in-use`, and `TUNNELS_MAX_PER_ACTOR` (5) is `too-many-tunnels`. Opens and closes of one
+  tunnel name run one at a time (`serialized(name, ...)`, as sync's queue), so every overlapping pair
+  acts as if one ran after the other (`container-registry.test.ts` checks every pair against Tunnels'
+  state). Inside the queue an open reserves its slot synchronously after the cap check, so opens of other
+  names count it; every failure gives it back (or restores the forward it was reopening) and stops a
+  forward Tunnels may have opened. It is per process and a restart forgets it. The call is `forward(hostId, { targetHost, targetPort, bindHost: "127.0.0.1" },
 { name })` (checked against Plugin-Tunnels' `src/backend/service.ts`; the name goes in the third
   argument and must be `web:<hostId>:<id>`), and Tunnels' `bindHost`/`bindPort` are passed on. Close is
   `stop(name)`, never the answer's `close()`, which doesn't survive the process boundary; a later forward
   of the same name opens again. The web UI URL is a sensitive output of `coolify.companion`; the handler keeps it in the logs
   handoff store (`holdHandoff`, `web-ui:<handoffId>`) and `actionResult` puts it back once
   (`takeWebUiUrl`). `MCP_CONFIRM_REQUIRED_KINDS` makes MCP refuse tunnel-open and web-ui without
-  `confirmed: true`. Frontend: `views/ContainerCompanions.tsx` (in ResourceDetail's Overview, keyed by
-  connection, uuid and `revision`, request generations through `useLatest`; Browse files with view, the
+  `confirmed: true`; `inputSchema` declares `confirmed` for every destructive action, every
+  `MCP_CONFIRM_REQUIRED` id and every action in `MCP_CONFIRM_REQUIRED_KINDS` (`confirm-schema.test.ts`). Frontend: `views/ContainerCompanions.tsx` (in ResourceDetail's Overview, keyed by
+  connection, uuid and `revision`, request generations through `useLatest`; the open forward is held
+  above the panel switch and passed to `ForwardControl` as `open`/`onOpen`, so panels mount and unmount
+  freely; Browse files with view, the
   rest with operate) and `views/TunnelsCoolifyView.tsx` (`tunnels.views`, registered only with
-  `hasPermission("operate")`, rows keyed the same way; a host given without a Coolify link is its own
+  `hasPermission("operate")`, rows keyed the same way, open forwards held in the view by row key, loaded sections tagged with the
+  host scope they were read for and shown only while it is current; a host given without a Coolify link is its own
   state, `notCoolifyHost`, with no connection read, since only the hostless tab lists every connection's
   resources). `files.openHost` and `files.openEditor` are File
   Manager frontend actions run with `invokeAction`.

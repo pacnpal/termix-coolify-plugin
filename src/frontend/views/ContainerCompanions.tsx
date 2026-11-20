@@ -153,21 +153,27 @@ function Choices({
 /**
  * A port to forward through Tunnels, with Forward and Stop. The forward
  * listens on the Termix server; it is named web:<hostId>:coolify-<uuid>.
+ * The open forward is kept by the caller (`open`, `onOpen`), keyed by
+ * connection, uuid and revision, so this control can unmount and come back
+ * without losing it; an answer lands there even after it unmounted.
  */
 export function ForwardControl({
   api,
   connectionId,
   resource,
+  open,
+  onOpen,
 }: {
   api: Api;
   connectionId: number;
   resource: Resource;
+  open: TunnelAnswer | null;
+  onOpen: (forward: TunnelAnswer | null) => void;
 }) {
   const { t } = useTranslation();
   const target = targetOf(resource);
   const [port, setPort] = useState(defaultPort(resource));
   const [busy, setBusy] = useState(false);
-  const [open, setOpen] = useState<TunnelAnswer | null>(null);
   const [choices, setChoices] = useState<ContainerChoice[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const begin = useLatest();
@@ -184,13 +190,9 @@ export function ForwardControl({
         ...(target.part ? { part: target.part } : {}),
         ...(container ? { container } : {}),
       });
+      if (answer.kind !== "choices") onOpen(answer);
       if (!current()) return;
-      if (answer.kind === "choices") {
-        setChoices(answer.choices);
-      } else {
-        setChoices(null);
-        setOpen(answer);
-      }
+      setChoices(answer.kind === "choices" ? answer.choices : null);
     } catch (err) {
       if (current()) setError(describe(t, err));
     } finally {
@@ -199,7 +201,7 @@ export function ForwardControl({
   }
 
   async function stop() {
-    // `open` belongs to this view's own target: the view is keyed by it.
+    // `open` belongs to this target: its keeper is keyed by it.
     if (!open) return;
     const current = begin();
     setBusy(true);
@@ -211,7 +213,7 @@ export function ForwardControl({
         open.targetPort,
         target.part,
       );
-      if (current()) setOpen(null);
+      onOpen(null);
     } catch (err) {
       if (current()) setError(describe(t, err));
     } finally {
@@ -368,6 +370,7 @@ function FilesControl({
   useEffect(() => {
     const current = begin();
     setPaths(null);
+    setError(null);
     api
       .resourcePaths(connectionId, target.uuid, target.part)
       .then((p) => current() && setPaths(p))
@@ -471,6 +474,8 @@ function ContainerCompanionsFor({
   const canOperate = usePermission("operate");
   const map = useCompanions();
   const [panel, setPanel] = useState<"tunnel" | "web" | null>(null);
+  // Held here, above the panel switch: this view is keyed by its target.
+  const [forward, setForward] = useState<TunnelAnswer | null>(null);
 
   // A service row has its own containers through its Parts.
   if (!map || resource.kind === "service") return null;
@@ -518,6 +523,8 @@ function ContainerCompanionsFor({
             api={api}
             connectionId={connectionId}
             resource={resource}
+            open={forward}
+            onOpen={setForward}
           />
           <NoticePanel title={t("containerCompanions.localNote")} />
         </div>

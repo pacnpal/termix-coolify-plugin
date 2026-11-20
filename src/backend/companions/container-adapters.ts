@@ -120,9 +120,12 @@ export function storagePaths(
 
 // --- Container address ---------------------------------------------------
 
-/** Prints each network's address of a container, space separated. */
+/**
+ * Prints each network's IPv4 (`IPAddress`) and IPv6 (`GlobalIPv6Address`)
+ * address of a container, space separated; an empty one prints nothing.
+ */
 export const INSPECT_FORMAT =
-  "{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}";
+  "{{range .NetworkSettings.Networks}}{{.IPAddress}} {{.GlobalIPv6Address}} {{end}}";
 
 const IPV4 =
   /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
@@ -172,9 +175,12 @@ export function parseContainerIp(stdout: string): string {
   if (!tokens.every((t) => IPV4.test(t) || ipv6(t) !== null)) {
     throw new BadContainerIp();
   }
-  const found = tokens.find(isContainerIp);
+  // IPv4 first; an IPv6 one is passed without brackets, as Tunnels takes it.
+  const found =
+    tokens.find((t) => IPV4.test(t) && isContainerIp(t)) ??
+    tokens.find(isContainerIp);
   if (!found) throw new BadContainerIp();
-  return found;
+  return IPV4.test(found) ? found : ipv6(found)!;
 }
 
 // --- Companion services ------------------------------------------------

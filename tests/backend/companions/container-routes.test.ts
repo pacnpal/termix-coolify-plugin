@@ -99,7 +99,7 @@ describe("container companion routes", () => {
     expect(
       docker.commands.some((c) =>
         c.startsWith(
-          "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' web-abc",
+          "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{.GlobalIPv6Address}} {{end}}' web-abc",
         ),
       ),
     ).toBe(true);
@@ -332,7 +332,13 @@ describe("container companion routes", () => {
       expect(other.status, path).toBe(404);
     }
     expect(docker.commands).toEqual([]);
-    expect(calls).toEqual({ forward: [], stop: [], available: 0, open: [] });
+    expect(calls).toMatchObject({
+      forward: [],
+      stop: [],
+      available: 0,
+      open: [],
+    });
+    expect(calls.live.size).toBe(0);
   });
 
   it("refuses a Linked host the actor can't open, before any SSH or companion call", async () => {

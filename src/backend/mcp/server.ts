@@ -194,6 +194,16 @@ function inputSchema(action: OperationAction): Record<string, unknown> {
       type: "boolean",
       description: "Set true to confirm this destructive action.",
     };
+  } else if (MCP_CONFIRM_REQUIRED.includes(action.id)) {
+    properties.confirmed = {
+      type: "boolean",
+      description: "Required: set true to confirm this action.",
+    };
+  } else if (MCP_CONFIRM_REQUIRED_KINDS[action.id]) {
+    properties.confirmed = {
+      type: "boolean",
+      description: `Required for the kinds ${MCP_CONFIRM_REQUIRED_KINDS[action.id]!.join(", ")}: set true to confirm.`,
+    };
   }
   return {
     type: "object",
