@@ -178,8 +178,11 @@ When any of these is missing, or can't be checked, the run is refused before any
 - The command runs with `sh` in the container. It is sent on standard input, never pasted into another
   command line.
 - The timeout is at most 120 seconds (30 by default). The timeout, or cancelling the run, stops the command
-  and everything it started in the container, and closes the SSH connection.
-- One command per resource at a time, three at once in all, and twenty a minute, for each user.
+  and closes the SSH connection. Stopping what the command started in the container is best effort: it
+  needs `setsid` in the container (busybox and util-linux have it); without it only the command's own shell
+  is killed, so don't assume background work has stopped.
+- Limits are per user, not per resource: each user can run one command per resource at a time, three at
+  once in all, and twenty a minute. Two users can still run commands in the same resource at once.
 - Output (stdout and stderr together) is cut at 64 KB and masked the same way as logs, private key blocks
   included. Run history never keeps it; an MCP client gets it once in the answer.
 - If the connection's address, token or Access settings change while a run starts, nothing is sent.

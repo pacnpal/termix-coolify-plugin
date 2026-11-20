@@ -430,7 +430,8 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   the cap, `EXEC_RAW_CAP` per stream, the timeout or the handler's abort signal send KILL and close the
   channel, which ends only docker exec on the host, so `shutdown` then runs
   `docker exec <name> sh -c 'kill -KILL -<pgid> 2>/dev/null || kill -KILL <pgid>'` on the same
-  connection (revision checked first, 5 s cap, a failure only logged) and then disposes. A command that
+  connection (no revision check: it only cleans up what this run started; 5 s cap, a failure only
+  logged) and then disposes. A command that
   ended on its own gets no group kill. Without setsid the fallback kills only that shell. The channel open races the timeout and abort; one that opens late
   is closed unwritten. A timeout flushes the splitters (output without a newline yet), masked and capped.
   The PATCH route applies `execEnabled` only after the rest of the update succeeded. `stdout`/`stderr` are sensitive outputs; MCP gets them once through the logs
