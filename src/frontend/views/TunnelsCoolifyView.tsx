@@ -16,6 +16,7 @@ import { createApi, type Resource, type TunnelAnswer } from "../api";
 import { useCompanions } from "../companions";
 import { linkOf } from "../linked";
 import { ForwardControl } from "./ContainerCompanions";
+import { OPERATE_ACCESS } from "./CoolifyTab";
 
 interface Section {
   connectionId: number;
@@ -68,9 +69,13 @@ export function TunnelsCoolifyView({
       let sections: Section[] = [];
       try {
         const all = await api.listConnections();
-        const chosen = link
-          ? all.filter((c) => c.id === link.connectionId)
-          : all;
+        // Only connections the actor may operate: forwarding needs an
+        // operate (or higher) grant there, not just the global permission.
+        const chosen = all.filter(
+          (c) =>
+            OPERATE_ACCESS.has(c.access) &&
+            (!link || c.id === link.connectionId),
+        );
         const read = await Promise.all(
           chosen.map(async (c) => {
             const list = await api.listResources(c.id).catch(() => null);

@@ -121,7 +121,7 @@ function ServersSection({
 }
 
 /** Access levels that may start, stop, restart and deploy. */
-const OPERATE_ACCESS: ReadonlySet<string> = new Set([
+export const OPERATE_ACCESS: ReadonlySet<string> = new Set([
   "owner",
   "operate",
   "configure",

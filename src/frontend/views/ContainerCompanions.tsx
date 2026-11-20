@@ -10,7 +10,6 @@ import { FileCode, FolderOpen, Globe, Network } from "lucide-react";
 import {
   invokeAction,
   useHosts,
-  usePermission,
   usePluginApi,
   useTranslation,
 } from "@termix-ssh/plugin-sdk/frontend";
@@ -119,13 +118,16 @@ function PortField({
   );
 }
 
+/** Container choices; none can be picked while a request is still out. */
 function Choices({
   t,
   choices,
+  busy,
   onPick,
 }: {
   t: T;
   choices: ContainerChoice[];
+  busy: boolean;
   onPick: (name: string) => void;
 }) {
   return (
@@ -139,7 +141,7 @@ function Choices({
             key={c.name}
             size="sm"
             variant="outline"
-            disabled={!c.running}
+            disabled={busy || !c.running}
             onClick={() => onPick(c.name)}
           >
             {c.name}
@@ -253,7 +255,12 @@ export function ForwardControl({
         </div>
       )}
       {choices && (
-        <Choices t={t} choices={choices} onPick={(c) => void forward(c)} />
+        <Choices
+          t={t}
+          choices={choices}
+          busy={busy}
+          onPick={(c) => void forward(c)}
+        />
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}
     </div>
@@ -329,7 +336,12 @@ function WebUiControl({
         </Button>
       </div>
       {choices && (
-        <Choices t={t} choices={choices} onPick={(c) => void open(c)} />
+        <Choices
+          t={t}
+          choices={choices}
+          busy={busy}
+          onPick={(c) => void open(c)}
+        />
       )}
       {url && (
         <div className="flex flex-col gap-1">
@@ -449,6 +461,11 @@ interface ContainerCompanionsProps {
   resource: Resource;
   /** The connection's revision: a changed target starts the view anew. */
   revision: string | null;
+  /**
+   * coolify.operate and an operate (or higher) grant on this connection:
+   * the effective permission ResourceDetail uses, not the global one alone.
+   */
+  canOperate: boolean;
 }
 
 /**
@@ -467,11 +484,11 @@ export function ContainerCompanions(props: ContainerCompanionsProps) {
 function ContainerCompanionsFor({
   connectionId,
   resource,
+  canOperate,
 }: ContainerCompanionsProps) {
   const { t } = useTranslation();
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
-  const canOperate = usePermission("operate");
   const map = useCompanions();
   const [panel, setPanel] = useState<"tunnel" | "web" | null>(null);
   // Held here, above the panel switch: this view is keyed by its target.

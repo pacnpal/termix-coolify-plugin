@@ -154,7 +154,12 @@ export function isContainerIp(text: string): boolean {
     );
   }
   const v6 = ipv6(text);
-  return v6 !== null && /^f[cd][0-9a-f]{0,2}:/i.test(v6);
+  if (v6 === null) return false;
+  // fc00::/7: the address's first byte, masked with 0xfe, is 0xfc. The first
+  // hextet is empty for a leading "::" (its first byte is then 0).
+  const first = v6.split(":")[0]!;
+  const byte = first === "" ? 0 : parseInt(first, 16) >> 8;
+  return (byte & 0xfe) === 0xfc;
 }
 
 export class BadContainerIp extends Error {

@@ -179,6 +179,7 @@ function OverviewTab({
         connectionId={connectionId}
         resource={resource}
         revision={revision}
+        canOperate={lifecycle !== null}
       />
       <div className="p-3">
         <CompanionActions

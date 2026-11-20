@@ -555,8 +555,11 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   are normalized and may be anywhere but `/`; `..` is refused. Tunnels and web UI: snapshot once, the
   companion running, `containers.target` (lifecycle's `authorize`), the companion's service, then
   `containers.locate` (Linked host, `connect` access, revision, docker ps), `docker inspect` with a fixed
-  format (each network's `IPAddress` and `GlobalIPv6Address`) and the docker ps name, revision again, then the companion call. Only a private container IP
-  passes (`isContainerIp`: 10/8, 172.16/12, 192.168/16, fc00::/7), IPv4 first; IPv6 goes to Tunnels
+  format (each network's `IPAddress` and `GlobalIPv6Address`) and the docker ps name, then the companion call. `holds(id, snap, level)` is the guard before every
+  SSH, Coolify and companion call: the snapshot's revision plus the actor's current permission and grant
+  at `level` (operate for tunnels and web UI, view for paths), so a grant lowered during `docker inspect`
+  stops it. Only a private container IP
+  passes (`isContainerIp`: 10/8, 172.16/12, 192.168/16, fc00::/7, the first byte masked with 0xfe being 0xfc, read from the parsed address), IPv4 first; IPv6 goes to Tunnels
   and Reverse Proxy without brackets. The registry (`forwards`, by tunnel
   name) records the actor and port: close needs both to match (`tunnel-not-found`), another actor's name
   is `tunnel-in-use`, and `TUNNELS_MAX_PER_ACTOR` (5) is `too-many-tunnels`. Opens and closes of one
@@ -564,7 +567,8 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   acts as if one ran after the other (`container-registry.test.ts` checks every pair against Tunnels'
   state). Inside the queue an open reserves its slot synchronously after the cap check, so opens of other
   names count it; every failure gives it back (or restores the forward it was reopening) and stops a
-  forward Tunnels may have opened. It is per process and a restart forgets it. The call is `forward(hostId, { targetHost, targetPort, bindHost: "127.0.0.1" },
+  forward Tunnels may have opened; that record and its slot are released only once `stop(name)` works,
+  so a forward that couldn't be stopped can still be closed here. It is per process and a restart forgets it. The call is `forward(hostId, { targetHost, targetPort, bindHost: "127.0.0.1" },
 { name })` (checked against Plugin-Tunnels' `src/backend/service.ts`; the name goes in the third
   argument and must be `web:<hostId>:<id>`), and Tunnels' `bindHost`/`bindPort` are passed on. Close is
   `stop(name)`, never the answer's `close()`, which doesn't survive the process boundary; a later forward
@@ -575,7 +579,9 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   `MCP_CONFIRM_REQUIRED` id and every action in `MCP_CONFIRM_REQUIRED_KINDS` (`confirm-schema.test.ts`). Frontend: `views/ContainerCompanions.tsx` (in ResourceDetail's Overview, keyed by
   connection, uuid and `revision`, request generations through `useLatest`; the open forward is held
   above the panel switch and passed to `ForwardControl` as `open`/`onOpen`, so panels mount and unmount
-  freely; Browse files with view, the
+  freely; container choices are disabled while a request is out; Reach from here and Open web UI are
+  gated by ResourceDetail's effective `canOperate` (the connection's grant), and the Tunnels view lists only
+  connections whose `access` is in `OPERATE_ACCESS`; Browse files with view, the
   rest with operate) and `views/TunnelsCoolifyView.tsx` (`tunnels.views`, registered only with
   `hasPermission("operate")`, rows keyed the same way, open forwards held in the view by row key, loaded sections tagged with the
   host scope they were read for and shown only while it is current; a host given without a Coolify link is its own

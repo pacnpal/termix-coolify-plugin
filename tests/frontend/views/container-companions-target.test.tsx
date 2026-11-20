@@ -56,6 +56,7 @@ async function mount(stub: ReturnType<typeof stubApi>) {
         connectionId={1}
         resource={app}
         revision={revision}
+        canOperate
       />
     );
   }

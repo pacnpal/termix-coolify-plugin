@@ -106,7 +106,12 @@ describe("container companion state outlives its panel", () => {
   it("an open forward is still shown, with Stop, after switching panels", async () => {
     const stub = api();
     await mountTab(stub, () => (
-      <ContainerCompanions connectionId={1} resource={app} revision="rev-1" />
+      <ContainerCompanions
+        connectionId={1}
+        resource={app}
+        revision="rev-1"
+        canOperate
+      />
     ));
     fireEvent.click(await screen.findByRole("button", { name: C.reach }));
     fireEvent.change(screen.getByLabelText(C.port), {
@@ -155,5 +160,75 @@ describe("the Tunnels view follows its host", () => {
     expect(
       within(document.body).queryByRole("button", { name: C.forward }),
     ).toBeNull();
+  });
+});
+
+describe("container companion buttons follow the connection's grant", () => {
+  it("hides Reach from here and Open web UI without operate on this connection", async () => {
+    const stub = api();
+    await mountTab(stub, () => (
+      <ContainerCompanions
+        connectionId={1}
+        resource={app}
+        revision="rev-1"
+        canOperate={false}
+      />
+    ));
+    await waitFor(() => expect(stub.get).toHaveBeenCalledWith("/companions"));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByRole("button", { name: C.reach })).toBeNull();
+    expect(screen.queryByRole("button", { name: C.webUi })).toBeNull();
+  });
+
+  it("the Tunnels view lists only connections the actor may operate", async () => {
+    const stub = api();
+    const get = stub.get.getMockImplementation()!;
+    stub.get.mockImplementation(async (url: string) => {
+      if (url === "/connections") {
+        const { data } = (await get(url)) as { data: { access: string }[] };
+        return { data: data.map((c) => ({ ...c, access: "view" })) };
+      }
+      return get(url);
+    });
+    await mountTab(stub, () => <TunnelsCoolifyView host={linked(7, "1")} />);
+    expect(await screen.findByText(C.noResources)).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "web" })).toBeNull();
+  });
+});
+
+describe("container choices while a request runs", () => {
+  it("can't be clicked again until the answer is in", async () => {
+    const stub = api();
+    stub.post
+      .mockResolvedValueOnce({
+        data: {
+          choices: [
+            { name: "c-one", running: true },
+            { name: "c-two", running: true },
+          ],
+        },
+      } as never)
+      .mockImplementationOnce(() => new Promise(() => {}) as never);
+    await mountTab(stub, () => (
+      <ContainerCompanions
+        connectionId={1}
+        resource={app}
+        revision="rev-1"
+        canOperate
+      />
+    ));
+    fireEvent.click(await screen.findByRole("button", { name: C.reach }));
+    fireEvent.change(screen.getByLabelText(C.port), {
+      target: { value: "3000" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: C.forward }));
+    fireEvent.click(await screen.findByRole("button", { name: "c-one" }));
+    await waitFor(() => expect(stub.post).toHaveBeenCalledTimes(2));
+    expect(
+      screen.getByRole("button", { name: "c-two" }).hasAttribute("disabled"),
+    ).toBe(true);
+    expect(
+      screen.getByRole("button", { name: "c-one" }).hasAttribute("disabled"),
+    ).toBe(true);
   });
 });

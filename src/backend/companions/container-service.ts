@@ -1,6 +1,10 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { shellQuote } from "@termix-ssh/plugin-sdk/host-scripts";
-import { ConnectionError, type Connections } from "../connections/service.js";
+import {
+  ConnectionError,
+  type AccessLevel,
+  type Connections,
+} from "../connections/service.js";
 import { assertContainerName, dockerPrefix } from "../containers/commands.js";
 import {
   ContainerError,
@@ -56,6 +60,13 @@ export interface WebUiAnswer {
 
 /** How many forwards one actor may have open through this plugin at once. */
 export const TUNNELS_MAX_PER_ACTOR = 5;
+
+const RANK: Record<AccessLevel, number> = {
+  view: 1,
+  operate: 2,
+  configure: 3,
+  owner: 4,
+};
 
 export type ContainerCompanionErrorCode =
   // docker inspect answered no private container address.
@@ -231,8 +242,32 @@ export function createContainerCompanions(
     return id;
   }
 
-  const holds = (connectionId: number, snap: Snapshot) =>
-    containers.assertSnapshotHolds(connectionId, snap);
+  /**
+   * The guard before every outside call (SSH, Coolify, a companion): the
+   * connection still points at the snapshot's target, and the actor still
+   * has the permission and a grant at `level` (a grant lowered mid-way
+   * leaves the revision as it was, so both are checked).
+   */
+  async function holds(
+    connectionId: number,
+    snap: Snapshot,
+    level: "view" | "operate" = "operate",
+  ): Promise<void> {
+    await containers.assertSnapshotHolds(connectionId, snap);
+    if (!(await ctx.rbac.has(level).catch(() => false))) {
+      throw new ConnectionError("forbidden", `This needs coolify.${level}`);
+    }
+    const access = await connections.access(connectionId);
+    if (!access) {
+      throw new ConnectionError("not-found", "Coolify connection not found");
+    }
+    if (RANK[access] < RANK[level]) {
+      throw new ConnectionError(
+        "forbidden",
+        "Your grant on this connection doesn't allow this",
+      );
+    }
+  }
 
   /** The container's internal address, from docker inspect over SSH. */
   async function containerIp(
@@ -345,9 +380,9 @@ export function createContainerCompanions(
         throw new ConnectionError("not-found", "Coolify resource not found");
       }
       const storages = await snap.api.storages(owner.kind, owner.uuid, {
-        beforeFetch: () => holds(connectionId, snap),
+        beforeFetch: () => holds(connectionId, snap, "view"),
       });
-      await holds(connectionId, snap);
+      await holds(connectionId, snap, "view");
       return {
         hostId,
         dataDir: paths.dataDir,
@@ -406,10 +441,23 @@ export function createContainerCompanions(
           });
           return { name, hostId: where.hostId, targetPort: port, ...bound };
         } catch (err) {
-          if (oldStopped) forwards.delete(name);
-          else forwards.set(name, held!);
-          // Tunnels may have opened it before failing to answer: stop it.
-          if (forwardAsked) await closeForward(tunnels, name).catch(() => {});
+          if (!oldStopped) {
+            forwards.set(name, held!);
+          } else if (!forwardAsked) {
+            forwards.delete(name);
+          } else {
+            // Tunnels may have opened it before failing to answer. The
+            // record (and its slot) goes only once stop(name) worked, so a
+            // forward that couldn't be stopped can still be closed here.
+            try {
+              await closeForward(tunnels, name);
+              forwards.delete(name);
+            } catch {
+              ctx.log.warn(
+                `coolify: could not stop ${name} after a failed open`,
+              );
+            }
+          }
           throw err;
         }
       });

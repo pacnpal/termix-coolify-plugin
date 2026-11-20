@@ -500,6 +500,43 @@ one-time link that signs you in to the container's web UI through Reverse Proxy.
 `proxy-not-configured` while an admin hasn't set Reverse Proxy's Termix address and Web endpoint domain, and
 otherwise like the tunnel route.
 
+### Routes, actions, key scopes and examples
+
+The routes take a Termix API key with no scope, acting as the key's user. Through the operations API,
+`coolify.companion-read` needs a key with `operations:read` or `operations:run`, and `coolify.companion`
+needs `operations:run`. Both paths run the same checks. Over the plugin's MCP endpoint they are the tools
+`coolify__companion_read` and `coolify__companion`; `tunnel-open` and `web-ui` also need **Allow changes over
+MCP** and `"confirmed": true`.
+
+| Capability    | Route                                                                     | Operation id and kind                   | Operation key scope                   |
+| ------------- | ------------------------------------------------------------------------- | --------------------------------------- | ------------------------------------- |
+| Files paths   | `GET /plugin-api/coolify/connections/:id/resources/:uuid/paths`           | `coolify.companion-read`, `files-paths` | `operations:read` or `operations:run` |
+| Open a tunnel | `POST /plugin-api/coolify/connections/:id/resources/:uuid/tunnel`         | `coolify.companion`, `tunnel-open`      | `operations:run`                      |
+| Stop a tunnel | `DELETE /plugin-api/coolify/connections/:id/resources/:uuid/tunnel/:port` | `coolify.companion`, `tunnel-close`     | `operations:run`                      |
+| Open web UI   | `POST /plugin-api/coolify/connections/:id/resources/:uuid/web-ui`         | `coolify.companion`, `web-ui`           | `operations:run`                      |
+
+```sh
+# Where a resource's files are on its Linked host
+curl -X POST "$TERMIX/operations/coolify.companion-read/run" -H "Authorization: Bearer $TERMIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"input":{"connectionId":"1","kind":"files-paths","params":{"uuid":"<resource uuid>"}}}'
+
+# Forward a container port through Tunnels
+curl -X POST "$TERMIX/operations/coolify.companion/run" -H "Authorization: Bearer $TERMIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"input":{"connectionId":"1","kind":"tunnel-open","params":{"uuid":"<resource uuid>","port":5432}}}'
+
+# Stop that forward
+curl -X POST "$TERMIX/operations/coolify.companion/run" -H "Authorization: Bearer $TERMIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"input":{"connectionId":"1","kind":"tunnel-close","params":{"uuid":"<resource uuid>","port":5432}}}'
+
+# A one-time web UI link (a sensitive output: run history never keeps it)
+curl -X POST "$TERMIX/operations/coolify.companion/run" -H "Authorization: Bearer $TERMIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"input":{"connectionId":"1","kind":"web-ui","params":{"uuid":"<resource uuid>","port":80,"scheme":"http"}}}'
+```
+
 ### Kinds of `coolify.companion-read` and `coolify.companion`
 
 - `coolify.companion-read` `files-paths` with `{ uuid, part? }` answers the paths route's data.
