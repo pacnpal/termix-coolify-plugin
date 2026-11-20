@@ -314,7 +314,10 @@ export function createStatusPages(ctx: PluginContext, deps: StatusPagesDeps) {
   async function refreshOne(connectionId: number, now: number): Promise<void> {
     const state = backoff.get(connectionId);
     if (state && now < state.nextAt) return;
-    const cached = await deps.resources.peekCached(connectionId);
+    const snap = await deps.connections.unattendedSnapshot(connectionId);
+    const cached = snap
+      ? await deps.resources.peekCached(connectionId, snap.revision)
+      : null;
     if (!state && cached && now - cached.fetchedAt < FRESH_ENOUGH_MS) return;
     try {
       await deps.resources.refreshUnattended(connectionId);
@@ -463,7 +466,12 @@ export function createStatusPages(ctx: PluginContext, deps: StatusPagesDeps) {
         return null;
       }
       const chosen = uuidList(found.resources);
-      const cached = await deps.resources.peekCached(found.connectionId);
+      const snap = await deps.connections.unattendedSnapshot(
+        found.connectionId,
+      );
+      const cached = snap
+        ? await deps.resources.peekCached(found.connectionId, snap.revision)
+        : null;
       const now = Date.now();
       const byUuid = new Map((cached?.rows ?? []).map((r) => [r.uuid, r]));
       const rows = chosen

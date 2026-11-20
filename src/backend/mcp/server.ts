@@ -27,7 +27,12 @@ export const MAX_DATA_CHARS = 8000;
  * action is declared in manifest.json; a test checks every id is a declared
  * change action.
  */
-export const MCP_CHANGES_EXEMPT: readonly string[] = [];
+export const MCP_CHANGES_EXEMPT: readonly string[] = [
+  "coolify.deploy",
+  "coolify.restart",
+  "coolify.resource-deploy",
+  "coolify.resource-restart",
+];
 
 export interface JsonRpcMessage {
   jsonrpc: "2.0";
@@ -312,8 +317,8 @@ export const EXTRA_TOOLS: McpExtraTool[] = [
     },
   },
   {
-    // Resources are not built yet: this answers an empty list and says so,
-    // without calling Coolify.
+    // Runs coolify.list-resources-all, so its permission, history and
+    // stripped DTOs apply.
     name: "list_resources",
     description:
       "List the applications, services and databases of a Coolify connection.",
@@ -325,16 +330,18 @@ export const EXTRA_TOOLS: McpExtraTool[] = [
           description: `One of your Coolify connections. Values come from ${toolName("coolify.list-connections")}.`,
         },
       },
+      required: ["connectionId"],
       additionalProperties: false,
     },
     annotations: annotationsFor("read", "List Coolify resources"),
-    async call() {
-      return toolResult({
-        runId: null,
-        status: "success",
-        summary: "Listing resources is not available yet",
-        data: { rows: [] },
-      });
+    async call(ctx, args) {
+      return toolResult(
+        await ctx.operations.run("coolify.list-resources-all", {
+          input: { connectionId: args.connectionId },
+          dryRun: false,
+          via: "mcp",
+        }),
+      );
     },
   },
   {

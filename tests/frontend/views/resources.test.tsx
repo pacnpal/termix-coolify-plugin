@@ -138,6 +138,23 @@ describe("resources list", () => {
     }
   });
 
+  it("on a phone, a row's metadata names its last deploy when it has one", async () => {
+    const width = window.innerWidth;
+    window.innerWidth = 400;
+    try {
+      const { tab } = await openResources();
+      const deployed = new Date(
+        Date.parse("2026-11-18T09:03:00.000Z"),
+      ).toLocaleString();
+      const web = tab.querySelector('[data-name="web"]') as HTMLElement;
+      const api = tab.querySelector('[data-name="api"]') as HTMLElement;
+      expect(web.textContent).toContain(deployed);
+      expect(api.textContent).not.toMatch(/· ·|·\s*$/);
+    } finally {
+      window.innerWidth = width;
+    }
+  });
+
   it("shows an empty state when the connection has no resources", async () => {
     rendered = await renderWithApp(plugin, {
       manifest,

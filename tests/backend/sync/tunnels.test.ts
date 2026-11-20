@@ -1,0 +1,747 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { PluginHostCreateInput } from "@termix-ssh/plugin-sdk/backend";
+import type { PluginHarness } from "../helpers/plugin.js";
+import { withRunHistory } from "../helpers/run-history.js";
+import {
+  server,
+  TUNNEL,
+  serverRows,
+  startWithConnection,
+  syncCoolify,
+} from "./fixtures.js";
+
+// Obviously fake Cloudflare Access service token. Tests scan for both values.
+const FAKE_ACCESS = {
+  id: "fake-access-client-id-tunnel-test.access",
+  secret: "fake-access-client-secret-tunnel-test",
+};
+
+let harness: PluginHarness | null = null;
+
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await harness?.close();
+  harness = null;
+});
+
+async function start(options: Parameters<typeof startWithConnection>[0] = {}) {
+  const started = await startWithConnection(options);
+  harness = started.harness;
+  return started;
+}
+
+const BOTH = [
+  { uuid: "srv-web1", include: true },
+  { uuid: "srv-vps1", include: true },
+];
+
+async function preview(h: PluginHarness, id: number) {
+  const res = await h.request("GET", `/connections/${id}/servers`);
+  expect(res.status).toBe(200);
+  return res.body as any[];
+}
+
+async function apply(h: PluginHarness, id: number, choices = BOTH) {
+  const res = await h.request("POST", `/connections/${id}/sync`, { choices });
+  expect(res.status).toBe(200);
+  return res.body as any[];
+}
+
+function byUuid(rows: any[], uuid: string) {
+  const found = rows.find((r) => (r.server?.uuid ?? r.uuid) === uuid);
+  if (!found) throw new Error(`no row for ${uuid}`);
+  return found;
+}
+
+function sshTerminalOf(input: PluginHostCreateInput) {
+  return (input.pluginSettings as Record<string, any> | undefined)?.[
+    "ssh-terminal"
+  ];
+}
+
+describe("tunnelled servers through SSH Terminal", () => {
+  it("without ssh-terminal the row is needs-ssh-terminal", async () => {
+    const { harness: h, connectionId } = await start();
+    expect(byUuid(await preview(h, connectionId), "srv-vps1")).toMatchObject({
+      status: "blocked",
+      cause: "needs-ssh-terminal",
+      tunnel: true,
+    });
+    const create = vi.spyOn(h.mock.ctx.hosts, "create");
+    const results = await apply(h, connectionId);
+    expect(byUuid(results, "srv-vps1")).toMatchObject({
+      status: "blocked",
+      cause: "needs-ssh-terminal",
+      hostId: null,
+    });
+    expect(byUuid(results, "srv-web1").status).toBe("created");
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(create.mock.calls)).not.toContain("ssh-terminal");
+
+    // Installed but turned off is the same as missing.
+    vi.spyOn(h.mock.ctx.plugins, "list").mockResolvedValue([
+      {
+        id: "ssh-terminal",
+        version: "1.4.1",
+        source: "bundled",
+        state: "disabled",
+      },
+    ]);
+    expect(byUuid(await preview(h, connectionId), "srv-vps1").cause).toBe(
+      "needs-ssh-terminal",
+    );
+  });
+
+  it("ssh-terminal 1.0.3 is ssh-terminal-too-old, 1.2.0 passes", async () => {
+    const { harness: h, connectionId } = await start({ sshTerminal: "1.0.3" });
+    expect(byUuid(await preview(h, connectionId), "srv-vps1")).toMatchObject({
+      status: "blocked",
+      cause: "ssh-terminal-too-old",
+    });
+    const create = vi.spyOn(h.mock.ctx.hosts, "create");
+    expect(byUuid(await apply(h, connectionId), "srv-vps1")).toMatchObject({
+      status: "blocked",
+      cause: "ssh-terminal-too-old",
+    });
+    expect(create).toHaveBeenCalledTimes(1);
+
+    vi.spyOn(h.mock.ctx.plugins, "list").mockResolvedValue([
+      { id: "coolify", version: "1.0.0", source: "user", state: "active" },
+      {
+        id: "ssh-terminal",
+        version: "1.2.0",
+        source: "bundled",
+        state: "active",
+      },
+    ]);
+    expect(byUuid(await preview(h, connectionId), "srv-vps1")).toMatchObject({
+      status: "new",
+      tunnel: true,
+    });
+    const results = await apply(h, connectionId, [
+      { uuid: "srv-vps1", include: true },
+    ]);
+    expect(byUuid(results, "srv-vps1").status).toBe("created");
+    const input = create.mock.calls.at(-1)![0];
+    expect(input.ip).toBe("ssh-vps1.example.test");
+    expect(sshTerminalOf(input)).toEqual({
+      cloudflareTunnelEnabled: true,
+      cloudflareTunnelHostname: "ssh-vps1.example.test",
+      cloudflareTunnelPort: 443,
+      cloudflareTunnelClientId: "",
+      cloudflareTunnelClientSecret: "",
+    });
+    expect(byUuid(await preview(h, connectionId), "srv-vps1").status).toBe(
+      "linked",
+    );
+  });
+
+  it("plugin list failure blocks tunnelled rows", async () => {
+    const { harness: h, connectionId } = await start({ sshTerminal: "1.4.1" });
+    vi.spyOn(h.mock.ctx.plugins, "list").mockRejectedValue(
+      new Error("plugins:read refused"),
+    );
+    expect(byUuid(await preview(h, connectionId), "srv-vps1")).toMatchObject({
+      status: "blocked",
+      cause: "needs-ssh-terminal",
+    });
+    const create = vi.spyOn(h.mock.ctx.hosts, "create");
+    const results = await apply(h, connectionId);
+    expect(byUuid(results, "srv-vps1")).toMatchObject({
+      status: "blocked",
+      cause: "needs-ssh-terminal",
+    });
+    // Plain servers don't need SSH Terminal and still sync.
+    expect(byUuid(results, "srv-web1").status).toBe("created");
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(create.mock.calls)).not.toContain("ssh-terminal");
+  });
+
+  it("Access secret never appears in preview, routes or operation output", async () => {
+    const { harness: h, connectionId } = await start({
+      sshTerminal: "1.2.0",
+      cfAccess: FAKE_ACCESS,
+    });
+    const logs: unknown[] = [];
+    for (const level of ["debug", "info", "warn", "error"] as const) {
+      vi.spyOn(h.mock.ctx.log, level).mockImplementation((...args) => {
+        logs.push(args);
+      });
+    }
+    const create = vi.spyOn(h.mock.ctx.hosts, "create");
+    const update = vi.spyOn(h.mock.ctx.hosts, "update");
+    const runs = withRunHistory(h.mock);
+    const id = String(connectionId);
+
+    const responses = [
+      await h.request("GET", "/connections"),
+      await h.request("GET", `/connections/${id}`),
+      await h.request("POST", `/connections/${id}/probe`),
+      await h.request("GET", `/connections/${id}/servers`),
+      await h.request("POST", `/connections/${id}/sync`, { choices: BOTH }),
+      await h.request("GET", `/connections/${id}/servers`),
+    ];
+    const outcomes = [
+      await runs.run("coolify.sync-preview", { connectionId: id }),
+      await runs.run("coolify.sync-apply", { connectionId: id }),
+    ];
+
+    // The token reaches the host's SSH Terminal settings, and only there.
+    expect(create).toHaveBeenCalled();
+    const vps = create.mock.calls
+      .map(([input]) => input)
+      .find((input) => input.ip === "ssh-vps1.example.test");
+    expect(sshTerminalOf(vps!)).toEqual({
+      cloudflareTunnelEnabled: true,
+      cloudflareTunnelHostname: "ssh-vps1.example.test",
+      cloudflareTunnelPort: 443,
+      cloudflareTunnelClientId: FAKE_ACCESS.id,
+      cloudflareTunnelClientSecret: FAKE_ACCESS.secret,
+    });
+    expect(update).toHaveBeenCalled();
+    // Plain hosts never get it.
+    const web = create.mock.calls
+      .map(([input]) => input)
+      .find((input) => input.ip === "203.0.113.11");
+    expect(JSON.stringify(web)).not.toContain(FAKE_ACCESS.secret);
+
+    const seen = JSON.stringify([
+      responses.map((r) => r.body),
+      outcomes,
+      runs.history,
+      logs,
+      h.mock.audits,
+      await h.mock.ctx.hosts.listOwned(),
+    ]);
+    expect(seen).not.toContain(FAKE_ACCESS.secret);
+    expect(seen).not.toContain(FAKE_ACCESS.id);
+  });
+});
+
+// A second fake Access token, the one a mid-sync change stores.
+const NEW_ACCESS = {
+  id: "fake-access-client-id-new-target.access",
+  secret: "fake-access-client-secret-new-target",
+};
+const NEW_BASE = "https://coolify-new.example.test";
+
+/** A promise the test settles by hand, to hold a call in flight. */
+function deferred<T = void>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+/**
+ * The sync fake, answering the new address like the old one, with a gate
+ * that holds the next server list read until the test opens it.
+ */
+function gatedCoolify() {
+  const fake = syncCoolify();
+  let gate: {
+    path: RegExp;
+    reached: () => void;
+    open: Promise<void>;
+  } | null = null;
+  const fetch: typeof fake.fetch = async (url, init) => {
+    const same = url.replace(NEW_BASE, "https://coolify.example.test");
+    if (gate && gate.path.test(same)) {
+      const held = gate;
+      gate = null;
+      held.reached();
+      await held.open;
+    }
+    return fake.fetch(same, init);
+  };
+  return {
+    fake: { ...fake, fetch },
+    /** Holds the next read of `path`; `reached` resolves once it is held. */
+    hold(path: RegExp) {
+      const reached = deferred();
+      const open = deferred();
+      gate = { path, reached: () => reached.resolve(), open: open.promise };
+      return { reached: reached.promise, open: () => open.resolve() };
+    },
+    /** Holds the next server list read. */
+    holdServers() {
+      return this.hold(/\/api\/v1\/servers(\?|$)/);
+    },
+  };
+}
+
+describe("a sync works on one snapshot of the connection's target", () => {
+  it("a target changed while the sync reads servers ends it with target-changed and writes nothing", async () => {
+    const gated = gatedCoolify();
+    const { harness: h, connectionId } = await start({
+      fake: gated.fake,
+      sshTerminal: "1.2.0",
+      cfAccess: FAKE_ACCESS,
+    });
+    const create = vi.spyOn(h.mock.ctx.hosts, "create");
+    const update = vi.spyOn(h.mock.ctx.hosts, "update");
+    const id = String(connectionId);
+
+    const held = gated.holdServers();
+    const syncing = h.request("POST", `/connections/${id}/sync`, {
+      choices: BOTH,
+    });
+    await held.reached;
+    // Connection updates take their own lock, not the sync queue.
+    const changed = await h.request("PATCH", `/connections/${id}`, {
+      baseUrl: NEW_BASE,
+      cfAccessId: NEW_ACCESS.id,
+      cfAccessSecret: NEW_ACCESS.secret,
+    });
+    expect(changed.status).toBe(200);
+    held.open();
+
+    const res = await syncing;
+    expect(res.status).toBe(409);
+    expect(res.body.cause).toBe("target-changed");
+    expect(create).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    const hosts = JSON.stringify(await h.mock.ctx.hosts.listOwned());
+    expect(hosts).not.toContain(NEW_ACCESS.secret);
+    expect(hosts).not.toContain(NEW_ACCESS.id);
+    expect(JSON.stringify(res.body)).not.toContain(NEW_ACCESS.secret);
+    // No server row was saved either.
+    expect(serverRows(h)).toEqual([]);
+  });
+
+  it.each([
+    ["the key list", /\/api\/v1\/security\/keys(\?|$)/],
+    ["the key material", /\/api\/v1\/security\/keys\/key-uuid(\?|$)/],
+  ])(
+    "a target changed while the sync reads %s copies no key, saves no row and writes no host",
+    async (_what, path) => {
+      const gated = gatedCoolify();
+      const { harness: h, connectionId } = await start({
+        fake: gated.fake,
+        sshTerminal: "1.2.0",
+        cfAccess: FAKE_ACCESS,
+      });
+      const id = String(connectionId);
+      const create = vi.spyOn(h.mock.ctx.hosts, "create");
+      const update = vi.spyOn(h.mock.ctx.hosts, "update");
+      const copyKey = vi.spyOn(h.mock.ctx.credentials, "createSshKey");
+
+      const held = gated.hold(path);
+      const syncing = h.request("POST", `/connections/${id}/sync`, {
+        choices: [{ uuid: "srv-web1", include: true }],
+      });
+      await held.reached;
+      const changed = await h.request("PATCH", `/connections/${id}`, {
+        cfAccessId: NEW_ACCESS.id,
+        cfAccessSecret: NEW_ACCESS.secret,
+      });
+      expect(changed.status).toBe(200);
+      held.open();
+
+      const res = await syncing;
+      expect(res.status).toBe(409);
+      expect(res.body.cause).toBe("target-changed");
+      expect(copyKey).not.toHaveBeenCalled();
+      expect(serverRows(h)).toEqual([]);
+      expect(create).not.toHaveBeenCalled();
+      expect(update).not.toHaveBeenCalled();
+    },
+  );
+
+  it("a target changed after the server list but before any write saves no row and copies no key", async () => {
+    const { harness: h, connectionId } = await start({
+      sshTerminal: "1.2.0",
+      cfAccess: FAKE_ACCESS,
+    });
+    const id = String(connectionId);
+    const create = vi.spyOn(h.mock.ctx.hosts, "create");
+    const copyKey = vi.spyOn(h.mock.ctx.credentials, "createSshKey");
+    // The plugin list is read after the first target check and before the
+    // first write: hold it while the connection changes.
+    const plugins = h.mock.ctx.plugins;
+    const list = plugins.list.bind(plugins);
+    const reached = deferred();
+    const resume = deferred();
+    vi.spyOn(plugins, "list").mockImplementationOnce(async () => {
+      reached.resolve();
+      await resume.promise;
+      return list();
+    });
+
+    // The Coolify host is blocked (needs-address), which saves its row.
+    const syncing = h.request("POST", `/connections/${id}/sync`, {
+      choices: [
+        { uuid: "srv-local", include: true },
+        { uuid: "srv-web1", include: true },
+      ],
+    });
+    await reached.promise;
+    const changed = await h.request("PATCH", `/connections/${id}`, {
+      cfAccessId: NEW_ACCESS.id,
+      cfAccessSecret: NEW_ACCESS.secret,
+    });
+    expect(changed.status).toBe(200);
+    resume.resolve();
+
+    const res = await syncing;
+    expect(res.status).toBe(409);
+    expect(res.body.cause).toBe("target-changed");
+    expect(serverRows(h)).toEqual([]);
+    expect(copyKey).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("a token changed during a host write ends the sync before its next write", async () => {
+    const { harness: h, connectionId } = await start({
+      sshTerminal: "1.2.0",
+      cfAccess: FAKE_ACCESS,
+    });
+    const id = String(connectionId);
+    const hosts = h.mock.ctx.hosts;
+    const original = hosts.create.bind(hosts);
+    const firstWrite = deferred();
+    const resume = deferred();
+    let writes = 0;
+    const create = vi
+      .spyOn(hosts, "create")
+      .mockImplementation(async (input) => {
+        if (++writes === 1) {
+          firstWrite.resolve();
+          await resume.promise;
+        }
+        return original(input);
+      });
+
+    const syncing = h.request("POST", `/connections/${id}/sync`, {
+      choices: BOTH,
+    });
+    // The first host write is under way, past its own target check.
+    await firstWrite.promise;
+    const changed = await h.request("PATCH", `/connections/${id}`, {
+      cfAccessId: NEW_ACCESS.id,
+      cfAccessSecret: NEW_ACCESS.secret,
+    });
+    expect(changed.status).toBe(200);
+    resume.resolve();
+
+    const res = await syncing;
+    expect(res.status).toBe(409);
+    expect(res.body.cause).toBe("target-changed");
+    // The tunnelled host was never written, and the host made just before
+    // the change was discarded rather than left without its link row.
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(sshTerminalOf(create.mock.calls[0][0])).toBe(undefined);
+    expect(await hosts.listOwned()).toEqual([]);
+    expect(serverRows(h)).toEqual([]);
+    expect(JSON.stringify(create.mock.calls)).not.toContain(NEW_ACCESS.secret);
+  });
+});
+
+describe("a re-sync turns off tunnel settings that no longer apply", () => {
+  const VPS_ONLY = [{ uuid: "srv-vps1", include: true }];
+
+  /** Syncs the tunnelled server once, with the Access token, and returns its host id. */
+  async function syncTunnelled() {
+    const started = await start({
+      sshTerminal: "1.2.0",
+      cfAccess: FAKE_ACCESS,
+    });
+    const first = await apply(started.harness, started.connectionId, VPS_ONLY);
+    const hostId = byUuid(first, "srv-vps1").hostId as number;
+    expect(hostId).toBeGreaterThan(0);
+    return { ...started, hostId };
+  }
+
+  function lastUpdate(
+    update: { mock: { calls: unknown[][] } },
+    hostId: number,
+  ) {
+    const call = update.mock.calls.filter(([id]) => id === hostId).at(-1);
+    if (!call) throw new Error(`no update of host ${hostId}`);
+    return call[1] as PluginHostCreateInput;
+  }
+
+  it("a removed Access token is written as empty on the tunnelled host", async () => {
+    const { harness: h, connectionId, hostId } = await syncTunnelled();
+    const cleared = await h.request("PATCH", `/connections/${connectionId}`, {
+      cfAccessId: null,
+      cfAccessSecret: null,
+    });
+    expect(cleared.status).toBe(200);
+    const update = vi.spyOn(h.mock.ctx.hosts, "update");
+
+    const results = await apply(h, connectionId, VPS_ONLY);
+    expect(byUuid(results, "srv-vps1").status).toBe("updated");
+    expect(sshTerminalOf(lastUpdate(update, hostId))).toEqual({
+      cloudflareTunnelEnabled: true,
+      cloudflareTunnelHostname: "ssh-vps1.example.test",
+      cloudflareTunnelPort: 443,
+      cloudflareTunnelClientId: "",
+      cloudflareTunnelClientSecret: "",
+    });
+  });
+
+  it("a server that is no longer tunnelled has its tunnel turned off and cleared", async () => {
+    const { harness: h, fake, connectionId, hostId } = await syncTunnelled();
+    fake.set("GET /servers", {
+      json: [server("srv-vps1", "vps1", "203.0.113.40")],
+    });
+    const update = vi.spyOn(h.mock.ctx.hosts, "update");
+
+    const results = await apply(h, connectionId, VPS_ONLY);
+    expect(byUuid(results, "srv-vps1").status).toBe("updated");
+    const input = lastUpdate(update, hostId);
+    expect(input.ip).toBe("203.0.113.40");
+    expect(sshTerminalOf(input)).toEqual({
+      cloudflareTunnelEnabled: false,
+      cloudflareTunnelHostname: "",
+      cloudflareTunnelClientId: "",
+      cloudflareTunnelClientSecret: "",
+    });
+    // Only the tunnel keys and the plugin's own link settings are written.
+    expect(Object.keys(input.pluginSettings ?? {}).sort()).toEqual([
+      "coolify",
+      "ssh-terminal",
+    ]);
+    expect(input.pluginSettings?.coolify).toEqual({
+      coolifyConnectionId: String(connectionId),
+      coolifyServerUuid: "srv-vps1",
+    });
+    expect(input.pluginEnable).toEqual({ coolify: true });
+    expect(JSON.stringify(input)).not.toContain(FAKE_ACCESS.secret);
+  });
+});
+
+describe("tunnel settings are cleared only on the tunnelled-to-plain transition", () => {
+  const VPS_ONLY = [{ uuid: "srv-vps1", include: true }];
+  const WEB_ONLY = [{ uuid: "srv-web1", include: true }];
+  const CLEAR_CAUSE = "needs-ssh-terminal-to-clear-tunnel";
+  const PLAIN_VPS = server("srv-vps1", "vps1", "203.0.113.40");
+
+  function appliedFlag(h: PluginHarness, uuid: string) {
+    const row = serverRows(h).find((r) => r.server_uuid === uuid);
+    return Boolean(row?.tunnel_applied);
+  }
+
+  /** Syncs vps1 as tunnelled, then makes it a plain server in Coolify. */
+  async function tunnelledThenPlain() {
+    const started = await start({
+      sshTerminal: "1.2.0",
+      cfAccess: FAKE_ACCESS,
+    });
+    const { harness: h, fake, connectionId } = started;
+    const first = await apply(h, connectionId, VPS_ONLY);
+    const hostId = byUuid(first, "srv-vps1").hostId as number;
+    expect(appliedFlag(h, "srv-vps1")).toBe(true);
+    fake.set("GET /servers", { json: [PLAIN_VPS] });
+    return { ...started, hostId };
+  }
+
+  async function expectBlockedUntouched(h: PluginHarness, id: number) {
+    const create = vi.spyOn(h.mock.ctx.hosts, "create");
+    const update = vi.spyOn(h.mock.ctx.hosts, "update");
+    expect(byUuid(await preview(h, id), "srv-vps1")).toMatchObject({
+      status: "blocked",
+      cause: CLEAR_CAUSE,
+    });
+    expect(byUuid(await apply(h, id, VPS_ONLY), "srv-vps1")).toMatchObject({
+      status: "blocked",
+      cause: CLEAR_CAUSE,
+    });
+    expect(create).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    expect(appliedFlag(h, "srv-vps1")).toBe(true);
+  }
+
+  it("with SSH Terminal turned off, the host isn't written and the row says why", async () => {
+    const { harness: h, connectionId } = await tunnelledThenPlain();
+    vi.spyOn(h.mock.ctx.plugins, "list").mockResolvedValue([
+      { id: "coolify", version: "1.0.0", source: "user", state: "active" },
+      {
+        id: "ssh-terminal",
+        version: "1.2.0",
+        source: "bundled",
+        state: "disabled",
+      },
+    ]);
+    await expectBlockedUntouched(h, connectionId);
+  });
+
+  it("with the plugin list unreadable, the host isn't written and the row says why", async () => {
+    const { harness: h, connectionId } = await tunnelledThenPlain();
+    vi.spyOn(h.mock.ctx.plugins, "list").mockRejectedValue(
+      new Error("plugins:read refused"),
+    );
+    await expectBlockedUntouched(h, connectionId);
+  });
+
+  it("once SSH Terminal is back, the next sync clears the tunnel and resets the flag", async () => {
+    const { harness: h, connectionId, hostId } = await tunnelledThenPlain();
+    const list = vi
+      .spyOn(h.mock.ctx.plugins, "list")
+      .mockRejectedValue(new Error("plugins:read refused"));
+    await expectBlockedUntouched(h, connectionId);
+    list.mockRestore();
+    vi.restoreAllMocks();
+
+    const update = vi.spyOn(h.mock.ctx.hosts, "update");
+    const results = await apply(h, connectionId, VPS_ONLY);
+    expect(byUuid(results, "srv-vps1")).toMatchObject({
+      status: "updated",
+      hostId,
+    });
+    expect(sshTerminalOf(update.mock.calls.at(-1)![1] as never)).toEqual({
+      cloudflareTunnelEnabled: false,
+      cloudflareTunnelHostname: "",
+      cloudflareTunnelClientId: "",
+      cloudflareTunnelClientSecret: "",
+    });
+    expect(appliedFlag(h, "srv-vps1")).toBe(false);
+
+    // Cleared once: later syncs leave SSH Terminal's settings alone.
+    await apply(h, connectionId, VPS_ONLY);
+    expect(sshTerminalOf(update.mock.calls.at(-1)![1] as never)).toBe(
+      undefined,
+    );
+  });
+
+  it("a plain host that was never tunnelled needs no SSH Terminal and gets none of its settings", async () => {
+    // SSH Terminal isn't installed: the plain server syncs as usual.
+    const { harness: h, connectionId } = await start();
+    const create = vi.spyOn(h.mock.ctx.hosts, "create");
+    expect(
+      byUuid(await apply(h, connectionId, WEB_ONLY), "srv-web1").status,
+    ).toBe("created");
+    expect(sshTerminalOf(create.mock.calls[0][0])).toBe(undefined);
+    expect(appliedFlag(h, "srv-web1")).toBe(false);
+
+    // With SSH Terminal on, a never-tunnelled host still gets none of it.
+    vi.spyOn(h.mock.ctx.plugins, "list").mockResolvedValue([
+      { id: "coolify", version: "1.0.0", source: "user", state: "active" },
+      {
+        id: "ssh-terminal",
+        version: "1.2.0",
+        source: "bundled",
+        state: "active",
+      },
+    ]);
+    const update = vi.spyOn(h.mock.ctx.hosts, "update");
+    expect(
+      byUuid(await apply(h, connectionId, WEB_ONLY), "srv-web1").status,
+    ).toBe("updated");
+    expect(sshTerminalOf(update.mock.calls.at(-1)![1] as never)).toBe(
+      undefined,
+    );
+  });
+});
+
+describe("hosts linked before the tunnelApplied migration", () => {
+  it("are treated as possibly tunnelled until SSH Terminal confirms the tunnel is off", async () => {
+    const WEB_ONLY = [{ uuid: "srv-web1", include: true }];
+    const { harness: h, connectionId } = await start();
+    const first = await apply(h, connectionId, WEB_ONLY);
+    const hostId = byUuid(first, "srv-web1").hostId as number;
+    // What migration 0002 leaves on a row linked before it: no history.
+    h.db.sqlite
+      .prepare(
+        "UPDATE p_coolify_servers SET tunnel_applied = 1 WHERE host_id IS NOT NULL",
+      )
+      .run();
+
+    // Without SSH Terminal the host is left as it is.
+    const update = vi.spyOn(h.mock.ctx.hosts, "update");
+    expect(byUuid(await preview(h, connectionId), "srv-web1")).toMatchObject({
+      status: "blocked",
+      cause: "needs-ssh-terminal-to-clear-tunnel",
+    });
+    expect(
+      byUuid(await apply(h, connectionId, WEB_ONLY), "srv-web1").status,
+    ).toBe("blocked");
+    expect(update).not.toHaveBeenCalled();
+
+    // With SSH Terminal on, one sync turns the tunnel off and resets the flag.
+    vi.spyOn(h.mock.ctx.plugins, "list").mockResolvedValue([
+      { id: "coolify", version: "1.0.0", source: "user", state: "active" },
+      {
+        id: "ssh-terminal",
+        version: "1.2.0",
+        source: "bundled",
+        state: "active",
+      },
+    ]);
+    expect(
+      byUuid(await apply(h, connectionId, WEB_ONLY), "srv-web1").status,
+    ).toBe("updated");
+    const [updatedId, input] = update.mock.calls.at(-1)!;
+    expect(updatedId).toBe(hostId);
+    expect(sshTerminalOf(input as never)).toMatchObject({
+      cloudflareTunnelEnabled: false,
+    });
+    const row = serverRows(h).find((r) => r.server_uuid === "srv-web1");
+    expect(row?.tunnel_applied).toBe(0);
+  });
+});
+
+describe("the tunnelApplied flag never lags the host", () => {
+  it("a sync that ends during the update turning a tunnel on still leaves the flag set", async () => {
+    const VPS_ONLY = [{ uuid: "srv-vps1", include: true }];
+    const PLAIN_VPS = server("srv-vps1", "vps1", "203.0.113.40");
+    const {
+      harness: h,
+      fake,
+      connectionId,
+    } = await start({
+      sshTerminal: "1.2.0",
+      cfAccess: FAKE_ACCESS,
+    });
+    const id = String(connectionId);
+    const flag = () =>
+      serverRows(h).find((r) => r.server_uuid === "srv-vps1")?.tunnel_applied;
+
+    // An existing plain host...
+    fake.set("GET /servers", { json: [PLAIN_VPS] });
+    const first = await apply(h, connectionId, VPS_ONLY);
+    const hostId = byUuid(first, "srv-vps1").hostId as number;
+    expect(flag()).toBe(0);
+
+    // ...whose server is now tunnelled. The connection changes while the
+    // update that turns the tunnel on runs, so the sync ends after it.
+    fake.set("GET /servers", { json: [TUNNEL] });
+    const hosts = h.mock.ctx.hosts;
+    const original = hosts.update.bind(hosts);
+    const update = vi
+      .spyOn(hosts, "update")
+      .mockImplementationOnce(async (target, input) => {
+        const written = await original(target, input);
+        const changed = await h.request("PATCH", `/connections/${id}`, {
+          cfAccessId: NEW_ACCESS.id,
+          cfAccessSecret: NEW_ACCESS.secret,
+        });
+        expect(changed.status).toBe(200);
+        return written;
+      });
+    const res = await h.request("POST", `/connections/${id}/sync`, {
+      choices: VPS_ONLY,
+    });
+    expect(res.status).toBe(409);
+    expect(sshTerminalOf(update.mock.calls[0][1] as never)).toMatchObject({
+      cloudflareTunnelEnabled: true,
+    });
+    // The host has tunnel settings, so the row says so.
+    expect(flag()).toBe(1);
+
+    // A later plain sync, with SSH Terminal running, clears the tunnel.
+    fake.set("GET /servers", { json: [PLAIN_VPS] });
+    const results = await apply(h, connectionId, VPS_ONLY);
+    expect(byUuid(results, "srv-vps1")).toMatchObject({
+      status: "updated",
+      hostId,
+    });
+    expect(sshTerminalOf(update.mock.calls.at(-1)![1] as never)).toEqual({
+      cloudflareTunnelEnabled: false,
+      cloudflareTunnelHostname: "",
+      cloudflareTunnelClientId: "",
+      cloudflareTunnelClientSecret: "",
+    });
+    expect(flag()).toBe(0);
+  });
+});

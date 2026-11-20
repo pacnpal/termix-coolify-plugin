@@ -15,10 +15,50 @@
     }
   },
   "shellTab": {
-    "title": "Coolify shell"
+    "title": "Coolify shell",
+    "shellLabel": "Shell: {{name}}",
+    "consoleLabel": "Console: {{name}}",
+    "loading": "Finding the container",
+    "empty": "This tab has no container to open. Open a shell from a resource in the Coolify tab.",
+    "copy": "Copy command",
+    "copied": "Copied",
+    "trust": "Open server terminal",
+    "retry": "Try again",
+    "fingerprints": "Coolify's fingerprint for this host's key:",
+    "noConsole": "There is no database console for this engine, so this is a shell in the container.",
+    "noTerminal": {
+      "title": "SSH Terminal isn't running",
+      "hint": "Turn on the SSH Terminal plugin to open the shell here, or run this command in a terminal on the server."
+    },
+    "pick": {
+      "title": "Pick a container",
+      "hint": "Several containers belong to this resource.",
+      "running": "Running",
+      "stopped": "Stopped"
+    },
+    "errors": {
+      "not-linked": "Link this server first: sync it from Coolify to make it a Linked host.",
+      "not-running": "The container isn't running. Start the resource, then try again.",
+      "container-not-found": "No container of this resource was found on its server.",
+      "host-key": "Open a server terminal once to trust this host's key.",
+      "no-host-access": "You can't open this server's Linked host. Ask its owner for server access.",
+      "failed": "The shell could not be opened."
+    }
   },
   "hostSection": {
-    "title": "Coolify"
+    "title": "Coolify",
+    "linked": "Linked to Coolify server {{server}} on {{connection}}.",
+    "unknownConnection": "a Coolify connection",
+    "locked": "Termix keeps this host read only while Coolify manages it. Sync it to pick up changes, or unlink it to edit it here.",
+    "sync": "Sync from Coolify",
+    "resources": "Resources",
+    "unlink": "Unlink",
+    "unlinked": "Unlinked. This is now an ordinary host.",
+    "unlinkFailed": "The host could not be unlinked.",
+    "notLinked": "This host is not linked to Coolify.",
+    "tunnel": "Tunnel: through SSH Terminal (Cloudflare)",
+    "openTunnelSettings": "Open tunnel settings",
+    "tunnelReadOnly": "SSH Terminal's tunnel settings stay read only while the host is linked."
   },
   "permissions": {
     "view": {
@@ -133,9 +173,70 @@
         "label": "Coolify server",
         "description": "Only resources on this Coolify server (its uuid). Leave empty for all."
       },
+      "linkedServerUuid": {
+        "label": "Coolify server",
+        "description": "The uuid of a Coolify server that has a Linked host."
+      },
       "uuid": {
         "label": "Resource",
         "description": "The uuid of an application, service, database or service part."
+      },
+      "choices": {
+        "label": "Servers",
+        "description": "Optional. A JSON list of { uuid, include, addressOverride, credentialId }. Leave empty to sync every server with its saved address and credential."
+      },
+      "force": {
+        "label": "Force rebuild",
+        "description": "Rebuild without Coolify's build cache."
+      },
+      "wait": {
+        "label": "Wait for the deployment",
+        "description": "Follow the deployment until it finishes or fails, and report which."
+      },
+      "action": {
+        "label": "Action",
+        "description": "Start or stop the resource.",
+        "start": "Start",
+        "stop": "Stop"
+      },
+      "part": {
+        "label": "Part",
+        "description": "Optional. A Part of the service, by uuid, to open instead of the service's containers."
+      },
+      "container": {
+        "label": "Container",
+        "description": "Optional. A container name from an earlier list of choices."
+      },
+      "console": {
+        "label": "Open",
+        "description": "A shell in the container, or the database's own console.",
+        "shell": "Shell",
+        "db": "Database console"
+      },
+      "confirmInstall": {
+        "label": "Install every pending update",
+        "description": "Must be on. Updates to Docker packages restart every container on the server."
+      },
+      "confirmName": {
+        "label": "Server name",
+        "description": "Type the Coolify server's exact name to reboot it."
+      },
+      "kind": {
+        "label": "What to do",
+        "description": "The companion feature to use. Each one needs its plugin installed."
+      },
+      "params": {
+        "label": "Details",
+        "readDescription": "A JSON object: uuid for a resource (uptime, log-search, db-login, dns-list) or serverUuid for a server (security, backups-failed, host-metrics, db-logins).",
+        "changeDescription": "A JSON object with uuid, the resource. For dns also fqdn and optional type (A, AAAA or CNAME) and content."
+      },
+      "resourceUuid": {
+        "label": "Coolify resource",
+        "description": "The uuid of the Coolify application, service or database."
+      },
+      "recordId": {
+        "label": "DNS record",
+        "description": "The id of a DNS record made here for that resource, from the dns-list read."
       },
       "title": {
         "label": "Title",
@@ -193,6 +294,155 @@
       "title": "Read a Coolify resource",
       "description": "One application, service, database or service part, without secrets."
     },
+    "syncPreview": {
+      "title": "Preview Coolify host sync",
+      "description": "Lists each Coolify server and the Termix host it is or would become, without changing anything."
+    },
+    "syncApply": {
+      "title": "Sync Coolify servers into hosts",
+      "description": "Creates or updates a locked Linked host for each server. Servers that need an address or a credential are reported and skipped, and servers gone from Coolify are never deleted."
+    },
+    "unlink": {
+      "title": "Unlink a Coolify host",
+      "description": "Releases the lock on a Linked host and makes it an ordinary host. The host is kept."
+    },
+    "listResources": {
+      "title": "List a host's Coolify resources",
+      "description": "The applications, services, Parts and databases on this Linked host's Coolify server. Empty for a host that isn't linked."
+    },
+    "deploy": {
+      "title": "Deploy a Coolify resource",
+      "description": "Deploys the resource through Coolify, optionally with a force rebuild. A Part deploys its service.",
+      "dryRun": "Would deploy {{name}} on {{server}}",
+      "noServer": "its Coolify server"
+    },
+    "start": {
+      "title": "Start a Coolify resource",
+      "description": "Starts the resource or Part through Coolify."
+    },
+    "restart": {
+      "title": "Restart a Coolify resource",
+      "description": "Restarts the resource through Coolify. A Part restarts on its own."
+    },
+    "stop": {
+      "title": "Stop a Coolify resource",
+      "description": "Stops the resource or Part through Coolify. It stays stopped until started again."
+    },
+    "syncHost": {
+      "title": "Sync this host from Coolify",
+      "description": "Updates this Linked host from its Coolify server. Other servers are left as they are."
+    },
+    "resourceDeploy": {
+      "title": "Deploy a Coolify resource (no host)",
+      "description": "Deploys a resource of a connection by its uuid, for resources whose server has no Linked host."
+    },
+    "resourceRestart": {
+      "title": "Restart a Coolify resource (no host)",
+      "description": "Restarts a resource or Part of a connection by its uuid, for resources whose server has no Linked host."
+    },
+    "resourceAction": {
+      "title": "Start or stop a Coolify resource (no host)",
+      "description": "Starts or stops a resource or Part of a connection by its uuid, for resources whose server has no Linked host."
+    },
+    "signalDegraded": {
+      "title": "Degraded Coolify resources",
+      "description": "How many resources on this Linked host's Coolify server are restarting, dead or unhealthy."
+    },
+    "signalServer": {
+      "title": "Coolify server status",
+      "description": "Whether Coolify can reach this Linked host's server."
+    },
+    "signalUpdates": {
+      "title": "Coolify security updates",
+      "description": "Security updates Coolify's last update check found on this Linked host's server."
+    },
+    "signalDeploying": {
+      "title": "Coolify deployments running",
+      "description": "How many resources are deploying now, across your Coolify connections."
+    },
+    "resource": {
+      "title": "Coolify resources",
+      "columns": {
+        "kind": "Type",
+        "status": "Status",
+        "fqdn": "Domain"
+      }
+    },
+    "signals": {
+      "degraded": "Degraded resources",
+      "server": "Coolify server",
+      "updates": "Security updates",
+      "deploying": "Deploying now"
+    },
+    "events": {
+      "fields": {
+        "name": "Resource name",
+        "deploymentUuid": "Deployment",
+        "status": "Status"
+      },
+      "deploymentFinished": {
+        "title": "Coolify deployment finished",
+        "description": "A deployment finished in Coolify."
+      },
+      "deploymentFailed": {
+        "title": "Coolify deployment failed",
+        "description": "A deployment failed or was cancelled in Coolify."
+      },
+      "containerRestarted": {
+        "title": "Coolify container restarted",
+        "description": "A resource's container restarted on its own."
+      },
+      "serverUnreachable": {
+        "title": "Coolify server unreachable",
+        "description": "Coolify can no longer reach a server."
+      }
+    },
+    "shellCommand": {
+      "title": "Coolify container shell command",
+      "description": "The docker exec command that opens a shell or database console in a resource's container, run on its Linked host. It holds no password: a console reads its credentials inside the container. Needs connect access to the Linked host."
+    },
+    "serverUpdates": {
+      "title": "Coolify server updates",
+      "description": "Pending package updates on a Coolify server: Coolify's last check and the plugin's own, with security updates, Docker risk and whether a reboot is needed."
+    },
+    "serverUpdatesCheck": {
+      "title": "Check a Coolify server for updates",
+      "description": "Re-reads pending updates on the server's Linked host, through the Package Manager plugin when it runs, otherwise over SSH."
+    },
+    "serverUpdatesInstall": {
+      "title": "Install updates on a Coolify server",
+      "description": "Upgrades every package on the server's Linked host, through the Package Manager plugin when it runs, otherwise over SSH. Docker updates restart every container on it."
+    },
+    "serverReboot": {
+      "title": "Reboot a Coolify server",
+      "description": "Reboots the server over SSH on its Linked host. Every Coolify application, service and database on it goes down until it is back."
+    },
+    "companionRead": {
+      "title": "Read from a companion plugin",
+      "description": "Reads what a companion plugin knows about a Coolify resource or server: Uptime monitors, Log Search results, Security Center score, failed backups, saved database logins, and DNS records made here."
+    },
+    "companion": {
+      "title": "Use a companion plugin",
+      "description": "Creates a DNS record for a resource's domain, or pauses and resumes its Uptime monitors."
+    },
+    "kinds": {
+      "companions": "Which companion plugins run",
+      "uptime": "Uptime monitors of a resource",
+      "logSearch": "Search a resource's logs across servers",
+      "security": "Security Center score of a server",
+      "dbLogin": "Saved logins for a database",
+      "dbLogins": "Saved logins for a server's databases",
+      "backupsFailed": "Failed backups on a server",
+      "hostMetrics": "Coolify resources on a server",
+      "dnsList": "DNS records made for a resource",
+      "dns": "Create a DNS record",
+      "uptimePause": "Pause a resource's Uptime monitors",
+      "uptimeResume": "Resume a resource's Uptime monitors"
+    },
+    "companionDnsRemove": {
+      "title": "Remove a DNS record made here",
+      "description": "Deletes a DNS record this connection created for the resource, through the DNS plugin. Only records made here can be removed."
+    },
     "statusPageList": {
       "title": "List status pages",
       "description": "Your public status pages: title, connection and the resources each shows. Never their links."
@@ -234,7 +484,8 @@
     "actions": {
       "edit": "Edit",
       "probe": "Check again",
-      "delete": "Remove"
+      "delete": "Remove",
+      "sync": "Sync servers"
     },
     "form": {
       "name": "Name",
@@ -247,7 +498,7 @@
       "advanced": "Advanced",
       "cfAccessId": "Cloudflare Access client ID",
       "cfAccessSecret": "Cloudflare Access client secret",
-      "cfAccessHint": "Only when your Coolify dashboard sits behind Cloudflare Access: a service token's ID and secret.",
+      "cfAccessHint": "Only when your Coolify dashboard sits behind Cloudflare Access: a service token's ID and secret. Host sync also gives it to SSH Terminal on hosts behind Cloudflare tunnels.",
       "cfAccessKeep": "Leave empty to keep the stored value",
       "allowPrivate": "On my local network",
       "allowPrivateHint": "Allow a private or local address, like 192.168.1.10.",
@@ -267,7 +518,11 @@
         "projects": "Projects (scoped token)",
         "keys": "Read private keys",
         "logs": "Read logs",
-        "root": "Instance settings (root)"
+        "settings": "Instance settings (root team admin)",
+        "sshTerminal": "SSH Terminal carries the Cloudflare tunnels"
+      },
+      "skipped": {
+        "nothing-to-probe": "Not checked: this token sees nothing to try it on yet, so it may still have this ability. Check again after adding one."
       },
       "scoped": "This token is scoped to some projects or resources. It can't see servers, so there is no host sync, no shells and no keys, and it can't set up notifications. Applications, services, databases, deploys and logs still work."
     },
@@ -301,6 +556,7 @@
     }
   },
   "causes": {
+    "target-changed": "The connection's address, token or Cloudflare Access settings changed during the sync, so nothing more was written. Sync again.",
     "unreachable": "Coolify could not be reached.",
     "unauthorized": "Coolify refused the API token.",
     "api-disabled": "API access is turned off in Coolify.",
@@ -335,6 +591,7 @@
     "label": "Coolify sections",
     "overview": "Overview",
     "resources": "Resources",
+    "servers": "Servers",
     "connections": "Connections"
   },
   "picker": {
@@ -403,7 +660,8 @@
   },
   "detail": {
     "tabs": {
-      "overview": "Overview"
+      "overview": "Overview",
+      "shell": "Shell"
     },
     "fields": {
       "type": "Type",
@@ -419,7 +677,261 @@
       "service": "Service"
     },
     "parts": "Parts",
-    "missing": "This resource is no longer in Coolify."
+    "missing": "This resource is no longer in Coolify.",
+    "actions": {
+      "shell": "Open shell",
+      "console": "Open database console"
+    },
+    "shell": {
+      "hint": "Opens a terminal in this resource's container on its Linked host. A database console signs in with the credentials the container already holds.",
+      "noAccess": "Opening a shell needs the Operate Coolify permission and operate access to this connection."
+    }
+  },
+  "sync": {
+    "title": "Sync servers from {{name}}",
+    "intro": "Each Coolify server becomes a Linked host in the Coolify folder. Linked hosts stay read only while Coolify manages them; unlink one to edit it.",
+    "loading": "Reading servers from Coolify",
+    "loadFailed": "The servers could not be read from Coolify.",
+    "empty": "This Coolify connection has no servers the token can see.",
+    "pickConnection": "Pick the connection to sync servers from.",
+    "noConnections": "Add a Coolify connection first, then sync its servers.",
+    "needsConfigure": "Syncing servers into hosts needs the Coolify configure permission.",
+    "notOwner": "Only the owner of this connection can sync its servers into hosts.",
+    "scopedToken": "This connection uses a scoped token, which can't see servers, so there is no host sync. Use a token that isn't scoped to sync servers.",
+    "refresh": "Refresh",
+    "include": "Include",
+    "address": "Address Termix uses",
+    "addressHint": "Coolify reaches this server as {{ip}}, which Termix can't use. Enter the address Termix should connect to.",
+    "addressOptionalHint": "Optional. Leave empty to connect to {{ip}}, the address Coolify uses.",
+    "useSuggested": "Use {{address}}",
+    "credential": "Termix credential",
+    "credentialHint": "Coolify's key for this server can't be copied, so pick one of your Termix credentials.",
+    "credentialPlaceholder": "Pick a credential",
+    "openPlugins": "Open Plugins",
+    "apply": "Create and update hosts",
+    "applying": "Syncing hosts",
+    "applyFailed": "The hosts were not synced.",
+    "keepHost": "Keep as normal host",
+    "removeHost": "Remove host",
+    "unlinkFailed": "The host could not be changed.",
+    "removeConfirm": {
+      "title": "Remove the host for {{name}}?",
+      "description": "The Termix host is deleted. Nothing changes in Coolify.",
+      "confirm": "Remove host"
+    },
+    "status": {
+      "new": "New",
+      "linked": "Linked",
+      "blocked": "Needs attention",
+      "gone": "Gone from Coolify"
+    },
+    "badges": {
+      "tunnel": "Cloudflare tunnel",
+      "coolifyHost": "Coolify host",
+      "keyFromCoolify": "Key from Coolify",
+      "termixCredential": "Picked credential"
+    },
+    "causes": {
+      "needs-address": "This is the server Coolify runs on. Enter the address Termix should use for it.",
+      "needs-credential": "The token can't read this server's key, or copying keys is turned off. Pick a Termix credential.",
+      "needs-ssh-terminal": "Turn on the SSH Terminal plugin to reach servers behind Cloudflare tunnels.",
+      "ssh-terminal-too-old": "Update SSH Terminal to 1.2.0 or newer; older versions tunnel only the terminal.",
+      "needs-ssh-terminal-to-clear-tunnel": "This server is no longer behind a Cloudflare tunnel, but its host still has SSH Terminal's tunnel settings. Turn on SSH Terminal so the next sync can clear them; until then the host is left as it is.",
+      "host-write-failed": "Termix refused the host. Check your permissions to create and edit hosts.",
+      "credential-not-found": "The picked credential isn't one of your Termix credentials any more. Pick another one.",
+      "credential-check-failed": "Your Termix credentials could not be read, so the picked credential can't be checked. Try again, or ask an admin for the permission to view credentials."
+    },
+    "results": {
+      "title": "Sync finished"
+    },
+    "resultStatus": {
+      "created": "Created",
+      "updated": "Updated",
+      "blocked": "Not synced",
+      "skipped": "Left out",
+      "gone": "Gone from Coolify",
+      "failed": "Failed"
+    }
+  },
+  "hostBadge": {
+    "label": "Coolify",
+    "tooltip": "Linked to a Coolify server"
+  },
+  "hostDot": {
+    "unreachable": "Coolify can't reach this server",
+    "degraded": "Coolify reports this server as not usable",
+    "gone": "This server is gone from Coolify"
+  },
+  "hostMenu": {
+    "resources": "Coolify resources",
+    "sync": "Sync from Coolify",
+    "unlink": "Unlink from Coolify"
+  },
+  "unlinkConfirm": {
+    "title": "Unlink {{name}} from Coolify?",
+    "description": "The host stays as an ordinary, editable host. Coolify is not changed.",
+    "confirm": "Unlink"
+  },
+  "importMenu": {
+    "title": "Import from Coolify"
+  },
+  "lifecycle": {
+    "deploy": "Deploy",
+    "forceRebuild": "Force rebuild",
+    "start": "Start",
+    "stop": "Stop",
+    "restart": "Restart",
+    "restartPart": "Restart {{name}}",
+    "running": "Working",
+    "stopConfirm": {
+      "title": "Stop {{name}}?",
+      "description": "Coolify stops it, and it stays stopped until you start it again.",
+      "confirm": "Stop"
+    },
+    "forceConfirm": {
+      "title": "Force rebuild {{name}}?",
+      "description": "Coolify rebuilds it without the build cache, which takes longer than a deploy.",
+      "confirm": "Force rebuild"
+    },
+    "done": {
+      "deploy": "Deploy of {{name}} queued.",
+      "start": "Started {{name}}.",
+      "stop": "Stopped {{name}}.",
+      "restart": "Restarted {{name}}.",
+      "pending": "Waiting for approval to change {{name}}."
+    },
+    "failed": "{{name}} could not be changed."
+  },
+  "palette": {
+    "group": "Coolify",
+    "deploy": "Coolify: Deploy…"
+  },
+  "updates": {
+    "title": "Package updates",
+    "loading": "Reading updates",
+    "loadFailed": "The updates could not be read.",
+    "none": "No check yet.",
+    "upToDate": "Up to date",
+    "checkFailed": "The last check failed, so the updates are unknown",
+    "summary": "{{count}} updates, {{security}} security",
+    "summaryUnknownSecurity": "{{count}} updates",
+    "rebootRequired": "Reboot required",
+    "dockerRisk": "{{count}} restart Docker",
+    "checkError": "The last check failed: {{error}}",
+    "source": {
+      "coolify": "Coolify's check, {{when}}",
+      "package-manager": "Checked through Package Manager, {{when}}",
+      "ssh": "Checked over SSH, {{when}}"
+    },
+    "coolifyRecord": "Coolify's own record ({{when}}): {{summary}}. It catches up at Coolify's next scheduled check.",
+    "never": "never",
+    "check": "Check now",
+    "checking": "Checking",
+    "install": "Install updates",
+    "installing": "Installing",
+    "reboot": "Reboot",
+    "rebooting": "Rebooting",
+    "cancel": "Cancel",
+    "installed": {
+      "package-manager": "Installed through Package Manager: {{summary}}",
+      "ssh": "Installed over SSH: {{summary}}"
+    },
+    "pending": "Package Manager is waiting for an approval before it installs.",
+    "rebootStarted": "{{server}} is rebooting. Its Coolify apps come back once it is up.",
+    "risk": {
+      "docker": "Restarts Docker",
+      "kernel": "Needs a reboot",
+      "system": "Restarts system services",
+      "security": "Security"
+    },
+    "installConfirm": {
+      "title": "Install {{count}} updates on {{server}}?",
+      "dockerWarning": "Updates marked Restarts Docker restart the Docker daemon: every Coolify app on this server stops and starts again while they install.",
+      "confirm": "Install updates"
+    },
+    "rebootConfirm": {
+      "title": "Reboot {{server}}?",
+      "warning": "Every Coolify application, service and database on {{server}} goes down until the server is back.",
+      "typeName": "Type {{server}} to confirm",
+      "confirm": "Reboot server"
+    },
+    "errors": {
+      "not-linked": "This Coolify server has no Linked host. Sync it first.",
+      "host-forbidden": "You don't have enough access to this host.",
+      "confirm-required": "Confirm the install first.",
+      "name-mismatch": "The name doesn't match the server's name.",
+      "needs-sudo": "The SSH login is not root and sudo asks for a password. Use root or passwordless sudo, as Coolify does.",
+      "unsupported-os": "This server has no apt, dnf, yum or pacman.",
+      "ssh-failed": "SSH to the host failed.",
+      "companion-failed": "The Package Manager plugin could not do this.",
+      "host-key": "Open a server terminal once to trust this host's key.",
+      "target-changed": "The connection's address, token or Cloudflare Access settings changed, so nothing ran. Try again.",
+      "check-failed": "The server's package lists could not be read, so the updates are unknown. Try again.",
+      "companions-unknown": "Termix's plugin list could not be read, so nothing ran. Try again.",
+      "forbidden": "You don't have permission to do this.",
+      "failed": "That didn't work."
+    }
+  },
+  "companions": {
+    "cancel": "Cancel",
+    "dns": {
+      "create": "Create DNS record",
+      "domain": "Domain",
+      "content": "Points to",
+      "contentHint": "An IP address or host name. Leave empty to use the server's address.",
+      "submit": "Create record",
+      "record": "{{fqdn}} {{type}} {{content}}",
+      "remove": "Remove",
+      "failed": "The DNS record could not be created.",
+      "removeFailed": "The DNS record could not be removed.",
+      "removeConfirm": {
+        "title": "Remove the DNS record for {{fqdn}}?",
+        "description": "The DNS plugin deletes the record from your DNS provider.",
+        "confirm": "Remove record"
+      }
+    },
+    "uptime": {
+      "title": "Uptime",
+      "none": "No Uptime monitor checks this resource's domains.",
+      "open": "Create monitor in Uptime",
+      "why": "Uptime can't create HTTP monitors for other plugins, so add the monitor in the Uptime tab.",
+      "status": {
+        "up": "Up",
+        "down": "Down",
+        "paused": "Paused",
+        "pending": "Pending",
+        "unknown": "Unknown"
+      },
+      "failed": "Uptime could not be read, so it's not known which monitors check this resource."
+    },
+    "logs": {
+      "search": "Search logs across servers",
+      "source": "Docker logs, from Log Search. It can't filter by host.",
+      "none": "No log lines matched.",
+      "failed": "Log Search could not search the logs."
+    },
+    "databases": {
+      "saved": "A login for this database is saved in Databases.",
+      "notSaved": "Databases has no saved login for this database yet.",
+      "summary": "{{saved}} of {{total}} Coolify databases on this server have a saved login in Databases.",
+      "open": "Open Databases"
+    },
+    "security": {
+      "label": "Security Center",
+      "score": "Score {{score}}",
+      "noScore": "Not checked yet",
+      "critical": "{{count}} critical"
+    },
+    "metrics": {
+      "title": "Coolify on this server",
+      "counts": "{{applications}} applications, {{services}} services, {{databases}} databases"
+    },
+    "backups": {
+      "title": "Failed backups",
+      "none": "No failed backup jobs.",
+      "failed": "Failed",
+      "job": "{{name}}, {{at}}"
+    }
   },
   "statusPages": {
     "open": "Status pages",

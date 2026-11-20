@@ -4,29 +4,46 @@ import * as plugin from "../../src/frontend/index";
 import manifest from "../../manifest.json";
 import locales from "../../locales/en.json";
 import { resourceAnswer, resourceRows } from "./fixtures";
+import { connectionFixture } from "./helpers";
 
-const connection = {
-  id: 1,
-  name: "Prod",
-  baseUrl: "https://coolify.example.test",
-  teamName: "Ops",
-  version: "v4.7.5",
-  scoped: false,
-  abilities: {
-    read: true,
-    sensitive: true,
-    keys: true,
-    root: false,
-    mcp: false,
+const connection = connectionFixture({ teamName: "Ops" });
+
+const allCompanions = Object.fromEntries(
+  [
+    "docker",
+    "sshTerminal",
+    "files",
+    "tunnels",
+    "reverseProxy",
+    "dns",
+    "uptime",
+    "logSearch",
+    "packageManager",
+    "securityCenter",
+    "hostMetrics",
+    "databases",
+    "backups",
+  ].map((key) => [key, true]),
+);
+
+// A Linked host, so the host section renders too.
+const linkedHost = {
+  id: 7,
+  userId: "user-1",
+  name: "web-1",
+  ip: "203.0.113.11",
+  port: 22,
+  username: "root",
+  authType: "credential",
+  folder: "Coolify",
+  tags: "coolify",
+  pluginSettings: {
+    coolify: {
+      coolifyLinked: true,
+      coolifyConnectionId: "1",
+      coolifyServerUuid: "srv-web1",
+    },
   },
-  lastError: null,
-  autoSync: false,
-  access: "owner",
-  allowPrivate: false,
-  caCert: null,
-  cfAccess: false,
-  lastCheckedAt: null,
-  steps: [],
 };
 
 describe("sandboxed frame views", () => {
@@ -35,9 +52,13 @@ describe("sandboxed frame views", () => {
       manifest: manifest as unknown as Record<string, unknown>,
       locales,
       permissions: ["coolify.view", "coolify.configure", "coolify.mcp"],
+      hosts: [linkedHost],
       respond: (method, path) => {
         if (method !== "GET") return {};
+        // Every companion runs, so the host card asks for their parts too.
+        if (/\/companions$/.test(path)) return allCompanions;
         if (/\/connections$/.test(path)) return [connection];
+        if (/\/connections\/1\/servers$/.test(path)) return [];
         if (/\/resources(\?|$)/.test(path)) return resourceAnswer;
         if (/\/resources\/[^/]+$/.test(path)) return resourceRows[0];
         if (/\/mcp$/.test(path)) {
@@ -45,11 +66,13 @@ describe("sandboxed frame views", () => {
             endpoint: "https://termix.example.test/plugin-api/coolify/mcp",
           };
         }
+        if (/\/connections\/1$/.test(path)) return connection;
         return {};
       },
     });
     expect(refused).toEqual([]);
     expect(errors).toEqual([]);
+    expect(rendered.map(String).join(" ")).toContain("hostSection:coolify");
     expect(rendered.length).toBeGreaterThan(0);
   });
 });

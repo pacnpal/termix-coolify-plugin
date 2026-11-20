@@ -23,6 +23,24 @@ export type LifecycleAction = "start" | "stop" | "restart";
 
 const BY_ID = new Map(OPERATIONS.map((op) => [op.id, op]));
 
+/**
+ * A Coolify key with its material, for the one step that copies it into a
+ * Termix credential (ADR 0002). Not a DTO: it never leaves the sync service,
+ * and nothing returns, logs or stores it. Only keyForCopy makes one.
+ */
+export interface KeyForCopy {
+  uuid: string;
+  name: string;
+  fingerprint: string | null;
+  /** Null when the token can't read key material (no read:sensitive). */
+  privateKey: string | null;
+  publicKey: string | null;
+}
+
+function text(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
 /** The method and path of a vendored operation, with its path parameters filled in. */
 function op(
   id: string,
@@ -93,7 +111,13 @@ function logsOp(kind: ResourceKind, uuid: string, parentUuid?: string) {
     case "database":
       return op("get-database-logs-by-uuid", { uuid });
     case "service":
-      return op("get-service-logs-by-uuid", { uuid });
+      // Coolify needs a sub_service_name here and answers 400 without one;
+      // the per-Part endpoints below take the Part's uuid instead.
+      throw new CoolifyError(
+        "validation",
+        0,
+        "A service's logs are read through one of its parts",
+      );
     case "service-application":
       return op("get-service-application-logs-by-service-and-app-uuid", {
         uuid: parentUuid,
@@ -157,6 +181,25 @@ export function createCoolifyApi(http: CoolifyHttp) {
     /** One key's metadata. The key material, when sent, is dropped here. */
     async key(uuid: string): Promise<KeyDto> {
       return toKey(await call(op("get-private-key-by-uuid", { uuid })));
+    },
+
+    /**
+     * One key with its material, only for copying it into a Termix
+     * credential. Every other caller uses key(), which drops the material.
+     */
+    async keyForCopy(uuid: string): Promise<KeyForCopy> {
+      const raw = await call<Record<string, unknown> | null>(
+        op("get-private-key-by-uuid", { uuid }),
+      );
+      const body = raw && typeof raw === "object" ? raw : {};
+      const meta = toKey(body);
+      return {
+        uuid: meta.uuid || uuid,
+        name: meta.name,
+        fingerprint: meta.fingerprint,
+        privateKey: text(body.private_key),
+        publicKey: text(body.public_key)?.trim() ?? null,
+      };
     },
 
     async applications(): Promise<ResourceDto[]> {
@@ -262,7 +305,7 @@ export function createCoolifyApi(http: CoolifyHttp) {
         op("list-deployments-by-app-uuid", { uuid: appUuid }),
         { query: { skip: opts.skip, take: opts.take } },
       );
-      return rows(body, "deployments").map(toDeployment);
+      return rows(body, "deployments").map((d) => toDeployment(d, appUuid));
     },
 
     async deployment(uuid: string): Promise<DeploymentDto> {
@@ -277,12 +320,13 @@ export function createCoolifyApi(http: CoolifyHttp) {
     },
 
     /**
-     * True when the token may read instance settings, which only root can.
-     * The settings themselves are dropped unread.
+     * Resolves when the token may read instance settings. Coolify allows that
+     * to any token of a root-team admin or owner, whatever its abilities, so
+     * it says nothing about `root` or `read:sensitive`. The settings
+     * themselves are dropped unread.
      */
-    async rootCheck(): Promise<true> {
+    async instanceSettingsCheck(): Promise<void> {
       await call(op("get-instance-email-settings"));
-      return true;
     },
   };
 }

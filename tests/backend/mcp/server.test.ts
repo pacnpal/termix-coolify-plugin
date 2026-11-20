@@ -5,7 +5,8 @@ import type {
   PluginOperationOutcome,
 } from "@termix-ssh/plugin-sdk/backend";
 import { REDACTED_VALUE } from "@termix-ssh/plugin-sdk/operations";
-import { healthyCoolify } from "../helpers/fake-coolify.js";
+import { healthyCoolify, type FakeAnswer } from "../helpers/fake-coolify.js";
+import { resourceLists, SECRET } from "../helpers/resources.js";
 import {
   manifest,
   startPlugin,
@@ -38,8 +39,11 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-async function start(settings: Record<string, unknown> = {}) {
-  const fake = healthyCoolify();
+async function start(
+  settings: Record<string, unknown> = {},
+  routes: Record<string, FakeAnswer> = {},
+) {
+  const fake = healthyCoolify(routes);
   harness = await startPlugin({ fetch: fake.fetch, serve: false, settings });
   return { harness, fake, ctx: harness.mock.ctx };
 }
@@ -198,7 +202,9 @@ describe("the MCP endpoint", () => {
   it("change and destructive tools refuse with mcp-changes-off unless allowMcpChanges is on", async () => {
     const { ctx } = await start({ allowMcpChanges: false });
     const run = vi.fn<Run>(async () => ({ runId: "r", status: "success" }));
-    for (const action of ACTIONS.filter((a) => a.risk !== "read")) {
+    for (const action of ACTIONS.filter(
+      (a) => a.risk !== "read" && !MCP_CHANGES_EXEMPT.includes(a.id),
+    )) {
       const answer = await handleMcp(
         withRun(ctx, run),
         call(5, toolName(action.id), { connectionId: "1" }),
@@ -419,17 +425,108 @@ describe("the MCP endpoint", () => {
     expect(JSON.stringify(answer)).not.toContain(TOKEN);
   });
 
-  it("list_hosts and list_resources answer empty lists without calling Coolify or hosts", async () => {
+  it("MCP deploy and restart work without allowMcpChanges, start and stop are refused", async () => {
+    const { ctx } = await start({ allowMcpChanges: false });
+    const run = vi.fn<Run>(async () => ({
+      runId: "r",
+      status: "success",
+      data: { deploymentUuid: "dep-uuid" },
+    }));
+    const resource = { hostId: 7, resourceKey: "app-web-uuid" };
+    const server = { connectionId: "1", uuid: "app-web-uuid" };
+    for (const [tool, args] of [
+      ["coolify__deploy", resource],
+      ["coolify__restart", resource],
+      ["coolify__resource_deploy", server],
+      ["coolify__resource_restart", server],
+    ] as const) {
+      const answer = await handleMcp(withRun(ctx, run), call(30, tool, args));
+      expect(isError(answer), tool).toBe(false);
+    }
+    expect(run.mock.calls.map((c) => c[0])).toEqual([
+      "coolify.deploy",
+      "coolify.restart",
+      "coolify.resource-deploy",
+      "coolify.resource-restart",
+    ]);
+    expect(run.mock.calls[0][1]).toMatchObject({
+      hostId: 7,
+      resourceKey: "app-web-uuid",
+      via: "mcp",
+    });
+    run.mockClear();
+    for (const [tool, args] of [
+      ["coolify__start", resource],
+      ["coolify__stop", { ...resource, confirmed: true }],
+      ["coolify__resource_action", { ...server, action: "stop" }],
+    ] as const) {
+      const answer = await handleMcp(withRun(ctx, run), call(31, tool, args));
+      expect(isError(answer), tool).toBe(true);
+      expect(parsed(answer).errorCode, tool).toBe("mcp-changes-off");
+    }
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("list_hosts answers an empty list without calling Coolify or hosts", async () => {
     const { ctx, fake } = await start();
     const run = vi.fn<Run>();
     const before = fake.calls.length;
-    for (const name of ["list_hosts", "list_resources"]) {
-      const answer = await handleMcp(withRun(ctx, run), call(19, name));
-      expect(isError(answer), name).toBe(false);
-      expect(parsed(answer).data.rows, name).toEqual([]);
-    }
+    const answer = await handleMcp(withRun(ctx, run), call(19, "list_hosts"));
+    expect(isError(answer)).toBe(false);
+    expect(parsed(answer).data.rows).toEqual([]);
     expect(run).not.toHaveBeenCalled();
     expect(fake.calls.length).toBe(before);
+  });
+
+  it("list_resources runs the list-resources action over mcp for the connection asked", async () => {
+    const { ctx } = await start();
+    const run = vi.fn<Run>(async () => ({
+      runId: "run-1",
+      status: "success",
+      summary: "1 resource",
+      data: { rows: [{ uuid: "app-web-uuid", name: "web" }] },
+    }));
+    const answer = await handleMcp(
+      withRun(ctx, run),
+      call(19, "list_resources", { connectionId: "1" }),
+    );
+    expect(run).toHaveBeenCalledWith("coolify.list-resources-all", {
+      input: { connectionId: "1" },
+      dryRun: false,
+      via: "mcp",
+    });
+    expect(isError(answer)).toBe(false);
+    expect(parsed(answer).data.rows).toEqual([
+      { uuid: "app-web-uuid", name: "web" },
+    ]);
+  });
+
+  it("list_resources returns a connection's resources without secrets", async () => {
+    // Coolify's lists as they come, with webhook secrets, passwords, env
+    // values and compose files in them.
+    const { ctx } = await start({ allowMcpChanges: true }, resourceLists());
+    const created = parsed(
+      await handleMcp(
+        ctx,
+        call(20, "coolify__connection_create", {
+          name: "Prod",
+          baseUrl: "https://coolify.example.test",
+          token: TOKEN,
+        }),
+      ),
+    );
+    const answer = await handleMcp(
+      ctx,
+      call(21, "list_resources", { connectionId: String(created.data.id) }),
+    );
+    expect(isError(answer)).toBe(false);
+    expect(parsed(answer).data.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ uuid: "app-web-uuid", kind: "application" }),
+      ]),
+    );
+    expect(JSON.stringify(answer)).not.toContain(TOKEN);
+    expect(JSON.stringify(answer)).not.toContain(SECRET);
   });
 
   it("refuses a message that is not JSON-RPC 2.0 with -32600", async () => {

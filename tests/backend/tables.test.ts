@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -93,5 +94,32 @@ describe("plugin tables", () => {
       await expect(mock.ctx.db.define(table)).resolves.toBeTruthy();
     }
     expect(tables).toHaveLength(TABLES.length);
+  });
+});
+
+describe("migration 0002 (tunnelApplied)", () => {
+  it("marks every row linked before it as possibly tunnelled", async () => {
+    db = await createTestDb(pluginDir, { skipMigrations: true });
+    const sql = (name: string) =>
+      readFileSync(`${pluginDir}/migrations/sqlite/${name}`, "utf8");
+    db.sqlite.exec(sql("0001_create_tables.sql"));
+    const insert = db.sqlite.prepare(
+      "INSERT INTO p_coolify_servers (connection_id, server_uuid, host_id) VALUES (?, ?, ?)",
+    );
+    insert.run(1, "linked-before", 7);
+    insert.run(1, "never-linked", null);
+
+    db.sqlite.exec(sql("0002_update.sql"));
+    const rows = db.sqlite
+      .prepare(
+        "SELECT server_uuid, tunnel_applied FROM p_coolify_servers ORDER BY server_uuid",
+      )
+      .all();
+    // Unknown is treated as tunnelled: the next sync of a plain server
+    // clears the tunnel, or waits for SSH Terminal to do so.
+    expect(rows).toEqual([
+      { server_uuid: "linked-before", tunnel_applied: 1 },
+      { server_uuid: "never-linked", tunnel_applied: 0 },
+    ]);
   });
 });

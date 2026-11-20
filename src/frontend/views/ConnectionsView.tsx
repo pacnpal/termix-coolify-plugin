@@ -1,5 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Globe, Pencil, Rocket, Stethoscope, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Globe,
+  Pencil,
+  RefreshCw,
+  Rocket,
+  Stethoscope,
+  Trash2,
+} from "lucide-react";
 import {
   usePermission,
   usePluginApi,
@@ -51,7 +58,7 @@ function ConnectionEditor({
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
-      title={connection ? t("connections.edit") : t("connections.add")}
+      title={form.editing ? t("connections.edit") : t("connections.add")}
       icon={<Rocket className="size-4" />}
       footer={
         <FormFooter
@@ -70,7 +77,7 @@ function ConnectionEditor({
       <FormError message={form.error} />
       <ConnectionFields
         form={form}
-        hasCfAccess={connection?.cfAccess ?? false}
+        hasCfAccess={form.current?.cfAccess ?? false}
       />
       {form.result && <ProbeChecklist connection={form.result} />}
     </InlineView>
@@ -92,8 +99,24 @@ function metaLine(
   return parts.join(" · ");
 }
 
-/** The Connections section: the list, add, edit, check again and remove. */
-export function ConnectionsView() {
+/** Whether the actor can sync this connection's servers into hosts. */
+export function syncable(c: Connection): boolean {
+  return c.access === "owner" && !c.scoped;
+}
+
+/**
+ * The Connections section: the list, add, edit, check again, remove, and
+ * Sync servers, which hands the connection to the tab's Servers section.
+ */
+export function ConnectionsView({
+  onSaved,
+  onSync,
+}: {
+  /** Told about each saved connection, so the tab can drop stale resources. */
+  onSaved?: (saved: Connection) => void;
+  /** Opens host sync for a connection; without it there is no Sync action. */
+  onSync?: (connection: Connection) => void;
+} = {}) {
   const { t } = useTranslation();
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
@@ -106,17 +129,28 @@ export function ConnectionsView() {
   const [editing, setEditing] = useState<Connection | "new" | null>(null);
   const [publishing, setPublishing] = useState<Connection | null>(null);
 
+  // Request generations: a list answer is applied only when it is the latest
+  // load and no change (save, probe, removal) landed after it was asked for.
+  const loads = useRef(0);
+  const changes = useRef(0);
+
   const load = useCallback(async () => {
+    const generation = ++loads.current;
+    const changesBefore = changes.current;
+    const current = () =>
+      generation === loads.current && changesBefore === changes.current;
     setLoading(true);
     try {
       const list = await api.listConnections();
-      setRows(Array.isArray(list) ? list : []);
+      if (current()) setRows(Array.isArray(list) ? list : []);
       setError(null);
     } catch {
-      setError(t("connections.loadFailed"));
-      setRows((prev) => prev ?? []);
+      if (current()) {
+        setError(t("connections.loadFailed"));
+        setRows((prev) => prev ?? []);
+      }
     } finally {
-      setLoading(false);
+      if (generation === loads.current) setLoading(false);
     }
   }, [api, t]);
 
@@ -124,17 +158,26 @@ export function ConnectionsView() {
     void load();
   }, [load]);
 
-  const upsert = (saved: Connection) =>
+  const upsert = (saved: Connection) => {
+    changes.current += 1;
+    onSaved?.(saved);
     setRows((prev) => {
       const list = prev ?? [];
       return list.some((c) => c.id === saved.id)
         ? list.map((c) => (c.id === saved.id ? saved : c))
         : [...list, saved];
     });
+  };
+
+  /** Updates a row that is still listed; a removed one stays removed. */
+  const replace = (fresh: Connection) => {
+    changes.current += 1;
+    setRows((prev) => (prev ?? []).map((c) => (c.id === fresh.id ? fresh : c)));
+  };
 
   async function probe(c: Connection) {
     try {
-      upsert((await api.probeConnection(c.id)).connection);
+      replace((await api.probeConnection(c.id)).connection);
     } catch (err) {
       setError(describeFailure(t, err));
     }
@@ -150,6 +193,7 @@ export function ConnectionsView() {
     if (!ok) return;
     try {
       await api.deleteConnection(c.id);
+      changes.current += 1;
       setRows((prev) => (prev ?? []).filter((r) => r.id !== c.id));
     } catch (err) {
       setError(describeFailure(t, err));
@@ -218,6 +262,14 @@ export function ConnectionsView() {
                       onClick={() => setEditing(c)}
                     >
                       <Pencil className="size-3.5" />
+                    </ListRowAction>
+                  )}
+                  {onSync && canConfigure && syncable(c) && (
+                    <ListRowAction
+                      label={t("connections.actions.sync")}
+                      onClick={() => onSync(c)}
+                    >
+                      <RefreshCw className="size-3.5" />
                     </ListRowAction>
                   )}
                   {canConfigure && c.access === "owner" && (

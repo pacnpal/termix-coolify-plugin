@@ -1,6 +1,7 @@
 import type { Router } from "express";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { MCP_SERVER_NAME, handleMcpBody } from "./server.js";
+import { trimTrailing } from "../text.js";
 
 /** Shown in client config examples instead of a key; never a real one. */
 export const MCP_KEY_PLACEHOLDER = "<your Termix API key>";
@@ -77,7 +78,7 @@ export function registerMcpRoutes(router: Router, ctx: PluginContext): void {
    *         description: Missing coolify.mcp
    */
   router.get("/mcp", mcp, (req, res) => {
-    const endpoint = `${ctx.http.baseUrl(req).replace(/\/+$/, "")}/plugin-api/${ctx.pluginId}/mcp`;
+    const endpoint = `${trimTrailing(ctx.http.baseUrl(req), "/")}/plugin-api/${ctx.pluginId}/mcp`;
     res.json({
       endpoint,
       example: {

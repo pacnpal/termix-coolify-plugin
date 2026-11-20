@@ -276,7 +276,7 @@ describe("status page routes", () => {
       name: "web",
       status: "running",
     });
-    fake.set("GET /applications", applicationsWith("exited:unhealthy"));
+    fake.set("GET /applications", applicationsWith("running:unhealthy"));
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(Date.now() + 61_000);
     harness.mock.setActor(undefined);
