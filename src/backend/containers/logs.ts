@@ -23,15 +23,20 @@ const LOGS_TIMEOUT_MS = 30_000;
 
 const UUID = /^[A-Za-z0-9_-]{1,64}$/;
 
-/** A name that says its value is a secret, with its optional quote. */
-const NAME = String.raw`[\w.-]{0,64}(?:password|passwd|pwd|secret|token|api_?key|private_?key|access_?key|credentials?)[\w.-]{0,64}["']?`;
+/**
+ * A name that says its value is a secret, from its keyword on, with its
+ * optional quote. It starts at the keyword, not at the name's first
+ * character (`DB_` of `DB_PASSWORD` stays as it is either way), so a long
+ * run of word characters is never rescanned from every position.
+ */
+const NAME = String.raw`(?:password|passwd|pwd|secret|token|api_?key|private_?key|access_?key|credentials?)[\w.-]{0,64}["']?`;
 
 /**
  * A YAML `name: value` that starts its line with an unquoted value: the
  * value is the rest of the line.
  */
 const YAML_FIELD = new RegExp(
-  String.raw`^([ \t]*(?:-[ \t]+)?["']?${NAME}[ \t]{0,8}:[ \t]{1,8})(?!["'])[^\r\n]+`,
+  String.raw`^([ \t]*(?:-[ \t]+)?["']?[\w.-]{0,64}${NAME}[ \t]{0,8}:[ \t]{1,8})(?!["'])[^\r\n]+`,
   "gim",
 );
 
@@ -43,7 +48,7 @@ const YAML_FIELD = new RegExp(
  * `&`), so the next secret on the line is matched too.
  */
 const SECRET_FIELD = new RegExp(
-  String.raw`(\b${NAME}\s{0,8}[:=][ \t]{0,8})("(?:[^"\\\r\n]|\\.)*"|'(?:[^'\\\r\n]|\\.)*'|["'][^\r\n]*|[^\s&]+)`,
+  String.raw`(${NAME}\s{0,8}[:=][ \t]{0,8})("(?:[^"\\\r\n]|\\.)*"|'(?:[^'\\\r\n]|\\.)*'|["'][^\r\n]*|[^\s&]+)`,
   "gi",
 );
 
@@ -262,6 +267,13 @@ export const MAX_LINE = 16 * 1024;
 const CUT_CONTEXT = 1024;
 /** Cut points tried before a long line is masked from there to its end. */
 const CUT_TRIES = 32;
+/**
+ * Raw text before a cut that its check looks at: longer than any bounded
+ * match (a secret, a URL's credentials, a field's name and short value). A
+ * match that starts further back is unbounded and runs to the cut, which
+ * the caller catches (the redacted prefix then ends masked).
+ */
+const CUT_WINDOW = 4096;
 
 /** `text` in pieces of at most MAX_LINE. */
 function pieces(text: string): string[] {
@@ -273,18 +285,24 @@ function pieces(text: string): string[] {
 }
 
 /**
- * Where a long line can be cut so that redacting the two halves apart masks
- * exactly what redacting it whole would: no secret, field or URL credential
- * spans the cut. Tries `from`, then earlier whitespace. 0 when none works.
+ * Where a long line can be cut so that no bounded match (a secret, a field,
+ * a URL credential) spans the cut: around the cut, redacting the two halves
+ * apart masks exactly what redacting them together would. Only a window of
+ * CUT_WINDOW before the cut and what follows it (the kept-back context) is
+ * checked, so each try costs the same however long the line is. Tries
+ * `from`, then earlier whitespace. 0 when none works.
  */
 function safeCut(text: string, secrets: readonly string[], from: number) {
-  const whole = redactLog(text, secrets);
   let p = from;
   for (let tries = 0; tries < CUT_TRIES && p > 0; tries += 1) {
-    const left = redactLog(text.slice(0, p), secrets);
-    if (left + redactLog(text.slice(p), secrets) === whole) return p;
+    const start = Math.max(0, p - CUT_WINDOW);
+    const window = text.slice(start);
+    const at = p - start;
+    const left = redactLog(window.slice(0, at), secrets);
+    const right = redactLog(window.slice(at), secrets);
+    if (left + right === redactLog(window, secrets)) return p;
     const space = text.lastIndexOf(" ", p - 2);
-    p = space >= 0 ? space + 1 : p - CUT_CONTEXT;
+    p = space > start ? space + 1 : p - CUT_CONTEXT;
   }
   return 0;
 }
@@ -328,7 +346,16 @@ export function lineSplitter(
           skipping = true;
           break;
         }
-        out.push(...pieces(redactLog(carry.slice(0, cut), secrets)));
+        const prefix = carry.slice(0, cut);
+        const sent = redactLog(prefix, secrets);
+        out.push(...pieces(sent));
+        if (sent.endsWith(REDACTED_VALUE) && !prefix.endsWith(REDACTED_VALUE)) {
+          // A mask ran to the cut (a YAML value, an unclosed quote, a token
+          // longer than the window): the rest of the line may be more of it.
+          carry = "";
+          skipping = true;
+          break;
+        }
         carry = carry.slice(cut);
       }
     }

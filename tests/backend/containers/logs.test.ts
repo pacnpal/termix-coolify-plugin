@@ -4,7 +4,11 @@ import { OTHER, OWNER, type PluginHarness } from "../helpers/plugin.js";
 import { resourceLists } from "../helpers/resources.js";
 import { fakeDocker, HOST_ID, setSensitive, startShell } from "./fixtures.js";
 import { RECHECK_MS } from "../../../src/backend/containers/sockets.js";
-import { MAX_LINE, redactLog } from "../../../src/backend/containers/logs.js";
+import {
+  lineSplitter,
+  MAX_LINE,
+  redactLog,
+} from "../../../src/backend/containers/logs.js";
 
 describe("redactLog", () => {
   const masked = (text: string) => redactLog(text, []);
@@ -63,6 +67,58 @@ describe("redactLog", () => {
       const out = masked(line);
       expect(out, line).toContain("[redacted]");
       expect(out, line).not.toMatch(/dTpw|abc/);
+    }
+  });
+
+  it("redacts one MAX_LINE line within budget, adversarial ones too", () => {
+    const inputs = [
+      // Scheme-like letter runs, dotted words, a secret field every so often.
+      ("abcdefghij".repeat(40) + " a-b.c-d.e-f " + "password=x ").repeat(
+        Math.ceil(MAX_LINE / 470),
+      ),
+      "a-".repeat(MAX_LINE / 2),
+      "q".repeat(MAX_LINE),
+      'password="' + "\\".repeat(MAX_LINE),
+      'password="' + '\\"'.repeat(MAX_LINE / 2),
+      "x://" + "y".repeat(MAX_LINE),
+      "&" + "token".repeat(MAX_LINE / 5),
+    ].map((s) => s.slice(0, MAX_LINE));
+    for (const line of inputs) {
+      const started = performance.now();
+      redactLog(line, [TOKEN]);
+      expect(performance.now() - started, line.slice(0, 20)).toBeLessThan(20);
+    }
+  });
+
+  it("streams 2 MB with no newline through the follow splitter in 500 ms, leaking nothing", () => {
+    const block =
+      "z".repeat(3000) +
+      ` ${TOKEN} ` +
+      "word-".repeat(400) +
+      " password=fake-perf-pass " +
+      "abcdefghij".repeat(300);
+    const text = block.repeat(Math.ceil((2 * 1024 * 1024) / block.length));
+    const sent: string[] = [];
+    const split = lineSplitter([TOKEN], (lines) => sent.push(...lines));
+    const started = performance.now();
+    for (let i = 0; i < text.length; i += 64 * 1024) {
+      split.data(Buffer.from(text.slice(i, i + 64 * 1024)));
+    }
+    split.end();
+    const took = performance.now() - started;
+    expect(took).toBeLessThan(500);
+    expect(sent.length).toBeGreaterThan(100);
+    for (const piece of sent) {
+      expect(piece.length).toBeLessThanOrEqual(MAX_LINE);
+      for (const leak of [
+        TOKEN,
+        TOKEN.slice(0, 6),
+        TOKEN.slice(-6),
+        "fake-perf",
+        "perf-pass",
+      ]) {
+        expect(piece).not.toContain(leak);
+      }
     }
   });
 
