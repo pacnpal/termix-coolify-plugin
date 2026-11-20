@@ -13,7 +13,12 @@ import {
   type Resource,
   type ResourceMetrics,
 } from "../api";
-import { openLive, type OpenLive } from "../live";
+import { openSocket } from "../socket";
+
+/** Opens one of this plugin's sockets; tests give their own. */
+type OpenLive = typeof openSocket;
+/** WebSocket.OPEN. */
+const OPEN = 1;
 import {
   describeMetricsFailure,
   formatBytes,
@@ -101,7 +106,9 @@ function LiveReadout({
             );
           }
         };
-        s.send(JSON.stringify({ connectionId, uuid }));
+        const start = () => s.send(JSON.stringify({ connectionId, uuid }));
+        if (s.readyState === OPEN) start();
+        else s.onopen = start;
       })
       .catch(() => {
         if (!gone) setFailed(t("metrics.live.unavailable"));
@@ -150,7 +157,7 @@ export function StatsTab({
   connectionId,
   resource,
   isVisible,
-  open = openLive,
+  open = openSocket,
 }: {
   connectionId: number;
   resource: Resource;

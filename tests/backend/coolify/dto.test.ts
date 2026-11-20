@@ -102,12 +102,43 @@ describe("Coolify DTO strippers", () => {
     ]);
     expect(toPatch(null, null, null)).toBeNull();
     expect(toPatch(null, null, "apt failed")).toMatchObject({
-      updates: 0,
+      updates: null,
       error: "apt failed",
     });
     expect(
       toPatch({ updates: [{ package: "x", security: true }] }, null, null),
     ).toMatchObject({ updates: 1, security: 1, rebootRequired: null });
+  });
+
+  it("toPatch reads a failed check as unknown, never as zero updates", () => {
+    const at = "2026-11-18T10:00:00Z";
+    for (const result of [
+      null,
+      { total_updates: 0, security_updates: 0, updates: [] },
+    ]) {
+      expect(toPatch(result, at, "apt-get update failed")).toMatchObject({
+        updates: null,
+        security: null,
+        error: "apt-get update failed",
+      });
+    }
+  });
+
+  it("toPatch keeps a security count Coolify doesn't know as unknown", () => {
+    // Coolify sends security_updates null for pacman and apk, where it can't
+    // tell, even though each update carries security: false.
+    const patch = toPatch(
+      {
+        total_updates: 1,
+        security_updates: null,
+        reboot_required: null,
+        updates: [{ package: "docker", security: false, risk: "docker" }],
+      },
+      "2026-11-18T10:00:00Z",
+      null,
+    );
+    expect(patch).toMatchObject({ updates: 1, security: null });
+    expect(patch?.items[0].risk).toBe("docker");
   });
 
   it("toService flattens parts", () => {
@@ -320,36 +351,35 @@ describe("Coolify API wrappers", () => {
     );
   });
 
+  it("asks for a service's logs only through one of its parts", async () => {
+    const { api: coolify, fake } = api({
+      "GET /services/svc/logs": {
+        status: 400,
+        json: { message: "sub_service_name is required." },
+      },
+    });
+    await expect(
+      coolify.logs("service", "svc", { lines: 1 }),
+    ).rejects.toMatchObject({ cause: "validation" });
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  it("never takes a deployment's numeric application_id for its resource uuid", async () => {
+    const queued = { deployment_uuid: "dep-2", application_id: "12" };
+    expect(toDeployment(queued).resourceUuid).toBeNull();
+    const { api: coolify } = api({
+      "GET /deployments/applications/app-a": { json: [queued] },
+      "GET /deployments/dep-2": { json: queued },
+    });
+    const [listed] = await coolify.deployments("app-a", { skip: 0, take: 1 });
+    expect(listed.resourceUuid).toBe("app-a");
+    expect((await coolify.deployment("dep-2")).resourceUuid).toBeNull();
+  });
+
   it("refuses a part without its service", async () => {
     const { api: coolify } = api({});
     await expect(
       coolify.lifecycle("service-database", "pdb", "start"),
     ).rejects.toMatchObject({ cause: "validation" });
-  });
-
-  it("reads Sentinel settings: the IP mode and flags, never the token or keys", async () => {
-    const { api: coolify } = api({
-      "GET /servers/s/sentinel": {
-        json: {
-          is_sentinel_enabled: true,
-          is_metrics_enabled: false,
-          sentinel_token: "FAKE-SENTINEL-TOKEN",
-          sentinel_custom_url: "https://fake.invalid/push",
-          geoip_maxmind_license_key: "FAKE-GEOIP-KEY",
-          sentinel_metrics_history_days: 7,
-          traffic_ip_mode: "anonymized",
-        },
-      },
-      "GET /servers/t/sentinel": { json: { traffic_ip_mode: "sideways" } },
-    });
-    const settings = await coolify.sentinelSettings("s");
-    expect(settings).toEqual({
-      sentinelEnabled: true,
-      metricsEnabled: false,
-      historyDays: 7,
-      trafficIpMode: "anonymized",
-    });
-    expect(JSON.stringify(settings)).not.toMatch(/FAKE-/);
-    expect((await coolify.sentinelSettings("t")).trafficIpMode).toBeNull();
   });
 });

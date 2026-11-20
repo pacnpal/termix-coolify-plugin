@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { PluginFetchInit } from "@termix-ssh/plugin-sdk/backend";
 import {
   CoolifyError,
+  createCoolifyHttp,
   type CoolifyTarget,
 } from "../../../src/backend/coolify/http.js";
 import {
@@ -68,7 +69,7 @@ describe("Coolify MCP client", () => {
     const { fetch, calls } = scripted(() =>
       rpcResult(toolText({ success: true, data: { servers: 2 } })),
     );
-    const mcp = createCoolifyMcp(fetch, target);
+    const mcp = createCoolifyMcp(createCoolifyHttp(fetch, target));
     const data = await mcp.call<{ servers: number }>(
       "get_infrastructure_overview",
       {},
@@ -101,7 +102,7 @@ describe("Coolify MCP client", () => {
           { status: 200, headers: { "content-type": "text/event-stream" } },
         ),
     );
-    const mcp = createCoolifyMcp(fetch, target);
+    const mcp = createCoolifyMcp(createCoolifyHttp(fetch, target));
     expect(await mcp.call("x", {})).toEqual({ ok: true });
   });
 
@@ -110,7 +111,10 @@ describe("Coolify MCP client", () => {
       rpcResult(toolText({ error: `leaked ${TOKEN}` }, true)),
     );
     const err = await caught(
-      createCoolifyMcp(fetch, target).call("get_server_metrics", {}),
+      createCoolifyMcp(createCoolifyHttp(fetch, target)).call(
+        "get_server_metrics",
+        {},
+      ),
     );
     expect(err.cause).toBe("upstream");
     expect(err.message).not.toContain(TOKEN);
@@ -120,7 +124,9 @@ describe("Coolify MCP client", () => {
     const { fetch } = scripted(
       () => new Response("Not Found", { status: 404 }),
     );
-    expect(await createCoolifyMcp(fetch, target).available()).toBe(false);
+    expect(
+      await createCoolifyMcp(createCoolifyHttp(fetch, target)).available(),
+    ).toBe(false);
   });
 
   it("403 means unavailable", async () => {
@@ -131,12 +137,16 @@ describe("Coolify MCP client", () => {
           headers: { "content-type": "application/json" },
         }),
     );
-    expect(await createCoolifyMcp(fetch, target).available()).toBe(false);
+    expect(
+      await createCoolifyMcp(createCoolifyHttp(fetch, target)).available(),
+    ).toBe(false);
   });
 
   it("is available when tools/list answers", async () => {
     const { fetch, calls } = scripted(() => rpcResult({ tools: [] }));
-    expect(await createCoolifyMcp(fetch, target).available()).toBe(true);
+    expect(
+      await createCoolifyMcp(createCoolifyHttp(fetch, target)).available(),
+    ).toBe(true);
     expect(calls[0].body.method).toBe("tools/list");
   });
 
@@ -166,7 +176,7 @@ describe("Coolify MCP client", () => {
         }),
       ),
     );
-    const mcp = createCoolifyMcp(fetch, target);
+    const mcp = createCoolifyMcp(createCoolifyHttp(fetch, target));
     expect(MAX_METRIC_MINUTES).toBe(43200);
     const metrics = await mcp.serverMetrics("srv-vps1-uuid", 999_999);
     expect(calls[0].body.params).toEqual({

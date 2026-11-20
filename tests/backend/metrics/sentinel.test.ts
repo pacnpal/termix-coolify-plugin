@@ -42,10 +42,22 @@ describe("Sentinel over SSH", () => {
     expect(containerHistoryPath("k8sappweb1", "memory", WINDOW)).toMatch(
       /^\/api\/container\/k8sappweb1\/memory\/history\?/,
     );
+    // The shared path-segment check: a dashed Coolify uuid is one segment.
+    expect(containerHistoryPath("app-web-uuid", "cpu", WINDOW)).toMatch(
+      /^\/api\/container\/app-web-uuid\/cpu\/history\?/,
+    );
   });
 
   it("a uuid that isn't a safe segment never becomes a path", () => {
-    for (const bad of ["../summary", "a/b", "a-b", "a b", "", "x;reboot"]) {
+    for (const bad of [
+      "../summary",
+      "..",
+      "a/b",
+      "a%2Fb",
+      "a b",
+      "",
+      "x;reboot",
+    ]) {
       expect(() => containerHistoryPath(bad, "cpu", WINDOW)).toThrow(
         SentinelError,
       );

@@ -128,6 +128,7 @@ function PhoneRow({
     serverLabel(r),
     placeLabel(t, r),
     r.fqdns[0],
+    formatTime(r.lastDeployAt),
   ]
     .filter(Boolean)
     .join(" · ");

@@ -1,19 +1,20 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import type { ResourceDto, ServerDto } from "../coolify/dto.js";
 import { CoolifyError } from "../coolify/http.js";
-import { clampMinutes, numberMap, type MetricPoint } from "../coolify/mcp.js";
+import {
+  clampMinutes,
+  createCoolifyMcp,
+  numberMap,
+  type MetricPoint,
+} from "../coolify/mcp.js";
+import { pathParamProblem } from "../coolify/path.js";
 import type { Connections } from "../connections/service.js";
 import type { Resources } from "../resources/service.js";
-import {
-  dockerNeedsSudo,
-  isHostKeyError,
-  sshRunner,
-  type SshRunner,
-} from "../ssh.js";
+import { isHostKeyError, sshRunner, type SshRunner } from "../ssh.js";
 import type { Sync } from "../sync/service.js";
 import {
   containerHistoryPath,
-  isSafeSegment,
+  dockerNeedsSudo,
   SentinelError,
   sentinelGet,
   serverHistoryPath,
@@ -74,7 +75,11 @@ export class MetricsError extends Error {
 }
 
 const DEFAULT_MINUTES = 60;
-const UUID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** A uuid that can't be one path segment reads as missing. */
+function badUuid(uuid: string): boolean {
+  return pathParamProblem("uuid", uuid) !== null;
+}
 
 function invalid(message: string): MetricsError {
   return new MetricsError("invalid-input", message);
@@ -353,15 +358,12 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
     connectionId: number,
     uuid: string,
   ): Promise<ResourceDto> {
-    if (!UUID.test(uuid)) {
+    if (badUuid(uuid)) {
       throw new MetricsError("not-found", "Coolify resource not found");
     }
     const found = await deps.resources.get(connectionId, uuid);
     if (!found) {
       throw new MetricsError("not-found", "Coolify resource not found");
-    }
-    if (!isSafeSegment(uuid)) {
-      throw invalid("Sentinel can't be asked about this uuid.");
     }
     return found;
   }
@@ -408,7 +410,7 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
       query: { minutes?: unknown } = {},
     ): Promise<ServerMetrics> {
       const minutes = readMinutes(query.minutes);
-      if (!UUID.test(serverUuid)) {
+      if (badUuid(serverUuid)) {
         throw new MetricsError("not-found", "Coolify server not found");
       }
       // The connection (any access) and the server, from Coolify's API.
@@ -417,20 +419,20 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
         throw new MetricsError("not-found", "Coolify connection not found");
       const server = await serverOf(connectionId, serverUuid);
       await requireMetrics(connectionId, server);
-      if (conn.abilities.mcp) {
-        try {
-          const mcp = await deps.connections.mcp(connectionId);
-          const data = await mcp.serverMetrics(serverUuid, minutes);
-          return {
-            source: "mcp",
-            minutes,
-            current: data.current,
-            series: data.series,
-          };
-        } catch (err) {
-          // MCP turned off or refused since the probe: use Sentinel.
-          if (!(err instanceof CoolifyError)) throw err;
-        }
+      // Coolify's MCP first (off by default): any refusal falls to Sentinel.
+      try {
+        const mcp = createCoolifyMcp(
+          (await deps.connections.snapshot(connectionId)).http,
+        );
+        const data = await mcp.serverMetrics(serverUuid, minutes);
+        return {
+          source: "mcp",
+          minutes,
+          current: data.current,
+          series: data.series,
+        };
+      } catch (err) {
+        if (!(err instanceof CoolifyError)) throw err;
       }
       return sentinelServerMetrics(connectionId, serverUuid, minutes);
     },
@@ -526,7 +528,7 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
       connectionId: number,
       serverUuid: string,
     ): Promise<{ enabled: true }> {
-      if (!UUID.test(serverUuid)) {
+      if (badUuid(serverUuid)) {
         throw new MetricsError("not-found", "Coolify server not found");
       }
       const access = await deps.connections.access(connectionId);

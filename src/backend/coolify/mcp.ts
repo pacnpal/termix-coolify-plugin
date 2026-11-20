@@ -1,10 +1,4 @@
-import type { PluginFetch } from "@termix-ssh/plugin-sdk/backend";
-import {
-  coolifyInit,
-  CoolifyError,
-  failureOf,
-  type CoolifyTarget,
-} from "./http.js";
+import { CoolifyError, type CoolifyHttp } from "./http.js";
 
 /** Coolify's own cap on a get_server_metrics window: 30 days. */
 export const MAX_METRIC_MINUTES = 43_200;
@@ -74,13 +68,14 @@ export function seriesMap(value: unknown): Record<string, MetricPoint[]> {
 }
 
 /** The one JSON-RPC message in a JSON body or a server-sent events body. */
-function rpcMessage(text: string, contentType: string): Raw | null {
-  const candidates = /event-stream/i.test(contentType)
-    ? text
-        .split(/\r?\n/)
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice(5).trim())
-    : [text];
+function rpcMessage(text: string): Raw | null {
+  const candidates = [
+    text,
+    ...text
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trim()),
+  ];
   for (const candidate of candidates) {
     try {
       const parsed = JSON.parse(candidate) as unknown;
@@ -95,41 +90,24 @@ function rpcMessage(text: string, contentType: string): Raw | null {
 
 /**
  * A minimal client for Coolify's own MCP endpoint (`<url>/mcp`, stateless
- * streamable HTTP), used where it saves SSH: get_server_metrics. Calls go out
- * with the same headers and rules as the REST layer. Nothing Coolify sends
- * back becomes an error message.
+ * streamable HTTP), used where it saves SSH: get_server_metrics. Every call
+ * goes through the connection's own request layer (`http.ts`): its headers,
+ * transport check, budget and error mapping. Nothing Coolify sends back
+ * becomes an error message.
  */
-export function createCoolifyMcp(
-  fetch: PluginFetch,
-  target: CoolifyTarget,
-): CoolifyMcp {
-  const url = `${target.baseUrl.trim().replace(/\/+$/, "")}/mcp`;
+export function createCoolifyMcp(http: CoolifyHttp): CoolifyMcp {
   let nextId = 1;
 
   async function rpc(method: string, params: object): Promise<Raw> {
-    const init = coolifyInit(target, "POST", {
-      jsonrpc: "2.0",
-      id: nextId++,
-      method,
-      params,
+    const text = await http.request<string>("POST", "/mcp", {
+      mcp: true,
+      text: true,
+      retry: false,
+      body: { jsonrpc: "2.0", id: nextId++, method, params },
     });
-    (init.headers as Record<string, string>).accept =
-      "application/json, text/event-stream";
-    let response: Response;
-    try {
-      response = await fetch(url, init);
-    } catch {
-      throw new CoolifyError("unreachable", 0);
-    }
-    if (response.status < 200 || response.status >= 300) {
-      throw await failureOf(response);
-    }
-    const message = rpcMessage(
-      await response.text(),
-      response.headers.get("content-type") ?? "",
-    );
-    if (!message) throw new CoolifyError("not-coolify", response.status);
-    if (message.error) throw new CoolifyError("upstream", response.status);
+    const message = rpcMessage(text);
+    if (!message) throw new CoolifyError("not-coolify", 200);
+    if (message.error) throw new CoolifyError("upstream", 200);
     return obj(message.result);
   }
 

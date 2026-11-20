@@ -7,7 +7,7 @@ import type {
 export type SshRunner = (
   hostId: number,
   command: string,
-  opts?: { stdin?: string; timeoutMs?: number },
+  opts?: { stdin?: string; timeoutMs?: number; maxOutputBytes?: number },
 ) => Promise<PluginSshExecResult>;
 
 /** Short probes on a Linked host, through core's SSH pipeline (ctx.ssh.exec). */
@@ -17,24 +17,9 @@ export function sshRunner(ctx: PluginContext): SshRunner {
       purpose: "coolify",
       profile: "background",
       timeoutMs: opts.timeoutMs ?? 20_000,
-      maxOutputBytes: 256 * 1024,
+      maxOutputBytes: opts.maxOutputBytes ?? 256 * 1024,
       stdin: opts.stdin,
     });
-}
-
-/**
- * Whether docker needs sudo on a Linked host: the SSH user is not root and
- * not in the docker group. Null when the user can't be read.
- */
-export async function dockerNeedsSudo(
-  run: SshRunner,
-  hostId: number,
-): Promise<boolean | null> {
-  const result = await run(hostId, "id -u; id -Gn");
-  const [uid, groups] = result.stdout.split("\n").map((l) => l.trim());
-  if (result.code !== 0 || !/^\d+$/.test(uid ?? "")) return null;
-  if (uid === "0") return false;
-  return !(groups ?? "").split(/\s+/).includes("docker");
 }
 
 const HOST_KEY_CODES = new Set(["HOST_KEY_UNVERIFIED", "HOST_KEY_CHANGED"]);

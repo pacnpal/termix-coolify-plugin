@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { createCoolifyApi } from "../../../src/backend/coolify/api.js";
 import { createCoolifyHttp } from "../../../src/backend/coolify/http.js";
 import { runProbe } from "../../../src/backend/connections/probe.js";
-import { createCoolifyMcp } from "../../../src/backend/coolify/mcp.js";
 import {
   fakeCoolify,
   healthyCoolify,
@@ -11,21 +10,19 @@ import {
 
 const TOKEN = "fake-token-probe";
 
-const TARGET = {
-  baseUrl: "https://coolify.example.test",
-  token: TOKEN,
-  cfAccess: null,
-  allowPrivate: false,
-  caCert: null,
-};
-
-function probeWith(
-  fake: ReturnType<typeof fakeCoolify>,
-  opts: { mcp?: boolean } = {},
-) {
-  const http = createCoolifyHttp(fake.fetch, TARGET, { sleep: async () => {} });
-  const mcp = opts.mcp ? createCoolifyMcp(fake.fetch, TARGET) : undefined;
-  return runProbe(createCoolifyApi(http), http, mcp);
+function probeWith(fake: ReturnType<typeof fakeCoolify>) {
+  const http = createCoolifyHttp(
+    fake.fetch,
+    {
+      baseUrl: "https://coolify.example.test",
+      token: TOKEN,
+      cfAccess: null,
+      allowPrivate: false,
+      caCert: null,
+    },
+    { sleep: async () => {} },
+  );
+  return runProbe(createCoolifyApi(http), http);
 }
 
 const forbidden: FakeAnswer = { status: 403, json: { message: "Forbidden." } };
@@ -57,10 +54,10 @@ describe("ability probe", () => {
       "team",
       "keys",
       "logs",
-      "root",
+      "settings",
     ]);
-    expect(step(result, "root")).toEqual({
-      id: "root",
+    expect(step(result, "settings")).toEqual({
+      id: "settings",
       ok: false,
       cause: "forbidden-ability",
     });
@@ -139,6 +136,84 @@ describe("ability probe", () => {
     });
   });
 
+  it("scoped token with only service parts still detects read:sensitive", async () => {
+    const fake = healthyCoolify({
+      "GET /team": forbidden,
+      "GET /applications": { json: [] },
+      "GET /databases": { json: [] },
+      "GET /services": {
+        json: [
+          {
+            id: 5,
+            uuid: "svc-uuid",
+            name: "stack",
+            applications: [{ id: 6, uuid: "svc-app-uuid", name: "web" }],
+            databases: [],
+          },
+        ],
+      },
+      "GET /services/svc-uuid/applications/svc-app-uuid/logs": {
+        json: { logs: "a line" },
+      },
+    });
+    const result = await probeWith(fake);
+    expect(result.scoped).toBe(true);
+    expect(result.abilities.sensitive).toBe(true);
+    expect(step(result, "logs")).toEqual({ id: "logs", ok: true });
+    expect(
+      fake.calls.some(
+        (c) => c.path === "/services/svc-uuid/applications/svc-app-uuid/logs",
+      ),
+    ).toBe(true);
+  });
+
+  it("says there was nothing to probe instead of claiming the token can't read logs", async () => {
+    const result = await probeWith(
+      healthyCoolify({
+        "GET /team": forbidden,
+        "GET /applications": { json: [] },
+        "GET /databases": { json: [] },
+        "GET /services": { json: [] },
+      }),
+    );
+    expect(result.abilities.sensitive).toBe(false);
+    expect(step(result, "logs")).toEqual({
+      id: "logs",
+      ok: false,
+      skipped: "nothing-to-probe",
+    });
+
+    const noKeys = await probeWith(
+      healthyCoolify({ "GET /security/keys": { json: [] } }),
+    );
+    expect(noKeys.abilities.keys).toBe(false);
+    expect(step(noKeys, "keys")).toEqual({
+      id: "keys",
+      ok: false,
+      skipped: "nothing-to-probe",
+    });
+  });
+
+  it("email settings access does not imply root or sensitive", async () => {
+    const result = await probeWith(
+      healthyCoolify({
+        "GET /settings/email": { json: { smtp_enabled: false } },
+        "GET /security/keys/key-uuid": {
+          json: { id: 3, uuid: "key-uuid", name: "deploy key" },
+        },
+        "GET /applications/app-web-uuid/logs": forbidden,
+      }),
+    );
+    expect(result.abilities).toMatchObject({
+      keys: false,
+      sensitive: false,
+      root: false,
+    });
+    // Reading instance settings is recorded as its own step, not an ability.
+    expect(step(result, "settings")).toEqual({ id: "settings", ok: true });
+    expect(step(result, "root")).toBeUndefined();
+  });
+
   it("stops at the first step when Coolify can't be reached, with a cause", async () => {
     const fetch = async () => {
       throw new Error("ECONNREFUSED");
@@ -203,20 +278,5 @@ describe("ability probe", () => {
       }),
     );
     expect(step(result, "version")?.cause).toBe("not-coolify");
-  });
-
-  it("sets abilities.mcp from Coolify's MCP endpoint, without a step", async () => {
-    const on = healthyCoolify({
-      "POST https://coolify.example.test/mcp": {
-        json: { jsonrpc: "2.0", id: 1, result: { tools: [] } },
-      },
-    });
-    const enabled = await probeWith(on, { mcp: true });
-    expect(enabled.abilities.mcp).toBe(true);
-    expect(enabled.steps.map((s) => s.id)).not.toContain("mcp");
-    // Unrouted, so the fake answers 404: MCP is off on that instance.
-    const off = await probeWith(healthyCoolify(), { mcp: true });
-    expect(off.abilities.mcp).toBe(false);
-    expect(off.ok).toBe(true);
   });
 });

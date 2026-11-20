@@ -5,7 +5,7 @@ import {
   parseDockerStats,
   STATS_INTERVAL_MS,
   statsCommand,
-} from "../../../src/backend/containers/sockets.js";
+} from "../../../src/backend/containers/stats.js";
 import { OTHER, OWNER, type PluginHarness } from "../helpers/plugin.js";
 import { fakeDocker, startShell } from "./fixtures.js";
 

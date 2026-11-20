@@ -20,6 +20,8 @@ import locales from "../../../locales/en.json";
 import { connection, resourceAnswer } from "../fixtures";
 
 class FakeLive {
+  readyState = 1;
+  onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
   sent: unknown[] = [];
   closed = false;
@@ -39,9 +41,10 @@ const live = vi.hoisted(() => ({
   open: null as unknown as (path: string) => Promise<unknown>,
 }));
 
-vi.mock("../../../src/frontend/live", () => ({
-  setLiveApp: () => undefined,
-  openLive: (path: string) => live.open(path),
+vi.mock("../../../src/frontend/socket", () => ({
+  setWsUrl: () => undefined,
+  keepSocketTarget: () => undefined,
+  openSocket: (path: string) => live.open(path),
 }));
 
 const manifest = manifestJson as unknown as PluginManifest;

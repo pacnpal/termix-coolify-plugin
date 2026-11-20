@@ -112,11 +112,53 @@ describe("container shell commands", () => {
     );
     expect(DB_CONSOLES.mysql.script).toContain("$MYSQL_ROOT_PASSWORD");
     expect(DB_CONSOLES.mariadb.script).toContain("$MARIADB_ROOT_PASSWORD");
-    expect(DB_CONSOLES.mongodb.script).toContain("$MONGO_INITDB_ROOT_PASSWORD");
     expect(DB_CONSOLES.redis.script).toContain("$REDIS_PASSWORD");
     expect(DB_CONSOLES.keydb.script).toContain("$REDIS_PASSWORD");
     expect(DB_CONSOLES.dragonfly.script).toContain("$REDIS_PASSWORD");
-    expect(DB_CONSOLES.clickhouse.script).toContain("$CLICKHOUSE_PASSWORD");
+  });
+
+  it("no console puts a password variable in the client's argv", () => {
+    for (const [engine, { script }] of Object.entries(DB_CONSOLES)) {
+      // No password flag, whatever value follows it.
+      expect(script, engine).not.toMatch(
+        /(^|\s)(-p|--password|--pass)(\s|=|$)/,
+      );
+      // A password variable is only ever an env assignment's value, like
+      // PGPASSWORD="$POSTGRES_PASSWORD", which the client reads from its
+      // environment, never from its arguments.
+      const uses = [...script.matchAll(/\$\{?([A-Z0-9_]*PASS[A-Z0-9_]*)/g)];
+      for (const use of uses) {
+        const before = script.slice(0, use.index);
+        expect(before, `${engine}: ${use[0]}`).toMatch(
+          /(^|\s)[A-Z][A-Z0-9_]*="$/,
+        );
+        const after = script.slice(use.index! + use[0].length);
+        expect(after, `${engine}: ${use[0]}`).toMatch(/^\}?"\s+(exec\s|[A-Z])/);
+      }
+    }
+  });
+
+  it("mongodb console reads credentials from process.env", () => {
+    const { script } = DB_CONSOLES.mongodb;
+    expect(script).toMatch(/^exec mongosh --nodb --shell --quiet --eval "/);
+    expect(script).toContain("process.env");
+    expect(script).toContain("MONGO_INITDB_ROOT_USERNAME");
+    expect(script).toContain("MONGO_INITDB_ROOT_PASSWORD");
+    expect(script).toContain("encodeURIComponent");
+    expect(script).toContain("authSource=admin");
+    expect(script).toContain("getSiblingDB");
+    // Nothing for the container's sh to expand: the JavaScript reads the env.
+    expect(script).not.toContain("$");
+    expect(script).not.toContain("`");
+  });
+
+  it("clickhouse console reads the password from env or a 0600 config file", () => {
+    const { script } = DB_CONSOLES.clickhouse;
+    // clickhouse-client reads CLICKHOUSE_USER and CLICKHOUSE_PASSWORD from its
+    // environment (programs/client/Client.cpp, since 24.3); Coolify sets both.
+    expect(script).toBe(`exec clickhouse-client --database "$CLICKHOUSE_DB"`);
+    expect(script).not.toContain("PASSWORD");
+    expect(script).not.toContain("--user");
   });
 
   it("refuses a database console for an engine it doesn't know", () => {

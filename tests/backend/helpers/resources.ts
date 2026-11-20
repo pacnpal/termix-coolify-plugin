@@ -39,7 +39,7 @@ export function resourceLists(): Record<string, FakeAnswer> {
           uuid: "app-api-uuid",
           name: "api",
           fqdn: "https://api.x",
-          status: "exited:unhealthy",
+          status: "running:unhealthy",
           destination: {
             server: {
               uuid: "srv-edge-uuid",

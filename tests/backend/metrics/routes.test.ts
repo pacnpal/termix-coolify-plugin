@@ -304,12 +304,11 @@ describe("resource metrics", () => {
     ]);
   });
 
-  it("refuses a uuid Sentinel can't be asked about, before any SSH", async () => {
+  it("checks the uuid as one path segment, as every Coolify path does", async () => {
     const { resource, harness: h } = await start();
     const ssh = fakeSentinel(h, HISTORY);
-    // app-web-uuid is a real resource, but has dashes.
-    const answer = await resource("app-web-uuid", "metrics");
-    expect(answer.status).toBe(400);
+    // A uuid that can't be one segment is never looked up or sent.
+    expect((await resource("a%2Fb", "metrics")).status).toBe(404);
     expect(ssh.commands).toEqual([]);
   });
 

@@ -1,5 +1,6 @@
 import { shellQuote } from "@termix-ssh/plugin-sdk/host-scripts";
 import { dockerPrefix } from "../containers/commands.js";
+import { pathParamProblem } from "../coolify/path.js";
 import type { SshRunner } from "../ssh.js";
 
 /**
@@ -8,12 +9,6 @@ import type { SshRunner } from "../ssh.js";
  * colon is there for Sentinel's ISO timestamps (from=2026-11-19T10:00:00Z).
  */
 const SENTINEL_PATH = /^\/api\/[A-Za-z0-9_/.\-?=&:]+$/;
-
-/**
- * A uuid as one path segment: letters and digits only. Coolify's uuids are
- * like that, and nothing else may reach a Sentinel path.
- */
-const SAFE_SEGMENT = /^[A-Za-z0-9]{1,64}$/;
 
 export const TRAFFIC_VIEWS = [
   "overview",
@@ -70,15 +65,27 @@ export function isSentinelPath(path: string): boolean {
   return SENTINEL_PATH.test(path) && !path.includes("..");
 }
 
-export function isSafeSegment(value: string): boolean {
-  return SAFE_SEGMENT.test(value);
-}
-
+/** A uuid as one path segment, by the same check every Coolify path uses. */
 function segment(value: string): string {
-  if (!isSafeSegment(value)) {
+  if (pathParamProblem("uuid", value)) {
     throw new SentinelError("bad-path", "Not a Coolify uuid");
   }
-  return value;
+  return encodeURIComponent(value);
+}
+
+/**
+ * Whether docker needs sudo on a Linked host: the SSH user is not root and
+ * not in the docker group. Null when the user can't be read.
+ */
+export async function dockerNeedsSudo(
+  run: SshRunner,
+  hostId: number,
+): Promise<boolean | null> {
+  const result = await run(hostId, "id -u; id -Gn");
+  const [uid, groups] = result.stdout.split("\n").map((l) => l.trim());
+  if (result.code !== 0 || !/^\d+$/.test(uid ?? "")) return null;
+  if (uid === "0") return false;
+  return !(groups ?? "").split(/\s+/).includes("docker");
 }
 
 /** Sentinel's timestamp format: ISO 8601 UTC to the second. */

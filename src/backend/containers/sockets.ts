@@ -2,316 +2,359 @@ import type {
   PluginContext,
   PluginWebSocketConnection,
 } from "@termix-ssh/plugin-sdk/backend";
-import { ConnectionError, type Connections } from "../connections/service.js";
+import { ConnectionError } from "../connections/service.js";
 import { CoolifyError, toRouteError } from "../coolify/http.js";
-import { sshRunner, type SshRunner } from "../ssh.js";
-import { assertContainerName, dockerPrefix } from "./commands.js";
-import {
-  ContainerError,
-  readShellRequest,
-  type Containers,
-} from "./service.js";
+import { assertContainerName } from "./commands.js";
+import type { Following, Logs } from "./logs.js";
+import { ContainerError } from "./service.js";
 
-/** How often the live readout runs docker stats. */
-export const STATS_INTERVAL_MS = 3_000;
-const MAX_MESSAGE = 4_096;
+/** Served at /plugin-ws/coolify/logs. */
+export const LOG_SOCKET_PATH = "/logs";
 
-/** One docker stats reading. Bytes are bytes; percentages are 0 to 100. */
-export interface StatsSample {
-  cpu: number;
-  memPct: number;
-  memBytes: number;
-  netRx: number;
-  netTx: number;
+/** The part of a ws WebSocket this route uses. */
+interface WsLike {
+  readyState: number;
+  send(data: string): void;
+  close(code?: number, reason?: string): void;
+  on(event: "message", listener: (data: unknown) => void): unknown;
+  on(event: "close" | "error", listener: () => void): unknown;
 }
 
-const UNITS: Record<string, number> = {
-  b: 1,
-  kb: 1e3,
-  mb: 1e6,
-  gb: 1e9,
-  tb: 1e12,
-  kib: 1024,
-  mib: 1024 ** 2,
-  gib: 1024 ** 3,
-  tib: 1024 ** 4,
-};
+const OPEN = 1;
+/** Policy violation: the close code for a refusal. */
+const REFUSED = 1008;
+const FLUSH_MS = 250;
+/** At most 2,000 lines a second reach the browser; older ones are dropped. */
+const MAX_PER_FLUSH = 500;
+const MAX_BUFFER = 2_000;
+const MAX_MESSAGE = 4 * 1024;
+/**
+ * How often a follow checks, with no message from the client, that the
+ * actor may still read it and the connection still points at its target.
+ */
+export const RECHECK_MS = 15_000;
 
-function size(text: string | undefined): number | null {
-  const match = /^\s*([\d.]+)\s*([a-z]+)\s*$/i.exec(text ?? "");
-  if (!match) return null;
-  const unit = UNITS[match[2].toLowerCase()];
-  const value = Number(match[1]);
-  return unit && Number.isFinite(value) ? Math.round(value * unit) : null;
+const UUID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** Causes that end the socket: the caller may not have these logs. */
+const REFUSALS: ReadonlySet<string> = new Set([
+  "locked",
+  "forbidden",
+  "not-found",
+  "no-host-access",
+]);
+
+interface Subscribe {
+  connectionId: number;
+  uuid: string;
+  part?: string;
+  container?: string;
+  timestamps: boolean;
 }
 
-function percent(text: unknown): number | null {
-  if (typeof text !== "string") return null;
-  const value = Number(text.trim().replace(/%$/, ""));
-  return text.trim() !== "" && Number.isFinite(value) ? value : null;
+interface Failure {
+  cause: string;
+  error: string;
+  extra?: Record<string, unknown>;
 }
 
-/** One line of `docker stats --format '{{json .}}'`, or null. */
-export function parseDockerStats(line: string): StatsSample | null {
-  let raw: Record<string, unknown>;
+function textOf(data: unknown): string | null {
+  if (typeof data === "string") return data;
+  if (data instanceof Uint8Array) return Buffer.from(data).toString("utf8");
+  return null;
+}
+
+function parse(data: unknown): Record<string, unknown> | null {
+  const text = textOf(data);
+  if (text === null || text.length > MAX_MESSAGE) return null;
   try {
-    raw = JSON.parse(line) as Record<string, unknown>;
+    const value = JSON.parse(text) as unknown;
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
   } catch {
     return null;
   }
-  if (!raw || typeof raw !== "object") return null;
-  const cpu = percent(raw.CPUPerc);
-  const memPct = percent(raw.MemPerc);
-  const [used] = String(raw.MemUsage ?? "").split("/");
-  const [rx, tx] = String(raw.NetIO ?? "").split("/");
-  const memBytes = size(used);
-  const netRx = size(rx);
-  const netTx = size(tx);
-  if (
-    cpu === null ||
-    memPct === null ||
-    memBytes === null ||
-    netRx === null ||
-    netTx === null
-  ) {
-    return null;
+}
+
+function invalid(message: string): ContainerError {
+  return new ContainerError("invalid-input", message);
+}
+
+/** Checks a subscribe message; every value is checked as a route would. */
+function readSubscribe(message: Record<string, unknown>): Subscribe {
+  const rawId = message.connectionId;
+  const id =
+    typeof rawId === "number"
+      ? rawId
+      : typeof rawId === "string" && /^\d{1,15}$/.test(rawId)
+        ? Number(rawId)
+        : NaN;
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw new ConnectionError("not-found", "Coolify connection not found");
   }
-  return { cpu, memPct, memBytes, netRx, netTx };
+  if (typeof message.uuid !== "string" || !UUID.test(message.uuid)) {
+    throw new ContainerError("not-found", "Coolify resource not found");
+  }
+  const out: Subscribe = {
+    connectionId: id,
+    uuid: message.uuid,
+    timestamps: message.timestamps === true,
+  };
+  const { part, container } = message;
+  if (part !== undefined && part !== null && part !== "") {
+    if (typeof part !== "string" || !UUID.test(part)) {
+      throw invalid("part must be a Part's uuid");
+    }
+    out.part = part;
+  }
+  if (container !== undefined && container !== null && container !== "") {
+    try {
+      out.container = assertContainerName(container);
+    } catch {
+      throw invalid("container must be a container name");
+    }
+  }
+  return out;
 }
 
-/** One docker stats reading of one container, the format quoted for the shell. */
-export function statsCommand(container: string, sudo: boolean): string {
-  const name = assertContainerName(container);
-  return `${dockerPrefix(sudo)} stats --no-stream --format '{{json .}}' ${name}`;
-}
-
-/** The ws socket, as far as this module uses it. */
-interface WsLike {
-  send(data: string): void;
-  close(code?: number, reason?: string): void;
-  on(event: "message", fn: (data: unknown) => void): void;
-  on(event: "close", fn: () => void): void;
-}
-
-interface Subscription {
-  connectionId: number;
-  hostId: number;
-  container: string;
-  sudo: boolean;
-}
-
-export interface StatsSocketDeps {
-  connections: Connections;
-  containers: Containers;
-  run?: SshRunner;
-}
-
-type Refusal = {
-  error: string;
-  cause: string;
-  extra?: Record<string, unknown>;
-};
-
-function refusalOf(err: unknown): Refusal {
+/** A fixed message per cause; nothing from SSH output or Coolify's answer. */
+function failureOf(err: unknown): Failure {
   if (err instanceof ContainerError) {
-    return { error: err.message, cause: err.code, extra: err.extra };
+    return { cause: err.code, error: err.message, extra: err.extra };
   }
   if (err instanceof ConnectionError) {
-    return { error: err.message, cause: err.code };
+    return { cause: err.code, error: err.message };
   }
-  if (err instanceof CoolifyError) return toRouteError(err).body;
-  return { error: "The live stats could not be read.", cause: "failed" };
+  if (err instanceof CoolifyError) {
+    const { body } = toRouteError(err);
+    return { cause: body.cause, error: body.error };
+  }
+  return { cause: "failed", error: "The logs could not be followed." };
 }
 
 /**
- * WS /stats: send `{ connectionId, uuid, part?, container? }` and the socket
- * answers `{ type: "stats", ... }` every 3 seconds while it is open, or
- * `{ type: "choices" }` or `{ type: "error", cause }`. `{ type: "unsubscribe" }`
- * or closing stops it. Every message and every tick checks the session is
- * unlocked, the socket's user is the acting user, coolify.operate, access to
- * the connection and connect access to the Linked host. Nothing here throws:
- * errors count against the plugin's budget.
+ * WS /logs: follows a container's logs over SSH on its Linked host.
+ *
+ * Client messages: `{ type: "subscribe", connectionId, uuid, part?,
+ * container?, timestamps? }`, `{ type: "unsubscribe" }`, and anything else
+ * (a ping) to keep it checked. Answers: `started { source: "ssh", container }`,
+ * `lines { lines, dropped? }`, `choices`, `stopped`, `ended` and
+ * `error { cause, error }`.
+ *
+ * Every message is checked first: the session's data must be unlocked, and
+ * the actor must hold coolify.operate, pass lifecycle's authorize (an
+ * operate grant and the uuid in the connection's own list), the connection
+ * must still point at the follow's target and the actor must still have
+ * connect access to the Linked host. The same checks run every RECHECK_MS
+ * while a follow runs. A refusal ends the follow, kills the remote docker
+ * logs and closes the socket with 1008; a changed target ends the follow
+ * with target-changed. Closing the socket or unsubscribing kills it too.
  */
-export function registerStatsSocket(
+export function registerLogSocket(
   ctx: PluginContext,
-  deps: StatsSocketDeps,
+  deps: { logs: Logs },
 ): void {
-  const run = deps.run ?? sshRunner(ctx);
-
-  ctx.ws.route("/stats", (conn: PluginWebSocketConnection) => {
+  ctx.ws.route(LOG_SOCKET_PATH, (conn: PluginWebSocketConnection) => {
     const socket = conn.socket as WsLike;
-    let generation = 0;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let closed = false;
+    const userId = conn.userId;
+    let active: Following | null = null;
+    let buffer: string[] = [];
+    let dropped = 0;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    let checker: ReturnType<typeof setInterval> | null = null;
+    let done = false;
+    let queue: Promise<void> = Promise.resolve();
 
-    function send(message: Record<string, unknown>) {
-      if (closed) return;
+    function send(message: Record<string, unknown>): void {
+      if (socket.readyState !== OPEN) return;
       try {
         socket.send(JSON.stringify(message));
       } catch {
-        // The socket is going away; close will stop the timer.
+        // The socket is closing; its close handler stops the follow.
       }
     }
 
-    function stop() {
-      generation++;
-      if (timer) clearTimeout(timer);
+    function stopFollow(): void {
+      if (timer) clearInterval(timer);
+      if (checker) clearInterval(checker);
       timer = null;
+      checker = null;
+      active?.stop();
+      active = null;
+      buffer = [];
+      dropped = 0;
     }
 
-    function refuse(refusal: Refusal) {
-      stop();
+    function refuse(failure: Failure): void {
+      send({ type: "error", cause: failure.cause, error: failure.error });
+      stopFollow();
+      done = true;
+      try {
+        socket.close(REFUSED, failure.cause);
+      } catch {
+        // Already closed.
+      }
+    }
+
+    function fail(err: unknown): void {
+      const failure = failureOf(err);
+      if (REFUSALS.has(failure.cause)) {
+        refuse(failure);
+        return;
+      }
+      stopFollow();
       send({
         type: "error",
-        error: refusal.error,
-        cause: refusal.cause,
-        ...(refusal.extra ?? {}),
+        cause: failure.cause,
+        error: failure.error,
+        ...(failure.extra ?? {}),
       });
-      if (refusal.cause === "locked") {
-        try {
-          socket.close(1008, "locked");
-        } catch {
-          // Already closing.
-        }
-      }
     }
 
-    /** The session-level checks every message and tick makes, or a refusal. */
-    async function sessionRefusal(): Promise<Refusal | null> {
+    const locked: Failure = {
+      cause: "locked",
+      error: "Your session is locked. Sign in again to follow logs.",
+    };
+    const forbidden: Failure = {
+      cause: "forbidden",
+      error: "Following logs needs the coolify.operate permission.",
+    };
+
+    function flush(): void {
+      if (!buffer.length && !dropped) return;
       if (!conn.isDataUnlocked()) {
-        return { error: "The session is locked.", cause: "locked" };
+        refuse(locked);
+        return;
       }
-      // Fail closed: the work must run as the socket's own user.
-      if (!conn.userId || ctx.currentActor() !== conn.userId) {
-        return { error: "Not allowed.", cause: "forbidden" };
+      const lines = buffer.splice(0, MAX_PER_FLUSH);
+      send({ type: "lines", lines, ...(dropped ? { dropped } : {}) });
+      dropped = 0;
+    }
+
+    const sink = {
+      lines(lines: string[]) {
+        if (done) return;
+        buffer.push(...lines);
+        const over = buffer.length - MAX_BUFFER;
+        if (over > 0) {
+          buffer.splice(0, over);
+          dropped += over;
+        }
+      },
+      end() {
+        if (done) return;
+        // Drain the bounded buffer (at most MAX_BUFFER lines, in batches of
+        // MAX_PER_FLUSH) so a container's last words are never dropped.
+        while (!done && (buffer.length || dropped)) flush();
+        if (done) return;
+        stopFollow();
+        send({ type: "ended" });
+      },
+    };
+
+    /** Null while the actor still may read this follow; else why not. */
+    async function recheck(following: Following): Promise<unknown> {
+      // Core runs a socket's events, and the timers they start, as the user
+      // who opened it. Anything else is refused rather than run as nobody.
+      if (!userId || ctx.currentActor() !== userId) {
+        return new ConnectionError("forbidden", forbidden.error);
       }
       if (!(await ctx.rbac.has("operate"))) {
-        return {
-          error: "Live stats need coolify.operate.",
-          cause: "forbidden",
-        };
+        return new ConnectionError("forbidden", forbidden.error);
       }
-      return null;
+      try {
+        await following.recheck();
+        return null;
+      } catch (err) {
+        return err;
+      }
     }
 
-    async function tick(sub: Subscription, gen: number): Promise<void> {
-      try {
-        const refusal =
-          (await sessionRefusal()) ??
-          ((await deps.connections.access(sub.connectionId))
-            ? null
-            : { error: "Coolify connection not found", cause: "not-found" }) ??
-          ((await ctx.hosts.checkAccess(sub.hostId, "connect"))?.hasAccess
-            ? null
-            : {
-                error: "You can't open this server's Linked host.",
-                cause: "no-host-access",
-              });
-        if (gen !== generation) return;
-        if (refusal) {
-          refuse(refusal);
-          return;
-        }
-        const result = await run(
-          sub.hostId,
-          statsCommand(sub.container, sub.sudo),
-          { timeoutMs: 15_000 },
-        );
-        if (gen !== generation) return;
-        const sample =
-          result.code === 0
-            ? parseDockerStats(result.stdout.trim().split("\n")[0] ?? "")
-            : null;
-        if (!sample) {
-          refuse({
-            error: "docker stats gave no reading; is the container running?",
-            cause: "no-stats",
-          });
-          return;
-        }
+    /** The periodic check: queued with messages, so they never interleave. */
+    function scheduleCheck(): void {
+      queue = queue
+        .then(async () => {
+          if (done || !active) return;
+          const lost = await recheck(active);
+          if (lost) fail(lost);
+        })
+        .catch((err) => fail(err));
+    }
+
+    async function handle(data: unknown): Promise<void> {
+      if (done) return;
+      if (!conn.isDataUnlocked()) {
+        refuse(locked);
+        return;
+      }
+      const message = parse(data);
+      if (!message) {
         send({
-          type: "stats",
-          container: sub.container,
-          ...sample,
-          at: Date.now(),
+          type: "error",
+          cause: "invalid-input",
+          error: "A JSON object is required",
         });
-        timer = setTimeout(() => void tick(sub, gen), STATS_INTERVAL_MS);
-      } catch (err) {
-        if (gen === generation) refuse(refusalOf(err));
-      }
-    }
-
-    async function subscribe(body: Record<string, unknown>): Promise<void> {
-      stop();
-      const gen = generation;
-      const refusal = await sessionRefusal();
-      if (refusal) {
-        refuse(refusal);
         return;
       }
-      const raw = body.connectionId;
-      const connectionId =
-        typeof raw === "number"
-          ? raw
-          : typeof raw === "string" && /^\d{1,15}$/.test(raw)
-            ? Number(raw)
-            : NaN;
-      if (!Number.isSafeInteger(connectionId) || connectionId <= 0) {
-        refuse({ error: "Coolify connection not found", cause: "not-found" });
+      // Core runs a socket's events as the user who opened it. Anything else
+      // (no actor at all) is refused rather than run as nobody in particular.
+      if (!userId || ctx.currentActor() !== userId) {
+        refuse(forbidden);
         return;
       }
-      const uuid = typeof body.uuid === "string" ? body.uuid : "";
-      const found = await deps.containers.locate(
-        connectionId,
-        uuid,
-        readShellRequest({ part: body.part, container: body.container }),
-      );
-      if (gen !== generation) return;
-      if ("choices" in found) {
-        send({ type: "choices", choices: found.choices });
+      if (!(await ctx.rbac.has("operate"))) {
+        refuse(forbidden);
         return;
       }
-      await tick(
-        {
-          connectionId,
-          hostId: found.hostId,
-          container: found.container,
-          sudo: found.sudo,
-        },
-        gen,
-      );
-    }
-
-    async function onMessage(data: unknown): Promise<void> {
-      try {
-        const text = String(data ?? "");
-        if (text.length > MAX_MESSAGE) throw new SyntaxError("too long");
-        const body = JSON.parse(text) as unknown;
-        if (!body || typeof body !== "object" || Array.isArray(body)) {
-          throw new SyntaxError("not an object");
-        }
-        const message = body as Record<string, unknown>;
-        if (message.type === "unsubscribe") {
-          stop();
+      if (active) {
+        const lost = await recheck(active);
+        if (lost) {
+          fail(lost);
           return;
         }
-        await subscribe(message);
-      } catch (err) {
-        if (err instanceof SyntaxError) {
-          refuse({
-            error: "Send { connectionId, uuid } as JSON.",
-            cause: "invalid-input",
-          });
+      }
+      if (message.type === "subscribe") {
+        stopFollow();
+        const request = readSubscribe(message);
+        const result = await deps.logs.follow(
+          request.connectionId,
+          request.uuid,
+          request,
+          sink,
+        );
+        if ("choices" in result) {
+          send({ type: "choices", choices: result.choices });
           return;
         }
-        refuse(refusalOf(err));
+        if (done) {
+          result.stop();
+          return;
+        }
+        active = result;
+        timer = setInterval(flush, FLUSH_MS);
+        checker = setInterval(scheduleCheck, RECHECK_MS);
+        send({ type: "started", source: "ssh", container: result.container });
+        return;
       }
+      if (message.type === "unsubscribe") {
+        stopFollow();
+        send({ type: "stopped" });
+        return;
+      }
+      send({ type: "pong" });
     }
 
-    socket.on("message", (data) => void onMessage(data));
+    socket.on("message", (data) => {
+      queue = queue.then(() => handle(data)).catch((err) => fail(err));
+    });
     socket.on("close", () => {
-      closed = true;
-      stop();
+      done = true;
+      stopFollow();
+    });
+    socket.on("error", () => {
+      done = true;
+      stopFollow();
     });
   });
 }

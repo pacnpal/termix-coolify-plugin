@@ -3,12 +3,21 @@ import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import type { CoolifyApi, KeyForCopy } from "../coolify/api.js";
 import { CoolifyError } from "../coolify/http.js";
 import type { KeyDto } from "../coolify/dto.js";
+import { trimTrailing } from "../text.js";
 
 /** A Termix credential holding a copy of a Coolify key. */
 export interface CopiedCredential {
   credentialId: number;
   fingerprint: string;
 }
+
+/**
+ * A key copy's outcome: the credential, null when the key can't be read
+ * (the server needs a picked credential), or why an earlier copy can't be
+ * reused.
+ */
+export type CopyOutcome =
+  CopiedCredential | { cause: "credential-check-failed" } | null;
 
 /** What the plugin already knows about earlier copies, to reuse them. */
 export interface KnownCopy {
@@ -27,9 +36,8 @@ export function publicKeyFingerprint(publicKey: string): string | null {
   if (!blob || !/^[A-Za-z0-9+/]+={0,2}$/.test(blob)) return null;
   const digest = createHash("sha256")
     .update(Buffer.from(blob, "base64"))
-    .digest("base64")
-    .replace(/=+$/, "");
-  return `SHA256:${digest}`;
+    .digest("base64");
+  return `SHA256:${trimTrailing(digest, "=")}`;
 }
 
 /**
@@ -60,10 +68,21 @@ export function createKeyCopier(
     connectionName: string;
     /** Copies this connection already made, by fingerprint. */
     known: KnownCopy[];
+    /**
+     * The ids of the actor's own SSH key credentials, or null when they can't
+     * be read. A known copy is reused only while it is still one of them.
+     */
+    ownKeys: () => Promise<Set<number> | null>;
+    /**
+     * Runs right before a credential is created, after the key reads: it
+     * throws to stop the copy when the sync must write nothing more.
+     */
+    beforeWrite: () => Promise<void>;
   },
 ) {
   let keyList: Promise<KeyDto[]> | null = null;
-  const byKeyId = new Map<number, Promise<CopiedCredential | null>>();
+  const byKeyId = new Map<number, Promise<CopyOutcome>>();
+  const copiedNow = new Set<number>();
 
   async function keyFor(keyId: number): Promise<KeyDto | null> {
     keyList ??= opts.api.keys();
@@ -102,7 +121,7 @@ export function createKeyCopier(
     }
   }
 
-  async function copy(keyId: number): Promise<CopiedCredential | null> {
+  async function copy(keyId: number): Promise<CopyOutcome> {
     const meta = await keyFor(keyId);
     if (!meta?.uuid) return null;
     const key = await material(meta.uuid);
@@ -112,11 +131,22 @@ export function createKeyCopier(
     const fingerprint = key.fingerprint ?? publicKeyFingerprint(publicKey);
     if (!fingerprint) return null;
 
-    const reuse = opts.known.find((k) => k.fingerprint === fingerprint);
-    if (reuse) return { credentialId: reuse.credentialId, fingerprint };
+    // An earlier copy is reused only while the actor still has it: one they
+    // deleted is copied again below. When their keys can't be read, nothing
+    // is reused or copied (a copy could duplicate one that still exists).
+    const earlier = opts.known.filter((k) => k.fingerprint === fingerprint);
+    const fresh = earlier.find((k) => copiedNow.has(k.credentialId));
+    if (fresh) return { credentialId: fresh.credentialId, fingerprint };
+    if (earlier.length) {
+      const owned = await opts.ownKeys();
+      if (!owned) return { cause: "credential-check-failed" };
+      const reuse = earlier.find((k) => owned.has(k.credentialId));
+      if (reuse) return { credentialId: reuse.credentialId, fingerprint };
+    }
 
     const name = credentialName(opts.connectionName, key.name || meta.name);
     const details = { keyUuid: meta.uuid, fingerprint };
+    await opts.beforeWrite();
     let created: { id: number };
     try {
       created = await ctx.credentials.createSshKey({
@@ -131,16 +161,19 @@ export function createKeyCopier(
       throw err;
     }
     await audit(name, true, details, created.id);
+    // Made in this sync, so later servers reuse it without another check.
     opts.known.push({ credentialId: created.id, fingerprint });
+    copiedNow.add(created.id);
     return { credentialId: created.id, fingerprint };
   }
 
   return {
     /**
      * The credential for a server's Coolify key: reused, or copied now. Null
-     * when the key can't be read, so the server needs a picked credential.
+     * when the key can't be read, so the server needs a picked credential;
+     * a cause when an earlier copy can't be checked.
      */
-    credentialFor(keyId: number | null): Promise<CopiedCredential | null> {
+    credentialFor(keyId: number | null): Promise<CopyOutcome> {
       if (keyId === null) return Promise.resolve(null);
       let pending = byKeyId.get(keyId);
       if (!pending) {
