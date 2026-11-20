@@ -103,9 +103,9 @@ export function registerUpdateRoutes(
    *       404:
    *         description: No such connection, or another user's
    *       409:
-   *         description: The server has no Linked host (not-linked), or no known package manager
+   *         description: No Linked host (not-linked), no known package manager, or the plugin list can't be read (companions-unknown)
    *       502:
-   *         description: SSH or the Package Manager plugin failed
+   *         description: SSH or the Package Manager plugin failed, or the package lists couldn't be read (check-failed)
    */
   router.post(
     "/connections/:id/servers/:uuid/updates/check",
@@ -160,9 +160,9 @@ export function registerUpdateRoutes(
    *       404:
    *         description: No such connection, or another user's
    *       409:
-   *         description: No Linked host (not-linked), no known package manager, or sudo needs a password
+   *         description: No Linked host (not-linked), no known package manager, the plugin list can't be read (companions-unknown), or sudo needs a password
    *       502:
-   *         description: SSH or the Package Manager plugin failed
+   *         description: SSH or the Package Manager plugin failed, or the package lists couldn't be read (check-failed)
    */
   router.post(
     "/connections/:id/servers/:uuid/updates/install",

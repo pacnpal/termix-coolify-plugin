@@ -246,6 +246,10 @@ console }`, calls the shell route and draws `PluginComponent id="terminal.view"`
   stays unknown). Check and install go through `ctx.operations.invoke` of `package-manager.list-updates` /
   `upgrade-all` when that plugin is active, else SSH (`sshRunner` from `ssh.ts`) with fixed commands built
   from `host-commands` (no request value ever reaches a command; root or `sudo -n`). Reboot is always SSH.
+  The plugin list decides the path; when it can't be read, check and install refuse (409
+  `companions-unknown`) rather than use SSH. The SSH check reports each step's exit status in a marker
+  line (`checkCommand`, its own `LISTING`, not the SDK's, which hides failures); a failed or missing
+  refresh or listing is 502 `check-failed`, never zero updates.
   A failure on the Package Manager path is reported, never retried over SSH, so that plugin's read only
   setting can't be bypassed. Order of checks (`prepare`): permission (operate, administer to reboot),
   `connections.snapshot(id)` once, the snapshot's grant (operate, configure to reboot), confirm, the
@@ -255,7 +259,8 @@ console }`, calls the shell route and draws `PluginComponent id="terminal.view"`
   checked once more right before every SSH command, Package Manager call and kept-check write (409
   `target-changed`). `UpdateError` has its own statuses (409 for `not-linked`, `host-key` with a fixed
   message, never core's text). The plugin's own last check is kept in `cache` as kind
-  `updates:<serverUuid>` with the revision it was read under, and served only while that is current.
+  `updates:<serverUuid>` with the revision and the per-instance generation (`<epoch>:<n>`, advanced by
+  install and reboot) it was read under, and written and served only while both are current.
   Install and reboot, once they reached the server (even when they failed), drop that row, then call
   `servers.invalidate` and `resources.invalidate`. The mock ctx's `hosts.checkAccess`
   only knows hosts given up front, so tests spy on it, on `ssh.exec`, on `operations.invoke` and on

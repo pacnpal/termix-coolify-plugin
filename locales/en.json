@@ -779,6 +779,8 @@
       "companion-failed": "The Package Manager plugin could not do this.",
       "host-key": "Open a server terminal once to trust this host's key.",
       "target-changed": "The connection's address, token or Cloudflare Access settings changed, so nothing ran. Try again.",
+      "check-failed": "The server's package lists could not be read, so the updates are unknown. Try again.",
+      "companions-unknown": "Termix's plugin list could not be read, so nothing ran. Try again.",
       "forbidden": "You don't have permission to do this.",
       "failed": "That didn't work."
     }

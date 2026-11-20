@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type {
   PluginContext,
   PluginHostAccess,
@@ -6,7 +7,6 @@ import type {
 } from "@termix-ssh/plugin-sdk/backend";
 import {
   PLATFORM_PROBE_COMMAND,
-  buildListUpgradableCommand,
   buildPackageActionCommand,
   parsePlatformProbe,
   parseUpgradable,
@@ -71,7 +71,9 @@ export type UpdateErrorCode =
   | "unsupported-os"
   | "host-key"
   | "ssh-failed"
-  | "companion-failed";
+  | "check-failed"
+  | "companion-failed"
+  | "companions-unknown";
 
 const UPDATE_STATUS: Record<UpdateErrorCode, 400 | 403 | 409 | 502> = {
   "not-linked": 409,
@@ -82,7 +84,9 @@ const UPDATE_STATUS: Record<UpdateErrorCode, 400 | 403 | 409 | 502> = {
   "unsupported-os": 409,
   "host-key": 409,
   "ssh-failed": 502,
+  "check-failed": 502,
   "companion-failed": 502,
+  "companions-unknown": 409,
 };
 
 /**
@@ -244,6 +248,26 @@ function asRoot(command: string): string {
 
 const LIST_MARK = "__COOLIFY_LIST__";
 const REBOOT_MARK = "__COOLIFY_REBOOT__";
+const REFRESH_STATUS = "__COOLIFY_REFRESH_STATUS__=";
+const LIST_STATUS = "__COOLIFY_LIST_STATUS__=";
+/**
+ * The listing alone, so its own exit status is what the marker reads (the
+ * SDK's listing hides failures behind a pipe or `|| true`). dnf and yum
+ * check-update exit 100 when updates are pending; pacman -Qu exits 1 when
+ * none are, and its errors are caught by their "error:" lines.
+ */
+const LISTING: Record<NonNullable<PackageManager>, string> = {
+  apt: "apt list --upgradable 2>/dev/null",
+  dnf: "dnf -q check-update 2>/dev/null",
+  yum: "yum -q check-update 2>/dev/null",
+  pacman: "pacman -Qu 2>&1",
+};
+const LIST_OK: Record<NonNullable<PackageManager>, number[]> = {
+  apt: [0],
+  dnf: [0, 100],
+  yum: [0, 100],
+  pacman: [0, 1],
+};
 const REFRESH: Partial<Record<NonNullable<PackageManager>, string>> = {
   apt: "apt-get update -qq",
   dnf: "dnf -q makecache",
@@ -265,8 +289,10 @@ export function checkCommand(pkg: NonNullable<PackageManager>): string {
   const refresh = REFRESH[pkg];
   return [
     refresh ? `${asRoot(refresh)} >/dev/null 2>&1` : "true",
+    `echo ${REFRESH_STATUS}$?`,
     `echo ${LIST_MARK}`,
-    `LANG=C ${buildListUpgradableCommand(pkg)}`,
+    `LANG=C ${LISTING[pkg]}`,
+    `echo ${LIST_STATUS}$?`,
     `echo ${REBOOT_MARK}`,
     REBOOT_CHECK,
   ].join("; ");
@@ -292,7 +318,17 @@ function aptSecurity(listing: string): Set<string> {
   return names;
 }
 
-/** Parses the output of checkCommand into a PatchStatus. */
+/** A step's exit status from its marker line, or null when it never ran. */
+function statusOf(output: string, marker: string): number | null {
+  const m = output.match(new RegExp(`^${marker}(\\d+)$`, "m"));
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * Parses the output of checkCommand into a PatchStatus. A refresh or listing
+ * that failed, or never reported, is `error: "check-failed"` with nothing
+ * counted: never up to date.
+ */
 export function parseCheck(
   pkg: NonNullable<PackageManager>,
   output: string,
@@ -308,8 +344,25 @@ export function parseCheck(
           rebootStart === -1 ? undefined : rebootStart,
         );
   const rebootText = rebootStart === -1 ? "" : output.slice(rebootStart);
+  const listed = statusOf(output, LIST_STATUS);
+  if (
+    statusOf(output, REFRESH_STATUS) !== 0 ||
+    listed === null ||
+    !LIST_OK[pkg].includes(listed) ||
+    (pkg === "pacman" && /^error:/m.test(listing))
+  ) {
+    return {
+      updates: 0,
+      security: null,
+      rebootRequired: null,
+      checkedAt,
+      error: "check-failed",
+      items: [],
+    };
+  }
   const security = pkg === "apt" ? aptSecurity(listing) : null;
-  const items: PatchItem[] = parseUpgradable(pkg, listing).map((u) => ({
+  const rows = listing.slice(0, listing.indexOf(LIST_STATUS));
+  const items: PatchItem[] = parseUpgradable(pkg, rows).map((u) => ({
     package: u.name,
     newVersion: u.newVersion ?? "",
     currentVersion: u.currentVersion ?? "",
@@ -417,12 +470,20 @@ export function createUpdates(
   const { connections, resources, sync } = deps;
   const cache = createCache(ctx, deps.tables);
   const run = deps.run ?? sshRunner(ctx);
+  // Advanced by invalidate(); a kept check is written and served only under
+  // the generation its check began in. Unique to each instance, as in
+  // resources, so a row an old instance wrote never matches.
+  const epoch = randomUUID();
+  const generations = new Map<number, number>();
+  const generationOf = (connectionId: number) =>
+    `${epoch}:${generations.get(connectionId) ?? 0}`;
 
   type Snapshot = Awaited<ReturnType<Connections["snapshot"]>>;
 
   /** The plugin's own last check, and the revision it was read under. */
   interface KeptCheck {
     revision: string;
+    generation: string;
     status: PatchStatus;
     via: UpdatesVia;
   }
@@ -498,15 +559,24 @@ export function createUpdates(
     }
   }
 
+  /**
+   * Whether Package Manager runs. SSH is used only when the list was read
+   * and shows it isn't: an unreadable list refuses, so its read only setting
+   * is never bypassed.
+   */
   async function packageManagerRuns(): Promise<boolean> {
+    let plugins: Awaited<ReturnType<PluginContext["plugins"]["list"]>>;
     try {
-      const plugins = await ctx.plugins.list();
-      return plugins.some(
-        (p) => p.id === PACKAGE_MANAGER && p.state === "active",
-      );
+      plugins = await ctx.plugins.list();
     } catch {
-      return false;
+      throw new UpdateError(
+        "companions-unknown",
+        "Termix's plugin list could not be read, so nothing ran. Try again.",
+      );
     }
+    return plugins.some(
+      (p) => p.id === PACKAGE_MANAGER && p.state === "active",
+    );
   }
 
   /** One fixed command on the Linked host, after the snapshot is checked. */
@@ -589,7 +659,11 @@ export function createUpdates(
     const kept = (
       await cache.read<Partial<KeptCheck>>(connectionId, kindOf(uuid))
     )?.value;
-    if (kept?.revision !== snap.view.revision || !kept.status) {
+    if (
+      kept?.revision !== snap.view.revision ||
+      kept.generation !== generationOf(connectionId) ||
+      !kept.status
+    ) {
       return { fresh: null, via: null };
     }
     return { fresh: kept.status, via: kept.via ?? null };
@@ -601,6 +675,7 @@ export function createUpdates(
    * longer match the server.
    */
   async function invalidate(connectionId: number, uuid: string) {
+    generations.set(connectionId, (generations.get(connectionId) ?? 0) + 1);
     await cache.drop(connectionId, kindOf(uuid));
     await deps.servers.invalidate(connectionId);
     await resources.invalidate(connectionId);
@@ -663,6 +738,7 @@ export function createUpdates(
         host: "connect",
       });
       const checkedAt = new Date().toISOString();
+      const generation = generationOf(connectionId);
       let result: CheckResult;
       if (await packageManagerRuns()) {
         const outcome = await invoke(
@@ -677,12 +753,22 @@ export function createUpdates(
       } else {
         const pkg = await platform(target);
         const out = await exec(target, checkCommand(pkg), 180_000);
-        result = { via: "ssh", fresh: parseCheck(pkg, out.stdout, checkedAt) };
+        const fresh = parseCheck(pkg, out.stdout, checkedAt);
+        if (fresh.error) {
+          throw new UpdateError(
+            "check-failed",
+            "The package lists could not be read on the server",
+          );
+        }
+        result = { via: "ssh", fresh };
       }
-      // Kept under the revision it was read with, and only while it holds.
+      // Kept under the revision and generation it was read with, and only
+      // while both hold: an install or reboot meanwhile makes it stale.
       await holds(connectionId, target.snap);
+      if (generationOf(connectionId) !== generation) return result;
       const kept: KeptCheck = {
         revision: target.snap.view.revision,
+        generation,
         status: result.fresh,
         via: result.via,
       };

@@ -108,7 +108,7 @@ export function fakeSsh(
       }
       if (command.includes("apt list --upgradable")) {
         return result(
-          `__COOLIFY_LIST__\n${APT_LIST}\n__COOLIFY_REBOOT__\nREBOOT=yes\n`,
+          `__COOLIFY_REFRESH_STATUS__=0\n__COOLIFY_LIST__\n${APT_LIST}\n__COOLIFY_LIST_STATUS__=0\n__COOLIFY_REBOOT__\nREBOOT=yes\n`,
         );
       }
       if (command.includes("apt-get -y upgrade")) {

@@ -269,9 +269,35 @@ describe("server updates in the host section", () => {
     );
   });
 
+  it("shows Coolify's check when it is newer than the plugin's own, and offers Install", async () => {
+    const older = {
+      ...coolifyPatch,
+      updates: 0,
+      security: 0,
+      rebootRequired: false,
+      items: [],
+      checkedAt: "2026-11-17T08:00:00.000Z",
+    };
+    const card = await renderSection(
+      stubApi(status({ fresh: older, via: "ssh" })),
+    );
+    await waitFor(() =>
+      expect(card.textContent).toContain(
+        U.summary.replace("{{count}}", "3").replace("{{security}}", "1"),
+      ),
+    );
+    expect(card.textContent).toContain(U.source.coolify.split("{{")[0]);
+    expect(within(card).getByRole("button", { name: U.install })).toBeTruthy();
+  });
+
   it("says why a check stopped: a changed connection or an untrusted host key", async () => {
     const errors = U.errors as Record<string, string>;
-    for (const cause of ["target-changed", "host-key"]) {
+    for (const cause of [
+      "target-changed",
+      "host-key",
+      "check-failed",
+      "companions-unknown",
+    ]) {
       const api = stubApi();
       api.post.mockRejectedValueOnce({
         response: { status: 409, data: { error: "x", cause } },

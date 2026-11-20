@@ -36,6 +36,8 @@ const KNOWN_ERRORS = new Set([
   "companion-failed",
   "host-key",
   "target-changed",
+  "check-failed",
+  "companions-unknown",
   "forbidden",
 ]);
 
@@ -52,6 +54,12 @@ function when(t: T, iso: string | null): string {
   if (!iso) return t("updates.never");
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
+}
+
+/** A check's time in epoch ms; a missing or unreadable one is oldest. */
+function timeOf(iso: string | null | undefined): number {
+  const ms = Date.parse(iso ?? "");
+  return Number.isFinite(ms) ? ms : -Infinity;
 }
 
 function summaryOf(t: T, status: PatchStatus): string {
@@ -247,9 +255,17 @@ export function ServerUpdates({ link }: { link: HostLink }) {
   }, [load]);
 
   const serverName = data?.server?.name ?? "";
-  const latest: PatchStatus | null = data?.fresh ?? data?.coolify ?? null;
-  const via: UpdatesVia | "coolify" | null = data?.fresh
-    ? (data.via ?? null)
+  // The newest check wins, whichever ran it; a tie goes to the plugin's own.
+  const freshWins = Boolean(
+    data?.fresh &&
+    (!data.coolify ||
+      timeOf(data.fresh.checkedAt) >= timeOf(data.coolify.checkedAt)),
+  );
+  const latest: PatchStatus | null = freshWins
+    ? data!.fresh
+    : (data?.coolify ?? null);
+  const via: UpdatesVia | "coolify" | null = freshWins
+    ? (data!.via ?? null)
     : data?.coolify
       ? "coolify"
       : null;
@@ -346,7 +362,7 @@ export function ServerUpdates({ link }: { link: HostLink }) {
           {latest.error && (
             <p>{t("updates.checkError", { error: latest.error })}</p>
           )}
-          {data?.fresh && data.coolify && (
+          {freshWins && data?.coolify && (
             <p className="text-muted-foreground">
               {t("updates.coolifyRecord", {
                 when: when(t, data.coolify.checkedAt),

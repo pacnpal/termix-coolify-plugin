@@ -217,4 +217,71 @@ describe("server updates fail closed", () => {
     await signal();
     expect(listed()).toBe(calls + 1);
   });
+
+  it("a plugin list that can't be read refuses instead of falling back to SSH", async () => {
+    const { h, web1 } = await start({ plugins: ["package-manager"] });
+    const invoke = fakePackageManager(h);
+    const ssh = fakeSsh(h);
+    vi.mocked(h.mock.ctx.plugins.list).mockRejectedValue(new Error("down"));
+    for (const [path, body] of WRITES.slice(0, 2)) {
+      const res = await h.request("POST", `${web1}/${path}`, body);
+      expect(res.status, path).toBe(409);
+      expect(res.body.cause, path).toBe("companions-unknown");
+    }
+    expect(invoke).not.toHaveBeenCalled();
+    expect(ssh.calls).toEqual([]);
+  });
+
+  it("a check whose listing failed is an error, never up to date", async () => {
+    const { h, web1 } = await start();
+    const ssh = fakeSsh(h);
+    const real = ssh.exec.getMockImplementation()!;
+    ssh.exec.mockImplementation(async (...args) => {
+      if (args[1].includes("apt list --upgradable")) {
+        // apt list failed: nothing listed and no successful status for it.
+        return {
+          stdout: "__COOLIFY_LIST__\n__COOLIFY_REBOOT__\nREBOOT=no\n",
+          stderr: "E: Could not open lock file",
+          code: 0,
+          truncated: false,
+          timedOut: false,
+        };
+      }
+      return real(...args);
+    });
+    const res = await h.request("POST", `${web1}/updates/check`, {});
+    expect(res.status).toBe(502);
+    expect(res.body.cause).toBe("check-failed");
+    const status = await h.request("GET", `${web1}/updates`);
+    expect(status.body).toMatchObject({ fresh: null, via: null });
+  });
+
+  it("a check still running when install ends is not kept", async () => {
+    const { h, web1 } = await start();
+    const ssh = fakeSsh(h);
+    const real = ssh.exec.getMockImplementation()!;
+    let reached = () => {};
+    let release = () => {};
+    const atCheck = new Promise<void>((resolve) => (reached = resolve));
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let held = false;
+    ssh.exec.mockImplementation(async (...args) => {
+      if (!held && args[1].includes("apt list --upgradable")) {
+        held = true;
+        reached();
+        await released;
+      }
+      return real(...args);
+    });
+    const checking = h.request("POST", `${web1}/updates/check`, {});
+    await atCheck;
+    const installed = await h.request("POST", `${web1}/updates/install`, {
+      confirm: true,
+    });
+    expect(installed.status).toBe(200);
+    release();
+    await checking;
+    const status = await h.request("GET", `${web1}/updates`);
+    expect(status.body).toMatchObject({ fresh: null, via: null });
+  });
 });

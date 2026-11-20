@@ -304,7 +304,10 @@ Check, install and reboot need a Linked host; a server without one answers `409`
 connection's Coolify no longer has answers `404`. If the connection's address, token or Cloudflare Access
 settings change while an action runs, it stops before the next command with `409` and cause
 `target-changed`, and a check kept from before the change is no longer shown. Installing and rebooting
-refresh the resource list and the status tiles.
+refresh the resource list and the status tiles, and a check still running then is not kept. When Termix's
+plugin list can't be read, Check now and Install updates refuse (`companions-unknown`) instead of guessing
+that Package Manager is off. A check whose package lists can't be read answers `check-failed`, never "up
+to date". The card shows whichever check is newest, the plugin's own or Coolify's.
 
 They are also actions: `coolify.server-updates` (offered to the assistant and MCP),
 `coolify.server-updates-check`, `coolify.server-updates-install` (input `confirm` must be on) and
