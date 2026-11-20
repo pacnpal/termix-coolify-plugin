@@ -176,6 +176,55 @@ describe("resource detail tabs", () => {
 });
 
 describe("Stats tab", () => {
+  it("live stats with several containers shows a picker and subscribes again with the choice", async () => {
+    const socket = new FakeLive();
+    live.open = vi.fn(async () => socket);
+    const api = stubApi([[/\/resources\/app-web-uuid\/metrics/, HISTORY]]);
+    await setup(api);
+    await openDetail("web", locales.detail.tabs.stats);
+    await waitFor(() =>
+      expect(socket.sent).toEqual([{ connectionId: 1, uuid: "app-web-uuid" }]),
+    );
+    socket.push({
+      type: "choices",
+      choices: [
+        { name: "web-a", running: true, part: null },
+        { name: "web-b", running: true, part: null },
+      ],
+    });
+    expect(await screen.findByText(locales.logs.pick.title)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "web-b" }));
+    await waitFor(() =>
+      expect(socket.sent.at(-1)).toEqual({
+        connectionId: 1,
+        uuid: "app-web-uuid",
+        container: "web-b",
+      }),
+    );
+    socket.push({
+      type: "stats",
+      container: "web-b",
+      cpu: 7.5,
+      memPct: 1,
+      memBytes: 1024,
+      netRx: 1,
+      netTx: 1,
+      at: 1,
+    });
+    expect(await screen.findByText("7.5%")).toBeTruthy();
+    // The choice stays while the range changes.
+    const before = socket.sent.length;
+    fireEvent.click(screen.getByRole("radio", { name: L.ranges["7d"] }));
+    await waitFor(() =>
+      expect(api.get).toHaveBeenCalledWith(
+        "/connections/1/resources/app-web-uuid/metrics?minutes=10080",
+      ),
+    );
+    for (const m of socket.sent.slice(before)) {
+      expect(m).toMatchObject({ container: "web-b" });
+    }
+  });
+
   it("charts the container's history and shows the live readout", async () => {
     const socket = new FakeLive();
     live.open = vi.fn(async () => socket);

@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePluginApi, useTranslation } from "@termix-ssh/plugin-sdk/frontend";
 import {
+  ListRow,
   LoadingState,
   MiniStat,
   NoticePanel,
+  PanelList,
   Segmented,
 } from "@termix-ssh/plugin-sdk/ui";
 import {
+  choicesOf,
   createApi,
   metricsOffOf,
+  type ContainerChoice,
   type LiveStats,
   type Resource,
   type ResourceMetrics,
@@ -55,28 +59,38 @@ function isLiveStats(value: unknown): value is LiveStats & { type: "stats" } {
 
 /**
  * The live docker stats readout, from the /stats socket while the view is
- * visible. It closes the socket when hidden or gone.
+ * visible. It closes the socket when hidden or gone. A resource with several
+ * containers answers choices: the picker (as the Logs view's) sets
+ * `container`, which subscribes again with it.
  */
 function LiveReadout({
   connectionId,
   uuid,
+  container,
+  onPick,
   isVisible,
   open,
 }: {
   connectionId: number;
   uuid: string;
+  /** The picked container; kept by StatsTab, which is keyed per resource. */
+  container: string | null;
+  onPick: (name: string) => void;
   isVisible: boolean;
   open: OpenLive;
 }) {
   const { t } = useTranslation();
   const [stats, setStats] = useState<LiveStats | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
+  const [choices, setChoices] = useState<ContainerChoice[] | null>(null);
 
   useEffect(() => {
     if (!isVisible) return;
     let socket: Awaited<ReturnType<OpenLive>> = null;
     let gone = false;
     setFailed(null);
+    setChoices(null);
+    setStats(null);
     open("/stats")
       .then((s) => {
         if (gone) {
@@ -97,6 +111,8 @@ function LiveReadout({
           }
           if (isLiveStats(body)) {
             setStats(body);
+          } else if ((body as { type?: unknown })?.type === "choices") {
+            setChoices(choicesOf(body));
           } else if ((body as { type?: unknown })?.type === "error") {
             const cause = String((body as { cause?: unknown }).cause ?? "");
             setFailed(
@@ -106,7 +122,14 @@ function LiveReadout({
             );
           }
         };
-        const start = () => s.send(JSON.stringify({ connectionId, uuid }));
+        const start = () =>
+          s.send(
+            JSON.stringify({
+              connectionId,
+              uuid,
+              ...(container ? { container } : {}),
+            }),
+          );
         if (s.readyState === OPEN) start();
         else s.onopen = start;
       })
@@ -117,7 +140,7 @@ function LiveReadout({
       gone = true;
       socket?.close();
     };
-  }, [connectionId, uuid, isVisible, open, t]);
+  }, [connectionId, uuid, container, isVisible, open, t]);
 
   return (
     <section className="flex flex-col gap-2">
@@ -126,6 +149,27 @@ function LiveReadout({
       </h3>
       {failed ? (
         <p className="text-muted-foreground text-xs">{failed}</p>
+      ) : choices ? (
+        <div className="flex flex-col gap-2">
+          <div>
+            <p className="text-sm font-medium">{t("logs.pick.title")}</p>
+            <p className="text-muted-foreground text-xs">
+              {t("logs.pick.hint")}
+            </p>
+          </div>
+          <PanelList>
+            {choices.map((c, i) => (
+              <ListRow
+                key={c.name}
+                stripe={i}
+                title={c.name}
+                meta={c.part ?? undefined}
+                aria-label={c.name}
+                onClick={() => onPick(c.name)}
+              />
+            ))}
+          </PanelList>
+        </div>
       ) : stats ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <MiniStat
@@ -169,6 +213,8 @@ export function StatsTab({
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
   const [range, setRange] = useState<Range>("1h");
+  // The live readout's picked container, for this resource (the tab is keyed by it).
+  const [container, setContainer] = useState<string | null>(null);
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
@@ -238,6 +284,8 @@ export function StatsTab({
         <LiveReadout
           connectionId={connectionId}
           uuid={resource.uuid}
+          container={container}
+          onPick={setContainer}
           isVisible={isVisible}
           open={open}
         />
