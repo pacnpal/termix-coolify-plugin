@@ -17,6 +17,7 @@ import {
 import type { Resource } from "../api";
 import { resourceHealth } from "../../shared/resource-health";
 import { CompanionActions } from "./CompanionActions";
+import { LogsView } from "./LogsView";
 import {
   PartRestart,
   ResourceActions,
@@ -34,11 +35,17 @@ import {
 type T = (key: string, options?: Record<string, unknown>) => string;
 
 /**
- * The detail views. Later releases add Logs, Stats and Traffic here: one id,
- * one locale key under detail.tabs and one case in the body switch.
+ * The detail views. Later releases add Stats and Traffic here: one id, one
+ * locale key under detail.tabs and one case in the body switch.
  */
-export const DETAIL_TABS = ["overview", "shell"] as const;
+export const DETAIL_TABS = ["overview", "shell", "logs"] as const;
 export type DetailTab = (typeof DETAIL_TABS)[number];
+
+/**
+ * Views that need canOperate: logs carry secrets, so they need
+ * coolify.operate and the owner or an operate grant, as the backend does.
+ */
+const OPERATE_TABS: ReadonlySet<DetailTab> = new Set(["logs"]);
 
 function overviewItems(
   t: T,
@@ -220,6 +227,7 @@ export function ResourceDetail({
   onChanged,
   onShell,
   revision,
+  isVisible = true,
 }: {
   /** Null when the resource is gone from the list. */
   resource: Resource | null;
@@ -233,13 +241,17 @@ export function ResourceDetail({
   onChanged: () => void;
   /** Opens a coolify-shell tab for the resource. */
   onShell?: (resource: Resource, console: "shell" | "db") => void;
-  /** The connection's target hash, which keys the companion views. */
+  /** The connection's target hash, which keys the companion and log views. */
   revision?: string | null;
+  /** Whether the tab is shown; a live log follow stops while it isn't. */
+  isVisible?: boolean;
 }) {
   const { t } = useTranslation();
   const runner = useLifecycle(connectionId, onChanged);
   const lifecycle = canOperate ? runner : null;
-  const [tab, setTab] = useState<DetailTab>("overview");
+  const tabs = DETAIL_TABS.filter((id) => canOperate || !OPERATE_TABS.has(id));
+  const [chosen, setTab] = useState<DetailTab>("overview");
+  const tab = tabs.includes(chosen) ? chosen : "overview";
   let body: ReactNode;
   if (!resource) {
     body = <EmptyState icon={Box} title={t("detail.missing")} />;
@@ -267,6 +279,18 @@ export function ResourceDetail({
           />
         );
         break;
+      case "logs":
+        // Keyed by connection, resource and target: any change starts empty
+        // and closes the old follow.
+        body = (
+          <LogsView
+            key={`${connectionId}:${resource.uuid}:${revision ?? ""}`}
+            connectionId={connectionId}
+            resource={resource}
+            isVisible={isVisible}
+          />
+        );
+        break;
     }
   }
   return (
@@ -291,7 +315,7 @@ export function ResourceDetail({
       }
       toolbar={
         <TabStrip
-          tabs={DETAIL_TABS.map((id) => ({
+          tabs={tabs.map((id) => ({
             id,
             label: t(`detail.tabs.${id}`),
           }))}

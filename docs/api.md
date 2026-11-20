@@ -41,6 +41,7 @@ appear in run history.
 | `coolify.signal-updates`         | `GET /plugin-api/coolify/connections/:id/servers`                          | `/operations/coolify.signal-updates/run`         | `operations:read` or `operations:run` | `coolify__signal_updates`         | `curl -X POST "$TERMIX/operations/coolify.signal-updates/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7}'`                                                                                              |
 | `coolify.signal-deploying`       | `GET /plugin-api/coolify/connections/:id/resources`                        | `/operations/coolify.signal-deploying/run`       | `operations:read` or `operations:run` | `coolify__signal_deploying`       | `curl -X POST "$TERMIX/operations/coolify.signal-deploying/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{}}'`                                                                                            |
 | `coolify.shell-command`          | `POST /plugin-api/coolify/connections/:id/resources/:uuid/shell`           | `/operations/coolify.shell-command/run`          | `operations:read` or `operations:run` | `coolify__shell_command`          | `curl -X POST "$TERMIX/operations/coolify.shell-command/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","uuid":"<resource uuid>","console":"shell"}}'`                                  |
+| `coolify.logs-tail`              | `GET /plugin-api/coolify/connections/:id/resources/:uuid/logs`             | `/operations/coolify.logs-tail/run`              | `operations:read` or `operations:run` | `coolify__logs_tail`              | `curl -X POST "$TERMIX/operations/coolify.logs-tail/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","uuid":"<resource uuid>","lines":100,"confirm":true}}'`                             |
 | `coolify.server-updates`         | `GET /plugin-api/coolify/connections/:id/servers/:uuid/updates`            | `/operations/coolify.server-updates/run`         | `operations:read` or `operations:run` | `coolify__server_updates`         | `curl -X POST "$TERMIX/operations/coolify.server-updates/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","serverUuid":"<server uuid>"}}'`                                               |
 | `coolify.server-updates-check`   | `POST /plugin-api/coolify/connections/:id/servers/:uuid/updates/check`     | `/operations/coolify.server-updates-check/run`   | `operations:run`                      | `coolify__server_updates_check`   | `curl -X POST "$TERMIX/operations/coolify.server-updates-check/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","serverUuid":"<server uuid>"}}'`                                         |
 | `coolify.server-updates-install` | `POST /plugin-api/coolify/connections/:id/servers/:uuid/updates/install`   | `/operations/coolify.server-updates-install/run` | `operations:run`                      | `coolify__server_updates_install` | `curl -X POST "$TERMIX/operations/coolify.server-updates-install/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","serverUuid":"<server uuid>","confirm":true},"confirmed":true}'`       |
@@ -110,6 +111,77 @@ and optionally `part`, `container` and `console`, checked like the route. Its da
 | `coolify.list-api-operations` | `GET /plugin-api/coolify/connections/:id/api/operations` | `/operations/coolify.list-api-operations/run` | `operations:read` or `operations:run` | `coolify__list_api_operations` | `curl -X POST "$TERMIX/operations/coolify.list-api-operations/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'` |
 | `coolify.api-read` | `POST /plugin-api/coolify/connections/:id/api/call` | `/operations/coolify.api-read/run` | `operations:read` or `operations:run` | `coolify__api_read` | `curl -X POST "$TERMIX/operations/coolify.api-read/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","operationId":"get-application-by-uuid","params":"{\"uuid\":\"<app uuid>\"}"}}'` |
 | `coolify.api-call` | `POST /plugin-api/coolify/connections/:id/api/call` | `/operations/coolify.api-call/run` | `operations:run` | `coolify__api_call` | `curl -X POST "$TERMIX/operations/coolify.api-call/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","operationId":"deploy-by-tag-or-uuid","params":"{\"uuid\":\"<app uuid>\"}"},"confirmed":true}'` |
+
+## Logs
+
+### `GET /plugin-api/coolify/connections/{id}/resources/{uuid}/logs`
+
+Recent logs of the container of a resource or service part, labelled with where they came from. Needs
+**Operate Coolify resources** and the owner or an operate (or configure) grant on the connection, and the
+uuid must be in that connection's own resource list, as for lifecycle actions. A view grant gets 403.
+
+- `source: "coolify"`: read through Coolify's `/logs` endpoints, when the token has `read:sensitive`.
+- `source: "ssh"`: `docker logs` over SSH on the server's Linked host otherwise. That needs your own
+  `connect` access to the Linked host, and runs through the same host key checks as shells.
+
+Every answer reads the connection once and checks, right before Coolify is asked or `docker logs` runs, that
+its address, token, Access token and TLS settings are still the same; otherwise it ends with
+`target-changed` (409). Before any line leaves the plugin, the connection's own token and Access secret are
+masked wherever they appear, and so are passwords in URLs, credential query parameters, secret-named
+fields (`DB_PASSWORD=…`, `"api_key": "…"`) and `Authorization` credentials.
+
+Query (all optional):
+
+| Field        | Meaning                                                                          |
+| ------------ | -------------------------------------------------------------------------------- |
+| `lines`      | Lines from the end, 1 or more; default 100. Anything above 10,000 is 10,000      |
+| `timestamps` | `true` to add each line's time (Coolify's service part endpoints don't offer it) |
+| `part`       | The uuid of a part of the service in the path                                    |
+| `container`  | A container name from an earlier `choices` answer; read over SSH                 |
+
+Answers:
+
+| Status | Body                                                                                                  |
+| ------ | ----------------------------------------------------------------------------------------------------- |
+| 200    | `{ source, text, container? }`; `container` is the one read over SSH                                  |
+| 300    | `{ choices: [{ name, running, part }] }` when several containers match                                |
+| 400    | `invalid-input`: a bad `lines`, `timestamps`, `part` or `container`                                   |
+| 403    | missing permission, a view grant, or `no-host-access` when you can't open the Linked host             |
+| 404    | no such resource or connection, or `container-not-found`                                              |
+| 409    | `not-linked` (link the server first), `target-changed`, or `host-key` with `{ hostId, fingerprints }` |
+| 502    | Coolify or SSH failed                                                                                 |
+
+### Socket `/plugin-ws/coolify/logs`
+
+Follows a container's logs live over SSH (`docker logs -f`, from now on). Send JSON messages:
+
+- `{ "type": "subscribe", "connectionId": 1, "uuid": "…", "part"?: "…", "container"?: "…", "timestamps"?: true }`
+- `{ "type": "unsubscribe" }` stops the follow and keeps the socket open
+- anything else, like `{ "type": "ping" }`, only gets checked and answered with `pong`
+
+It answers `started { source: "ssh", container }`, `lines { lines, dropped? }`, `choices`, `stopped`,
+`ended` (the container's log stream ended) and `error { cause, error }`. A socket runs one follow; a new
+subscribe stops the old one. At most 2,000 lines a second reach the socket (older ones are dropped and
+counted in `dropped`), and a line longer than 16 KiB is sent in pieces, cut only where no secret spans
+the cut. Every line is masked as above, quoted values whole. When the log stream ends, every buffered
+line is sent before `ended`. A `choices` answer means several containers match: subscribe again with
+`container`.
+
+Every message, and every 15 seconds while a follow runs, is checked: your session must be unlocked, and you
+must hold **Operate Coolify resources**, still pass the same grant and resource checks as the route, and
+have `connect` access to the Linked host, and the connection must still point at the same target. A
+refusal (`locked`, `forbidden`, `not-found`, `no-host-access`) stops the follow and closes the socket with
+code 1008; a changed target stops it with `target-changed`. Closing the socket stops `docker logs` on the
+server and ends its SSH connection.
+
+### Action `coolify.logs-tail`
+
+A read, offered to the assistant and MCP. Inputs: `connectionId`, `uuid`, `confirm` (must be `true`: logs
+can hold secrets), and optionally `part`, `container`, `lines` (up to 10,000) and `timestamps`, checked
+like the route. Its data is `{ source, text, container? }`, or `{ choices }` when several containers
+match. `text` is a sensitive output: run history never keeps it. Over MCP, `coolify__logs_tail` answers
+the (redacted) text once to the caller, cut at 8,000 characters like any tool output; `handoffId` is
+what it is taken by.
 
 ## The full Coolify API
 

@@ -132,7 +132,7 @@ const OPERATE_ACCESS: ReadonlySet<string> = new Set([
  * no connection yet it opens on Connections. On a phone the SideNav becomes a
  * select above the section.
  */
-export function CoolifyTab({ tab, shell }: TabProps) {
+export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
   const { t } = useTranslation();
   const client = usePluginApi();
   const canConfigure = usePermission("configure");
@@ -341,6 +341,7 @@ export function CoolifyTab({ tab, shell }: TabProps) {
           revision={connection.revision ?? null}
           canOperate={canOperate && OPERATE_ACCESS.has(connection.access)}
           onChanged={() => void resources.reload(true)}
+          isVisible={isVisible}
           onShell={(resource, console) => {
             shell.openTab(null, "coolify-shell", {
               label:

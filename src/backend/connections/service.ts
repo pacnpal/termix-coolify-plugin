@@ -906,6 +906,11 @@ export function createConnections(
       /** The request layer for that same target, for the generic API. */
       http: CoolifyHttp;
       cfAccess: () => Promise<CoolifyTarget["cfAccess"]>;
+      /**
+       * The token and Access secret of that same row, for masking them in
+       * text passed on as it came (logs). Never return or log them.
+       */
+      secrets: () => Promise<string[]>;
     }> {
       const { row: found, access } = await reach(id);
       const { api, http } = await cachedClient(found);
@@ -920,6 +925,11 @@ export function createConnections(
         api,
         http,
         cfAccess: () => (cfAccess ??= unsealAccess()),
+        secrets: async () =>
+          [
+            await readable(found.tokenSealed),
+            await readable(found.cfAccessSecretSealed),
+          ].filter((v): v is string => v !== null),
       };
     },
 

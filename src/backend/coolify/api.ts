@@ -260,14 +260,26 @@ export function createCoolifyApi(http: CoolifyHttp) {
       }
     },
 
-    /** Container logs through Coolify. Needs read:sensitive on the token. */
+    /**
+     * Container logs through Coolify. Needs read:sensitive on the token.
+     * Coolify's Part log endpoints have no timestamps flag and ignore it.
+     */
     async logs(
       kind: ResourceKind,
       uuid: string,
-      opts: { lines: number; parentUuid?: string },
+      opts: {
+        lines: number;
+        parentUuid?: string;
+        timestamps?: boolean;
+        beforeFetch?: () => Promise<void>;
+      },
     ): Promise<string> {
       const body = await call<unknown>(logsOp(kind, uuid, opts.parentUuid), {
-        query: { lines: opts.lines },
+        query: {
+          lines: opts.lines,
+          show_timestamps: opts.timestamps ? true : undefined,
+        },
+        beforeFetch: opts.beforeFetch,
       });
       if (typeof body === "string") return body;
       const logs = (body as { logs?: unknown } | null)?.logs;

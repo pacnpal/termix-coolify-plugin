@@ -277,6 +277,23 @@
       "body": {
         "label": "Body (JSON)",
         "description": "The request body as JSON. Never stored in run history."
+      },
+      "lines": {
+        "label": "Lines",
+        "description": "How many lines from the end, up to 10,000."
+      },
+      "timestamps": {
+        "label": "Show timestamps"
+      },
+      "source": {
+        "label": "Source"
+      },
+      "logText": {
+        "label": "Logs"
+      },
+      "confirmLogs": {
+        "label": "Read the logs",
+        "description": "Logs can hold secrets. Set to true to read them."
       }
     },
     "listConnections": {
@@ -487,6 +504,10 @@
     "apiCall": {
       "title": "Call the Coolify API",
       "description": "Runs any Coolify API operation. It needs the permission and access that operation needs, and a confirm. Secrets in the request and answer are masked in history."
+    },
+    "logsTail": {
+      "title": "Coolify container logs",
+      "description": "Recent logs of a resource's container. They come from Coolify when your access and the token allow it (read:sensitive), else from docker logs over SSH on its Linked host, which needs connect access to that host. source says which. Needs confirm: true."
     }
   },
   "connections": {
@@ -700,7 +721,8 @@
   "detail": {
     "tabs": {
       "overview": "Overview",
-      "shell": "Shell"
+      "shell": "Shell",
+      "logs": "Logs"
     },
     "fields": {
       "type": "Type",
@@ -1065,5 +1087,37 @@
     "invalidJson": "{{field}} must be valid JSON.",
     "failed": "The call failed.",
     "waiting": "Waiting for the answer"
+  },
+  "logs": {
+    "title": "Container logs",
+    "source": {
+      "coolify": "from Coolify",
+      "ssh": "from the server over SSH"
+    },
+    "lines": "Lines",
+    "linesOption": "{{count}} lines",
+    "timestamps": "Timestamps",
+    "follow": "Follow",
+    "following": "Following live",
+    "followEnded": "Follow ended",
+    "download": "Download",
+    "refresh": "Refresh logs",
+    "retry": "Try again",
+    "search": "Search logs",
+    "loading": "Loading logs…",
+    "empty": "No log lines yet.",
+    "noMatch": "No line matches the search.",
+    "pick": {
+      "title": "Pick a container",
+      "hint": "This resource runs more than one container."
+    },
+    "errors": {
+      "not-linked": "Link this server first: sync it from Coolify to read its logs over SSH.",
+      "no-host-access": "You can't open this server's Linked host, so its logs can't be read over SSH.",
+      "host-key": "Open a server terminal once to trust this host's key.",
+      "container-not-found": "No container of this resource was found on its server.",
+      "locked": "Your session is locked. Sign in again to follow logs.",
+      "failed": "The logs could not be read."
+    }
   }
 }

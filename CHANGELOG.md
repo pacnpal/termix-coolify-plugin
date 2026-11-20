@@ -158,3 +158,21 @@
   secrets or logs and changes ask
   first and a delete asks you to type the operation id. Masked values can be revealed one at a time with
   **Configure Coolify** and a token with `read:sensitive`; each reveal is audited
+- A Logs view on each resource and part: 100 to 10,000 recent lines, timestamps, search and download. Each
+  read says where it came from: "from Coolify" (a token with `read:sensitive`) or "from the server over
+  SSH" (`docker logs` on the Linked host, which needs your own connect access to it). Logs need Operate
+  Coolify resources and the owner or an operate grant on the connection, as lifecycle actions do. A picker
+  when several containers match, and "Link this server first" when the server has no Linked host
+- Logs never show the connection's own token or Cloudflare Access secret, passwords in URLs, credential
+  query parameters, secret-named fields or `Authorization` credentials, and a read whose connection changes
+  target meanwhile stops with `target-changed`
+- Follow: new log lines live over SSH while the view is shown. It stops, and stops `docker logs` on the
+  server, when you turn it off, switch views or resources, hide the tab or close it, and it checks your
+  session, permission, grant, the connection's target and your host access on every message and every 15
+  seconds
+- The action `coolify.logs-tail`, offered to the assistant and MCP, answers the same logs with
+  `confirm: true`; run history never keeps their text, and over MCP the answer carries the masked text
+- Logs mask a quoted secret through its closing quote, YAML secrets to the end of the line and env values
+  to the end of the token, also when a long line is split; multibyte characters split across SSH chunks
+  stay whole, a follow sends its last lines before it ends, and a follow that finds several containers
+  shows the picker

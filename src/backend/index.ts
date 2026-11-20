@@ -15,6 +15,8 @@ import {
 import { registerMcpRoutes } from "./mcp/routes.js";
 import { createContainers } from "./containers/service.js";
 import { registerContainerRoutes } from "./containers/routes.js";
+import { createLogs } from "./containers/logs.js";
+import { registerLogSocket } from "./containers/sockets.js";
 import { createGenericApi } from "./ops/api-generic.js";
 import { registerOperations } from "./operations.js";
 import { createSync, type Sync } from "./sync/service.js";
@@ -41,6 +43,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
   const resources = createResources(ctx, { tables, connections });
   const lifecycle = createLifecycle(ctx, { connections, resources, sync });
   const containers = createContainers(ctx, { connections, lifecycle, sync });
+  const logs = createLogs(ctx, { connections, containers });
   const servers = createServerStatuses(ctx, { tables, connections });
   const updates = createUpdates(ctx, {
     tables,
@@ -71,7 +74,8 @@ export async function activate(ctx: PluginContext): Promise<void> {
   registerResourceRoutes(router, ctx, resources);
   registerSyncRoutes(router, ctx, sync);
   registerLifecycleRoutes(router, ctx, lifecycle);
-  registerContainerRoutes(router, ctx, containers);
+  registerContainerRoutes(router, ctx, containers, logs);
+  registerLogSocket(ctx, { logs });
   registerUpdateRoutes(router, ctx, updates);
   registerCompanionRoutes(router, ctx, companions);
   registerApiConsoleRoutes(router, ctx, genericApi);
@@ -84,6 +88,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
     resources,
     lifecycle,
     containers,
+    logs,
     servers,
     updates,
     companions,

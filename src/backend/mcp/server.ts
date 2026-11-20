@@ -11,6 +11,7 @@ import {
 import en from "../../../locales/en.json";
 import { redact } from "../redact.js";
 import { handoffIdOf, takeOnceUrl } from "../status/service.js";
+import { takeLogText } from "../ops/containers.js";
 
 /** The MCP protocol version this endpoint speaks when a client asks for another. */
 export const MCP_PROTOCOL_VERSION = "2025-06-18";
@@ -411,7 +412,16 @@ function actionResult(
   action: OperationAction,
   outcome: PluginOperationOutcome,
 ): McpToolResult {
-  const data = redactFields(action.outputs, outcome.data);
+  let data = redactFields(action.outputs, outcome.data);
+  if (action.id === "coolify.logs-tail" && data && typeof data === "object") {
+    // The text was redacted by redactLog and dropped from run history; the
+    // caller who ran it gets it here, once.
+    const text = takeLogText(
+      ctx.currentActor() ?? "",
+      (outcome.data as { handoffId?: unknown }).handoffId,
+    );
+    if (text !== null) data = { ...(data as object), text };
+  }
   const result = toolResult(
     outcome.data === undefined ? outcome : { ...outcome, data },
   );

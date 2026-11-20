@@ -2,8 +2,8 @@ Coolify for Termix brings your Coolify servers, applications, services and datab
 
 So far you can connect Coolify instances, see what each API token can do, browse each connection's
 applications, services and databases, deploy, start, stop and restart them, open a shell or database console
-in their containers, sync Coolify servers into Termix hosts, and use other Termix plugins (DNS, Uptime, Log
-Search and more) with them. Logs and the rest come with the rest of release 1.0.0.
+in their containers, read or follow their logs, sync Coolify servers into Termix hosts, and use other Termix
+plugins (DNS, Uptime, Log Search and more) with them. The rest comes with the rest of release 1.0.0.
 
 ## Turn it on
 
@@ -156,6 +156,39 @@ a server can read every container's secrets.
 
 The action `coolify.shell-command` (offered to the assistant and MCP) answers the same `docker exec` command,
 or the list of containers to choose from, for a client with its own SSH. It makes the same checks. See
+[the API](api.md).
+
+## Logs
+
+A resource's or part's **Logs** view shows the container's recent logs. Pick how many lines (100 up to
+10,000), turn **Timestamps** on, search the lines, or **Download** them as a text file.
+
+Logs can hold secrets, so they need what lifecycle actions need: **Operate Coolify resources** and a
+connection you own or a Grant at operate or configure. A view Grant can't read them, and the Logs view is
+hidden without them. Each read is labelled with where it came from:
+
+- **from Coolify**: read through Coolify's API, when the API token has `read:sensitive`.
+- **from the server over SSH**: `docker logs` on the server's Linked host, used whenever Coolify can't be
+  asked (a token without `read:sensitive`, a whole service, or a container picked from a list). That also
+  needs your own **connect** access to the Linked host. The container is found the same way as for a shell,
+  stopped ones included, and when several match you pick one. A server with no Linked host answers **Link
+  this server first**.
+
+Before any line reaches you, the connection's own token and Cloudflare Access secret are masked wherever
+they appear, and so are passwords in URLs, credential query parameters, fields named like a password,
+token or key (`DB_PASSWORD=…`) and `Authorization` credentials. If the connection's address, token or
+Access settings change while logs are read, the read stops with `target-changed` and shows nothing from the
+old target.
+
+**Follow** streams new lines live over SSH while the view is shown. It stops when you turn it off, switch to
+another view or resource, hide the tab or close it, and the `docker logs` process on the server is stopped
+with it. Every message on the follow's socket, and a check every 15 seconds, confirms again that your
+session is unlocked, that you still hold the permission, the Grant and the connection's same target, and
+that you can still open the Linked host. Very busy logs are thinned to about 2,000 lines a second.
+
+The action `coolify.logs-tail` (offered to the assistant and MCP) answers the same snapshot with its source,
+only with `confirm: true`. Its text is a sensitive output, so run history never keeps it; over MCP the
+caller gets the masked text in the answer. See
 [the API](api.md).
 
 ## Use with an MCP client

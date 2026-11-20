@@ -30,6 +30,8 @@ export interface DockerHost {
   bash?: boolean;
   /** Throw core's unknown host key error instead of running anything. */
   hostKey?: boolean;
+  /** What `docker logs` prints. */
+  logs?: string;
 }
 
 function result(stdout: string, code = 0): PluginSshExecResult {
@@ -59,12 +61,31 @@ export function fakeDocker(harness: PluginHarness, host: DockerHost) {
         }
         return result("");
       }
+      if (/docker logs /.test(command)) {
+        return result(host.logs ?? "");
+      }
       if (/command -v bash/.test(command)) {
         return host.bash === false ? result("", 1) : result("/bin/bash\n");
       }
       return result("", 127);
     });
   return { exec, commands };
+}
+
+/** Sets whether the stored probe found read:sensitive on the token. */
+export function setSensitive(
+  harness: PluginHarness,
+  connectionId: number,
+  sensitive: boolean,
+): void {
+  const row = harness.db.sqlite
+    .prepare("SELECT abilities FROM p_coolify_connections WHERE id = ?")
+    .get(connectionId) as { abilities: string };
+  const stored = JSON.parse(row.abilities);
+  stored.abilities = { ...stored.abilities, sensitive };
+  harness.db.sqlite
+    .prepare("UPDATE p_coolify_connections SET abilities = ? WHERE id = ?")
+    .run(JSON.stringify(stored), connectionId);
 }
 
 /** A plugin with one connection whose server srv-vps1-uuid has a Linked host. */

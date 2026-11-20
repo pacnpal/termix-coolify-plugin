@@ -13,6 +13,7 @@ import type {
 } from "@termix-ssh/plugin-sdk/frontend";
 import { createApi } from "./api";
 import { forgetPreview, linkOf, useLinkedRow } from "./linked";
+import { keepSocketTarget } from "./socket";
 import { ConnectStep } from "./views/ConnectStep";
 import { CoolifyTab } from "./views/CoolifyTab";
 import { HostSection, openCoolify } from "./views/HostSection";
@@ -24,6 +25,8 @@ const IMPORT_ACTION = "coolify.import-from-coolify";
 const isLinked = (host: PluginHostRecord) => linkOf(host) !== null;
 
 export function activate(app: TermixApp): void {
+  // The Logs view's live follow opens /plugin-ws/coolify/logs through it.
+  keepSocketTarget(app);
   app.registerRailItem({
     id: TAB_ID,
     icon: Rocket,

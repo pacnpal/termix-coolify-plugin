@@ -70,8 +70,8 @@ aren't obvious from the code, and anything that has bitten you before.
   Connections work (routes, operations, the Connections view and the "Connect Coolify" onboarding step),
   Resources can be browsed (Overview tiles, the Resources list, a resource's Overview detail) and deployed,
   started, stopped and restarted, host sync turns Coolify servers into locked Linked hosts, container
-  shells and database consoles open in a `coolify-shell` tab, and a Linked host's card checks, installs
-  and reboots its server's updates. Companion plugins (DNS, Uptime, Log Search, Security Center, Host
+  shells and database consoles open in a `coolify-shell` tab, a resource's Logs view reads and follows
+  container logs, and a Linked host's card checks, installs and reboots its server's updates. Companion plugins (DNS, Uptime, Log Search, Security Center, Host
   Metrics, Databases, Backups) add their features when they run, and owners can publish public status pages.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
@@ -221,7 +221,8 @@ aren't obvious from the code, and anything that has bitten you before.
   the tab, so editing the selected connection's target clears and reloads it. `ResourceDetail.tsx` lists its views in `DETAIL_TABS`; later views (shell,
   logs, stats) add an id there. Filtering and grouping are pure functions in `resource-model.ts`.
   `contributes.mobile` lists `coolify` and `coolify-shell`. `DETAIL_TABS` has `shell`, whose view holds the
-  Open shell and Open database console buttons (only with `canOperate`).
+  Open shell and Open database console buttons (only with `canOperate`), and `logs` (`OPERATE_TABS`: shown
+  only with `canOperate`).
 - Host sync: `src/backend/sync/` (`mapping.ts` pure `planHost`, `credentials.ts` key copy, `locks.ts`,
   `service.ts` `createSync`, `routes.ts`) and `src/backend/ops/sync.ts`. `createSync` is async (it loads the
   lock set from `servers.hostId` before providing locks) and is made right after `createConnections`, whose
@@ -319,6 +320,54 @@ aren't obvious from the code, and anything that has bitten you before.
 console }`, calls the shell route and draws `PluginComponent id="terminal.view"` with `hostConfig` and
   `executeCommand`; the fallback is a NoticePanel with the command to copy. Picking a container re-asks in
   place. Shell host ids can be strings, so hosts are matched by `String(id)`, not `useHost`.
+- Logs: `src/backend/containers/logs.ts` (`readLogsRequest`, `logsCommand`, `redactLog`, `createLogs` with
+  `snapshot` and `follow`), `sockets.ts` (`WS /logs`) and the `coolify.logs-tail` action in
+  `ops/containers.ts` (refused without `confirm: true`, so MCP and ops reads are explicit). The containers
+  service exposes `target` (lifecycle's `authorize`: coolify.operate, owner or operate/configure grant, uuid
+  in the connection's own list), `locate(id, snap, uuid, request)` (every check up to the chosen container,
+  running or not, including the snapshot's revision before any SSH), `assertHostAccess`,
+  `assertSnapshotHolds` and `guard` (host key errors to `host-key`); shells and logs share them. Each read
+  takes `connections.snapshot(id)` once; the revision is checked again in Coolify's `beforeFetch`, right
+  before `docker logs` and right before `ctx.ssh.connect`. A snapshot uses Coolify's API only with
+  `abilities.sensitive`, never for a whole service (Coolify needs one sub-service) or a container picked
+  from SSH choices; a Coolify `forbidden-ability` falls back to SSH. The count is capped at 10,000
+  (`MAX_LINES`), never refused. The container name passes `assertContainerName` and is `shellQuote`d, and so
+  is the line count; no secret is ever in the command.
+- Log redaction: every snapshot text and every followed line goes through `redactLog`: the snapshot's own
+  token and Access secret (`snapshot.secrets()`, unsealed from the same row) are replaced anywhere, then
+  redact.ts's `maskCredentials`, then secret-named `name=value`/`"name": "value"` fields and
+  `Authorization` credentials. Names are bounded (`{0,64}`) so a long line can't backtrack for long.
+  A quoted value is masked through its closing quote (escapes honoured); an unterminated quote or a YAML
+  `name: value` starting its line masks the rest of the line; other unquoted values run to the end of
+  the token (whitespace or `&`, so every secret on a line is matched; YAML is its own `YAML_FIELD`
+  pass). Authorization and Proxy-Authorization credentials are masked at any length; a bare scheme word
+  (`Bearer x`) needs 8 characters. `redactLog` repeats the passes until the text stops changing (at most
+  `MAX_PASSES`). LogsView keeps the follow's own source (`followSource`) for its badge. Followed bytes go through `lineSplitter`: one streaming `TextDecoder` per
+  stdout/stderr, and a line over MAX_LINE is cut only at a point `safeCut` proves changes nothing
+  (redacting the halves equals redacting the whole), keeping 1 KiB (or twice the longest secret) back;
+  with no safe cut the rest of that line becomes one `[redacted]`.
+- logs-tail over MCP: `text` is a sensitive output, so core drops it from run history and from what
+  `redactFields` passes on. The handler keeps the redacted text in memory (`takeLogText`, per user and
+  `handoffId`, 60 s, 16 MB at most) and `actionResult` in `mcp/server.ts` puts it back into that one
+  answer.
+- Follow socket: `ctx.asUser` needs `users:impersonate`, which the plugin doesn't have. Core runs a socket's
+  events in the opener's actor context (its child runtime wraps them in `als.run`), and timers started in
+  a handler keep it, so each message and each `RECHECK_MS` (15 s) check runs `ctx.currentActor() ===
+conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `recheck` (authorize, the
+  snapshot's revision, host connect access); `isDataUnlocked()` is checked per message and per flush.
+  Checks are queued with messages so they never interleave. A refusal closes 1008; `target-changed` stops
+  the follow. The follow runs `docker logs -f --tail 0` over `ctx.ssh.connect` with a pty, so closing the
+  channel hangs it up; stop sends KILL, closes the channel and disposes. One follow per socket: a new
+  subscribe stops the old one. Lines are batched every 250 ms, at most 500 a batch and 2,000 buffered
+  (older ones dropped with a `dropped` count), lines over 16 KiB split. When docker logs ends, the
+  whole buffer is drained in batches before `ended`. A `choices` reply shows LogsView's picker. Tests drive the handler from
+  `mock.wsRoutes` with a fake socket and must `setActor` to the socket's user, as core does.
+- Logs view: `src/frontend/views/LogsView.tsx` in ResourceDetail's `logs` tab, keyed by connection, uuid
+  and `revision`, so switching resources or targets starts empty and closes the follow. Its loads keep only
+  the newest answer (a request generation, as in `useResources`). It opens the socket through
+  `src/frontend/socket.ts` (`keepSocketTarget(app)` in activate keeps `app.wsUrl`; tests swap it with
+  `setWsUrl`). The follow effect depends on `isVisible`, so hiding the tab closes it; a Part is asked for
+  by its service's uuid plus `part`.
 - Server updates: `src/backend/updates/` (`service.ts` `createUpdates`, `routes.ts`) and
   `src/backend/ops/updates.ts`; the UI is `src/frontend/views/ServerUpdates.tsx` inside the host card.
   `ServerUpdates` remounts its card on `connectionId:serverUuid:revision` (the revision from
