@@ -12,7 +12,8 @@ export interface PatchItem {
 }
 
 export interface PatchStatus {
-  updates: number;
+  /** Null when unknown: the check failed (`error`), so nothing is counted. */
+  updates: number | null;
   security: number | null;
   rebootRequired: boolean | null;
   checkedAt: string | null;
@@ -180,10 +181,28 @@ export function toPatch(
     };
   });
   const securityCount = items.filter((item) => item.security).length;
+  // An explicit null means Coolify can't tell (pacman, apk), so the per-item
+  // false flags don't make it zero. Only a result without the field counts.
+  const securityKnown = raw !== null && "security_updates" in raw;
+  // A check that failed counts nothing, whatever result is left from before:
+  // unknown, never zero updates.
+  if (errorText) {
+    return {
+      updates: null,
+      security: null,
+      rebootRequired: null,
+      checkedAt: strOrNull(checkedAt),
+      error: errorText,
+      items: [],
+    };
+  }
   return {
     updates: num(raw?.total_updates) ?? items.length,
-    security:
-      num(raw?.security_updates) ?? (items.length ? securityCount : null),
+    security: securityKnown
+      ? num(raw.security_updates)
+      : items.length
+        ? securityCount
+        : null,
     rebootRequired: boolOrNull(raw?.reboot_required),
     checkedAt: strOrNull(checkedAt),
     error: errorText,

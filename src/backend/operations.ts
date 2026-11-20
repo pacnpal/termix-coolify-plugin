@@ -8,9 +8,14 @@ import { registerConnectionOperations } from "./ops/connections.js";
 import { registerContainerOperations } from "./ops/containers.js";
 import { registerLifecycleOperations } from "./ops/lifecycle.js";
 import { registerResourceOperations } from "./ops/resources.js";
-import { registerSignalOperations } from "./ops/signals.js";
+import {
+  registerSignalOperations,
+  type ServerStatuses,
+} from "./ops/signals.js";
 import { registerSyncOperations } from "./ops/sync.js";
+import { registerUpdateOperations } from "./ops/updates.js";
 import type { Sync } from "./sync/service.js";
+import type { Updates } from "./updates/service.js";
 
 export interface Services {
   tables: Tables;
@@ -19,6 +24,8 @@ export interface Services {
   sync: Sync;
   lifecycle: Lifecycle;
   containers: Containers;
+  servers: ServerStatuses;
+  updates: Updates;
 }
 
 /**
@@ -35,4 +42,5 @@ export function registerOperations(
   registerLifecycleOperations(ctx, services);
   registerSignalOperations(ctx, services);
   registerContainerOperations(ctx, services.containers);
+  registerUpdateOperations(ctx, services.updates);
 }

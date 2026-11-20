@@ -69,8 +69,9 @@ aren't obvious from the code, and anything that has bitten you before.
   Where things stand: identity, permissions, admin settings, the vendored API and the tables exist,
   Connections work (routes, operations, the Connections view and the "Connect Coolify" onboarding step),
   Resources can be browsed (Overview tiles, the Resources list, a resource's Overview detail) and deployed,
-  started, stopped and restarted, host sync turns Coolify servers into locked Linked hosts, and container
-  shells and database consoles open in a `coolify-shell` tab.
+  started, stopped and restarted, host sync turns Coolify servers into locked Linked hosts, container
+  shells and database consoles open in a `coolify-shell` tab, and a Linked host's card checks, installs
+  and reboots its server's updates.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
 - Coolify calls: `src/backend/coolify/http.ts` is the only way to Coolify (ctx.fetch, Bearer and CF Access
@@ -239,12 +240,49 @@ aren't obvious from the code, and anything that has bitten you before.
 console }`, calls the shell route and draws `PluginComponent id="terminal.view"` with `hostConfig` and
   `executeCommand`; the fallback is a NoticePanel with the command to copy. Picking a container re-asks in
   place. Shell host ids can be strings, so hosts are matched by `String(id)`, not `useHost`.
+- Server updates: `src/backend/updates/` (`service.ts` `createUpdates`, `routes.ts`) and
+  `src/backend/ops/updates.ts`; the UI is `src/frontend/views/ServerUpdates.tsx` inside the host card.
+  `ServerUpdates` remounts its card on `connectionId:serverUuid:revision` (the revision from
+  `HostSection`'s connection read), so a changed link drops its answer and any open confirmation; each
+  request has a generation (only the newest sets state), and a confirmation keeps the key it was
+  opened for and acts only while that key is current.
+  Coolify's `patch_check_result` is mapped by `toPatch` in `dto.ts` (an explicit `security_updates: null`
+  stays unknown; a `patch_check_error` makes `updates` and `security` null with no items, whatever
+  result is left, so the card, Install, the updates signal and the actions never read it as zero). Check and install go through `ctx.operations.invoke` of `package-manager.list-updates` /
+  `upgrade-all` when that plugin is active, else SSH (`sshRunner` from `ssh.ts`) with fixed commands built
+  from `host-commands` (no request value ever reaches a command; root or `sudo -n`). Reboot is always SSH.
+  The plugin list decides the path; when it can't be read, check and install refuse (409
+  `companions-unknown`) rather than use SSH. The SSH check reports each step's exit status in a marker
+  line (`checkCommand`, its own `LISTING`, not the SDK's, which hides failures); a failed or missing
+  refresh or listing is 502 `check-failed`, never zero updates.
+  Refresh steps: apt `apt-get update`, dnf and yum `makecache`; pacman has none (`pacman -Sy` alone risks
+  a partial upgrade) and lists with pacman-contrib's `checkupdates` (a temporary database; without it the
+  check fails). Concurrent checks of one server under the same revision and generation share one run
+  (`checks`, keyed by connection, server, revision and generation), so an older run never overwrites a
+  newer one.
+  A failure on the Package Manager path is reported, never retried over SSH, so that plugin's read only
+  setting can't be bypassed. Order of checks (`prepare`): permission (operate, administer to reboot),
+  `connections.snapshot(id)` once, the snapshot's grant (operate, configure to reboot), confirm, the
+  server read from the snapshot's own client (a uuid that connection's Coolify doesn't have is 404,
+  whatever link row is left), Linked host (409 `not-linked`), host share level (connect to check, edit to
+  install or reboot; a host access read that throws refuses), then the revision again. The revision is
+  checked once more right before every SSH command, Package Manager call and kept-check write (409
+  `target-changed`). `UpdateError` has its own statuses (409 for `not-linked`, `host-key` with a fixed
+  message, never core's text). The plugin's own last check is kept in `cache` as kind
+  `updates:<serverUuid>` with the revision and the per-instance generation (`<epoch>:<n>`, advanced by
+  install and reboot) it was read under, and written and served only while both are current.
+  Install and reboot, once they reached the server (even when they failed), drop that row, then call
+  `servers.invalidate` and `resources.invalidate`. The mock ctx's `hosts.checkAccess`
+  only knows hosts given up front, so tests spy on it, on `ssh.exec`, on `operations.invoke` and on
+  `plugins.list` (`tests/backend/updates/fixtures.ts`).
 - MCP may deploy and restart without `allowMcpChanges` (`MCP_CHANGES_EXEMPT` in `mcp/server.ts`).
 - Signals (`src/backend/ops/signals.ts`) read resources from the resources cache and server statuses from a
-  `servers` cache kind (a minute, no addresses or keys kept). That cache works like the resources cache:
-  rows carry `connections.revision(id)` and a hit needs the current one, in-flight fetches are keyed by
-  id and revision, and a fetch is cached only if the revision didn't change while it ran. The degraded
+  `servers` cache kind (a minute, no addresses or keys kept) through `createServerStatuses`, made in
+  `index.ts`. That cache works like the resources cache: rows carry `connections.revision(id)` and a
+  per-instance generation (`<epoch>:<n>`) that `invalidate` advances, a hit needs both to be current,
+  in-flight fetches are keyed by id, revision and generation (invalidate drops them), and a fetch is
+  cached only if neither changed while it ran. The degraded
   count is `countResources`, so exited (with any health suffix) is stopped and never counts; bare
-  `unhealthy` does. Updates come from Coolify's own patch check (`ServerDto.patch.security`) until the
-  updates service exists. The deployment events are emitted only by a deploy run with `wait`;
+  `unhealthy` does. Updates come from Coolify's own patch check (`ServerDto.patch.security`), not the
+  updates service's own checks. The deployment events are emitted only by a deploy run with `wait`;
   container-restarted and server-unreachable are declared for later polling.

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import type { SignalResult } from "@termix-ssh/plugin-sdk/operations";
 import { createCache } from "../cache.js";
@@ -20,9 +21,10 @@ interface ServerStatus {
   security: number | null;
 }
 
-/** A cached server list and the connection revision it was read under. */
+/** A cached server list, the connection revision and the generation it was read under. */
 interface CachedServers {
   revision: string;
+  generation: string;
   rows: ServerStatus[];
 }
 
@@ -35,6 +37,86 @@ function statusOf(s: ServerDto): ServerStatus {
     security: s.patch?.security ?? null,
   };
 }
+
+/**
+ * Server statuses per connection, cached a minute. It works like the
+ * resources cache: rows carry the connection's revision and the generation
+ * `invalidate` advances, a hit needs both to be current, and in-flight
+ * fetches are keyed by both, so a fetch that started before an invalidate
+ * (an install or a reboot) is never served or cached. Generations are unique
+ * to each instance (`<epoch>:<n>`), so rows an old instance wrote never match.
+ */
+export function createServerStatuses(
+  ctx: PluginContext,
+  deps: { tables: Tables; connections: Connections; now?: () => number },
+) {
+  const { connections } = deps;
+  const cache = createCache(ctx, deps.tables);
+  const now = deps.now ?? Date.now;
+  const inflight = new Map<string, Promise<ServerStatus[]>>();
+  const epoch = randomUUID();
+  const generations = new Map<number, number>();
+  const generationOf = (connectionId: number) =>
+    `${epoch}:${generations.get(connectionId) ?? 0}`;
+
+  return {
+    async list(connectionId: number): Promise<ServerStatus[]> {
+      // revision() checks access before the cache, as in resources, and names
+      // the target, so rows read from an old address or token are never served.
+      const revision = await connections.revision(connectionId);
+      if (!revision) throw new Error("No access to this connection");
+      const generation = generationOf(connectionId);
+      const hit = await cache.fresh<Partial<CachedServers>>(
+        connectionId,
+        SERVERS_CACHE_KIND,
+        SERVERS_TTL_MS,
+        now(),
+      );
+      const value = hit?.value;
+      if (
+        value?.revision === revision &&
+        value.generation === generation &&
+        Array.isArray(value.rows)
+      ) {
+        return value.rows;
+      }
+      const key = `${connectionId}:${revision}:${generation}`;
+      const pending = inflight.get(key);
+      if (pending) return pending;
+      const started = (async () => {
+        const list = (
+          await (await connections.api(connectionId)).servers()
+        ).map(statusOf);
+        // Cached only while the revision and generation the fetch started
+        // under are still current. The row carries both, so a change that
+        // lands after this check still never serves it.
+        if (
+          generationOf(connectionId) === generation &&
+          (await connections.revision(connectionId)) === revision
+        ) {
+          const row: CachedServers = { revision, generation, rows: list };
+          await cache.write(connectionId, SERVERS_CACHE_KIND, row, now());
+        }
+        return list;
+      })().finally(() => {
+        if (inflight.get(key) === started) inflight.delete(key);
+      });
+      inflight.set(key, started);
+      return started;
+    },
+
+    /** Drops the cached statuses and any fetch still running for them. */
+    async invalidate(connectionId: number): Promise<void> {
+      generations.set(connectionId, (generations.get(connectionId) ?? 0) + 1);
+      for (const key of inflight.keys()) {
+        if (key.startsWith(`${connectionId}:`)) inflight.delete(key);
+      }
+      await cache.drop(connectionId, SERVERS_CACHE_KIND);
+    },
+  };
+}
+
+export type ServerStatuses = ReturnType<typeof createServerStatuses>;
 
 const unknown = (label: string): SignalResult => ({
   value: null,
@@ -56,63 +138,20 @@ const signal = (result: SignalResult) => ({
 export function registerSignalOperations(
   ctx: PluginContext,
   deps: {
-    tables: Tables;
     connections: Connections;
     resources: Resources;
     sync: Sync;
-    now?: () => number;
+    servers: ServerStatuses;
   },
 ): void {
   const { connections, resources, sync } = deps;
-  const cache = createCache(ctx, deps.tables);
-  const now = deps.now ?? Date.now;
-  // One fetch per connection revision at a time; a caller after a target
-  // change never joins a fetch that started before it.
-  const inflight = new Map<string, Promise<ServerStatus[]>>();
-
-  async function servers(connectionId: number): Promise<ServerStatus[]> {
-    // revision() checks access before the cache, as in resources, and names
-    // the target, so rows read from an old address or token are never served.
-    const revision = await connections.revision(connectionId);
-    if (!revision) throw new Error("No access to this connection");
-    const hit = await cache.fresh<Partial<CachedServers>>(
-      connectionId,
-      SERVERS_CACHE_KIND,
-      SERVERS_TTL_MS,
-      now(),
-    );
-    const value = hit?.value;
-    if (value?.revision === revision && Array.isArray(value.rows)) {
-      return value.rows;
-    }
-    const key = `${connectionId}:${revision}`;
-    const pending = inflight.get(key);
-    if (pending) return pending;
-    const started = (async () => {
-      const list = (await (await connections.api(connectionId)).servers()).map(
-        statusOf,
-      );
-      // Cached only while the connection still has the revision the fetch
-      // started under. The row carries it too, so a change that lands after
-      // this check still never serves it.
-      if ((await connections.revision(connectionId)) === revision) {
-        const row: CachedServers = { revision, rows: list };
-        await cache.write(connectionId, SERVERS_CACHE_KIND, row, now());
-      }
-      return list;
-    })().finally(() => {
-      if (inflight.get(key) === started) inflight.delete(key);
-    });
-    inflight.set(key, started);
-    return started;
-  }
 
   async function serverOfHost(
     hostId: number | undefined,
   ): Promise<{ connectionId: number; server: ServerStatus | null } | null> {
     const link = hostId ? await sync.linkOfHost(hostId) : null;
     if (!link) return null;
-    const list = await servers(link.connectionId);
+    const list = await deps.servers.list(link.connectionId);
     return {
       connectionId: link.connectionId,
       server: list.find((s) => s.uuid === link.serverUuid) ?? null,
