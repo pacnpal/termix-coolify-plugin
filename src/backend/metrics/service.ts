@@ -91,6 +91,12 @@ const OPERATE_ACCESS: ReadonlySet<AccessLevel> = new Set([
   "configure",
 ]);
 
+/** Access levels that may change a server's Sentinel settings. */
+const CONFIGURE_ACCESS: ReadonlySet<AccessLevel> = new Set([
+  "owner",
+  "configure",
+]);
+
 /** A uuid that can't be one path segment reads as missing. */
 function badUuid(uuid: string): boolean {
   return pathParamProblem("uuid", uuid) !== null;
@@ -282,8 +288,17 @@ export interface MetricsDeps {
 interface Read {
   connectionId: number;
   snap: Snapshot;
-  /** Throws target-changed (or not-found) once the snapshot no longer holds. */
+  /**
+   * Throws target-changed (or not-found) once the snapshot no longer holds,
+   * and forbidden once the actor's access is no longer in `need`.
+   */
   holds: () => Promise<void>;
+  /**
+   * The access levels this step needs, checked live on every `holds`: a
+   * grant cut while a read or a change runs doesn't change the revision.
+   * Null: any access (the revision check already fails on none).
+   */
+  need: ReadonlySet<AccessLevel> | null;
   /**
    * The snapshot's request layer and API with `holds` as every request's
    * beforeFetch: it runs after the request budget's wait, right before the
@@ -320,11 +335,26 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
   const run = deps.run ?? sshRunner(ctx);
   const now = deps.now ?? Date.now;
 
-  async function begin(connectionId: number): Promise<Read> {
+  async function begin(
+    connectionId: number,
+    need: ReadonlySet<AccessLevel> | null = null,
+  ): Promise<Read> {
     const snap = await deps.connections.snapshot(connectionId);
-    const holds = () => deps.containers.assertSnapshotHolds(connectionId, snap);
-    const http = guarded(snap.http, holds);
-    return { connectionId, snap, holds, http, api: createCoolifyApi(http) };
+    const read = { connectionId, snap, need } as Read;
+    read.holds = async () => {
+      await deps.containers.assertSnapshotHolds(connectionId, snap);
+      if (!read.need) return;
+      const access = await deps.connections.access(connectionId);
+      if (!access || !read.need.has(access)) {
+        throw new MetricsError(
+          "forbidden",
+          "Your access to this connection changed.",
+        );
+      }
+    };
+    read.http = guarded(snap.http, read.holds);
+    read.api = createCoolifyApi(read.http);
+    return read;
   }
 
   /** coolify.configure and the owner or a configure grant. */
@@ -381,8 +411,9 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
     fn: () => Promise<T>,
   ): Promise<T> {
     await read.holds();
+    let result: T;
     try {
-      return await fn();
+      result = await fn();
     } catch (err) {
       if (err instanceof MetricsError) throw err;
       if (err instanceof SentinelError) {
@@ -403,6 +434,10 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
         "The Linked host could not run docker over SSH.",
       );
     }
+    // The answer belongs to the target and access that were checked: a
+    // change while the command ran withholds it.
+    await read.holds();
+    return result;
   }
 
   function sentinel(
@@ -443,6 +478,8 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
         "Reading metrics over SSH needs coolify.operate and operate access to this connection.",
       );
     }
+    // From here every holds checks the grant live too.
+    read.need = OPERATE_ACCESS;
     const target = await sshTarget(read, serverUuid);
     const window = historyWindow(minutes, now());
     const summary = await sentinel(read, target, SUMMARY_PATH);
@@ -500,7 +537,7 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
       query: { minutes?: unknown } = {},
     ): Promise<ResourceMetrics> {
       const minutes = readMinutes(query.minutes);
-      const read = await begin(connectionId);
+      const read = await begin(connectionId, OPERATE_ACCESS);
       const res = await resourceOf(read, uuid);
       if (res.serverUuid) {
         await requireMetrics(read, await serverOf(read, res.serverUuid));
@@ -531,7 +568,7 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
       raw: Record<string, unknown> = {},
     ): Promise<TrafficAnswer> {
       const query = readTrafficQuery(raw);
-      const read = await begin(connectionId);
+      const read = await begin(connectionId, OPERATE_ACCESS);
       const res = await resourceOf(read, uuid);
       if (res.kind !== "application") {
         throw invalid("Traffic analytics covers applications.");
@@ -587,7 +624,7 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
       if (badUuid(serverUuid)) {
         throw new MetricsError("not-found", "Coolify server not found");
       }
-      const read = await begin(connectionId);
+      const read = await begin(connectionId, CONFIGURE_ACCESS);
       if (!(await canConfigure(read))) {
         throw new MetricsError(
           "forbidden",
