@@ -36,6 +36,7 @@ function routes(id: number) {
     {
       method: "DELETE",
       path: `${c}/resources/app-web-uuid/dns/1`,
+      body: { confirm: true },
       plugin: "dns",
     },
     {
@@ -208,12 +209,13 @@ describe("DNS records", () => {
     expect(listed.body).toEqual([created.body]);
 
     // An id that was never stored, and one stored for another resource.
-    const unknown = await h.request("DELETE", `${base}/999`);
+    const unknown = await h.request("DELETE", `${base}/999`, { confirm: true });
     expect(unknown.status).toBe(404);
     expect(unknown.body.cause).toBe("dns-record-not-found");
     const elsewhere = await h.request(
       "DELETE",
       `/connections/${connectionId}/resources/svc-n8n-app/dns/${created.body.id}`,
+      { confirm: true },
     );
     expect(elsewhere.status).toBe(404);
     expect(elsewhere.body.cause).toBe("dns-record-not-found");
@@ -221,7 +223,9 @@ describe("DNS records", () => {
       "dns.delete-record",
     );
 
-    const removed = await h.request("DELETE", `${base}/${created.body.id}`);
+    const removed = await h.request("DELETE", `${base}/${created.body.id}`, {
+      confirm: true,
+    });
     expect(removed.status).toBe(200);
     expect(removed.body).toEqual({ id: created.body.id, removed: true });
     const deleteCall = companions.calls.find(
@@ -548,7 +552,7 @@ describe("access", () => {
         await h.request(
           "DELETE",
           `${c}/resources/app-web-uuid/dns/${made.body.id}`,
-          undefined,
+          { confirm: true },
           OTHER,
         )
       ).status,
@@ -575,7 +579,11 @@ describe("access", () => {
       ).status,
     ).toBe(403);
     expect(
-      (await h.request("DELETE", `${c}/resources/app-web-uuid/dns/1`)).status,
+      (
+        await h.request("DELETE", `${c}/resources/app-web-uuid/dns/1`, {
+          confirm: true,
+        })
+      ).status,
     ).toBe(403);
   });
 
@@ -587,6 +595,20 @@ describe("access", () => {
     }
     const sent = JSON.stringify(companions.calls);
     expect(companions.calls.length).toBeGreaterThan(5);
+    // Both DNS writes really ran: a record made and then removed by its id.
+    const c = `/connections/${connectionId}/resources/app-web-uuid/dns`;
+    const made = await h.request("POST", c, { fqdn: "b.example.test" });
+    expect(made.status).toBe(201);
+    const removed = await h.request("DELETE", `${c}/${made.body.id}`, {
+      confirm: true,
+    });
+    expect(removed.status).toBe(200);
+    const names = companions.calls.map((call) => call.name);
+    expect(names).toContain("dns.upsert-record");
+    expect(names).toContain("dns.delete-record");
+    const all = JSON.stringify(companions.calls);
+    expect(all).not.toContain(TOKEN);
+    expect(all).not.toContain(DB_PASSWORD);
     expect(sent).not.toContain(TOKEN);
     expect(sent).not.toContain(DB_PASSWORD);
     expect(JSON.stringify(bodies)).not.toContain(TOKEN);
@@ -688,7 +710,9 @@ describe("fails closed", () => {
 
     const listed = await h.request("GET", base);
     expect(listed.status).toBe(404);
-    const removed = await h.request("DELETE", `${base}/${made.body.id}`);
+    const removed = await h.request("DELETE", `${base}/${made.body.id}`, {
+      confirm: true,
+    });
     expect(removed.status).toBe(404);
     expect(removed.body.cause).toBe("not-found");
     expect(companions.calls).toEqual([]);
@@ -708,7 +732,9 @@ describe("fails closed", () => {
     companions.calls.length = 0;
     await changeTarget(h, connectionId);
     fake.set("GET /applications", { status: 500, json: {} });
-    const removed = await h.request("DELETE", `${base}/${made.body.id}`);
+    const removed = await h.request("DELETE", `${base}/${made.body.id}`, {
+      confirm: true,
+    });
     expect(removed.status).toBeGreaterThanOrEqual(400);
     expect(companions.calls).toEqual([]);
     expect(
@@ -725,5 +751,257 @@ describe("fails closed", () => {
     const first = apps();
     expect((await h.request("GET", path)).status).toBe(200);
     expect(apps()).toBe(first);
+  });
+});
+
+describe("review findings", () => {
+  const dnsPath = (id: number) =>
+    `/connections/${id}/resources/app-web-uuid/dns`;
+  const rows = (h: PluginHarness) =>
+    h.db.sqlite.prepare("SELECT * FROM p_coolify_dns_records").all();
+
+  it("a grant lowered to view while a DNS create runs stops it before the DNS write", async () => {
+    const { harness: h, connectionId, companions } = await start();
+    grant(h, connectionId, OTHER, "configure");
+    const zones = companions.actions["dns.list-zones"];
+    companions.actions["dns.list-zones"] = async (input, hostId) => {
+      h.db.sqlite
+        .prepare("UPDATE p_coolify_grants SET level = 'view' WHERE user_id = ?")
+        .run(OTHER);
+      return zones(input, hostId);
+    };
+    const res = await h.request(
+      "POST",
+      dnsPath(connectionId),
+      { fqdn: "a.example.test", type: "A", content: "203.0.113.11" },
+      OTHER,
+    );
+    expect(res.status).toBe(403);
+    expect(companions.calls.map((c) => c.name)).toEqual(["dns.list-zones"]);
+    expect(rows(h)).toEqual([]);
+  });
+
+  it("the DNS delete route needs confirm: true and calls nothing without it", async () => {
+    const { harness: h, connectionId, companions } = await start();
+    const made = await h.request("POST", dnsPath(connectionId), {
+      fqdn: "a.example.test",
+    });
+    companions.calls.length = 0;
+    for (const body of [undefined, {}, { confirm: "yes" }]) {
+      const res = await h.request(
+        "DELETE",
+        `${dnsPath(connectionId)}/${made.body.id}`,
+        body,
+      );
+      expect(res.status).toBe(400);
+      expect(res.body.cause).toBe("confirm-required");
+    }
+    expect(companions.calls).toEqual([]);
+    expect(rows(h)).toHaveLength(1);
+    // ?confirm=true is the same confirm, for clients that send no body.
+    const viaQuery = await h.request(
+      "DELETE",
+      `${dnsPath(connectionId)}/${made.body.id}?confirm=true`,
+    );
+    expect(viaQuery.status).toBe(200);
+  });
+
+  it("AAAA content must be a real IPv6 address, and type an exact string", async () => {
+    const { harness: h, connectionId, companions } = await start();
+    const post = (body: Record<string, unknown>) =>
+      h.request("POST", dnsPath(connectionId), {
+        fqdn: "a.example.test",
+        ...body,
+      });
+    expect((await post({ type: "AAAA", content: ":::" })).status).toBe(400);
+    expect((await post({ content: ":::" })).status).toBe(400);
+    expect((await post({ type: ["A"], content: "203.0.113.11" })).status).toBe(
+      400,
+    );
+    expect(companions.calls).toEqual([]);
+    const ok = await post({ type: "AAAA", content: "2001:db8::1" });
+    expect(ok.status).toBe(201);
+    expect(ok.body.type).toBe("AAAA");
+  });
+
+  it("a resource domain with a trailing dot is still one of its domains", async () => {
+    const { harness: h, connectionId, fake } = await start();
+    fake.set("GET /applications", {
+      json: [
+        {
+          id: 11,
+          uuid: "app-web-uuid",
+          name: "web",
+          status: "running",
+          fqdn: "https://a.example.test./",
+          destination: { server: { uuid: "srv-web1" } },
+        },
+      ],
+    });
+    const res = await h.request("POST", dnsPath(connectionId), {
+      fqdn: "a.example.test",
+      content: "203.0.113.11",
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it("two overlapping creates for one name each answer their own row", async () => {
+    const { harness: h, connectionId } = await start();
+    // Once the first request's row is in, its save and its DNS call wait,
+    // so the second request inserts in between.
+    const persist = h.mock.ctx.db.persist.bind(h.mock.ctx.db);
+    let waited = false;
+    const wait = async () => {
+      if (waited) return;
+      const stored = JSON.stringify(rows(h));
+      if (!stored.includes("203.0.113.11")) return;
+      waited = true;
+      await new Promise((r) => setTimeout(r, 50));
+    };
+    vi.spyOn(h.mock.ctx.db, "persist").mockImplementation(async () => {
+      await wait();
+      return persist();
+    });
+    const [one, two] = await Promise.all([
+      h.request("POST", dnsPath(connectionId), {
+        fqdn: "a.example.test",
+        type: "A",
+        content: "203.0.113.11",
+      }),
+      h.request("POST", dnsPath(connectionId), {
+        fqdn: "a.example.test",
+        type: "A",
+        content: "203.0.113.12",
+      }),
+    ]);
+    expect(one.body.content).toBe("203.0.113.11");
+    expect(two.body.content).toBe("203.0.113.12");
+    expect(one.body.id).not.toBe(two.body.id);
+  });
+
+  it("the record's handle is stored before the DNS write, and dropped if that write fails", async () => {
+    const { harness: h, connectionId, companions } = await start();
+    let storedFirst = -1;
+    companions.actions["dns.upsert-record"] = () => {
+      storedFirst = rows(h).length;
+      return { summary: "record set", changed: true };
+    };
+    expect(
+      (
+        await h.request("POST", dnsPath(connectionId), {
+          fqdn: "a.example.test",
+        })
+      ).status,
+    ).toBe(201);
+    expect(storedFirst).toBe(1);
+    expect(rows(h)).toHaveLength(1);
+    companions.actions["dns.upsert-record"] = () => {
+      throw new Error("provider down");
+    };
+    const failed = await h.request("POST", dnsPath(connectionId), {
+      fqdn: "b.example.test",
+    });
+    expect(failed.status).toBe(502);
+    expect(rows(h)).toHaveLength(1);
+  });
+
+  it("an answer with no recognizable list is companion-failed, an explicit empty one is empty", async () => {
+    const { harness: h, connectionId, companions } = await start();
+    const path = `/connections/${connectionId}/resources/app-web-uuid/uptime`;
+    companions.actions["uptime.monitors"] = () => ({ summary: "?", data: {} });
+    const bad = await h.request("GET", path);
+    expect(bad.status).toBe(502);
+    expect(bad.body.cause).toBe("companion-failed");
+    companions.actions["uptime.monitors"] = () => ({
+      summary: "none",
+      data: { rows: [] },
+    });
+    const empty = await h.request("GET", path);
+    expect(empty.status).toBe(200);
+    expect(empty.body).toEqual({ monitors: [] });
+    companions.actions["backups.failed"] = () => ({ summary: "?" });
+    const backups = await h.request(
+      "GET",
+      `/connections/${connectionId}/servers/srv-web1/backups-failed`,
+    );
+    expect(backups.status).toBe(502);
+  });
+
+  it("a login name shared by two databases on the host proves neither saved", async () => {
+    const { harness: h, connectionId, fake, companions } = await start();
+    fake.set("GET /databases", {
+      json: [
+        {
+          id: 21,
+          uuid: "db-a-uuid",
+          name: "postgresql",
+          database_type: "standalone-postgresql",
+          status: "running",
+          destination: { server: { uuid: "srv-web1" } },
+        },
+        {
+          id: 22,
+          uuid: "db-b-uuid",
+          name: "postgresql",
+          database_type: "standalone-postgresql",
+          status: "running",
+          destination: { server: { uuid: "srv-web1" } },
+        },
+      ],
+    });
+    companions.actions["databases.list-connections"] = () => ({
+      summary: "1 login",
+      data: { rows: [{ id: 1, name: "postgresql", database: "postgres" }] },
+    });
+    const all = await h.request(
+      "GET",
+      `/connections/${connectionId}/servers/srv-web1/db-logins`,
+    );
+    expect(all.status).toBe(200);
+    expect(
+      all.body.databases.filter((d: { saved: boolean }) => d.saved),
+    ).toEqual([]);
+    const one = await h.request(
+      "GET",
+      `/connections/${connectionId}/resources/db-a-uuid/db-login`,
+    );
+    expect(one.body.saved).toBe(false);
+    expect(one.body.logins).toEqual([]);
+  });
+
+  it("monitors match a resource's URL path, not every monitor on its host", async () => {
+    const { harness: h, connectionId, companions } = await start();
+    companions.actions["uptime.monitors"] = () => ({
+      summary: "2",
+      data: {
+        rows: [
+          {
+            id: "mon-app",
+            name: "app",
+            url: "https://b.example.test/app/health",
+            status: "up",
+          },
+          {
+            id: "mon-admin",
+            name: "admin",
+            url: "https://b.example.test/admin/health",
+            status: "up",
+          },
+          {
+            id: "mon-apple",
+            name: "apple",
+            url: "https://b.example.test/apple",
+            status: "up",
+          },
+        ],
+      },
+    });
+    const res = await h.request(
+      "GET",
+      `/connections/${connectionId}/resources/app-web-uuid/uptime`,
+    );
+    expect(res.body.monitors.map((m: { id: string }) => m.id)).toEqual([
+      "mon-app",
+    ]);
   });
 });

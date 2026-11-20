@@ -206,9 +206,28 @@ export function registerCompanionRoutes(
    *         required: true
    *         schema:
    *           type: integer
+   *       - in: query
+   *         name: confirm
+   *         schema:
+   *           type: string
+   *           enum: ["true"]
+   *         description: Instead of the body's confirm
+   *     requestBody:
+   *       required: false
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [confirm]
+   *             properties:
+   *               confirm:
+   *                 type: boolean
+   *                 enum: [true]
    *     responses:
    *       200:
    *         description: The record id, removed
+   *       400:
+   *         description: Without confirm set to true (cause confirm-required); nothing is removed
    *       403:
    *         description: Missing coolify.configure, or a grant below configure
    *       404:
@@ -221,6 +240,16 @@ export function registerCompanionRoutes(
     view,
     configure,
     handle(ctx, async (req, res) => {
+      // Removing deletes the record at the DNS provider: the caller says so.
+      // In the body, or as ?confirm=true for clients that send no DELETE body.
+      const body = req.body as { confirm?: unknown } | undefined;
+      if (body?.confirm !== true && req.query.confirm !== "true") {
+        res.status(400).json({
+          error: 'Send { "confirm": true } to remove the DNS record',
+          cause: "confirm-required",
+        });
+        return;
+      }
       res.json(
         await companions.dnsRemove(
           idParam(req),
@@ -337,7 +366,7 @@ export function registerCompanionRoutes(
    *           type: string
    *     responses:
    *       200:
-   *         description: The host id, score, critical count and check time
+   *         description: The host id, score and critical count (each null when unknown)
    *       403:
    *         description: Missing coolify.view, or no access to the Linked host
    *       404:

@@ -12,8 +12,9 @@ import type { Sync } from "../sync/service.js";
 import {
   backupsFailed,
   databaseLogins,
-  dnsCreate,
+  dnsKey,
   dnsRemove,
+  dnsUpsert,
   logSearch,
   securityCheck,
   uptimeMonitors,
@@ -49,8 +50,24 @@ const HOSTNAME =
   /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}$/;
 const IPV4 =
   /^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
-const IPV6 = /^(?=.*:)[0-9a-f:.]{2,45}$/i;
+/**
+ * A real IPv6 address: the WHATWG URL parser checks the full grammar
+ * (compressed forms like 2001:db8::1 pass, ::: does not).
+ */
+function isIPv6(text: string): boolean {
+  if (!/^[0-9a-f:.]{2,45}$/i.test(text) || !text.includes(":")) return false;
+  try {
+    return new URL(`http://[${text}]/`).hostname.length > 2;
+  } catch {
+    return false;
+  }
+}
 const DNS_TYPES: ReadonlySet<string> = new Set(["A", "AAAA", "CNAME"]);
+
+/** Only an exact type string: ["A"] or a number never passes as one. */
+function isDnsType(value: unknown): value is DnsType {
+  return typeof value === "string" && DNS_TYPES.has(value);
+}
 
 /** A DNS record made here, as routes return it. */
 export interface DnsRecordView {
@@ -90,30 +107,59 @@ const resourceNotFound = () =>
 const notLinked = () =>
   new ConnectionError("not-linked", "This Coolify server has no Linked host");
 
-/** The host names of a resource's domains, lowercase. */
-export function hostnamesOf(fqdns: string[]): Set<string> {
-  const names = new Set<string>();
-  for (const entry of fqdns) {
-    const text = entry.trim();
-    if (!text) continue;
-    try {
-      const url = new URL(
-        /^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `http://${text}`,
-      );
-      if (url.hostname) names.add(url.hostname.toLowerCase());
-    } catch {
-      // Not a URL; not a domain the resource answers on.
-    }
-  }
-  return names;
+/** A host name as it is compared: lowercase, without a trailing dot. */
+function canonicalHost(name: string): string {
+  return name.toLowerCase().replace(/\.$/, "");
 }
 
-function hostnameOfUrl(text: string): string | null {
+/** Where a resource answers: host and path (no trailing slash, "" for the root). */
+interface Place {
+  host: string;
+  path: string;
+}
+
+function placeOf(text: string): Place | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
   try {
-    return new URL(text).hostname.toLowerCase() || null;
+    const url = new URL(
+      /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`,
+    );
+    if (!url.hostname) return null;
+    return {
+      host: canonicalHost(url.hostname),
+      path: url.pathname.replace(/\/+$/, ""),
+    };
   } catch {
+    // Not a URL; not a place the resource answers on.
     return null;
   }
+}
+
+function placesOf(fqdns: string[]): Place[] {
+  return fqdns.flatMap((f) => placeOf(f) ?? []);
+}
+
+/** The host names of a resource's domains, lowercase, without a trailing dot. */
+export function hostnamesOf(fqdns: string[]): Set<string> {
+  return new Set(placesOf(fqdns).map((p) => p.host));
+}
+
+/**
+ * Whether a monitor checks one of the resource's own URLs: the same host,
+ * and a path at or under the resource's path (a resource at the root owns
+ * the whole host). /app matches /app and /app/health, never /apple or /admin.
+ */
+function monitorMatches(url: string, places: Place[]): boolean {
+  const monitor = placeOf(url);
+  if (!monitor) return false;
+  return places.some(
+    (p) =>
+      p.host === monitor.host &&
+      (p.path === "" ||
+        monitor.path === p.path ||
+        monitor.path.startsWith(`${p.path}/`)),
+  );
 }
 
 /**
@@ -136,7 +182,7 @@ function parseHandle(value: unknown): DnsRecordKey | null {
     typeof zone !== "string" ||
     typeof name !== "string" ||
     typeof content !== "string" ||
-    !DNS_TYPES.has(String(type))
+    !isDnsType(type)
   ) {
     return null;
   }
@@ -159,13 +205,13 @@ function toDnsView(row: DnsRow): DnsRecordView {
 
 function contentFits(type: DnsType, content: string): boolean {
   if (type === "A") return IPV4.test(content);
-  if (type === "AAAA") return IPV6.test(content);
+  if (type === "AAAA") return isIPv6(content);
   return HOSTNAME.test(content);
 }
 
 function typeFor(content: string): DnsType | null {
   if (IPV4.test(content)) return "A";
-  if (IPV6.test(content)) return "AAAA";
+  if (isIPv6(content)) return "AAAA";
   return HOSTNAME.test(content) ? "CNAME" : null;
 }
 
@@ -173,14 +219,24 @@ function isDatabase(resource: ResourceDto): boolean {
   return resource.kind === "database" || resource.kind === "service-database";
 }
 
-/** Whether a saved login is for this Coolify database: by its name or uuid. */
-function loginMatches(login: SavedLogin, resource: ResourceDto): boolean {
+/**
+ * Whether a saved login is for this Coolify database. Its uuid in the login's
+ * name proves it; a plain name match counts only when no other database on
+ * the same host (`onHost`) shares that name, since a shared name can't tell
+ * them apart.
+ */
+function loginMatches(
+  login: SavedLogin,
+  resource: ResourceDto,
+  onHost: readonly ResourceDto[],
+): boolean {
   const names = [login.name, login.database].filter(
     (v): v is string => typeof v === "string",
   );
-  return names.some(
-    (name) => name === resource.name || name.includes(resource.uuid),
-  );
+  if (names.some((name) => name.includes(resource.uuid))) return true;
+  const unique =
+    onHost.filter((r) => isDatabase(r) && r.name === resource.name).length <= 1;
+  return unique && names.some((name) => name === resource.name);
 }
 
 /**
@@ -219,16 +275,32 @@ export function createCompanions(
     if (RANK[snap.view.access] < RANK[level]) {
       throw forbidden(`Your grant on this connection doesn't allow this`);
     }
+    levels.set(snap, level);
     return snap;
   }
 
-  /** Fails closed unless the connection still points at the snapshot's target. */
+  // The level each snapshot was opened for, so `holds` re-checks the grant.
+  const levels = new WeakMap<Snapshot, Level>();
+
+  /**
+   * Fails closed unless the connection still points at the snapshot's target
+   * and the actor's grant still reaches the level the feature was opened
+   * for: a grant lowered mid-way (which leaves the revision as it was) stops
+   * it too.
+   */
   async function holds(connectionId: number, snap: Snapshot): Promise<void> {
     if ((await connections.revision(connectionId)) !== snap.view.revision) {
       throw new ConnectionError(
         "target-changed",
         "The connection's address, token or Access settings changed. Try again.",
       );
+    }
+    const access = await connections.access(connectionId);
+    if (!access) {
+      throw new ConnectionError("not-found", "Coolify connection not found");
+    }
+    if (RANK[access] < RANK[levels.get(snap) ?? "owner"]) {
+      throw forbidden(`Your grant on this connection doesn't allow this`);
     }
   }
 
@@ -304,6 +376,48 @@ export function createCompanions(
     return hostOf(connectionId, serverUuid);
   }
 
+  // DNS rows are inserted and read back one at a time, so an overlapping
+  // create can't read another request's row as its own.
+  // ponytail: one in-process queue, as connections' withLock; move to the
+  // database if the backend ever runs as more than one process.
+  let storing: Promise<unknown> = Promise.resolve();
+
+  /** Inserts a DNS row and answers exactly that row. */
+  function storeRecord(
+    connectionId: number,
+    resourceUuid: string,
+    fqdn: string,
+    key: DnsRecordKey,
+  ): Promise<DnsRow> {
+    const handle = JSON.stringify(key);
+    const run = storing.then(async () => {
+      const db = await dbClient(ctx);
+      // Stored as JSON text, like the other json columns.
+      await db
+        .insert(t.dnsRecords)
+        .values({ connectionId, resourceUuid, handle, fqdn });
+      // No returning(): the newest row with this exact handle is the one
+      // just inserted, since inserts here run one at a time.
+      const [row] = (await db
+        .select()
+        .from(t.dnsRecords)
+        .where(
+          and(
+            eq(t.dnsRecords.connectionId, connectionId),
+            eq(t.dnsRecords.resourceUuid, resourceUuid),
+            eq(t.dnsRecords.fqdn, fqdn),
+            eq(t.dnsRecords.handle, handle),
+          ),
+        )
+        .orderBy(desc(t.dnsRecords.id))
+        .limit(1)) as DnsRow[];
+      await ctx.db.persist();
+      return row;
+    });
+    storing = run.catch(() => undefined);
+    return run;
+  }
+
   async function storedRecord(
     connectionId: number,
     uuid: string,
@@ -335,12 +449,11 @@ export function createCompanions(
     uuid: string,
   ): Promise<Monitor[]> {
     const resource = await resourceOf(connectionId, uuid);
-    const names = hostnamesOf(resource.fqdns);
-    if (!names.size) return [];
-    return (await uptimeMonitors(guarded(connectionId, snap))).filter((m) => {
-      const host = hostnameOfUrl(m.url);
-      return host !== null && names.has(host);
-    });
+    const places = placesOf(resource.fqdns);
+    if (!places.length) return [];
+    return (await uptimeMonitors(guarded(connectionId, snap))).filter((m) =>
+      monitorMatches(m.url, places),
+    );
   }
 
   /** A read's answer, only while the connection still points at the snapshot. */
@@ -399,7 +512,7 @@ export function createCompanions(
       if (typeof body.fqdn !== "string") throw invalid("fqdn is required");
       const fqdn = body.fqdn.trim().toLowerCase().replace(/\.$/, "");
       if (!HOSTNAME.test(fqdn)) throw invalid("fqdn must be a host name");
-      if (body.type !== undefined && !DNS_TYPES.has(String(body.type))) {
+      if (body.type !== undefined && !isDnsType(body.type)) {
         throw invalid("type must be A, AAAA or CNAME");
       }
       if (body.content !== undefined && typeof body.content !== "string") {
@@ -417,39 +530,29 @@ export function createCompanions(
         }
         content = (await snap.api.server(resource.serverUuid)).ip.trim();
       }
-      const type = (body.type as DnsType | undefined) ?? typeFor(content);
+      const type = isDnsType(body.type) ? body.type : typeFor(content);
       if (!type || !contentFits(type, content)) {
         throw invalid("content does not fit the record type");
       }
 
-      const key = await dnsCreate(guarded(connectionId, snap), {
-        fqdn,
-        type,
-        content,
-      });
-
-      const db = await dbClient(ctx);
-      await db.insert(t.dnsRecords).values({
-        connectionId,
-        resourceUuid: resource.uuid,
-        // Stored as JSON text, like the other json columns.
-        handle: JSON.stringify(key),
-        fqdn,
-      });
-      await ctx.db.persist();
-      // No returning(): read the newest row for this name back.
-      const [row] = (await db
-        .select()
-        .from(t.dnsRecords)
-        .where(
-          and(
-            eq(t.dnsRecords.connectionId, connectionId),
-            eq(t.dnsRecords.resourceUuid, resource.uuid),
-            eq(t.dnsRecords.fqdn, fqdn),
-          ),
+      const caller = guarded(connectionId, snap);
+      const key = await dnsKey(caller, { fqdn, type, content });
+      // The handle is stored before the DNS write, so a record that write
+      // makes can always be listed and removed. Only if the write fails is
+      // the stored row dropped (never the record in DNS: the write may have
+      // touched one that was already there).
+      const row = await storeRecord(connectionId, resource.uuid, fqdn, key);
+      try {
+        await dnsUpsert(caller, key);
+      } catch (err) {
+        await (
+          await dbClient(ctx)
         )
-        .orderBy(desc(t.dnsRecords.id))
-        .limit(1)) as DnsRow[];
+          .delete(t.dnsRecords)
+          .where(eq(t.dnsRecords.id, row.id));
+        await ctx.db.persist();
+        throw err;
+      }
       return toDnsView(row);
     },
 
@@ -504,10 +607,22 @@ export function createCompanions(
       await requireCompanion(ctx, "uptime");
       const monitors = await matchedMonitors(connectionId, snap, uuid);
       const caller = guarded(connectionId, snap);
-      for (const monitor of monitors) {
-        await uptimeSetPaused(caller, monitor.id, paused);
+      const changed: string[] = [];
+      try {
+        for (const monitor of monitors) {
+          await uptimeSetPaused(caller, monitor.id, paused);
+          changed.push(monitor.id);
+        }
+      } catch (err) {
+        // No partial change is left behind: the monitors this call already
+        // changed are set back, unguarded, since this only undoes its own
+        // writes. A failed undo can't be helped; the first error is answered.
+        for (const id of changed.reverse()) {
+          await uptimeSetPaused(ctx, id, !paused).catch(() => undefined);
+        }
+        throw err;
       }
-      return { monitors: monitors.map((m) => m.id) };
+      return { monitors: changed };
     },
 
     /** Log Search over Docker logs, with the resource uuid as the query. */
@@ -593,9 +708,13 @@ export function createCompanions(
         throw invalid("Only a database has saved logins");
       }
       const hostId = await hostOf(connectionId, resource.serverUuid);
+      const onHost = await resources.byServer(
+        connectionId,
+        resource.serverUuid ?? "",
+      );
       const logins = (
         await databaseLogins(guarded(connectionId, snap), hostId)
-      ).filter((l) => loginMatches(l, resource));
+      ).filter((l) => loginMatches(l, resource, onHost));
       return answer(connectionId, snap, {
         hostId,
         saved: logins.length > 0,
@@ -623,7 +742,7 @@ export function createCompanions(
         databases: databases.map((r) => ({
           uuid: r.uuid,
           name: r.name,
-          saved: logins.some((l) => loginMatches(l, r)),
+          saved: logins.some((l) => loginMatches(l, r, databases)),
         })),
       });
     },
