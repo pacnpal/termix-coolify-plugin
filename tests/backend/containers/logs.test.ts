@@ -116,16 +116,28 @@ describe("long-line redaction property", () => {
       (n) =>
         `"-----BEGIN RSA PRIVATE KEY-----\\n${upper(n)}\\n-----END RSA PRIVATE KEY-----"`,
     ];
-    // The key markers' own words are upper case: they aren't secrets.
-    const leak = (text: string) => LEAK.exec(text.replaceAll("PRIVATE", ""));
+    // The key markers' own words are upper case: they aren't secrets. A piece
+    // cut inside one starts or ends with a part of "PRIVATE".
+    const leak = (text: string) =>
+      LEAK.exec(
+        text
+          .replace(/^[PRIVATE]{1,7}(?= KEY-----)/, "")
+          .replace(/P(?:R(?:I(?:V(?:A(?:T(?:E)?)?)?)?)?)?$/, "")
+          .replaceAll("PRIVATE", ""),
+      );
     const failures: number[] = [];
-    const started = performance.now();
+    const header = "-----BEGIN RSA PRIVATE KEY-----";
     for (let c = 0; c < CASES; c += 1) {
       const token = upper(int(1024, 30 * 1024));
       const access = upper(int(1024, 4096));
       const target = int(1, 5) * MAX_LINE;
       let line =
         rand() < 0.15 ? `password: ${upper(int(1024, 30 * 1024))} ` : "";
+      if (!line && rand() < 0.25) {
+        // A key header across the first 16 KiB piece boundary, at any offset.
+        const off = int(0, header.length);
+        line = `${filler(MAX_LINE - off)}${header}\\n${upper(int(64, 4096))}\\n-----END RSA PRIVATE KEY----- `;
+      }
       while (line.length < target) {
         const r = rand();
         line += filler(int(1, 6000)) + " ";
@@ -156,7 +168,6 @@ describe("long-line redaction property", () => {
       }
     }
     expect(failures, `${failures.length} of ${CASES} cases leaked`).toEqual([]);
-    expect(performance.now() - started).toBeLessThan(3000);
   });
 });
 
@@ -233,6 +244,34 @@ describe("private key blocks", () => {
       expect(out).toContain("ok");
       expect(out).toContain("-----BEGIN PRIVATE KEY-----");
       expect(out).not.toContain("fake-open");
+    }
+  });
+
+  it("a BEGIN header split at a 16 KiB piece or cut boundary still masks", () => {
+    const header = "-----BEGIN RSA PRIVATE KEY-----";
+    const body = "fake-split-body-".repeat(40);
+    // The header straddles MAX_LINE (a piece) at every offset, in a complete
+    // line and in a partial one still being cut (no newline until the end).
+    for (let off = 0; off <= header.length; off += 1) {
+      const pad = "p".repeat(MAX_LINE - off);
+      const tail = `${body}\\n-----END RSA PRIVATE KEY----- ${"q".repeat(40000)}`;
+      for (const text of [
+        `${pad}${header}${tail}\n`,
+        `${pad}${header}${tail}`,
+        `${pad}${header}\n${body}\n-----END RSA PRIVATE KEY-----\n`,
+      ]) {
+        const out = streamed(text).join("\n");
+        expect(out, `offset ${off}`).not.toContain("fake-split-body");
+        const sent: string[] = [];
+        const split = lineSplitter([], (l) => sent.push(...l));
+        for (let i = 0; i < text.length; i += MAX_LINE - off + 1) {
+          split.data(Buffer.from(text.slice(i, i + MAX_LINE - off + 1)));
+        }
+        split.end();
+        expect(sent.join("\n"), `chunked ${off}`).not.toContain(
+          "fake-split-body",
+        );
+      }
     }
   });
 

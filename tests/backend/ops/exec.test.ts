@@ -938,6 +938,29 @@ describe("coolify.exec kills the command's own process group", () => {
     ]);
   });
 
+  it("a target change after the command started still kills its group", async () => {
+    const { h, runs, id, docker, connectionId } = await start({
+      docker: {
+        exec: () => {
+          // The command is running; now the connection is pointed elsewhere.
+          setBaseUrl(h, connectionId);
+          return "hang";
+        },
+        pgid: 781,
+      },
+    });
+    await runs.run("coolify.exec", {
+      connectionId: id,
+      uuid: WEB,
+      command: "sleep 600",
+      timeoutSec: 1,
+    });
+    expect(groupKills(docker)).toEqual([
+      "docker exec web-abc sh -c 'kill -KILL -781 2>/dev/null || kill -KILL 781'",
+    ]);
+    expect(docker.dispose).toHaveBeenCalledTimes(1);
+  });
+
   it("a line before the marker isn't trusted, and no kill is guessed", async () => {
     const { runs, id, docker } = await start({
       docker: {
