@@ -16,6 +16,7 @@ import {
 import { createApi, failureOf } from "../api";
 import { forgetPreview, linkOf, useLinkedRow, type HostLink } from "../linked";
 import { describeFailure } from "./ConnectionForm";
+import { ServerMetrics } from "./ServerMetrics";
 import { HostCompanions } from "./HostCompanions";
 import { ServerUpdates } from "./ServerUpdates";
 
@@ -119,6 +120,13 @@ export function HostSection({ host, shell }: HostSectionProps) {
         <Lock className="mt-0.5 size-3.5 shrink-0" />
         {t("hostSection.locked")}
       </p>
+      <ServerMetrics
+        key={`${link.connectionId}:${link.serverUuid}:${revision ?? ""}`}
+        api={api}
+        connectionId={link.connectionId}
+        serverUuid={link.serverUuid}
+        serverName={row?.server.name ?? host.name ?? link.serverUuid}
+      />
       {row?.tunnel && (
         <div className="flex flex-col gap-2">
           <p className="flex items-start gap-2">

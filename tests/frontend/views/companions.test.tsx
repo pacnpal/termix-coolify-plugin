@@ -271,7 +271,7 @@ describe("companion UI", () => {
     ]
       .map((c) => String(c[0]))
       .filter((u) =>
-        /dns|uptime|log-search|security|metrics|backups|db-login/.test(u),
+        /dns|uptime|log-search|security|host-metrics|backups|db-login/.test(u),
       );
     expect(companionCalls).toEqual([]);
   });

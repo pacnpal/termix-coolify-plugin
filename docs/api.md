@@ -51,6 +51,10 @@ appear in run history.
 | `coolify.companion-read`         | `GET /plugin-api/coolify/connections/:id/servers/:uuid/security`           | `/operations/coolify.companion-read/run`         | `operations:read` or `operations:run` | `coolify__companion_read`         | `curl -X POST "$TERMIX/operations/coolify.companion-read/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","kind":"security","params":{"serverUuid":"<server uuid>"}}}'`                              |
 | `coolify.companion`              | `POST /plugin-api/coolify/connections/:id/resources/:uuid/dns`             | `/operations/coolify.companion/run`              | `operations:run`                      | `coolify__companion`              | `curl -X POST "$TERMIX/operations/coolify.companion/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","kind":"dns","params":{"uuid":"<resource uuid>","fqdn":"app.example.com"}}}'`                   |
 | `coolify.companion-dns-remove`   | `DELETE /plugin-api/coolify/connections/:id/resources/:uuid/dns/:recordId` | `/operations/coolify.companion-dns-remove/run`   | `operations:run`                      | `coolify__companion_dns_remove`   | `curl -X POST "$TERMIX/operations/coolify.companion-dns-remove/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","uuid":"<resource uuid>","recordId":"1"},"confirmed":true}'`                         |
+| `coolify.resource-metrics`       | `GET /plugin-api/coolify/connections/:id/resources/:uuid/metrics`          | `/operations/coolify.resource-metrics/run`       | `operations:read` or `operations:run` | `coolify__resource_metrics`       | `curl -X POST "$TERMIX/operations/coolify.resource-metrics/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","uuid":"<resource uuid>","minutes":60}}'`                                                |
+| `coolify.resource-traffic`       | `GET /plugin-api/coolify/connections/:id/resources/:uuid/traffic`          | `/operations/coolify.resource-traffic/run`       | `operations:read` or `operations:run` | `coolify__resource_traffic`       | `curl -X POST "$TERMIX/operations/coolify.resource-traffic/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","uuid":"<resource uuid>","view":"breakdown","dim":"country","range":"7d"}}'`             |
+| `coolify.server-metrics`         | `GET /plugin-api/coolify/connections/:id/servers/:uuid/metrics`            | `/operations/coolify.server-metrics/run`         | `operations:read` or `operations:run` | `coolify__server_metrics`         | `curl -X POST "$TERMIX/operations/coolify.server-metrics/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","serverUuid":"<server uuid>","minutes":60}}'`                                              |
+| `coolify.enable-metrics`         | `POST /plugin-api/coolify/connections/:id/servers/:uuid/metrics/enable`    | `/operations/coolify.enable-metrics/run`         | `operations:run`                      | `coolify__enable_metrics`         | `curl -X POST "$TERMIX/operations/coolify.enable-metrics/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","serverUuid":"<server uuid>","confirm":true}}'`                                            |
 
 ### Lifecycle routes
 
@@ -184,6 +188,77 @@ like the route. Its data is `{ source, text, container? }`, or `{ choices }` whe
 match. `text` is a sensitive output: run history never keeps it. Over MCP, `coolify__logs_tail` answers
 the (redacted) text once to the caller, cut at 8,000 characters like any tool output; `handoffId` is
 what it is taken by.
+
+## Metrics and traffic
+
+Reads from Sentinel run over SSH on the server's Linked host. They pass the same check as lifecycle actions
+(**Operate Coolify resources**, the owner or an operate grant, and a uuid in that connection's own resource
+list) and need your own `connect` access to the host. Each read is about one snapshot of the connection: if
+its address, token or Access settings change before a Coolify call or an SSH command, it ends with
+`target-changed`. `minutes` is a whole number from 1; larger than 43,200 (30 days) reads as 43,200. Every
+route answers `{ error, cause }` on failure:
+
+| Status | Cause                                                                            |
+| ------ | -------------------------------------------------------------------------------- |
+| 400    | `invalid-input` (a bad minutes, view, dim, range or limit) or `confirm-required` |
+| 403    | missing permission, `forbidden`, or `no-host-access`                             |
+| 404    | no such resource, server or connection, or another user's                        |
+| 409    | `metrics-off` with `{ canEnable }`, `traffic-off`, `not-linked`, `host-key` or   |
+|        | `target-changed`                                                                 |
+| 502    | Coolify, SSH or Sentinel failed (`sentinel-failed`, `ssh-failed`)                |
+
+`canEnable` is true only when you hold **Configure Coolify** and own the connection or have a configure
+grant.
+
+### `GET /plugin-api/coolify/connections/{id}/servers/{uuid}/metrics?minutes=`
+
+`{ source: "mcp" | "sentinel", minutes, current, series }`. `current` holds `cpu_percent`,
+`memory_used_bytes`, `memory_total_bytes`, `disk_used_percent`, `load1`, `network_rx_bytes_per_sec` and
+`network_tx_bytes_per_sec` when known (null when the server is offline); `series` holds
+`[timestamp ms, value]` pairs by the same names. From Coolify's MCP `get_server_metrics` when it answers
+(needs **View Coolify** and access to the connection), else from Sentinel over SSH (needs **Operate Coolify
+resources**, an operate grant and `connect` access to the Linked host).
+
+### `POST /plugin-api/coolify/connections/{id}/servers/{uuid}/metrics/enable`
+
+Body `{ "confirm": true }`. Turns metrics on in the server's Sentinel settings (`PATCH
+/servers/{uuid}/sentinel` in Coolify). Needs **Configure Coolify** and owner or configure access to the
+connection; without `confirm` it answers 400 `confirm-required` and changes nothing. Answers
+`{ enabled: true }`.
+
+### `GET /plugin-api/coolify/connections/{id}/resources/{uuid}/metrics?minutes=`
+
+`{ source: "sentinel", minutes, cpu, memory }`: the container's CPU percent and memory used in bytes, as
+`[timestamp ms, value]` pairs, from Sentinel's `/api/container/<uuid>/cpu/history` and `/memory/history`.
+
+### `GET /plugin-api/coolify/connections/{id}/resources/{uuid}/traffic`
+
+For applications. Query: `view` (`overview`, the default, `paths`, `series` or `breakdown`), `dim` (for a
+breakdown, one of `status`, `method`, `country`, `city`, `referer`, `browser`, `os`, `device`, `protocol`,
+`scheme`, `tls`, `cache`, `bot`, `agent`, `ip` or `useragent`), `range` (`24h`, the default, `7d` or `30d`)
+and `limit` (paths and breakdowns; clamped to 1 to 200). Answers `{ view, dim?, range, ipsHidden, data }`,
+where `data` is Sentinel's answer with credentials masked. IPs show only when Coolify's `traffic_ip_mode`
+is `full` and you hold **Configure Coolify** with owner or configure access; otherwise `ipsHidden` is true,
+an `ip` breakdown answers no rows without asking Sentinel, and IP fields are left out of every other view.
+
+### Socket `/plugin-ws/coolify/stats`
+
+Send `{ connectionId, uuid, part?, container? }`. The socket answers
+`{ type: "stats", container, cpu, memPct, memBytes, netRx, netTx, at }` every 3 seconds from
+`docker stats --no-stream`, `{ type: "choices", choices }` when several containers match, or
+`{ type: "error", error, cause }` and stops. Send `{ type: "unsubscribe" }` or close it to stop. A socket
+runs one stream (a new subscribe replaces it), takes at most one subscribe a second, and a person runs at
+most 3 streams at once (`too-many-streams`). Every tick checks again, as the socket's own user: the session
+is unlocked, lifecycle's check for the resource, `connect` access to the Linked host, and that the
+connection still points at the same target. A refusal (`locked`, `forbidden`, `not-found`,
+`no-host-access`, `target-changed`) closes the socket with 1008.
+
+### Actions `coolify.resource-metrics`, `coolify.resource-traffic`, `coolify.server-metrics` and `coolify.enable-metrics`
+
+The reads are offered to the assistant and MCP, with the same data and checks as the routes. Inputs:
+`connectionId` and `uuid` (or `serverUuid`), plus `minutes`, or `view`, `dim` and `range` for traffic.
+`coolify.enable-metrics` is a change: inputs `connectionId`, `serverUuid` and `confirm: true`. Over MCP it
+also needs **Allow changes over MCP** and `confirmed: true`.
 
 ## Running commands in containers
 

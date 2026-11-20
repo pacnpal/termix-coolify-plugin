@@ -92,6 +92,11 @@ export interface CoolifyRequestOptions {
    * retry's backoff. A throw sends nothing.
    */
   beforeFetch?: () => Promise<void>;
+  /**
+   * Posts to Coolify's own MCP endpoint (`<url>/mcp`) instead of the API,
+   * with the same headers, budget and error mapping. Use with `text`.
+   */
+  mcp?: boolean;
 }
 
 /** `value` with every string that contains one of `secrets` masked. */
@@ -280,9 +285,9 @@ export function createCoolifyHttp(
 
   const baseHost = hostOf(target.baseUrl);
 
-  function init(method: string, body: unknown): PluginFetchInit {
+  function init(method: string, body: unknown, mcp: boolean): PluginFetchInit {
     const headers: Record<string, string> = {
-      accept: "application/json",
+      accept: mcp ? "application/json, text/event-stream" : "application/json",
       authorization: `Bearer ${target.token}`,
     };
     if (target.cfAccess) {
@@ -378,14 +383,19 @@ export function createCoolifyHttp(
       options: CoolifyRequestOptions = {},
     ): Promise<T> {
       const verb = method.toUpperCase();
-      const url = buildUrl(target.baseUrl, path, options.query);
+      const url = options.mcp
+        ? `${trimTrailing(target.baseUrl.trim(), "/")}/mcp`
+        : buildUrl(target.baseUrl, path, options.query);
       const canRetry = verb === "GET" && options.retry !== false;
       for (let attempt = 0; ; attempt++) {
         await takeSlot();
         await options.beforeFetch?.();
         let response: Response;
         try {
-          response = await fetch(url, init(verb, options.body));
+          response = await fetch(
+            url,
+            init(verb, options.body, options.mcp === true),
+          );
         } catch {
           throw new CoolifyError("unreachable", 0);
         }

@@ -324,6 +324,52 @@
       },
       "stderr": {
         "label": "Standard error"
+      },
+      "minutes": {
+        "label": "Minutes",
+        "description": "How far back to read, up to 43,200 (30 days)."
+      },
+      "metricsServer": {
+        "description": "The uuid of a Coolify server. Without Coolify's MCP on, it needs a Linked host."
+      },
+      "trafficView": {
+        "label": "View",
+        "overview": "Overview",
+        "paths": "Top paths",
+        "series": "Requests over time",
+        "breakdown": "Breakdown"
+      },
+      "trafficDim": {
+        "label": "Breakdown by",
+        "description": "Needed for a breakdown. Client IPs show only when Coolify keeps them in full.",
+        "status": "Status codes",
+        "method": "Methods",
+        "country": "Countries",
+        "city": "Cities",
+        "referer": "Referrers",
+        "browser": "Browsers",
+        "os": "Operating systems",
+        "device": "Devices",
+        "protocol": "Protocols",
+        "scheme": "Schemes",
+        "tls": "TLS versions",
+        "cache": "Cache",
+        "bot": "Bots",
+        "agent": "Agents",
+        "ip": "Client IPs",
+        "useragent": "User agents"
+      },
+      "trafficRange": {
+        "label": "Range",
+        "24h": "Last 24 hours",
+        "7d": "Last 7 days",
+        "30d": "Last 30 days"
+      },
+      "confirm": {
+        "label": "Confirm"
+      },
+      "enableConfirm": {
+        "description": "Set true to change the server's Sentinel settings in Coolify."
       }
     },
     "listConnections": {
@@ -546,6 +592,22 @@
     "connectionSetExec": {
       "title": "Allow commands in a Coolify connection's containers",
       "description": "Turns running commands in this connection's containers through the API and MCP on or off. Only the connection's owner can change it."
+    },
+    "resourceMetrics": {
+      "title": "Resource CPU and memory history",
+      "description": "Read a Coolify resource's container CPU and memory history from Sentinel on its server, over SSH. Needs the server's Linked host."
+    },
+    "resourceTraffic": {
+      "title": "Application traffic",
+      "description": "Read an application's traffic from Sentinel: requests over time, top paths, status codes, countries, browsers and bots. Client IPs are hidden unless Coolify keeps them in full."
+    },
+    "serverMetrics": {
+      "title": "Server metrics",
+      "description": "Read a Coolify server's CPU, memory, disk, load and network metrics, from Coolify's MCP when it's on, else from Sentinel over SSH."
+    },
+    "enableMetrics": {
+      "title": "Turn on server metrics",
+      "description": "Turns metrics on in a Coolify server's Sentinel settings. Needs configure access to the connection and confirm."
     }
   },
   "connections": {
@@ -766,7 +828,9 @@
     "tabs": {
       "overview": "Overview",
       "shell": "Shell",
-      "logs": "Logs"
+      "logs": "Logs",
+      "stats": "Stats",
+      "traffic": "Traffic"
     },
     "fields": {
       "type": "Type",
@@ -1162,6 +1226,85 @@
       "container-not-found": "No container of this resource was found on its server.",
       "locked": "Your session is locked. Sign in again to follow logs.",
       "failed": "The logs could not be read."
+    }
+  },
+  "metrics": {
+    "title": "Metrics",
+    "cpu": "CPU",
+    "memory": "Memory",
+    "disk": "Disk",
+    "load": "Load",
+    "loading": "Reading metrics",
+    "failed": "The metrics could not be read.",
+    "empty": "No data in this range yet.",
+    "ranges": {
+      "1h": "1 hour",
+      "24h": "24 hours",
+      "7d": "7 days",
+      "30d": "30 days"
+    },
+    "source": {
+      "mcp": "From Coolify's MCP",
+      "sentinel": "From Sentinel over SSH"
+    },
+    "live": {
+      "title": "Live",
+      "waiting": "Waiting for the first reading",
+      "received": "Received",
+      "sent": "Sent",
+      "unavailable": "The live readout isn't available here.",
+      "failed": "The live readout stopped.",
+      "errors": {
+        "locked": "The live readout stopped because your session ended.",
+        "no-host-access": "You can't open this server's Linked host.",
+        "not-linked": "Link this server first to see live stats.",
+        "not-running": "The container isn't running.",
+        "no-stats": "docker stats gave no reading. Is the container running?",
+        "target-changed": "The connection changed. Open the tab again.",
+        "too-many-streams": "Too many live readouts are open. Close one and try again.",
+        "forbidden": "You don't have access to these stats."
+      },
+      "disconnected": "The live readout lost its connection.",
+      "refused": "The live readout stopped: your access or the connection changed.",
+      "stale": "Last reading, not live",
+      "reconnect": "Reconnect"
+    },
+    "off": {
+      "title": "Metrics are off for this server",
+      "hint": "Turn them on to collect CPU and memory history in Coolify's Sentinel.",
+      "askHint": "Ask the connection's owner to turn metrics on in Coolify.",
+      "enable": "Turn on metrics",
+      "enableFailed": "Metrics could not be turned on."
+    },
+    "enableConfirm": {
+      "title": "Turn on metrics for {{name}}?",
+      "description": "This changes the server's Sentinel settings in Coolify so it collects metrics.",
+      "confirm": "Turn on metrics"
+    },
+    "errors": {
+      "not-linked": "Link this server first: sync it from Coolify to make it a Linked host.",
+      "no-host-access": "You can't open this server's Linked host. Ask its owner for server access.",
+      "host-key": "Open a server terminal once to trust this host's key.",
+      "forbidden": "You don't have access to these metrics.",
+      "sentinel-failed": "Sentinel on this server did not answer. Check that metrics are on in Coolify.",
+      "ssh-failed": "The Linked host could not be reached over SSH.",
+      "invalid-input": "Coolify's Sentinel can't be asked about this resource.",
+      "target-changed": "The connection's address, token or Access settings changed. Try again.",
+      "confirm-required": "Turning metrics on needs a confirm."
+    },
+    "traffic": {
+      "loading": "Reading traffic",
+      "requests": "Requests",
+      "visitors": "Visitors",
+      "bytesOut": "Sent",
+      "requestsOverTime": "Requests over time",
+      "topPaths": "Top paths",
+      "breakdown": "Breakdown",
+      "ipsHidden": "Client IPs are hidden: Coolify doesn't keep them in full.",
+      "off": {
+        "title": "Traffic analytics is off for this server",
+        "hint": "Turn on traffic analytics for the server in Coolify, under its Sentinel settings."
+      }
     }
   }
 }

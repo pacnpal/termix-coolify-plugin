@@ -8,6 +8,7 @@ import {
   toKey,
   toPart,
   toProject,
+  toSentinelSettings,
   toServer,
   toService,
   toTeam,
@@ -16,6 +17,7 @@ import {
   type ProjectDto,
   type ResourceDto,
   type ResourceKind,
+  type SentinelSettingsDto,
   type ServerDto,
   type TeamDto,
 } from "./dto.js";
@@ -329,6 +331,13 @@ export function createCoolifyApi(http: CoolifyHttp) {
       body: Record<string, unknown>,
     ): Promise<void> {
       await call(op("update-server-sentinel", { uuid: serverUuid }), { body });
+    },
+
+    /** Sentinel settings, stripped of the token, push URL and GeoIP key. */
+    async sentinelSettings(serverUuid: string): Promise<SentinelSettingsDto> {
+      return toSentinelSettings(
+        await call(op("get-server-sentinel", { uuid: serverUuid })),
+      );
     },
 
     /**

@@ -18,6 +18,8 @@ import type { Resource } from "../api";
 import { resourceHealth } from "../../shared/resource-health";
 import { CompanionActions } from "./CompanionActions";
 import { LogsView } from "./LogsView";
+import { StatsTab } from "./StatsTab";
+import { TrafficTab } from "./TrafficTab";
 import {
   PartRestart,
   ResourceActions,
@@ -35,17 +37,40 @@ import {
 type T = (key: string, options?: Record<string, unknown>) => string;
 
 /**
- * The detail views. Later releases add Stats and Traffic here: one id, one
- * locale key under detail.tabs and one case in the body switch.
+ * The detail views: one id, one locale key under detail.tabs and one case in
+ * the body switch.
  */
-export const DETAIL_TABS = ["overview", "shell", "logs"] as const;
+export const DETAIL_TABS = [
+  "overview",
+  "shell",
+  "logs",
+  "stats",
+  "traffic",
+] as const;
 export type DetailTab = (typeof DETAIL_TABS)[number];
 
 /**
- * Views that need canOperate: logs carry secrets, so they need
- * coolify.operate and the owner or an operate grant, as the backend does.
+ * Views that need canOperate: logs carry secrets, and stats and traffic read
+ * over SSH, so they need coolify.operate and the owner or an operate grant,
+ * as the backend does.
  */
-const OPERATE_TABS: ReadonlySet<DetailTab> = new Set(["logs"]);
+const OPERATE_TABS: ReadonlySet<DetailTab> = new Set([
+  "logs",
+  "stats",
+  "traffic",
+]);
+
+/** The tabs a resource shows: Traffic is for applications. */
+export function detailTabs(
+  resource: Resource | null,
+  canOperate: boolean,
+): DetailTab[] {
+  return DETAIL_TABS.filter(
+    (id) =>
+      (canOperate || !OPERATE_TABS.has(id)) &&
+      (id !== "traffic" || resource?.kind === "application"),
+  );
+}
 
 function overviewItems(
   t: T,
@@ -249,7 +274,7 @@ export function ResourceDetail({
   const { t } = useTranslation();
   const runner = useLifecycle(connectionId, onChanged);
   const lifecycle = canOperate ? runner : null;
-  const tabs = DETAIL_TABS.filter((id) => canOperate || !OPERATE_TABS.has(id));
+  const tabs = detailTabs(resource, canOperate);
   const [chosen, setTab] = useState<DetailTab>("overview");
   const tab = tabs.includes(chosen) ? chosen : "overview";
   let body: ReactNode;
@@ -288,6 +313,26 @@ export function ResourceDetail({
             connectionId={connectionId}
             resource={resource}
             isVisible={isVisible}
+          />
+        );
+        break;
+      case "stats":
+        // Keyed like logs: a changed target starts empty and closes the socket.
+        body = (
+          <StatsTab
+            key={`${connectionId}:${resource.uuid}:${revision ?? ""}`}
+            connectionId={connectionId}
+            resource={resource}
+            isVisible={isVisible}
+          />
+        );
+        break;
+      case "traffic":
+        body = (
+          <TrafficTab
+            key={`${connectionId}:${resource.uuid}:${revision ?? ""}`}
+            connectionId={connectionId}
+            resource={resource}
           />
         );
         break;

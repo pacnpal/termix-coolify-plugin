@@ -432,6 +432,76 @@ export function failureOf(err: unknown): ApiFailure | null {
   return null;
 }
 
+/** [timestamp ms, value], oldest first. */
+export type MetricPoint = [number, number];
+
+/** A resource container's history from Sentinel. Memory is used bytes. */
+export interface ResourceMetrics {
+  minutes: number;
+  cpu: MetricPoint[];
+  memory: MetricPoint[];
+}
+
+/** A server's metrics, from Coolify's MCP or Sentinel over SSH. */
+export interface ServerMetrics {
+  source: "mcp" | "sentinel";
+  minutes: number;
+  current: Record<string, number> | null;
+  series: Record<string, MetricPoint[]>;
+}
+
+export type TrafficView = "overview" | "paths" | "series" | "breakdown";
+export type TrafficRange = "24h" | "7d" | "30d";
+
+/** One traffic read. `data` is Sentinel's, with IPs left out when hidden. */
+export interface TrafficAnswer {
+  view: TrafficView;
+  dim?: string;
+  ipsHidden: boolean;
+  data: unknown;
+}
+
+/** One live docker stats reading from the /stats socket. */
+export interface LiveStats {
+  container: string;
+  cpu: number;
+  memPct: number;
+  memBytes: number;
+  netRx: number;
+  netTx: number;
+}
+
+function points(value: unknown): MetricPoint[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (p): p is MetricPoint =>
+      Array.isArray(p) &&
+      typeof p[0] === "number" &&
+      typeof p[1] === "number" &&
+      Number.isFinite(p[0]) &&
+      Number.isFinite(p[1]),
+  );
+}
+
+function numbers(value: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    for (const [key, inner] of Object.entries(value)) {
+      if (typeof inner === "number" && Number.isFinite(inner)) out[key] = inner;
+    }
+  }
+  return out;
+}
+
+/** The `canEnable` of a metrics-off answer, or null for any other failure. */
+export function metricsOffOf(err: unknown): { canEnable: boolean } | null {
+  const data = (err as { response?: { data?: unknown } })?.response?.data as
+    { cause?: unknown; canEnable?: unknown } | undefined;
+  return data?.cause === "metrics-off"
+    ? { canEnable: data.canEnable === true }
+    : null;
+}
+
 /** Typed calls to this plugin's own routes, one per route. */
 export function createApi(api: PluginApiClient) {
   return {
@@ -783,6 +853,73 @@ export function createApi(api: PluginApiClient) {
         if (choices) return { kind: "choices", choices };
         throw err;
       }
+    },
+    async resourceMetrics(
+      id: number,
+      uuid: string,
+      minutes: number,
+    ): Promise<ResourceMetrics> {
+      const data = (
+        await api.get<Partial<ResourceMetrics>>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/metrics?minutes=${minutes}`,
+        )
+      ).data;
+      return {
+        minutes: typeof data?.minutes === "number" ? data.minutes : minutes,
+        cpu: points(data?.cpu),
+        memory: points(data?.memory),
+      };
+    },
+    async resourceTraffic(
+      id: number,
+      uuid: string,
+      query: { view: TrafficView; range: TrafficRange; dim?: string },
+    ): Promise<TrafficAnswer> {
+      const params = new URLSearchParams({ view: query.view });
+      if (query.dim) params.set("dim", query.dim);
+      params.set("range", query.range);
+      const data = (
+        await api.get<Partial<TrafficAnswer>>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/traffic?${params.toString()}`,
+        )
+      ).data;
+      return {
+        view: query.view,
+        dim: query.dim,
+        // Anything but an explicit false keeps IPs out of the UI.
+        ipsHidden: data?.ipsHidden !== false,
+        data: data?.data ?? null,
+      };
+    },
+    async serverMetrics(
+      id: number,
+      serverUuid: string,
+      minutes: number,
+    ): Promise<ServerMetrics> {
+      const data = (
+        await api.get<Partial<ServerMetrics>>(
+          `/connections/${id}/servers/${encodeURIComponent(serverUuid)}/metrics?minutes=${minutes}`,
+        )
+      ).data;
+      const series: Record<string, MetricPoint[]> = {};
+      if (data?.series && typeof data.series === "object") {
+        for (const [key, value] of Object.entries(data.series)) {
+          series[key] = points(value);
+        }
+      }
+      return {
+        source: data?.source === "mcp" ? "mcp" : "sentinel",
+        minutes: typeof data?.minutes === "number" ? data.minutes : minutes,
+        current: data?.current ? numbers(data.current) : null,
+        series,
+      };
+    },
+    /** Turns metrics on in the server's Sentinel settings, after a confirm. */
+    async enableMetrics(id: number, serverUuid: string): Promise<void> {
+      await api.post(
+        `/connections/${id}/servers/${encodeURIComponent(serverUuid)}/metrics/enable`,
+        { confirm: true },
+      );
     },
   };
 }

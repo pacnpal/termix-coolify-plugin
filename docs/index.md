@@ -226,6 +226,42 @@ only with `confirm: true`. Its text is a sensitive output, so run history never 
 caller gets the masked text in the answer. See
 [the API](api.md).
 
+## Metrics and traffic
+
+Coolify keeps no metric history itself: Sentinel, its agent on each server, does. The plugin reads it the way
+Coolify does, plus through Coolify's own MCP endpoint when that is turned on for the instance.
+
+- **Stats** (a tab on a resource or part): the container's CPU and memory history from Sentinel, for 1 hour,
+  24 hours, 7 days or 30 days, and a **Live** readout from `docker stats` every 3 seconds while the tab is
+  open. Leaving the tab stops it. You can have at most 3 live readouts open at once. If the connection
+  drops, the readout says so, marks the last reading as not live and tries again up to 3 times;
+  **Reconnect** starts it again by hand. When your access or the connection changed, it says why
+  and waits for **Reconnect**.
+- **Traffic** (a tab on applications): requests over time, top paths, and breakdowns by status code,
+  country, browser and bot, for 24 hours, 7 or 30 days. It needs Coolify's traffic analytics on for the
+  server; Coolify's API can't turn that on, so the tab says where to do it in Coolify. Client IPs show only
+  when Coolify's **traffic IP mode** is `full` and you have **Configure Coolify** with owner or configure
+  access to the connection; otherwise they never reach your screen.
+- **Server metrics** (on a Linked host's Coolify card): CPU, memory, disk and load now, and the last hour of
+  CPU. They come from Coolify's MCP `get_server_metrics` when it answers, which needs no SSH, and otherwise
+  from Sentinel over SSH on the Linked host. The card says which.
+- **Metrics are off for this server**: Coolify isn't collecting them. **Turn on metrics** changes the
+  server's Sentinel settings in Coolify, after you confirm. It shows only to someone with **Configure
+  Coolify** who owns the connection (or has a configure grant), and the token needs write in Coolify.
+
+Reads from Sentinel run `docker exec coolify-sentinel curl` on the Linked host. The path comes from a fixed
+template, the resource's uuid must be one plain path segment, and the URL is one quoted argument. Sentinel's
+own token stays in its container and reaches curl on stdin, never on a command line. These reads pass the
+same check as deploys (**Operate Coolify resources**, and the owner or an operate grant) and need your own
+**connect** access to the Linked host, like shells; a server without a Linked host answers **Link this
+server first**. If the connection's address, token or Access settings change while a read or a live readout
+runs, it stops. Reads through Coolify's MCP need only **View Coolify** and access to the connection. History
+reaches back at most 30 days (43,200 minutes), and only as far as Coolify keeps it.
+
+The reads are also actions, offered to the assistant and MCP: `coolify.resource-metrics`,
+`coolify.resource-traffic` and `coolify.server-metrics`. `coolify.enable-metrics` turns metrics on; over MCP
+it needs **Allow changes over MCP** and `confirmed: true`. See [the API](api.md).
+
 ## Use with an MCP client
 
 The plugin serves its own MCP endpoint at `/plugin-api/coolify/mcp`. The Connections view shows the address
@@ -488,7 +524,7 @@ Admins and users get all five by default. Admins can take any of them away per r
 
 - **View Coolify**: open the plugin and read the connections you own or were granted.
 - **Operate Coolify resources**: lifecycle actions, deploys, tasks, backups, logs, container shells and
-  consoles, and running commands in containers.
+  consoles, running commands in containers, and metrics and traffic read over SSH.
 - **Configure Coolify**: edits, variables, creates, imports, keys, sources, storage, DNS and notifications.
 - **Administer Coolify**: deletes, server create, delete and transfer, cloud provisioning, instance settings
   and connection sharing.

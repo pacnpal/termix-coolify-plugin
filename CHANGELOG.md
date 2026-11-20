@@ -190,3 +190,14 @@
   grantee can't change it
 - Logs and command output mask every private key block, also several on one line (a JSON array of
   keys) and a block that never ends; a rejected connection edit no longer turns on running commands
+- A Stats tab on resources: the container's CPU and memory history from Coolify's Sentinel (up to 30 days)
+  and a live `docker stats` readout every 3 seconds while the tab is open, at most 3 at once per person
+- A Traffic tab on applications with Coolify's traffic analytics on: requests over time, top paths, and
+  breakdowns by status code, country, browser and bot. Client IPs show only when Coolify's traffic IP mode
+  is `full` and you may configure the connection
+- Server metrics on a Linked host's Coolify card, from Coolify's MCP when it's on, else from Sentinel over
+  SSH
+- "Turn on metrics" when metrics are off for a server, for someone who may configure the connection; it
+  asks first and changes the server's Sentinel settings in Coolify
+- Actions `coolify.resource-metrics`, `coolify.resource-traffic` and `coolify.server-metrics`, offered to the
+  assistant and MCP, and `coolify.enable-metrics`, which over MCP needs changes allowed and `confirmed`

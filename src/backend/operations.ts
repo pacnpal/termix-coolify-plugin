@@ -6,6 +6,7 @@ import type { Logs } from "./containers/logs.js";
 import type { Connections } from "./connections/service.js";
 import type { Tables } from "./db.js";
 import type { Lifecycle } from "./resources/lifecycle.js";
+import type { Metrics } from "./metrics/service.js";
 import type { Resources } from "./resources/service.js";
 import { registerCompanionOperations } from "./ops/companions.js";
 import type { StatusPages } from "./status/service.js";
@@ -16,6 +17,7 @@ import {
 } from "./ops/api-generic.js";
 import { registerContainerOperations } from "./ops/containers.js";
 import { registerLifecycleOperations } from "./ops/lifecycle.js";
+import { registerMetricsOperations } from "./ops/metrics.js";
 import { registerResourceOperations } from "./ops/resources.js";
 import {
   registerSignalOperations,
@@ -41,6 +43,7 @@ export interface Services {
   companions: Companions;
   statusPages: StatusPages;
   genericApi: GenericApi;
+  metrics: Metrics;
 }
 
 /**
@@ -66,4 +69,5 @@ export function registerOperations(
   registerCompanionOperations(ctx, services.companions);
   registerStatusPageOperations(ctx, services.statusPages);
   registerGenericApiOperations(ctx, services.genericApi);
+  registerMetricsOperations(ctx, services.metrics);
 }

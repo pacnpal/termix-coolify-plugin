@@ -18,6 +18,9 @@ import { registerContainerRoutes } from "./containers/routes.js";
 import { createLogs } from "./containers/logs.js";
 import { createExec } from "./containers/exec.js";
 import { registerLogSocket } from "./containers/sockets.js";
+import { registerStatsSocket } from "./containers/stats.js";
+import { createMetrics } from "./metrics/service.js";
+import { registerMetricsRoutes } from "./metrics/routes.js";
 import { createGenericApi } from "./ops/api-generic.js";
 import { registerOperations } from "./operations.js";
 import { createSync, type Sync } from "./sync/service.js";
@@ -53,6 +56,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
     resources,
     servers,
   });
+  const metrics = createMetrics(ctx, { connections, containers, sync });
   const updates = createUpdates(ctx, {
     tables,
     connections,
@@ -84,6 +88,8 @@ export async function activate(ctx: PluginContext): Promise<void> {
   registerLifecycleRoutes(router, ctx, lifecycle);
   registerContainerRoutes(router, ctx, containers, logs);
   registerLogSocket(ctx, { logs });
+  registerStatsSocket(ctx, { connections, containers });
+  registerMetricsRoutes(router, ctx, metrics);
   registerUpdateRoutes(router, ctx, updates);
   registerCompanionRoutes(router, ctx, companions);
   registerApiConsoleRoutes(router, ctx, genericApi);
@@ -103,6 +109,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
     companions,
     statusPages,
     genericApi,
+    metrics,
   });
   await statusPages.start();
 }

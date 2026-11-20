@@ -619,6 +619,84 @@
       "refusalCloseCodes": [1008],
       "allowed": "any",
       "note": "Checks run on every message, so the entry sends a subscribe. The seeded connection points at coolify.invalid, so an allowed caller gets an unreachable error before any SSH; there is no reachable Coolify or Linked host in the authz run."
+    },
+    "GET /plugin-api/coolify/connections/:id/servers/:uuid/metrics": {
+      "access": "user",
+      "permission": "coolify.view",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-own-server"
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify; there is no reachable Coolify in the authz run."
+    },
+    "POST /plugin-api/coolify/connections/:id/servers/:uuid/metrics/enable": {
+      "access": "user",
+      "permission": "coolify.configure",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-own-server"
+      },
+      "body": {
+        "confirm": true
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify (the server can't be read) before anything changes; there is no reachable Coolify in the authz run."
+    },
+    "GET /plugin-api/coolify/connections/:id/resources/:uuid/metrics": {
+      "access": "user",
+      "permission": "coolify.operate",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-resource-uuid"
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify before any SSH; there is no reachable Coolify, Linked host or Sentinel in the authz run."
+    },
+    "GET /plugin-api/coolify/connections/:id/resources/:uuid/traffic": {
+      "access": "user",
+      "permission": "coolify.operate",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-resource-uuid"
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify before any SSH; there is no reachable Coolify, Linked host or Sentinel in the authz run."
+    },
+    "WS /plugin-ws/coolify/stats": {
+      "access": "user",
+      "permission": "coolify.operate",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection",
+        "key": "connectionId"
+      },
+      "send": [
+        {
+          "connectionId": "{{coolify.connection}}",
+          "uuid": "authz-resource-uuid"
+        }
+      ],
+      "refuseReply": "\"cause\":\"(locked|forbidden|not-found|no-host-access|target-changed)\"",
+      "refusalCloseCodes": [1008],
+      "allowed": "any",
+      "note": "Checks run on every message and tick, so the entry sends a subscribe. The seeded connection points at coolify.invalid, so an allowed caller gets an unreachable error before any SSH; there is no reachable Coolify, Linked host or container in the authz run."
     }
   }
 }

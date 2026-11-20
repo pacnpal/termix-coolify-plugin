@@ -71,7 +71,8 @@ aren't obvious from the code, and anything that has bitten you before.
   Resources can be browsed (Overview tiles, the Resources list, a resource's Overview detail) and deployed,
   started, stopped and restarted, host sync turns Coolify servers into locked Linked hosts, container
   shells and database consoles open in a `coolify-shell` tab, a resource's Logs view reads and follows
-  container logs, and a Linked host's card checks, installs and reboots its server's updates. Companion plugins (DNS, Uptime, Log Search, Security Center, Host
+  container logs, Stats and Traffic tabs and the host card's server metrics read Sentinel and Coolify's
+  MCP, and a Linked host's card checks, installs and reboots its server's updates. Companion plugins (DNS, Uptime, Log Search, Security Center, Host
   Metrics, Databases, Backups) add their features when they run, and owners can publish public status pages.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
@@ -218,11 +219,12 @@ aren't obvious from the code, and anything that has bitten you before.
 - Frontend: `src/frontend/views/CoolifyTab.tsx` owns the SideNav, the selected connection and the shared
   resource list (`useResources`). The list is keyed by the connection's id and `revision` (the same
   non-secret hash, also on `ConnectionView`), and `ConnectionsView`'s `onSaved` puts a saved row back into
-  the tab, so editing the selected connection's target clears and reloads it. `ResourceDetail.tsx` lists its views in `DETAIL_TABS`; later views (shell,
-  logs, stats) add an id there. Filtering and grouping are pure functions in `resource-model.ts`.
+  the tab, so editing the selected connection's target clears and reloads it. `ResourceDetail.tsx` lists its views in `DETAIL_TABS`; a new
+  view adds an id there. Filtering and grouping are pure functions in `resource-model.ts`.
   `contributes.mobile` lists `coolify` and `coolify-shell`. `DETAIL_TABS` has `shell`, whose view holds the
-  Open shell and Open database console buttons (only with `canOperate`), and `logs` (`OPERATE_TABS`: shown
-  only with `canOperate`).
+  Open shell and Open database console buttons (only with `canOperate`), and `logs`, `stats` and
+  `traffic` (`OPERATE_TABS`: shown only with `canOperate`; `detailTabs()` shows `traffic` for
+  applications only). Stats and Traffic are keyed by connection, uuid and revision, like Logs.
 - Host sync: `src/backend/sync/` (`mapping.ts` pure `planHost`, `credentials.ts` key copy, `locks.ts`,
   `service.ts` `createSync`, `routes.ts`) and `src/backend/ops/sync.ts`. `createSync` is async (it loads the
   lock set from `servers.hostId` before providing locks) and is made right after `createConnections`, whose
@@ -439,6 +441,35 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   The audit holds only lengths and the exit code. Resources and server-status caches are invalidated
   after a run reaches SSH. `connections.setExec` is owner only and checks `configure` itself.
 - MCP may deploy and restart without `allowMcpChanges` (`MCP_CHANGES_EXEMPT` in `mcp/server.ts`).
+- Metrics: `src/backend/coolify/mcp.ts` is the client for Coolify's own MCP (`<url>/mcp`, JSON-RPC
+  `tools/call`). It is built on a connection's `CoolifyHttp` (`request(..., { mcp: true, text: true })`), so
+  it shares the snapshot's headers, transport check, budget and fixed errors; tool answers go through
+  `redact()`. Nothing probes it: server metrics try it first and any `CoolifyError` falls back to Sentinel.
+  `src/backend/metrics/sentinel.ts` builds Sentinel paths from fixed templates, the uuid through
+  `pathParamProblem` (path.ts), and refuses any path outside `/^\/api\/[A-Za-z0-9_/.\-?=&:]+$/` or with
+  `..`. The command is `docker exec coolify-sentinel sh -c '<script>' sh '<url>'`: the script reads the
+  container's own `$TOKEN` and gives it to curl on stdin (`tests/backend/metrics/sentinel-token.test.ts` runs
+  it through a real `sh`). Answers go through `scrubbed()` (maskCredentials plus secret-named fields).
+  `metrics/service.ts` reads the connection once per request (`connections.snapshot`). Its Coolify calls go
+  through `read.api`/`read.http`, the snapshot's request layer wrapped by `guarded()` so
+  `containers.assertSnapshotHolds` is every request's `beforeFetch` (after the budget wait, right before
+  the fetch); SSH commands call it first too. Resource reads use
+  `containers.target` (lifecycle's `authorize`); the server read over MCP needs view and any access, its
+  Sentinel fallback operate and an operate grant. IPs need `traffic_ip_mode` `full` and `canConfigure`
+  (coolify.configure plus owner or configure grant); anything else hides them. Traffic `limit` is clamped to
+  `MAX_TRAFFIC_LIMIT` (200). Enabling metrics needs `canConfigure` and `confirm: true`; the operation
+  `coolify.enable-metrics` is a change and in `MCP_CONFIRM_REQUIRED`. No metrics cache exists.
+- Stats socket: `src/backend/containers/stats.ts` (`WS /stats`), separate from the logs socket. One stream
+  per socket, one subscribe a second (`rate-limited`), `MAX_STREAMS_PER_USER` (3) per person
+  (`too-many-streams`). Each subscribe has a generation; an older one's answer or failure is dropped. A
+  subscribe takes a snapshot and `containers.locate`; every tick checks the session, `currentActor()`
+  against the socket's user, the snapshot (first and again last, since the checks can wait),
+  `containers.target` and host access, then runs `docker stats --no-stream` (4 KB output cap). Refusals close with 1008. The frontend
+  opens it with `openSocket` (`socket.ts`); tests mock that module. A `choices` answer shows the Logs
+  view's picker (same `logs.pick` texts); the pick lives in `StatsTab`, keyed per resource.
+  A socket that closes on its own shows why (1008: the backend's cause under `metrics.live.errors`,
+  else `refused`), keeps the last sample marked stale, and offers Reconnect; a lost connection retries
+  itself `RECONNECT_DELAYS_MS` (3, growing), a refusal never. A generation ref drops superseded sockets.
 - Signals (`src/backend/ops/signals.ts`) read resources from the resources cache and server statuses from a
   `servers` cache kind (a minute, no addresses or keys kept) through `createServerStatuses`, made in
   `index.ts`. That cache works like the resources cache: rows carry `connections.revision(id)` and a
