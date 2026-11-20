@@ -36,6 +36,7 @@ function view(over: Partial<ConnectionView> = {}): ConnectionView {
     },
     lastError: null,
     autoSync: false,
+    execEnabled: false,
     access: "owner",
     allowPrivate: false,
     caCert: null,

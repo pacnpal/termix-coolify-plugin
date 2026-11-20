@@ -1,5 +1,6 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { ContainerError, type Containers } from "../containers/service.js";
+import type { Exec } from "../containers/exec.js";
 import type { Logs } from "../containers/logs.js";
 import { handoffIdFor } from "../status/service.js";
 import { connectionIdInput } from "./connections.js";
@@ -43,6 +44,28 @@ export function takeLogText(userId: string, handoffId: unknown): string | null {
   return entry.text;
 }
 
+function hold(userId: string, handoffId: string, text: string): void {
+  sweepLogs(Date.now());
+  logHandoffs.set(logKey(userId, handoffId), {
+    text,
+    expiresAt: Date.now() + LOG_HANDOFF_TTL_MS,
+  });
+}
+
+function execHandoff(handoffId: string): string {
+  return `exec:${handoffId}`;
+}
+
+/** The redacted output of one coolify.exec run, once, to the user who ran it. */
+export function takeExecOutput(
+  userId: string,
+  handoffId: unknown,
+): { stdout: string; stderr: string } | null {
+  if (typeof handoffId !== "string") return null;
+  const kept = takeLogText(userId, execHandoff(handoffId));
+  return kept === null ? null : JSON.parse(kept);
+}
+
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -60,6 +83,7 @@ export function registerContainerOperations(
   ctx: PluginContext,
   containers: Containers,
   logs: Logs,
+  exec: Exec,
 ): void {
   ctx.operations.register("coolify.shell-command", {
     run: async (input) => {
@@ -126,6 +150,53 @@ export function registerContainerOperations(
         // text is already redacted (redactLog) and is a sensitive output, so
         // core drops it before a run is stored; handoffId lets the MCP answer
         // carry it.
+        data: { ...answer, handoffId },
+      };
+    },
+  });
+
+  // coolify.exec: destructive, so core asks for a confirm first. The service
+  // refuses before any SSH unless allowExec, the connection's execEnabled,
+  // coolify.operate and edit access to the Linked host all hold. The summary
+  // never repeats the command.
+  ctx.operations.register("coolify.exec", {
+    run: async (input, { runId, signal }) => {
+      const id = connectionIdInput(input);
+      const answer = await exec.exec(
+        id,
+        text(input.uuid),
+        {
+          part: text(input.part) || undefined,
+          container: text(input.container) || undefined,
+          command: input.command,
+          timeoutSec: input.timeoutSec,
+        },
+        signal,
+      );
+      if ("choices" in answer) {
+        return {
+          summary: `${answer.choices.length} containers match; pick one with container`,
+          data: { choices: answer.choices },
+        };
+      }
+      const status = answer.timedOut
+        ? "timed out"
+        : `exit code ${answer.exitCode ?? "none"}`;
+      const handoffId = handoffIdFor(runId);
+      const userId = ctx.currentActor() ?? "";
+      if (userId) {
+        hold(
+          userId,
+          execHandoff(handoffId),
+          JSON.stringify({ stdout: answer.stdout, stderr: answer.stderr }),
+        );
+      }
+      return {
+        summary: `Ran a command in ${answer.container} on host ${answer.hostId}: ${status}${answer.truncated ? ", output cut at 64 KB" : ""}`,
+        changed: true,
+        // stdout and stderr are already redacted and are sensitive outputs,
+        // so core drops them before a run is stored; handoffId lets the MCP
+        // answer carry them, once.
         data: { ...answer, handoffId },
       };
     },

@@ -85,6 +85,73 @@ function redactOnce(text: string): string {
     .replace(AUTH_HEADER, `$1${REDACTED_VALUE}`);
 }
 
+const KEY_BEGIN = "-----BEGIN ";
+const KEY_TAIL = "PRIVATE KEY-----";
+/** The kind in `-----BEGIN <kind>PRIVATE KEY-----`, like "RSA " or "". */
+const KEY_KIND = /^[A-Z0-9 ]{0,40}$/;
+/** Where a kind's tail can be, past BEGIN: its 40 characters and the tail. */
+const KEY_HEAD_MAX = 40 + KEY_TAIL.length;
+
+interface KeyBegin {
+  /** Where `-----BEGIN` starts. */
+  at: number;
+  /** Where the key's body starts, right after the BEGIN marker. */
+  body: number;
+  /** The END marker that closes it. */
+  end: string;
+}
+
+/** The next private key BEGIN marker at or after `from`, or null. */
+function nextKeyBegin(text: string, from: number): KeyBegin | null {
+  for (
+    let at = text.indexOf(KEY_BEGIN, from);
+    at >= 0;
+    at = text.indexOf(KEY_BEGIN, at + 1)
+  ) {
+    const head = at + KEY_BEGIN.length;
+    const tail = text.slice(head, head + KEY_HEAD_MAX).indexOf(KEY_TAIL);
+    if (tail < 0) continue;
+    const kind = text.slice(head, head + tail);
+    if (!KEY_KIND.test(kind)) continue;
+    return {
+      at,
+      body: head + tail + KEY_TAIL.length,
+      end: `-----END ${kind}${KEY_TAIL}`,
+    };
+  }
+  return null;
+}
+
+/**
+ * Every private key block's body masked, wherever it is: several on one
+ * line (a JSON array of PEMs with escaped newlines), across real lines, and
+ * a block without its END to the end of `text`. The markers stay. Linear:
+ * every search moves forward.
+ */
+export function maskKeyBlocks(text: string): string {
+  let out = "";
+  let pos = 0;
+  for (let b = nextKeyBegin(text, 0); b; b = nextKeyBegin(text, pos)) {
+    out += text.slice(pos, b.body) + REDACTED_VALUE;
+    const close = text.indexOf(b.end, b.body);
+    if (close < 0) return out;
+    out += b.end;
+    pos = close + b.end.length;
+  }
+  return out + text.slice(pos);
+}
+
+/** The last private key block in `text` still open at its end, or null. */
+export function openKeyBlock(text: string): KeyBegin | null {
+  let pos = 0;
+  for (let b = nextKeyBegin(text, 0); b; b = nextKeyBegin(text, pos)) {
+    const close = text.indexOf(b.end, b.body);
+    if (close < 0) return b;
+    pos = close + b.end.length;
+  }
+  return null;
+}
+
 /**
  * Log text with its secrets masked before it leaves the backend: the
  * connection's own token and Access secret anywhere, then what redact.ts
@@ -93,7 +160,7 @@ function redactOnce(text: string): string {
  * text stops changing (a fixed point, at most MAX_PASSES).
  */
 export function redactLog(text: string, secrets: readonly string[]): string {
-  let out = text;
+  let out = maskKeyBlocks(text);
   for (const secret of secrets) {
     if (secret) out = out.split(secret).join(REDACTED_VALUE);
   }
@@ -354,6 +421,8 @@ export function openSecretStart(text: string): number {
   }
   const yaml = YAML_HEAD.exec(text);
   if (yaml) note(yaml.index);
+  const key = openKeyBlock(text);
+  if (key) note(key.at);
   SECRET_HEAD.lastIndex = 0;
   for (let m = SECRET_HEAD.exec(text); m; m = SECRET_HEAD.exec(text)) {
     const value = m.index + m[0].length;
@@ -415,23 +484,43 @@ export function lineSplitter(
   const keep = Math.max(CUT_CONTEXT, ...secrets.map((s) => s.length * 2));
   let carry = "";
   let skipping = false;
+  // The END marker of a private key block left open by an earlier line:
+  // every line up to it is the key's body and is dropped.
+  let keyEnd: string | null = null;
 
   function take(text: string, final: boolean): void {
     const parts = (carry + text).split(/\r?\n/);
     carry = final ? "" : (parts.pop() ?? "");
     const out: string[] = [];
-    for (const line of parts) {
+    for (let line of parts) {
       if (skipping) {
         skipping = false;
         continue;
       }
+      if (keyEnd !== null) {
+        const at = line.indexOf(keyEnd);
+        if (at < 0) continue;
+        line = line.slice(at);
+        keyEnd = null;
+      }
       if (final && !line) continue;
       out.push(...pieces(redactLog(line, secrets)));
+      keyEnd = openKeyBlock(line)?.end ?? null;
+    }
+    if (keyEnd !== null && carry.length > MAX_LINE) {
+      // A key body line too long to wait for: keep only what could start
+      // its END marker.
+      const at = carry.indexOf(keyEnd);
+      if (at < 0) carry = carry.slice(-(keyEnd.length - 1));
+      else {
+        carry = carry.slice(at);
+        keyEnd = null;
+      }
     }
     if (skipping) {
       carry = "";
     } else {
-      while (carry.length > MAX_LINE + keep) {
+      while (keyEnd === null && carry.length > MAX_LINE + keep) {
         const cut = safeCut(carry, secrets, carry.length - keep);
         if (cut <= 0) {
           out.push(REDACTED_VALUE);
@@ -453,6 +542,10 @@ export function lineSplitter(
           if (at >= 0 && at < cut && (openAt < 0 || at < openAt)) openAt = at;
         }
         if (openAt >= 0) {
+          // A key block still open here may run on past this line: its body
+          // lines are dropped until its END (over-masking, never under).
+          const key = openKeyBlock(prefix);
+          if (key && carry.indexOf(key.end, cut) < 0) keyEnd = key.end;
           // A secret is open at the cut: mask from its start (from the word
           // before it, so nothing bounded straddles) to the end of the line.
           const space = prefix.lastIndexOf(" ", openAt - 1);

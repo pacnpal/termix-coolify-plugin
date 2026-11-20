@@ -158,6 +158,38 @@ The action `coolify.shell-command` (offered to the assistant and MCP) answers th
 or the list of containers to choose from, for a client with its own SSH. It makes the same checks. See
 [the API](api.md).
 
+## Running commands in containers through the API and MCP
+
+The action `coolify.exec` runs one command inside a resource's or part's container and returns its output,
+so an API key, the CLI, an Automation or an MCP client can do container work without a terminal. It is off
+until two switches are both on:
+
+1. An admin turns on **Allow running commands in containers through the API and MCP** in the plugin's
+   settings.
+2. The connection's owner turns on **Allow running commands in containers through the API and MCP** in the
+   connection editor (Connections, edit). Only the owner sees and changes it, with **Configure Coolify**; a
+   grantee can't, at any level. The action `coolify.connection-set-exec` does the same.
+
+Each run then needs what logs need (**Operate Coolify resources**, and a connection you own or a Grant at
+operate or configure), your own **edit** access to the Linked host (a connection Grant doesn't give it) and
+a confirm. Over the plugin's MCP endpoint it also needs **Allow changes over MCP** and `confirmed: true`.
+When any of these is missing, or can't be checked, the run is refused before anything reaches the server.
+
+- The command runs with `sh` in the container. It is sent on standard input, never pasted into another
+  command line.
+- The timeout is at most 120 seconds (30 by default). The timeout, or cancelling the run, stops the command
+  and everything it started in the container, and closes the SSH connection.
+- One command per resource at a time, three at once in all, and twenty a minute, for each user.
+- Output (stdout and stderr together) is cut at 64 KB and masked the same way as logs, private key blocks
+  included. Run history never keeps it; an MCP client gets it once in the answer.
+- If the connection's address, token or Access settings change while a run starts, nothing is sent.
+- Several matching containers answer with the list to choose from, as for shells.
+- Every run is written to Termix's audit log with the host, the container and the lengths of the command
+  and its output and the exit code, never the command or output itself.
+
+Turning it on lets anyone with edit access to a Linked host and Operate Coolify resources run any command
+in its containers, which can read their secrets. See [the API](api.md#running-commands-in-containers).
+
 ## Logs
 
 A resource's or part's **Logs** view shows the container's recent logs. Pick how many lines (100 up to
@@ -452,8 +484,8 @@ never run. See the [API and MCP reference](api.md#the-full-coolify-api) for the 
 Admins and users get all five by default. Admins can take any of them away per role.
 
 - **View Coolify**: open the plugin and read the connections you own or were granted.
-- **Operate Coolify resources**: lifecycle actions, deploys, tasks, backups, logs, and container shells and
-  consoles.
+- **Operate Coolify resources**: lifecycle actions, deploys, tasks, backups, logs, container shells and
+  consoles, and running commands in containers.
 - **Configure Coolify**: edits, variables, creates, imports, keys, sources, storage, DNS and notifications.
 - **Administer Coolify**: deletes, server create, delete and transfer, cloud provisioning, instance settings
   and connection sharing.

@@ -113,7 +113,11 @@ describe("long-line redaction property", () => {
       (n) => `db_password=${upper(n)}`,
       (n) => `Authorization: Basic ${upper(n)}`,
       (n) => `proxy-authorization: Bearer ${upper(n)}`,
+      (n) =>
+        `"-----BEGIN RSA PRIVATE KEY-----\\n${upper(n)}\\n-----END RSA PRIVATE KEY-----"`,
     ];
+    // The key markers' own words are upper case: they aren't secrets.
+    const leak = (text: string) => LEAK.exec(text.replaceAll("PRIVATE", ""));
     const failures: number[] = [];
     const started = performance.now();
     for (let c = 0; c < CASES; c += 1) {
@@ -132,7 +136,7 @@ describe("long-line redaction property", () => {
       // The whole line, redacted at once, shows no secret: the shapes are
       // ones redactLog masks.
       const whole = redactLog(line, [token, access]);
-      const wholeLeak = LEAK.exec(whole);
+      const wholeLeak = leak(whole);
       expect(
         wholeLeak &&
           whole.slice(Math.max(0, wholeLeak.index - 60), wholeLeak.index + 20),
@@ -147,7 +151,7 @@ describe("long-line redaction property", () => {
       }
       split.data(Buffer.from("\n"));
       split.end();
-      if (sent.some((piece) => LEAK.test(piece) || piece.length > MAX_LINE)) {
+      if (sent.some((piece) => leak(piece) || piece.length > MAX_LINE)) {
         failures.push(c);
       }
     }
@@ -187,6 +191,62 @@ describe("long-line cuts with an open secret", () => {
         expect(piece.length).toBeLessThanOrEqual(MAX_LINE);
     });
   }
+});
+
+describe("private key blocks", () => {
+  const pem = (kind: string, body: string, sep: string) =>
+    `-----BEGIN ${kind}PRIVATE KEY-----${sep}${body}${sep}-----END ${kind}PRIVATE KEY-----`;
+
+  it("masks every block on one line, as a JSON array of escaped PEMs", () => {
+    const line = JSON.stringify([
+      pem("RSA ", "fake-key-one-body", "\n"),
+      pem("", "fake-key-two-body", "\n"),
+      pem("OPENSSH ", "fake-key-three-body", "\n"),
+    ]);
+    expect(line).toContain("\\n");
+    for (const out of [redactLog(line, []), streamed(line).join("\n")]) {
+      expect(out).not.toMatch(/fake-key-\w+-body/);
+      expect(out).toContain("-----END OPENSSH PRIVATE KEY-----");
+    }
+  });
+
+  it("masks real multi-line blocks, in a snapshot and streamed", () => {
+    const text = [
+      "before",
+      pem("RSA ", "fake-multi-a\nfake-multi-b", "\n"),
+      "between",
+      pem("EC ", "fake-multi-c", "\n"),
+      "after",
+      "",
+    ].join("\n");
+    for (const out of [redactLog(text, []), streamed(text).join("\n")]) {
+      expect(out).not.toContain("fake-multi");
+      expect(out).toContain("before");
+      expect(out).toContain("between");
+      expect(out).toContain("after");
+    }
+  });
+
+  it("masks an unterminated block to the end of the stream", () => {
+    const text = `ok\n-----BEGIN PRIVATE KEY-----\nfake-open-a\nfake-open-b\n`;
+    for (const out of [redactLog(text, []), streamed(text).join("\n")]) {
+      expect(out).toContain("ok");
+      expect(out).toContain("-----BEGIN PRIVATE KEY-----");
+      expect(out).not.toContain("fake-open");
+    }
+  });
+
+  it("masks a key body streamed in tiny chunks", () => {
+    const text = `${pem("RSA ", "fake-chunked-body\n".repeat(50), "\n")}\nnext\n`;
+    const sent: string[] = [];
+    const split = lineSplitter([], (lines) => sent.push(...lines));
+    for (let i = 0; i < text.length; i += 7) {
+      split.data(Buffer.from(text.slice(i, i + 7)));
+    }
+    split.end();
+    expect(sent.join("\n")).not.toContain("fake-chunked");
+    expect(sent).toContain("next");
+  });
 });
 
 describe("redactLog", () => {

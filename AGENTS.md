@@ -333,7 +333,11 @@ console }`, calls the shell route and draws `PluginComponent id="terminal.view"`
   from SSH choices; a Coolify `forbidden-ability` falls back to SSH. The count is capped at 10,000
   (`MAX_LINES`), never refused. The container name passes `assertContainerName` and is `shellQuote`d, and so
   is the line count; no secret is ever in the command.
-- Log redaction: every snapshot text and every followed line goes through `redactLog`: the snapshot's own
+- Log redaction: every snapshot text and every followed line goes through `redactLog`. It first masks
+  every private key block's body (`maskKeyBlocks`: several on a line, escaped `\n` or real newlines, and a
+  block without END to the end of the text; linear `indexOf` scans). `lineSplitter` keeps a block opened
+  by one line open (`keyEnd`) and drops the body lines until its END, and `openSecretStart` counts an open
+  block, so a long-line cut never splits one. Then the snapshot's own
   token and Access secret (`snapshot.secrets()`, unsealed from the same row) are replaced anywhere, then
   redact.ts's `maskCredentials`, then secret-named `name=value`/`"name": "value"` fields and
   `Authorization` credentials. Names are bounded (`{0,64}`) so a long line can't backtrack for long.
@@ -410,6 +414,29 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   `servers.invalidate` and `resources.invalidate`. The mock ctx's `hosts.checkAccess`
   only knows hosts given up front, so tests spy on it, on `ssh.exec`, on `operations.invoke` and on
   `plugins.list` (`tests/backend/updates/fixtures.ts`).
+- Exec: `src/backend/containers/exec.ts` (`readExecRequest`, `createExec`) and `coolify.exec` in
+  `ops/containers.ts`. Remote code execution, so every refusal is before any SSH: `coolify.operate`,
+  `allowExec`, the snapshot's `execEnabled`, lifecycle's `authorize` (through `containers.target`), the
+  Linked host and the actor's `edit` access to it (checked before `locate`, whose docker probes are SSH),
+  then one run per actor and resource (`EXEC_MAX_PER_ACTOR` in all) and `EXEC_RATE_PER_MINUTE`, both in
+  memory per process. It runs over `ctx.ssh.connect` (through `containers.guard`, so host keys are core's)
+  with `pty: false` and only `execScript` on the channel's stdin (`docker exec -i <name> sh -s`): the
+  command is data in a quoted here-document (delimiter with a per-run nonce), run by a shell started with
+  `setsid` when the container has it (busybox and util-linux do; no `timeout`, whose flags differ), which
+  prints `EXEC_MARK <nonce> <pid>` before the command runs. Only the first stdout line can be that marker;
+  it is stripped before redaction and the cap, and a later or wrong-nonce one is plain output. The
+  revision is checked right before connect and right before `client.exec`. Output goes through logs'
+  `lineSplitter` (redactLog with `snap.secrets()`, key blocks included), then the 64 KB cap;
+  the cap, `EXEC_RAW_CAP` per stream, the timeout or the handler's abort signal send KILL and close the
+  channel, which ends only docker exec on the host, so `shutdown` then runs
+  `docker exec <name> sh -c 'kill -KILL -<pgid> 2>/dev/null || kill -KILL <pgid>'` on the same
+  connection (revision checked first, 5 s cap, a failure only logged) and then disposes. A command that
+  ended on its own gets no group kill. Without setsid the fallback kills only that shell. The channel open races the timeout and abort; one that opens late
+  is closed unwritten. A timeout flushes the splitters (output without a newline yet), masked and capped.
+  The PATCH route applies `execEnabled` only after the rest of the update succeeded. `stdout`/`stderr` are sensitive outputs; MCP gets them once through the logs
+  handoff store (`takeExecOutput`). MCP refuses exec without `confirmed: true` (`MCP_CONFIRM_REQUIRED`).
+  The audit holds only lengths and the exit code. Resources and server-status caches are invalidated
+  after a run reaches SSH. `connections.setExec` is owner only and checks `configure` itself.
 - MCP may deploy and restart without `allowMcpChanges` (`MCP_CHANGES_EXEMPT` in `mcp/server.ts`).
 - Signals (`src/backend/ops/signals.ts`) read resources from the resources cache and server statuses from a
   `servers` cache kind (a minute, no addresses or keys kept) through `createServerStatuses`, made in

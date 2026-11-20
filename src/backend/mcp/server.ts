@@ -11,7 +11,7 @@ import {
 import en from "../../../locales/en.json";
 import { redact } from "../redact.js";
 import { handoffIdOf, takeOnceUrl } from "../status/service.js";
-import { takeLogText } from "../ops/containers.js";
+import { takeExecOutput, takeLogText } from "../ops/containers.js";
 
 /** The MCP protocol version this endpoint speaks when a client asks for another. */
 export const MCP_PROTOCOL_VERSION = "2025-06-18";
@@ -34,6 +34,12 @@ export const MCP_CHANGES_EXEMPT: readonly string[] = [
   "coolify.resource-deploy",
   "coolify.resource-restart",
 ];
+
+/**
+ * Actions MCP refuses without `confirmed: true`, before core is asked:
+ * coolify.exec runs any command in a container.
+ */
+export const MCP_CONFIRM_REQUIRED: readonly string[] = ["coolify.exec"];
 
 export interface JsonRpcMessage {
   jsonrpc: "2.0";
@@ -422,6 +428,15 @@ function actionResult(
     );
     if (text !== null) data = { ...(data as object), text };
   }
+  if (action.id === "coolify.exec" && data && typeof data === "object") {
+    // stdout and stderr were redacted and dropped from run history; the
+    // caller who ran it gets them here, once.
+    const output = takeExecOutput(
+      ctx.currentActor() ?? "",
+      (outcome.data as { handoffId?: unknown }).handoffId,
+    );
+    if (output !== null) data = { ...(data as object), ...output };
+  }
   const result = toolResult(
     outcome.data === undefined ? outcome : { ...outcome, data },
   );
@@ -454,6 +469,16 @@ async function callAction(
         error:
           'Changes over MCP are turned off. An admin can turn on "Allow changes over MCP" in the Coolify plugin settings.',
         errorCode: "mcp-changes-off",
+      },
+      true,
+    );
+  }
+  if (MCP_CONFIRM_REQUIRED.includes(action.id) && args.confirmed !== true) {
+    return textResult(
+      {
+        status: "refused",
+        error: "This action needs confirmed: true.",
+        errorCode: "confirm-required",
       },
       true,
     );

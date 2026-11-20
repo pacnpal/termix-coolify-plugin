@@ -176,3 +176,17 @@
   to the end of the token, also when a long line is split; multibyte characters split across SSH chunks
   stay whole, a follow sends its last lines before it ends, and a follow that finds several containers
   shows the picker
+- The action `coolify.exec` runs one command in a resource's container over SSH on its Linked host and
+  returns the output, masked like logs (private key blocks too) and cut at 64 KB, within at most 120
+  seconds. It stays off until an admin turns on "Allow running commands in containers through the API and
+  MCP" and the connection's owner turns it on for that connection. Each run needs Operate Coolify
+  resources, the owner or an operate or configure Grant, your own edit access to the Linked host and a
+  confirm, and over MCP also "Allow changes over MCP" and `confirmed: true`. One run per resource at a
+  time, three at once and twenty a minute per user; the timeout or a cancel stops the command and its processes in the container and closes
+  the SSH connection, and a connection whose target changes while a run starts sends nothing. Runs are
+  audited with lengths and the exit code only; run history keeps neither the command nor its output
+- The owner's "Allow running commands in containers through the API and MCP" switch in the connection
+  editor, with a warning, and the action `coolify.connection-set-exec`; it needs Configure Coolify and a
+  grantee can't change it
+- Logs and command output mask every private key block, also several on one line (a JSON array of
+  keys) and a block that never ends; a rejected connection edit no longer turns on running commands

@@ -1,5 +1,9 @@
+import { EventEmitter } from "node:events";
 import { vi } from "vitest";
-import type { PluginSshExecResult } from "@termix-ssh/plugin-sdk/backend";
+import type {
+  PluginSshExecOptions,
+  PluginSshExecResult,
+} from "@termix-ssh/plugin-sdk/backend";
 import { healthyCoolify } from "../helpers/fake-coolify.js";
 import { OWNER, startPlugin, type PluginHarness } from "../helpers/plugin.js";
 import { resourceLists } from "../helpers/resources.js";
@@ -32,6 +36,24 @@ export interface DockerHost {
   hostKey?: boolean;
   /** What `docker logs` prints. */
   logs?: string;
+  /**
+   * Answers a command run in a container (coolify.exec) over ctx.ssh.connect,
+   * with its stdin; "hang" never answers, until the channel is killed.
+   */
+  exec?: (
+    command: string,
+    stdin: string | undefined,
+  ) => PluginSshExecResult | "hang";
+  /** The process group id the exec script's marker line reports. */
+  pgid?: number;
+  /** A line written before the real marker, as a forged one would be. */
+  beforeMarker?: string;
+  /** A marker with the real prefix, forged by the command after the real one. */
+  forgedPgid?: number;
+  /** stdout written, without a newline, before a "hang" answer hangs. */
+  partial?: string;
+  /** The exec channel's open is never acknowledged until `opens` is called. */
+  openHang?: boolean;
 }
 
 function result(stdout: string, code = 0): PluginSshExecResult {
@@ -41,10 +63,12 @@ function result(stdout: string, code = 0): PluginSshExecResult {
 /** Stands in for ctx.ssh.exec on the Linked host, recording every command. */
 export function fakeDocker(harness: PluginHarness, host: DockerHost) {
   const commands: string[] = [];
+  const calls: Array<{ command: string; options?: PluginSshExecOptions }> = [];
   const exec = vi
     .spyOn(harness.mock.ctx.ssh, "exec")
-    .mockImplementation(async (_target, command) => {
+    .mockImplementation(async (_target, command, options) => {
       commands.push(command);
+      calls.push({ command, options });
       if (host.hostKey) {
         const err = new Error(
           "HOST_KEY_UNVERIFIED: open a terminal to this host once",
@@ -69,7 +93,123 @@ export function fakeDocker(harness: PluginHarness, host: DockerHost) {
       }
       return result("", 127);
     });
-  return { exec, commands };
+  const channels: FakeChannel[] = [];
+  /** Acknowledges a held exec channel open, late. */
+  const opens: Array<() => void> = [];
+  const dispose = vi.fn();
+  // Only for coolify.exec, so a test's own ctx.ssh.connect fake stays.
+  const connect = vi.spyOn(harness.mock.ctx.ssh, "connect");
+  if (host.exec) {
+    connect.mockImplementation(async () => {
+      if (host.hostKey) throw hostKeyError();
+      const client = {
+        exec(
+          command: string,
+          options: unknown,
+          callback: (err: Error | undefined, stream: FakeChannel) => void,
+        ) {
+          commands.push(command);
+          const call: {
+            command: string;
+            options?: PluginSshExecOptions;
+            script?: string;
+          } = { command, options: {} };
+          calls.push(call);
+          const channel = new FakeChannel(options);
+          channels.push(channel);
+          if (/ kill -KILL /.test(command)) {
+            // The group kill: it ends on its own.
+            queueMicrotask(() => {
+              channel.emit("exit", 0);
+              channel.close();
+            });
+            callback(undefined, channel);
+            return true;
+          }
+          if (host.openHang && /docker exec -i /.test(command)) {
+            opens.push(() => callback(undefined, channel));
+            return true;
+          }
+          channel.onEnd = (stdin) => {
+            // The exec script carries the command in a quoted here-document
+            // and has the new group's leader print a marker line first.
+            const doc = stdin && /<<'(\w+)'[^\n]*\n([\s\S]*)\n\1\n/.exec(stdin);
+            const mark = stdin && /echo "(\S+ \S+) \$\$"/.exec(stdin);
+            const command_ = doc ? doc[2] : stdin;
+            call.options = { stdin: command_ };
+            call.script = stdin;
+            const answer = host.exec
+              ? host.exec(command, command_)
+              : result("", 127);
+            if (host.beforeMarker) {
+              channel.emit("data", Buffer.from(`${host.beforeMarker}\n`));
+            }
+            if (mark) {
+              channel.emit(
+                "data",
+                Buffer.from(`${mark[1]} ${host.pgid ?? 4242}\n`),
+              );
+            }
+            if (mark && host.forgedPgid !== undefined) {
+              channel.emit(
+                "data",
+                Buffer.from(`${mark[1]} ${host.forgedPgid}\n`),
+              );
+            }
+            if (answer === "hang") {
+              if (host.partial) channel.emit("data", Buffer.from(host.partial));
+              return;
+            }
+            if (answer.stdout) channel.emit("data", Buffer.from(answer.stdout));
+            if (answer.stderr) {
+              channel.stderr.emit("data", Buffer.from(answer.stderr));
+            }
+            channel.emit("exit", answer.code);
+            channel.close();
+          };
+          callback(undefined, channel);
+          return true;
+        },
+      };
+      return {
+        client,
+        jumpClient: null,
+        host: { id: HOST_ID, ip: "203.0.113.5", port: 22, username: "deploy" },
+        dispose,
+      } as never;
+    });
+  }
+  return { exec, commands, calls, connect, channels, dispose, opens };
+}
+
+function hostKeyError(): Error {
+  const err = new Error(
+    "HOST_KEY_UNVERIFIED: open a terminal to this host once",
+  ) as Error & { code: string };
+  err.code = "HOST_KEY_UNVERIFIED";
+  return err;
+}
+
+/** Stands in for an ssh2 exec channel opened by coolify.exec. */
+export class FakeChannel extends EventEmitter {
+  stderr = new EventEmitter();
+  signals: string[] = [];
+  closed = false;
+  onEnd: ((stdin: string | undefined) => void) | null = null;
+  constructor(readonly options: unknown) {
+    super();
+  }
+  signal(name: string) {
+    this.signals.push(name);
+  }
+  end(data?: string | Buffer) {
+    this.onEnd?.(data === undefined ? undefined : String(data));
+  }
+  close() {
+    if (this.closed) return;
+    this.closed = true;
+    this.emit("close");
+  }
 }
 
 /** Sets whether the stored probe found read:sensitive on the token. */
@@ -90,7 +230,12 @@ export function setSensitive(
 
 /** A plugin with one connection whose server srv-vps1-uuid has a Linked host. */
 export async function startShell(
-  options: { permissions?: string[]; linked?: boolean } = {},
+  options: {
+    permissions?: string[];
+    linked?: boolean;
+    /** Admin settings, like allowExec. */
+    settings?: Record<string, unknown>;
+  } = {},
 ) {
   const fake = healthyCoolify({
     ...resourceLists(),
@@ -106,6 +251,7 @@ export async function startShell(
   const harness = await startPlugin({
     fetch: fake.fetch,
     permissions: options.permissions,
+    settings: options.settings,
     hosts: [linkedHost],
   });
   const created = await harness.request("POST", "/connections", {

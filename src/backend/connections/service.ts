@@ -38,6 +38,11 @@ export interface ConnectionView {
   /** The cause of the last failed probe (a CoolifyCause), or null. */
   lastError: string | null;
   autoSync: boolean;
+  /**
+   * The owner's opt-in to coolify.exec for this connection. It also needs the
+   * admin setting allowExec.
+   */
+  execEnabled: boolean;
   /** The actor's access: "owner", or the level of a grant. */
   access: AccessLevel;
   allowPrivate: boolean;
@@ -149,6 +154,7 @@ interface ConnectionRow {
   caCert: string | null;
   instanceKey: string | null;
   autoSync: boolean;
+  execEnabled: boolean;
   abilities: string | null;
   coolifyVersion: string | null;
   teamName: string | null;
@@ -380,6 +386,7 @@ function toView(row: ConnectionRow, access: AccessLevel): ConnectionView {
     abilities: stored.abilities,
     lastError: row.lastError,
     autoSync: row.autoSync === true,
+    execEnabled: row.execEnabled === true,
     access,
     allowPrivate: row.allowPrivate === true,
     caCert: row.caCert,
@@ -861,6 +868,39 @@ export function createConnections(
      */
     async update(id: number, patch: ConnectionPatch): Promise<ConnectionView> {
       return withLock(id, () => updateNow(id, patch));
+    },
+
+    /**
+     * Owner only, whatever a grant says: turns coolify.exec on or off for
+     * this connection. Audited.
+     */
+    async setExec(id: number, enabled: boolean): Promise<ConnectionView> {
+      if (typeof enabled !== "boolean") {
+        throw invalid("execEnabled must be true or false");
+      }
+      // Whatever called it (the route, the action), not only core's gate.
+      if ((await ctx.rbac.has("configure")) !== true) {
+        throw new ConnectionError(
+          "forbidden",
+          "Changing this needs Configure Coolify.",
+        );
+      }
+      const found = await owned(id);
+      const db = await dbClient(ctx);
+      await db
+        .update(t.connections)
+        .set({ execEnabled: enabled })
+        .where(eq(t.connections.id, found.id));
+      await ctx.db.persist();
+      await ctx.audit.record({
+        action: "coolify_exec_setting_changed",
+        resourceType: "coolify_connection",
+        resourceId: String(found.id),
+        resourceName: found.name,
+        details: JSON.stringify({ execEnabled: enabled }),
+        success: true,
+      });
+      return view(found.id);
     },
 
     /**

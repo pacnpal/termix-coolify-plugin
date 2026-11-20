@@ -64,7 +64,8 @@
         "id": "coolify.connection"
       },
       "body": {
-        "name": "authz-own-renamed"
+        "name": "authz-own-renamed",
+        "execEnabled": false
       }
     },
     "DELETE /plugin-api/coolify/connections/:id": {

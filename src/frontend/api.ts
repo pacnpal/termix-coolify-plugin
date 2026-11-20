@@ -28,6 +28,8 @@ export interface Connection {
   abilities: Abilities;
   lastError: string | null;
   autoSync: boolean;
+  /** The owner's opt-in to coolify.exec; it also needs the admin's allowExec. */
+  execEnabled: boolean;
   access: "owner" | "view" | "operate" | "configure";
   allowPrivate: boolean;
   caCert: string | null;
@@ -447,6 +449,12 @@ export function createApi(api: PluginApiClient) {
       patch: ConnectionPatch,
     ): Promise<Connection> {
       return (await api.patch<Connection>(`/connections/${id}`, patch)).data;
+    },
+    /** Owner only: turns running commands in this connection's containers on or off. */
+    async setExec(id: number, execEnabled: boolean): Promise<Connection> {
+      return (
+        await api.patch<Connection>(`/connections/${id}`, { execEnabled })
+      ).data;
     },
     async deleteConnection(id: number): Promise<void> {
       await api.delete(`/connections/${id}`);
