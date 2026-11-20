@@ -404,11 +404,13 @@ export function createExec(ctx: PluginContext, deps: ExecDeps) {
         /**
          * Kills the command's process group in the container, on this same
          * connection: closing the channel only ends docker exec on the host.
-         * Checked against the snapshot first; a failure is logged, not thrown.
+         * It runs even when the target changed since: it only stops what this
+         * run started. A failure is logged, not thrown.
          */
         const groupKill = async (group: number) => {
           try {
-            await deps.containers.assertSnapshotHolds(connectionId, snap);
+            // No revision check: this only cleans up a command already
+            // started, on the connection and container it was started with.
             const line = `${dockerPrefix(sudo)} exec ${container} sh -c 'kill -KILL -${group} 2>/dev/null || kill -KILL ${group}'`;
             await new Promise<void>((resolve, reject) => {
               const timer = setTimeout(

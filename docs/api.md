@@ -278,8 +278,9 @@ Each run also needs **Operate Coolify resources**, the owner or an operate or co
 connection, a resource in that connection's own list, your own `edit` access to the Linked host (a
 connection Grant doesn't give it) and a confirm (`"confirmed": true`). Over the plugin's MCP endpoint it
 also needs **Allow changes over MCP**, and `confirmed: true` in the tool call (`confirm-required`
-otherwise). You can run one command per resource at a time, three at once in all, and twenty a minute
-(`busy`, `rate-limited`). Every refusal happens before any SSH.
+otherwise). Each user can run one command per resource at a time, three at once in all, and twenty
+a minute (`busy`, `rate-limited`); these limits are per user, not a lock on the resource, so two users can
+run commands in the same resource at once. Every refusal happens before any SSH.
 
 | Input        | Meaning                                                                                                                                            |
 | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -294,7 +295,9 @@ into another command line; the container name comes only from the resource and m
 `[A-Za-z0-9_.-]`. The run is about one read of the connection: if its address, token, Access token or TLS
 settings change before the SSH connection opens or before the command is sent, it ends with
 `target-changed` and sends nothing. The timeout, a cancel or the output cap kills the command over SSH, then
-kills its process group inside the container, and closes the connection.
+kills its process group inside the container, and closes the connection. That cleanup is best effort:
+it runs even if the connection's target changed meanwhile, but when the container has no `setsid` only
+the shell running the command is killed, and processes it started can keep running.
 
 The data is `{ hostId, container, exitCode, timedOut, truncated, stdout, stderr }`, or `{ choices }` when
 several containers match. Each line of stdout and stderr goes through the same masking as logs (the
