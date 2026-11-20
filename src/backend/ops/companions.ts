@@ -1,7 +1,12 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import type { Companions } from "../companions/service.js";
+import type { ContainerCompanions } from "../companions/container-service.js";
 import { ConnectionError } from "../connections/service.js";
 import { connectionIdInput } from "./connections.js";
+import {
+  containerCompanionChange,
+  containerCompanionRead,
+} from "./container-companions.js";
 
 type Params = Record<string, unknown>;
 
@@ -42,6 +47,7 @@ function count(n: number, word: string): string {
 export function registerCompanionOperations(
   ctx: PluginContext,
   companions: Companions,
+  containerCompanions: ContainerCompanions,
 ): void {
   ctx.operations.register("coolify.companion-read", {
     run: async (input) => {
@@ -108,6 +114,8 @@ export function registerCompanionOperations(
           const rows = await companions.dnsList(id, uuid);
           return { summary: count(rows.length, "DNS record"), data: { rows } };
         }
+        case "files-paths":
+          return containerCompanionRead(containerCompanions, id, params);
         default:
           throw new ConnectionError("invalid-input", "Unknown kind");
       }
@@ -115,7 +123,7 @@ export function registerCompanionOperations(
   });
 
   ctx.operations.register("coolify.companion", {
-    run: async (input) => {
+    run: async (input, { runId }) => {
       const kind = text(input.kind);
       const params = paramsOf(input);
       const id = connectionIdInput(input);
@@ -143,6 +151,17 @@ export function registerCompanionOperations(
             data,
           };
         }
+        case "tunnel-open":
+        case "tunnel-close":
+        case "web-ui":
+          return containerCompanionChange(
+            ctx,
+            containerCompanions,
+            kind,
+            id,
+            params,
+            runId,
+          );
         default:
           throw new ConnectionError("invalid-input", "Unknown kind");
       }

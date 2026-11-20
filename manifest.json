@@ -50,10 +50,10 @@
     "ssh-terminal": "^1.0.0",
     "docker": "^1.0.0",
     "homepage": "^1.0.0",
-    "file-manager": "^1.0.0",
-    "tunnels": "^1.0.0",
+    "file-manager": "~1.2.2",
+    "tunnels": "~1.4.0",
     "dns": "~1.1.0",
-    "reverse-proxy": "^1.0.0",
+    "reverse-proxy": "~1.2.1",
     "security-center": "~1.1.0",
     "uptime": "~1.0.1",
     "log-search": "~1.1.0",
@@ -1136,6 +1136,10 @@
                 {
                   "value": "dns-list",
                   "labelKey": "ops.kinds.dnsList"
+                },
+                {
+                  "value": "files-paths",
+                  "labelKey": "ops.kinds.filesPaths"
                 }
               ],
               "required": true
@@ -1186,6 +1190,18 @@
                 {
                   "value": "uptime-resume",
                   "labelKey": "ops.kinds.uptimeResume"
+                },
+                {
+                  "value": "tunnel-open",
+                  "labelKey": "ops.kinds.tunnelOpen"
+                },
+                {
+                  "value": "tunnel-close",
+                  "labelKey": "ops.kinds.tunnelClose"
+                },
+                {
+                  "value": "web-ui",
+                  "labelKey": "ops.kinds.webUi"
                 }
               ],
               "required": true
@@ -1202,7 +1218,16 @@
           "surfaces": {
             "assistant": false,
             "mcp": false
-          }
+          },
+          "outputs": [
+            {
+              "key": "url",
+              "type": "string",
+              "labelKey": "ops.fields.url.label",
+              "descriptionKey": "ops.fields.url.description",
+              "sensitive": true
+            }
+          ]
         },
         {
           "id": "coolify.companion-dns-remove",
@@ -2168,8 +2193,25 @@
       "mode": "webview",
       "views": ["coolify", "coolify-shell"]
     },
-    "uses": ["terminal.view"]
+    "uses": [
+      "terminal.view",
+      "files.openHost",
+      "files.openEditor",
+      "tunnels.views"
+    ]
   },
   "locales": "locales",
-  "platforms": ["linux", "win32", "darwin"]
+  "platforms": ["linux", "win32", "darwin"],
+  "requires": [
+    {
+      "service": "tunnels.access",
+      "versionRange": "~1.0.0",
+      "optional": true
+    },
+    {
+      "service": "reverse-proxy.endpoints",
+      "versionRange": "~1.0.0",
+      "optional": true
+    }
+  ]
 }

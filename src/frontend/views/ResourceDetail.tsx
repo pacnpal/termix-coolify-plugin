@@ -17,6 +17,7 @@ import {
 import type { Resource } from "../api";
 import { resourceHealth } from "../../shared/resource-health";
 import { CompanionActions } from "./CompanionActions";
+import { ContainerCompanions } from "./ContainerCompanions";
 import { LogsView } from "./LogsView";
 import { StatsTab } from "./StatsTab";
 import { TrafficTab } from "./TrafficTab";
@@ -174,6 +175,12 @@ function OverviewTab({
           </PanelList>
         </div>
       )}
+      <ContainerCompanions
+        connectionId={connectionId}
+        resource={resource}
+        revision={revision}
+        canOperate={lifecycle !== null}
+      />
       <div className="p-3">
         <CompanionActions
           connectionId={connectionId}

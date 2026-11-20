@@ -476,6 +476,61 @@ its own action, `coolify.companion-dns-remove`: it is marked destructive, so Ter
 it is never offered to the assistant or MCP. The plugin never
 sends a Coolify token or any other secret to another plugin.
 
+## Companion plugins on containers
+
+Built for File Manager 1.2.2, Tunnels 1.4 and Reverse Proxy 1.2.1. When one of these runs, a resource's or
+part's Overview shows a **Companion plugins** group. Each button hides while its plugin isn't running.
+
+| Button                | Plugin        | What it does                                                                                  |
+| --------------------- | ------------- | --------------------------------------------------------------------------------------------- |
+| **Browse files**      | File Manager  | Opens the Linked host at the resource's data folder                                           |
+| **Edit compose file** | File Manager  | Opens the compose file Coolify wrote there in the editor                                      |
+| **Open** _path_       | File Manager  | Opens one of the resource's storages on the server                                            |
+| **Reach from here**   | Tunnels       | Forwards a container port through the Linked host, listening on the Termix server             |
+| **Open web UI**       | Reverse Proxy | A one-time signed-in link to the container's web port, with no tunnel or public domain needed |
+
+- **Data folders** are Coolify's own: `/data/coolify/applications/<uuid>`, `/data/coolify/services/<uuid>`
+  (a service's parts share it) and `/data/coolify/databases/<uuid>`. The compose file is
+  `docker-compose.yaml` for an application and `docker-compose.yml` for a service or database. Storages come
+  from Coolify's storages list. A file storage is offered only inside the resource's data folder. A volume
+  is offered at the path on the server Coolify reports for it (a bind mount, anywhere but `/`), or else at
+  its Docker folder `/var/lib/docker/volumes/<name>/_data`. Paths with `..` are refused and the rest are
+  normalized. A storage's mount path inside the container isn't on the server, so it isn't offered.
+- **Reach from here** reads the container's internal address with `docker inspect` over SSH and asks
+  Tunnels to forward the port you enter to it. Only a private container address is used (10/8, 172.16/12,
+  192.168/16 or IPv6 unique local, IPv4 first when a container has both); loopback, `0.0.0.0`, link-local addresses such as `169.254.169.254` and
+  public addresses are refused (`bad-container-ip`). The plugin asks Tunnels to listen on the Termix
+  server's `127.0.0.1`; Tunnels decides, and the answer shows where it listens. The forward is named
+  `web:<hostId>:coolify-<uuid>` and isn't saved in your Tunnels list. **Stop** closes it, and only a
+  forward you opened here on that port can be stopped from here. One forward runs per resource and Linked
+  host (someone else's answers `tunnel-in-use`), and each person may have 5 open (`too-many-tunnels`).
+  Forwarding to your own computer isn't possible: Tunnels offers that only from the desktop app's own
+  tunnels.
+- The **Tunnels tab** gets a **Coolify** view listing the resources of the host's Coolify server (or every
+  connection's, on the hostless tab), each with a port to forward and stop. On a host that isn't a Linked
+  host it says so and lists nothing.
+- **Open web UI** needs Reverse Proxy's endpoint set up: an admin sets its **Termix address** and **Web
+  endpoint domain** (a wildcard DNS name pointing at the proxy). Until then the button explains that. The
+  link signs you in once; ask for a new one next time.
+- When there are several containers (a service), pick one from the list.
+
+Who may use them:
+
+- **Browse files** needs **View Coolify**, the connection (yours, or a grant) and your own view access to
+  the Linked host. File Manager checks its own access when it opens.
+- **Reach from here** and **Open web UI** reach the server over SSH, so they need **Operate Coolify
+  resources**, an operate grant and your own **connect** access to the Linked host, like shells.
+- If the connection's address, token or Access settings change while one of these runs, it stops before
+  the next SSH command or call to the other plugin, and after `docker inspect`, and answers
+  `target-changed`: nothing is opened.
+- The plugin never hands a companion plugin a Coolify or Termix token: only the host, the container's
+  internal address and the port.
+
+The actions `coolify.companion-read` (kind `files-paths`) and `coolify.companion` (kinds `tunnel-open`,
+`tunnel-close` and `web-ui`) do the same from Termix's API, the CLI and Automations. Over MCP,
+`tunnel-open` and `web-ui` need "Allow changes over MCP" and `confirmed: true`. The web UI link is a
+sensitive output: it is never kept in run history, and an MCP call gets it once. See [the API](api.md).
+
 ## Public status pages
 
 A status page is a public, read-only web page for the resources you pick, for people with no Termix account.

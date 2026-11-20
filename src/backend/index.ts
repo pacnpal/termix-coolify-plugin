@@ -4,6 +4,8 @@ import { defineTables } from "./db.js";
 import { registerApiConsoleRoutes } from "./api/routes.js";
 import { registerCompanionRoutes } from "./companions/routes.js";
 import { createCompanions } from "./companions/service.js";
+import { createContainerCompanions } from "./companions/container-service.js";
+import { registerContainerCompanionRoutes } from "./companions/container-routes.js";
 import { createConnections } from "./connections/service.js";
 import { registerConnectionRoutes } from "./connections/routes.js";
 import { createResources } from "./resources/service.js";
@@ -75,6 +77,12 @@ export async function activate(ctx: PluginContext): Promise<void> {
     resources,
     sync,
   });
+  const containerCompanions = createContainerCompanions(ctx, {
+    connections,
+    containers,
+    resources,
+    sync,
+  });
   const statusPages = createStatusPages(ctx, {
     tables,
     connections,
@@ -92,6 +100,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
   registerMetricsRoutes(router, ctx, metrics);
   registerUpdateRoutes(router, ctx, updates);
   registerCompanionRoutes(router, ctx, companions);
+  registerContainerCompanionRoutes(router, ctx, containerCompanions);
   registerApiConsoleRoutes(router, ctx, genericApi);
   registerMcpRoutes(router, ctx);
   registerStatusRoutes(router, ctx, statusPages);
@@ -107,6 +116,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
     servers,
     updates,
     companions,
+    containerCompanions,
     statusPages,
     genericApi,
     metrics,

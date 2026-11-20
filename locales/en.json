@@ -228,8 +228,8 @@
       },
       "params": {
         "label": "Details",
-        "readDescription": "A JSON object: uuid for a resource (uptime, log-search, db-login, dns-list) or serverUuid for a server (security, backups-failed, host-metrics, db-logins).",
-        "changeDescription": "A JSON object with uuid, the resource. For dns also fqdn and optional type (A, AAAA or CNAME) and content."
+        "readDescription": "A JSON object: uuid for a resource (uptime, log-search, db-login, dns-list, files-paths; part for one of a service's parts with files-paths) or serverUuid for a server (security, backups-failed, host-metrics, db-logins).",
+        "changeDescription": "A JSON object with uuid, the resource. For dns also fqdn and optional type (A, AAAA or CNAME) and content. For tunnel-open, tunnel-close and web-ui also port (1 to 65535), optional part, container (a name from an earlier choices answer) and, for web-ui, scheme (http or https)."
       },
       "apiParams": {
         "label": "Parameters (JSON)",
@@ -370,6 +370,10 @@
       },
       "enableConfirm": {
         "description": "Set true to change the server's Sentinel settings in Coolify."
+      },
+      "url": {
+        "label": "Web UI link",
+        "description": "A one-time link that signs you in to the container's web UI. It is never kept in run history."
       }
     },
     "listConnections": {
@@ -525,11 +529,11 @@
     },
     "companionRead": {
       "title": "Read from a companion plugin",
-      "description": "Reads what a companion plugin knows about a Coolify resource or server: Uptime monitors, Log Search results, Security Center score, failed backups, saved database logins, and DNS records made here."
+      "description": "Reads what a companion plugin knows about a Coolify resource or server: Uptime monitors, Log Search results, Security Center score, failed backups, saved database logins, DNS records made here, and where the resource's files are on its server for File Manager."
     },
     "companion": {
       "title": "Use a companion plugin",
-      "description": "Creates a DNS record for a resource's domain, or pauses and resumes its Uptime monitors."
+      "description": "Creates a DNS record for a resource's domain, pauses and resumes its Uptime monitors, reaches its container from the Termix server through Tunnels or stops that forward, or opens a one-time web UI link through Reverse Proxy. Tunnels and web UI need connect access to the Linked host."
     },
     "kinds": {
       "companions": "Which companion plugins run",
@@ -543,7 +547,11 @@
       "dnsList": "DNS records made for a resource",
       "dns": "Create a DNS record",
       "uptimePause": "Pause a resource's Uptime monitors",
-      "uptimeResume": "Resume a resource's Uptime monitors"
+      "uptimeResume": "Resume a resource's Uptime monitors",
+      "filesPaths": "Where a resource's files are",
+      "tunnelOpen": "Reach a container port from the Termix server",
+      "tunnelClose": "Stop reaching a container port",
+      "webUi": "Open a container's web UI"
     },
     "companionDnsRemove": {
       "title": "Remove a DNS record made here",
@@ -1311,6 +1319,38 @@
         "title": "Traffic analytics is off for this server",
         "hint": "Turn on traffic analytics for the server in Coolify, under its Sentinel settings."
       }
+    }
+  },
+  "containerCompanions": {
+    "title": "Companion plugins",
+    "browse": "Browse files",
+    "editCompose": "Edit compose file",
+    "volume": "Open {{path}}",
+    "volumes": "Storage on the server",
+    "reach": "Reach from here",
+    "webUi": "Open web UI",
+    "port": "Container port",
+    "scheme": "Scheme",
+    "forward": "Forward",
+    "stop": "Stop",
+    "open": "Open",
+    "openLink": "Open the web UI",
+    "oneTime": "This link signs you in once. Open it now; ask for a new one next time.",
+    "listening": "Listening on {{bindHost}}:{{bindPort}} on the Termix server",
+    "localNote": "Forwards listen on the Termix server, not on your own computer: Tunnels can't forward to a desktop from here.",
+    "pickContainer": "Several containers match. Pick one:",
+    "tunnelsMissing": "Install and turn on Tunnels to reach Coolify containers from here.",
+    "viewTitle": "Coolify",
+    "noResources": "No Coolify resources run on this host.",
+    "notCoolifyHost": "This host isn't a Coolify server's Linked host, so it has no Coolify resources to reach.",
+    "errors": {
+      "proxyNotConfigured": "Reverse Proxy isn't set up for web pages yet. An admin sets its Termix address and Web endpoint domain in Settings.",
+      "companionMissing": "That plugin isn't running any more.",
+      "openFailed": "File Manager couldn't open this. Check that it is installed and turned on.",
+      "badContainerIp": "The container has no address Termix can reach on its server.",
+      "failed": "That didn't work: {{error}}",
+      "tooManyTunnels": "You already have 5 forwards open. Stop one first.",
+      "tunnelInUse": "Someone else is forwarding this resource right now."
     }
   }
 }

@@ -697,6 +697,69 @@
       "refusalCloseCodes": [1008],
       "allowed": "any",
       "note": "Checks run on every message and tick, so the entry sends a subscribe. The seeded connection points at coolify.invalid, so an allowed caller gets an unreachable error before any SSH; there is no reachable Coolify, Linked host or container in the authz run."
+    },
+    "GET /plugin-api/coolify/connections/:id/resources/:uuid/paths": {
+      "access": "user",
+      "permission": "coolify.view",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-own-resource"
+      },
+      "allowed": "any",
+      "note": "Answers 404 companion-missing unless the File Manager plugin runs, and the authz run installs no companions, so nothing reaches Coolify, SSH or a companion"
+    },
+    "POST /plugin-api/coolify/connections/:id/resources/:uuid/tunnel": {
+      "access": "user",
+      "permission": "coolify.operate",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-own-resource"
+      },
+      "body": {
+        "port": 3000
+      },
+      "allowed": "any",
+      "note": "Answers 404 companion-missing unless the Tunnels plugin runs, and the authz run installs no companions, so nothing reaches Coolify, SSH or a companion"
+    },
+    "DELETE /plugin-api/coolify/connections/:id/resources/:uuid/tunnel/:port": {
+      "access": "user",
+      "permission": "coolify.operate",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-own-resource",
+        "port": "=3000"
+      },
+      "allowed": "any",
+      "note": "Answers 404 companion-missing unless the Tunnels plugin runs, and the authz run installs no companions, so nothing reaches Coolify, SSH or a companion. Stops only a forward the caller opened here, never deletes data"
+    },
+    "POST /plugin-api/coolify/connections/:id/resources/:uuid/web-ui": {
+      "access": "user",
+      "permission": "coolify.operate",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-own-resource"
+      },
+      "body": {
+        "port": 80
+      },
+      "allowed": "any",
+      "note": "Answers 404 companion-missing unless the Reverse Proxy plugin runs, and the authz run installs no companions, so nothing reaches Coolify, SSH or a companion"
     }
   }
 }

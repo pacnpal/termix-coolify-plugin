@@ -11,6 +11,7 @@ import {
   toSentinelSettings,
   toServer,
   toService,
+  toStorages,
   toTeam,
   type DeploymentDto,
   type KeyDto,
@@ -19,6 +20,7 @@ import {
   type ResourceKind,
   type SentinelSettingsDto,
   type ServerDto,
+  type StorageDto,
   type TeamDto,
 } from "./dto.js";
 
@@ -260,6 +262,19 @@ export function createCoolifyApi(http: CoolifyHttp) {
             opts.parentUuid,
           );
       }
+    },
+
+    /** An application's, service's or database's storages, without content. */
+    async storages(
+      kind: "application" | "service" | "database",
+      uuid: string,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<StorageDto[]> {
+      return toStorages(
+        await call(op(`list-storages-by-${kind}-uuid`, { uuid }), {
+          beforeFetch: opts.beforeFetch,
+        }),
+      );
     },
 
     /**

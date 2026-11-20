@@ -74,10 +74,18 @@ describe("companion operations", () => {
         "backups-failed",
         "host-metrics",
         "dns-list",
+        "files-paths",
       ].sort(),
     );
     expect(kinds("coolify.companion").sort()).toEqual(
-      ["dns", "uptime-pause", "uptime-resume"].sort(),
+      [
+        "dns",
+        "uptime-pause",
+        "uptime-resume",
+        "tunnel-open",
+        "tunnel-close",
+        "web-ui",
+      ].sort(),
     );
     // Removing a DNS record is its own destructive action.
     expect(declared("coolify.companion-dns-remove")).toBeDefined();

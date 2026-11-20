@@ -490,7 +490,7 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   null as unknown, never as "not running" (sync blocks tunnelled rows, updates refuses with
   `companions-unknown`, companions answer `companions-unknown` 409).
 - Companions: `src/backend/companions/` (`detect.ts` `companions(ctx)`, read fresh on every call, the
-  frontend's `useCompanions` caches it a minute; `adapters.ts`, the only code that calls another plugin;
+  frontend's `useCompanions` caches it a minute; `adapters.ts`, the only code that invokes another plugin's actions;
   `service.ts`; `routes.ts` with its own `handle` for `CompanionError`) and `src/backend/ops/companions.ts`
   (`coolify.companion-read` for reads, `coolify.companion` for changes, `coolify.companion-dns-remove` on
   its own because it is destructive and is the only call that passes `confirmed: true` downstream, to
@@ -528,7 +528,7 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   (`monitorMatches`); a login by uuid, or by name only when unique among the server's databases.
   `setMonitorsPaused` is the hook for
   pausing Uptime during deploys (ticket #10 decides when); monitors already in the asked state are left alone, and a failure part way sets each monitor it changed
-  back to its own state from before (an unknown one is left as it is). Files, Tunnels and Reverse Proxy are ticket #19.
+  back to its own state from before (an unknown one is left as it is). Files, Tunnels and Reverse Proxy are ticket #19 (below).
   Nothing here writes host or plugin settings. Frontend: `src/frontend/companions.ts` (`useCompanions`),
   `views/CompanionActions.tsx` (at the end of `ResourceDetail`'s Overview, with `useTabs()` as its shell)
   and `views/HostCompanions.tsx` (inside the host card, keyed by connection, server and `revision`).
@@ -539,3 +539,52 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   answered after the view moved to another target or unmounted. Never give a part a constant key: a
   service and its Part would share state. Opening Uptime or Databases uses `openSingletonTab("uptime")`
   and `("databases")`.
+- Container companions (ticket #19): `src/backend/companions/container-adapters.ts` (data paths,
+  storage path rules, the `docker inspect` IP parse and private-address check, the `tunnels.access` and
+  `reverse-proxy.endpoints` calls), `container-service.ts` (the checks, the in-memory forward registry),
+  `container-routes.ts` (GET `paths`, POST/DELETE `tunnel`, POST `web-ui`; `/companions` is #13's) and
+  `src/backend/ops/container-companions.ts`, whose `files-paths` and `tunnel-open`/`tunnel-close`/`web-ui`
+  kinds `ops/companions.ts` dispatches to. These are the only service calls into other plugins (in
+  `requires`, optional): Tunnels and Reverse Proxy publish no action that forwards a port or opens an
+  endpoint. Their references name no methods; `forward`/`stop` and `available`/`open` are checked against
+  the providers' source, and a provider without them is `companion-missing`. Paths: `coolify.view`, `connections.snapshot` once,
+  `companions(ctx)` (unreadable list: `companions-unknown`), the uuid in the connection's own list
+  (`resources.get`, a miss once fresh), the Linked host and the actor's `view` access to it, then the
+  storages read (revision checked in `beforeFetch` and before answering). File storages must stay under
+  the resource's own `/data/coolify/<kind>/<uuid>`; volume host paths (Coolify reports them as volumes)
+  are normalized and may be anywhere but `/`; `..` is refused. Tunnels and web UI: snapshot once, the
+  companion running, `containers.target` (lifecycle's `authorize`), the companion's service, then
+  `containers.locate` (Linked host, `connect` access, revision, docker ps), `docker inspect` with a fixed
+  format (each network's `IPAddress` and `GlobalIPv6Address`) and the docker ps name, then the companion call. `holds(id, snap, level)` is the guard before every
+  SSH, Coolify and companion call: the snapshot's revision plus the actor's current permission and grant
+  at `level` (operate for tunnels and web UI, view for paths), so a grant lowered during `docker inspect`
+  stops it. Only a private container IP
+  passes (`isContainerIp`: 10/8, 172.16/12, 192.168/16, fc00::/7, the first byte masked with 0xfe being 0xfc, read from the parsed address), IPv4 first; IPv6 goes to Tunnels
+  and Reverse Proxy without brackets. The registry (`forwards`, by tunnel
+  name) records the actor and port: close needs both to match (`tunnel-not-found`), another actor's name
+  is `tunnel-in-use`, and `TUNNELS_MAX_PER_ACTOR` (5) is `too-many-tunnels`. Opens and closes of one
+  tunnel name run one at a time (`serialized(name, ...)`, as sync's queue), so every overlapping pair
+  acts as if one ran after the other (`container-registry.test.ts` checks every pair against Tunnels'
+  state). Inside the queue an open reserves its slot synchronously after the cap check, so opens of other
+  names count it; every failure gives it back (or restores the forward it was reopening) and stops a
+  forward Tunnels may have opened; that record and its slot are released only once `stop(name)` works,
+  so a forward that couldn't be stopped can still be closed here. It is per process and a restart forgets it. The call is `forward(hostId, { targetHost, targetPort, bindHost: "127.0.0.1" },
+{ name })` (checked against Plugin-Tunnels' `src/backend/service.ts`; the name goes in the third
+  argument and must be `web:<hostId>:<id>`), and Tunnels' `bindHost`/`bindPort` are passed on. Close is
+  `stop(name)`, never the answer's `close()`, which doesn't survive the process boundary; a later forward
+  of the same name opens again. The web UI URL is a sensitive output of `coolify.companion`; the handler keeps it in the logs
+  handoff store (`holdHandoff`, `web-ui:<handoffId>`) and `actionResult` puts it back once
+  (`takeWebUiUrl`). `MCP_CONFIRM_REQUIRED_KINDS` makes MCP refuse tunnel-open and web-ui without
+  `confirmed: true`; `inputSchema` declares `confirmed` for every destructive action, every
+  `MCP_CONFIRM_REQUIRED` id and every action in `MCP_CONFIRM_REQUIRED_KINDS` (`confirm-schema.test.ts`). Frontend: `views/ContainerCompanions.tsx` (in ResourceDetail's Overview, keyed by
+  connection, uuid and `revision`, request generations through `useLatest`; the open forward is held
+  above the panel switch and passed to `ForwardControl` as `open`/`onOpen`, so panels mount and unmount
+  freely; container choices are disabled while a request is out; Reach from here and Open web UI are
+  gated by ResourceDetail's effective `canOperate` (the connection's grant), and the Tunnels view lists only
+  connections whose `access` is in `OPERATE_ACCESS`; Browse files with view, the
+  rest with operate) and `views/TunnelsCoolifyView.tsx` (`tunnels.views`, registered only with
+  `hasPermission("operate")`, rows keyed the same way, open forwards held in the view by row key, loaded sections tagged with the
+  host scope they were read for and shown only while it is current; a host given without a Coolify link is its own
+  state, `notCoolifyHost`, with no connection read, since only the hostless tab lists every connection's
+  resources). `files.openHost` and `files.openEditor` are File
+  Manager frontend actions run with `invokeAction`.

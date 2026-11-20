@@ -12,6 +12,7 @@ import en from "../../../locales/en.json";
 import { redact } from "../redact.js";
 import { handoffIdOf, takeOnceUrl } from "../status/service.js";
 import { takeExecOutput, takeLogText } from "../ops/containers.js";
+import { takeWebUiUrl } from "../ops/container-companions.js";
 
 /** The MCP protocol version this endpoint speaks when a client asks for another. */
 export const MCP_PROTOCOL_VERSION = "2025-06-18";
@@ -44,6 +45,27 @@ export const MCP_CONFIRM_REQUIRED: readonly string[] = [
   "coolify.exec",
   "coolify.enable-metrics",
 ];
+
+/**
+ * Kinds of an action that MCP refuses without `confirmed: true`, like
+ * MCP_CONFIRM_REQUIRED: tunnel-open reaches a container port from the Termix
+ * server, web-ui hands out a signed-in link to a container.
+ */
+export const MCP_CONFIRM_REQUIRED_KINDS: Readonly<
+  Record<string, readonly string[]>
+> = {
+  "coolify.companion": ["tunnel-open", "web-ui"],
+};
+
+/** Whether MCP needs `confirmed: true` for this action and its kind. */
+export function mcpConfirmRequired(
+  actionId: string,
+  args: Record<string, unknown>,
+): boolean {
+  if (MCP_CONFIRM_REQUIRED.includes(actionId)) return true;
+  const kinds = MCP_CONFIRM_REQUIRED_KINDS[actionId];
+  return !!kinds && typeof args.kind === "string" && kinds.includes(args.kind);
+}
 
 export interface JsonRpcMessage {
   jsonrpc: "2.0";
@@ -171,6 +193,16 @@ function inputSchema(action: OperationAction): Record<string, unknown> {
     properties.confirmed = {
       type: "boolean",
       description: "Set true to confirm this destructive action.",
+    };
+  } else if (MCP_CONFIRM_REQUIRED.includes(action.id)) {
+    properties.confirmed = {
+      type: "boolean",
+      description: "Required: set true to confirm this action.",
+    };
+  } else if (MCP_CONFIRM_REQUIRED_KINDS[action.id]) {
+    properties.confirmed = {
+      type: "boolean",
+      description: `Required for the kinds ${MCP_CONFIRM_REQUIRED_KINDS[action.id]!.join(", ")}: set true to confirm.`,
     };
   }
   return {
@@ -441,6 +473,15 @@ function actionResult(
     );
     if (output !== null) data = { ...(data as object), ...output };
   }
+  if (action.id === "coolify.companion" && data && typeof data === "object") {
+    // A web-ui run's one-time URL was dropped from run history; the caller
+    // who ran it gets it here, once.
+    const url = takeWebUiUrl(
+      ctx.currentActor() ?? "",
+      (outcome.data as { handoffId?: unknown }).handoffId,
+    );
+    if (url !== null) data = { ...(data as object), url };
+  }
   const result = toolResult(
     outcome.data === undefined ? outcome : { ...outcome, data },
   );
@@ -477,7 +518,7 @@ async function callAction(
       true,
     );
   }
-  if (MCP_CONFIRM_REQUIRED.includes(action.id) && args.confirmed !== true) {
+  if (mcpConfirmRequired(action.id, args) && args.confirmed !== true) {
     return textResult(
       {
         status: "refused",

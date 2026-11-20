@@ -44,7 +44,12 @@ export function takeLogText(userId: string, handoffId: unknown): string | null {
   return entry.text;
 }
 
-function hold(userId: string, handoffId: string, text: string): void {
+/** Keeps a sensitive answer for its one MCP take (exec, web UI). */
+export function holdHandoff(
+  userId: string,
+  handoffId: string,
+  text: string,
+): void {
   sweepLogs(Date.now());
   logHandoffs.set(logKey(userId, handoffId), {
     text,
@@ -185,7 +190,7 @@ export function registerContainerOperations(
       const handoffId = handoffIdFor(runId);
       const userId = ctx.currentActor() ?? "";
       if (userId) {
-        hold(
+        holdHandoff(
           userId,
           execHandoff(handoffId),
           JSON.stringify({ stdout: answer.stdout, stderr: answer.stderr }),

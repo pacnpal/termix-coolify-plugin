@@ -107,11 +107,28 @@ describe("manifest", () => {
     }
   });
 
-  it("uses no other plugin's service and pins each companion to its referenced version", () => {
-    // Every companion call is a documented action; the references list no
-    // service methods to call.
-    expect(manifest.requires ?? []).toEqual([]);
+  it("uses only the two services with no matching action, and pins each companion to its referenced version", () => {
+    // Every other companion call is a documented action. Tunnels and Reverse
+    // Proxy publish no action that forwards a port or opens a web endpoint,
+    // only these services (#19), and both are optional.
+    expect(manifest.requires ?? []).toEqual([
+      { service: "tunnels.access", versionRange: "~1.0.0", optional: true },
+      {
+        service: "reverse-proxy.endpoints",
+        versionRange: "~1.0.0",
+        optional: true,
+      },
+    ]);
     const deps = manifest.optionalDependencies ?? {};
+    expect({
+      "file-manager": deps["file-manager"],
+      tunnels: deps.tunnels,
+      "reverse-proxy": deps["reverse-proxy"],
+    }).toEqual({
+      "file-manager": "~1.2.2",
+      tunnels: "~1.4.0",
+      "reverse-proxy": "~1.2.1",
+    });
     expect({
       dns: deps.dns,
       uptime: deps.uptime,

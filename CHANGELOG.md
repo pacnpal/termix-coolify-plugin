@@ -116,6 +116,19 @@
 - Actions `coolify.companion-read` (offered to the assistant and MCP) and `coolify.companion` for the
   same features, including pausing and resuming a resource's Uptime monitors, and the destructive
   `coolify.companion-dns-remove`, which asks for a confirm before it deletes a DNS record made here
+- Companion plugins on a resource's container, each shown only while its plugin runs: Browse files and
+  Edit compose file in File Manager (the resource's `/data/coolify/...` folder, its compose file and its
+  storages on the server), Reach from here through Tunnels (a forward named `web:<hostId>:coolify-<uuid>`,
+  listening on the Termix server, with Stop), and Open web UI through Reverse Proxy (a one-time signed-in
+  link, or what the admin must set up first). Browse files needs View Coolify; Reach from here and Open
+  web UI need Operate Coolify resources and your own connect access to the Linked host. No Coolify or
+  Termix token is ever passed to another plugin
+- Only a private container address is forwarded or opened, only forwards you opened here can be stopped
+  from here, and each person may have 5 open at once
+- A Coolify view in the Tunnels tab, listing the host's Coolify resources with a port to forward and stop
+- The kinds `files-paths` of `coolify.companion-read` and `tunnel-open`, `tunnel-close` and `web-ui` of
+  `coolify.companion`; over MCP, tunnel-open and web-ui need Allow changes and `confirmed`, and the web UI
+  link is a sensitive output, handed to the MCP caller once and never kept in run history
 - Public, read-only status pages: in Connections, publish a page for the resources you pick. It shows each
   one's name, status and last deploy, never uuids, servers,
   domains, logs or secrets. The link is shown once and only its hash is stored; give a page a new link or

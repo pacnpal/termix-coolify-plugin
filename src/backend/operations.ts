@@ -1,5 +1,6 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import type { Companions } from "./companions/service.js";
+import type { ContainerCompanions } from "./companions/container-service.js";
 import type { Containers } from "./containers/service.js";
 import type { Exec } from "./containers/exec.js";
 import type { Logs } from "./containers/logs.js";
@@ -41,6 +42,7 @@ export interface Services {
   servers: ServerStatuses;
   updates: Updates;
   companions: Companions;
+  containerCompanions: ContainerCompanions;
   statusPages: StatusPages;
   genericApi: GenericApi;
   metrics: Metrics;
@@ -66,7 +68,11 @@ export function registerOperations(
     services.exec,
   );
   registerUpdateOperations(ctx, services.updates);
-  registerCompanionOperations(ctx, services.companions);
+  registerCompanionOperations(
+    ctx,
+    services.companions,
+    services.containerCompanions,
+  );
   registerStatusPageOperations(ctx, services.statusPages);
   registerGenericApiOperations(ctx, services.genericApi);
   registerMetricsOperations(ctx, services.metrics);

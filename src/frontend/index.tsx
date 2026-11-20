@@ -18,6 +18,7 @@ import { ConnectStep } from "./views/ConnectStep";
 import { CoolifyTab } from "./views/CoolifyTab";
 import { HostSection, openCoolify } from "./views/HostSection";
 import { ShellTab } from "./views/ShellTab";
+import { TunnelsCoolifyView } from "./views/TunnelsCoolifyView";
 
 const TAB_ID = "coolify";
 const IMPORT_ACTION = "coolify.import-from-coolify";
@@ -168,5 +169,22 @@ export function activate(app: TermixApp): void {
     titleKey: "importMenu.title",
     icon: Download,
     kind: "button",
+  });
+
+  // A Coolify view inside the Tunnels tab, only for people who may forward
+  // container ports (coolify.operate); the backend checks again. It waits
+  // for the permission without holding up the rest of activate.
+  let disposed = false;
+  app.onDispose(() => {
+    disposed = true;
+  });
+  void app.hasPermission("operate").then((allowed) => {
+    if (!allowed || disposed) return;
+    app.registerExtension("tunnels.views", {
+      id: "coolify.resources",
+      title: app.t("containerCompanions.viewTitle"),
+      order: 100,
+      components: { view: TunnelsCoolifyView },
+    });
   });
 }
