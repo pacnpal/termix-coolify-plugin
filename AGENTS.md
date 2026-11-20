@@ -455,7 +455,9 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   `metrics/service.ts` reads the connection once per request (`connections.snapshot`). Its Coolify calls go
   through `read.api`/`read.http`, the snapshot's request layer wrapped by `guarded()` so
   `containers.assertSnapshotHolds` is every request's `beforeFetch` (after the budget wait, right before
-  the fetch); SSH commands call it first too. Resource reads use
+  the fetch); SSH commands call it before and after. `holds` also checks the actor's live
+  `connections.access` against `read.need` (operate for Sentinel, owner/configure for the PATCH), since a
+  grant change doesn't change the revision. Resource reads use
   `containers.target` (lifecycle's `authorize`); the server read over MCP needs view and any access, its
   Sentinel fallback operate and an operate grant. IPs need `traffic_ip_mode` `full` and `canConfigure`
   (coolify.configure plus owner or configure grant); anything else hides them. Traffic `limit` is clamped to
