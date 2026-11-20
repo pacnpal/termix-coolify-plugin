@@ -1,3 +1,8 @@
+---
+title: API and MCP reference
+order: 80
+---
+
 # API and MCP reference
 
 Everything Coolify for Termix does works without the browser: through the plugin's own routes, through
@@ -128,6 +133,69 @@ and optionally `part`, `container` and `console`, checked like the route. Its da
 | `coolify.list-api-operations` | `GET /plugin-api/coolify/connections/:id/api/operations` | `/operations/coolify.list-api-operations/run` | `operations:read` or `operations:run` | `coolify__list_api_operations` | `curl -X POST "$TERMIX/operations/coolify.list-api-operations/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'` |
 | `coolify.api-read` | `POST /plugin-api/coolify/connections/:id/api/call` | `/operations/coolify.api-read/run` | `operations:read` or `operations:run` | `coolify__api_read` | `curl -X POST "$TERMIX/operations/coolify.api-read/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","operationId":"get-application-by-uuid","params":"{\"uuid\":\"<app uuid>\"}"}}'` |
 | `coolify.api-call` | `POST /plugin-api/coolify/connections/:id/api/call` | `/operations/coolify.api-call/run` | `operations:run` | `coolify__api_call` | `curl -X POST "$TERMIX/operations/coolify.api-call/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","operationId":"deploy-by-tag-or-uuid","params":"{\"uuid\":\"<app uuid>\"}"},"confirmed":true}'` |
+
+## Route map
+
+Every plugin route and socket, and the action that does the same through Termix's operations. A route with
+no action says why. `tests/backend/route-parity.test.ts` checks this table against the routes the plugin
+serves.
+
+| Route                                                                      | Action                                                                                                                                                               |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /plugin-api/coolify/connections`                                      | `coolify.list-connections`                                                                                                                                           |
+| `POST /plugin-api/coolify/connections`                                     | `coolify.connection-create`                                                                                                                                          |
+| `GET /plugin-api/coolify/connections/:id`                                  | `coolify.list-connections` (one row of its list)                                                                                                                     |
+| `PATCH /plugin-api/coolify/connections/:id`                                | `coolify.connection-update`, or `coolify.connection-set-exec` for `execEnabled`                                                                                      |
+| `DELETE /plugin-api/coolify/connections/:id`                               | `coolify.connection-delete`                                                                                                                                          |
+| `POST /plugin-api/coolify/connections/:id/probe`                           | `coolify.connection-probe`                                                                                                                                           |
+| `GET /plugin-api/coolify/connections/:id/resources`                        | `coolify.list-resources-all`; on a Linked host `coolify.list-resources`, and the signals `coolify.signal-degraded` and `coolify.signal-deploying` read the same list |
+| `GET /plugin-api/coolify/connections/:id/resources/:uuid`                  | `coolify.resource-get`                                                                                                                                               |
+| `GET /plugin-api/coolify/connections/:id/servers`                          | `coolify.sync-preview`; the signals `coolify.signal-server` and `coolify.signal-updates` read the same servers                                                       |
+| `POST /plugin-api/coolify/connections/:id/sync`                            | `coolify.sync-apply`; `coolify.sync-host` for one Linked host                                                                                                        |
+| `POST /plugin-api/coolify/connections/:id/servers/:uuid/unlink`            | `coolify.unlink`                                                                                                                                                     |
+| `POST /plugin-api/coolify/connections/:id/resources/:uuid/start`           | `coolify.start` on a Linked host, else `coolify.resource-action`                                                                                                     |
+| `POST /plugin-api/coolify/connections/:id/resources/:uuid/stop`            | `coolify.stop` on a Linked host, else `coolify.resource-action`                                                                                                      |
+| `POST /plugin-api/coolify/connections/:id/resources/:uuid/restart`         | `coolify.restart` on a Linked host, else `coolify.resource-restart`                                                                                                  |
+| `POST /plugin-api/coolify/connections/:id/resources/:uuid/deploy`          | `coolify.deploy` on a Linked host, else `coolify.resource-deploy`                                                                                                    |
+| `POST /plugin-api/coolify/connections/:id/resources/:uuid/shell`           | `coolify.shell-command`                                                                                                                                              |
+| `GET /plugin-api/coolify/connections/:id/resources/:uuid/logs`             | `coolify.logs-tail`                                                                                                                                                  |
+| `GET /plugin-api/coolify/connections/:id/servers/:uuid/updates`            | `coolify.server-updates`                                                                                                                                             |
+| `POST /plugin-api/coolify/connections/:id/servers/:uuid/updates/check`     | `coolify.server-updates-check`                                                                                                                                       |
+| `POST /plugin-api/coolify/connections/:id/servers/:uuid/updates/install`   | `coolify.server-updates-install`                                                                                                                                     |
+| `POST /plugin-api/coolify/connections/:id/servers/:uuid/reboot`            | `coolify.server-reboot`                                                                                                                                              |
+| `GET /plugin-api/coolify/companions`                                       | `coolify.companion-read`, kind `companions`                                                                                                                          |
+| `GET /plugin-api/coolify/connections/:id/resources/:uuid/dns`              | `coolify.companion-read`, kind `dns-list`                                                                                                                            |
+| `POST /plugin-api/coolify/connections/:id/resources/:uuid/dns`             | `coolify.companion`, kind `dns`                                                                                                                                      |
+| `DELETE /plugin-api/coolify/connections/:id/resources/:uuid/dns/:recordId` | `coolify.companion-dns-remove`                                                                                                                                       |
+| `GET /plugin-api/coolify/connections/:id/resources/:uuid/uptime`           | `coolify.companion-read`, kind `uptime`                                                                                                                              |
+| `GET /plugin-api/coolify/connections/:id/log-search`                       | `coolify.companion-read`, kind `log-search`                                                                                                                          |
+| `GET /plugin-api/coolify/connections/:id/servers/:uuid/security`           | `coolify.companion-read`, kind `security`                                                                                                                            |
+| `GET /plugin-api/coolify/connections/:id/servers/:uuid/backups-failed`     | `coolify.companion-read`, kind `backups-failed`                                                                                                                      |
+| `GET /plugin-api/coolify/connections/:id/servers/:uuid/host-metrics`       | `coolify.companion-read`, kind `host-metrics`                                                                                                                        |
+| `GET /plugin-api/coolify/connections/:id/servers/:uuid/db-logins`          | `coolify.companion-read`, kind `db-logins`                                                                                                                           |
+| `GET /plugin-api/coolify/connections/:id/resources/:uuid/db-login`         | `coolify.companion-read`, kind `db-login`                                                                                                                            |
+| `GET /plugin-api/coolify/connections/:id/resources/:uuid/paths`            | `coolify.companion-read`, kind `files-paths`                                                                                                                         |
+| `POST /plugin-api/coolify/connections/:id/resources/:uuid/tunnel`          | `coolify.companion`, kind `tunnel-open`                                                                                                                              |
+| `DELETE /plugin-api/coolify/connections/:id/resources/:uuid/tunnel/:port`  | `coolify.companion`, kind `tunnel-close`                                                                                                                             |
+| `POST /plugin-api/coolify/connections/:id/resources/:uuid/web-ui`          | `coolify.companion`, kind `web-ui`                                                                                                                                   |
+| `GET /plugin-api/coolify/connections/:id/status-pages`                     | `coolify.status-page-list`                                                                                                                                           |
+| `POST /plugin-api/coolify/connections/:id/status-pages`                    | `coolify.status-page-create`                                                                                                                                         |
+| `POST /plugin-api/coolify/status-pages/:id/rotate`                         | `coolify.status-page-rotate`                                                                                                                                         |
+| `DELETE /plugin-api/coolify/status-pages/:id`                              | `coolify.status-page-revoke`                                                                                                                                         |
+| `GET /plugin-api/coolify/connections/:id/api/operations`                   | `coolify.list-api-operations`; `?reads=1` is `coolify.list-api-reads`                                                                                                |
+| `POST /plugin-api/coolify/connections/:id/api/call`                        | `coolify.api-read` for a GET, `coolify.api-call` for anything else                                                                                                   |
+| `GET /plugin-api/coolify/connections/:id/servers/:uuid/metrics`            | `coolify.server-metrics`                                                                                                                                             |
+| `POST /plugin-api/coolify/connections/:id/servers/:uuid/metrics/enable`    | `coolify.enable-metrics`                                                                                                                                             |
+| `GET /plugin-api/coolify/connections/:id/resources/:uuid/metrics`          | `coolify.resource-metrics`                                                                                                                                           |
+| `GET /plugin-api/coolify/connections/:id/resources/:uuid/traffic`          | `coolify.resource-traffic`                                                                                                                                           |
+| `POST /plugin-api/coolify/connections/:id/api/reveal`                      | none: shows one masked value, audited and never cached; an action's run history would keep it                                                                        |
+| `POST /plugin-api/coolify/mcp`                                             | none: the MCP endpoint itself; each `tools/call` runs one action through Termix's operations                                                                         |
+| `GET /plugin-api/coolify/mcp`                                              | none: answers the endpoint address and a client config example, and runs nothing                                                                                     |
+| `POST /plugin-api/coolify/status-pages/handoff/:handoffId`                 | none: hands a create or rotate's URL over once; over MCP that is `take_status_page_url`                                                                              |
+| `GET /plugin-api/coolify/status/:token`                                    | none: the public status page, served with no signed-in user                                                                                                          |
+| `GET /plugin-api/coolify/status/:token.json`                               | none: the public status page as JSON, served with no signed-in user                                                                                                  |
+| `WS /plugin-ws/coolify/logs`                                               | none: a live follow of a container's logs; `coolify.logs-tail` reads a snapshot                                                                                      |
+| `WS /plugin-ws/coolify/stats`                                              | none: a live stream of a container's stats; `coolify.resource-metrics` reads a window                                                                                |
 
 ## Logs
 
@@ -394,6 +462,39 @@ for a confirm, and a DELETE asks you to type the operation id. Secrets in answer
 `coolify.configure`, configure access and a token with `read:sensitive`, you can reveal one value at a time;
 each reveal is audited and nothing is kept.
 
+## The `coolify.client` service
+
+Other Termix plugins can use Coolify through the `coolify.client` service (version 1.0.0). Declare it in your
+manifest's `requires` and get it as the acting user:
+
+```json
+"requires": [{ "service": "coolify.client", "versionRange": "^1.0.0", "optional": true }]
+```
+
+```ts
+const coolify = await ctx.services.get<CoolifyClient>("coolify.client");
+const { data } = await coolify.listResources("1");
+```
+
+Getting it needs **View Coolify**. Each method runs one action through Termix's operations as the calling
+user, so that action's permission, approvals, confirms and run history apply, and is refused before any run
+when the user lacks the action's permission (`forbidden`). Every answer is plain data
+(`{ runId, status, summary?, data?, error?, errorCode?, approvalId? }`) with secrets masked; the service never
+hands out a token, a Coolify client or raw Coolify access.
+
+| Method                                                  | Action                                                                                     |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `listConnections()`                                     | `coolify.list-connections`                                                                 |
+| `listResources(connectionId)`                           | `coolify.list-resources-all`                                                               |
+| `deploy(connectionId, uuid, { force? })`                | `coolify.resource-deploy`                                                                  |
+| `lifecycle(connectionId, uuid, action, { confirmed? })` | `coolify.resource-restart` for `restart`, `coolify.resource-action` for `start` and `stop` |
+| `apiRead(connectionId, operationId, params?)`           | `coolify.api-read`                                                                         |
+| `logsTail(connectionId, uuid, lines?, { confirmed? })`  | `coolify.logs-tail`; the redacted text comes back once, to the caller                      |
+
+`start` and `stop` are destructive: without `{ confirmed: true }` they are refused with `confirm-required`
+and nothing runs. Pass it only once a person agreed. `logsTail` sends your `confirmed` as the action's
+`confirm`, which it needs.
+
 ## MCP
 
 The endpoint is `POST /plugin-api/coolify/mcp`: stateless JSON-RPC 2.0 over HTTP with `initialize`, `ping`,
@@ -416,7 +517,8 @@ address and a client config example. The Connections view shows the same under *
   `operations:read` key can call only read tools.
 - **Tools:** one per operation above, named `coolify__<action>` with dots and dashes turned into `_`, plus:
   - `list_connections`: your connections, without any token.
-  - `list_hosts`: the Termix hosts linked to Coolify servers. Empty until host sync arrives.
+  - `list_hosts`: the Termix hosts linked to a connection's Coolify servers (`connectionId`), with each
+    host id, server uuid and name. It runs `coolify.sync-preview` and keeps the rows that have a Linked host.
   - `list_resources`: the applications, services and databases of a connection, with each service's parts.
     It runs `coolify.list-resources-all`.
   - `take_status_page_url`: takes a status page URL once, by the `handoffId` a create or rotate answered

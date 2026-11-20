@@ -2202,6 +2202,13 @@
   },
   "locales": "locales",
   "platforms": ["linux", "win32", "darwin"],
+  "provides": [
+    {
+      "service": "coolify.client",
+      "version": "1.0.0",
+      "permission": "coolify.view"
+    }
+  ],
   "requires": [
     {
       "service": "tunnels.access",

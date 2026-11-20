@@ -15,6 +15,7 @@ import {
   registerResourceRoutes,
 } from "./resources/routes.js";
 import { registerMcpRoutes } from "./mcp/routes.js";
+import { provideClient } from "./service.js";
 import { createContainers } from "./containers/service.js";
 import { registerContainerRoutes } from "./containers/routes.js";
 import { createLogs } from "./containers/logs.js";
@@ -121,6 +122,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
     genericApi,
     metrics,
   });
+  provideClient(ctx);
   await statusPages.start();
 }
 

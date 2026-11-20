@@ -13,12 +13,11 @@
 A [Termix](https://github.com/Termix-SSH/Termix) plugin that brings [Coolify](https://coolify.io) servers,
 applications, services and databases into Termix, so they can be used from Termix's UI, API and MCP.
 
-This plugin is being built toward release 1.0.0. Right now it installs, declares its permissions and settings,
-and shows an empty Coolify tab. See [CHANGELOG.md](CHANGELOG.md) for what is in each release.
+See [CHANGELOG.md](CHANGELOG.md) for what is in each release, and [docs/index.md](docs/index.md) for how to use it.
 
 <br />
 
-## Planned for 1.0.0
+## What it does
 
 - Connect one or more Coolify instances with an API token
 - Coolify servers become locked Termix hosts, Cloudflare tunnels included
@@ -26,7 +25,7 @@ and shows an empty Coolify tab. See [CHANGELOG.md](CHANGELOG.md) for what is in 
 - Start, stop, restart and deploy applications, services and databases
 - Server metrics, traffic and package updates
 - Public read-only status pages
-- Every Coolify API operation from Termix's API, CLI and MCP
+- Every Coolify API operation from Termix's API, CLI and MCP, and a `coolify.client` service for other plugins
 
 <br />
 

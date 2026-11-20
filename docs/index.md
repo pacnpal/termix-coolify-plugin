@@ -1,9 +1,11 @@
 Coolify for Termix brings your Coolify servers, applications, services and databases into Termix.
 
-So far you can connect Coolify instances, see what each API token can do, browse each connection's
-applications, services and databases, deploy, start, stop and restart them, open a shell or database console
-in their containers, read or follow their logs, sync Coolify servers into Termix hosts, and use other Termix
-plugins (DNS, Uptime, Log Search and more) with them. The rest comes with the rest of release 1.0.0.
+Connect Coolify instances, see what each API token can do, browse each connection's applications, services
+and databases, deploy, start, stop and restart them, open a shell or database console in their containers,
+read or follow their logs, see metrics and traffic, sync Coolify servers into Termix hosts, check and install
+server updates, publish status pages, reach the whole Coolify API, and use other Termix plugins (DNS, Uptime,
+Log Search and more) with them. Everything also works through Termix's operations API, the CLI, Automations,
+the plugin's MCP endpoint and the `coolify.client` service for other plugins.
 
 ## Turn it on
 
@@ -290,7 +292,8 @@ The plugin serves its own MCP endpoint at `/plugin-api/coolify/mcp`. The Connect
 and a client config under **Use with an MCP client**; put a Termix API key with the scope `operations:read`
 (read tools only) or `operations:run` where the config says `<your Termix API key>`.
 
-Every action is a tool, plus `list_connections`, `list_hosts`, `list_resources` and
+Every action is a tool, plus `list_connections`, `list_hosts` (a connection's Linked hosts),
+`list_resources` and
 `take_status_page_url`. Each call runs as the
 key's user through Termix's operations, so permissions, approvals and history apply. Read tools, deploy and
 restart (`coolify__deploy`, `coolify__restart`, `coolify__resource_deploy`, `coolify__resource_restart`)
@@ -360,41 +363,8 @@ and `coolify.unlink`.
 
 ### Servers behind Cloudflare tunnels
 
-When Coolify reaches a server through a Cloudflare tunnel, its Linked host uses the **SSH Terminal**
-plugin's own Cloudflare tunnel, which then carries every SSH connection to that host: the terminal, files,
-Docker and this plugin. Sync sets:
-
-- the host address to the tunnel hostname (Coolify's address for the server), with Coolify's port and user;
-- SSH Terminal's tunnel settings on the host: tunnel on, the tunnel hostname, and port 443;
-- the connection's Cloudflare Access service token, when one is set, as SSH Terminal's service token ID and
-  secret. The token is written only into those host settings. It never appears in the preview, sync
-  results, run history, logs or the audit log.
-
-Each sync writes these settings in full, so nothing stale stays behind: when you remove the connection's
-Access token, the next sync clears it from tunnelled hosts. When a server is no longer behind a tunnel, the
-next sync turns SSH Terminal's tunnel off on its host and clears the tunnel hostname and token. Termix only
-takes SSH Terminal's settings while it is on, so until then that server says **This server is no longer
-behind a Cloudflare tunnel, but its host still has SSH Terminal's tunnel settings**, with **Open Plugins**,
-and its host is left as it is. Hosts that were never tunnelled don't need SSH Terminal.
-
-Hosts linked before 1.0's database migration have no record of whether sync gave them tunnel settings, so
-they count as possibly tunnelled: once their server is a plain one, they may need SSH Terminal on for one
-sync to confirm their tunnel is off. After that they sync without it.
-
-This needs **SSH Terminal 1.2.0 or newer**, turned on. Version 1.0.3 tunnelled only its own terminal tab.
-Until then a tunnelled server can't sync and says why, with an **Open Plugins** button that opens Termix's
-Plugins tab:
-
-- **Turn on the SSH Terminal plugin to reach servers behind Cloudflare tunnels**: SSH Terminal isn't
-  installed or is turned off. It is also shown when the plugin list can't be read, so a tunnelled host is
-  never made without a tunnel.
-- **Update SSH Terminal to 1.2.0 or newer; older versions tunnel only the terminal.**
-
-When you add a connection and Coolify has tunnelled servers, the setup checklist shows the same check once.
-
-A tunnelled Linked host's Coolify card says **Tunnel: through SSH Terminal (Cloudflare)** and has **Open
-tunnel settings**, which opens the host editor. SSH Terminal's tunnel fields there stay read only while the
-host is linked; unlink it to change them by hand.
+Servers Coolify reaches through a Cloudflare tunnel sync into hosts that use SSH Terminal's own tunnel. See
+[Cloudflare tunnels](tunnels.md).
 
 ## Server updates
 
@@ -448,107 +418,8 @@ They are also actions: `coolify.server-updates` (offered to the assistant and MC
 
 ## Other Termix plugins
 
-Built for DNS 1.1, Uptime 1.0.1, Log Search 1.1, Security Center 1.1, Host Metrics 1.4.1, Databases 1.3 and
-Backups 1.1. When one of these Termix plugins is installed and running, its Coolify feature appears. When it isn't, that
-feature hides and nothing else changes. The plugin checks every minute. When Termix's plugin list can't be
-read, every one of them hides and their routes and actions answer `companions-unknown` instead of acting.
-
-| Plugin          | What appears                                                                                 |
-| --------------- | -------------------------------------------------------------------------------------------- |
-| DNS             | **Create DNS record** for one of a resource's domains                                        |
-| Uptime          | The status of the Uptime monitors at or under one of a resource's URLs                       |
-| Log Search      | **Search logs across servers**, over Docker logs, with the resource's uuid as the query      |
-| Security Center | The score and critical findings of a Linked host, on its Coolify card                        |
-| Host Metrics    | A **Coolify on this server** card on a Linked host: its applications, services and databases |
-| Databases       | Whether a Coolify database already has a saved login there, with **Open Databases**          |
-| Backups         | Failed Termix backup jobs on a Linked host                                                   |
-
-- **DNS records.** The name must be one of the resource's domains. Leave **Points to** empty to use the
-  server's address. Only records made here can be removed from here, after you confirm, and only while
-  the connection's Coolify still lists the resource. The route needs `{ "confirm": true }` (or
-  `?confirm=true`). The record is saved before the DNS plugin is asked, so one it makes can always be
-  removed. The DNS plugin needs a zone for the name, and your own DNS permissions apply.
-- **Uptime.** Uptime can't create HTTP monitors for another plugin, so **Create monitor in Uptime** opens the
-  Uptime tab. A monitor belongs to a resource when it checks the resource's host at or under its path
-  (`/app` covers `/app/health`, not `/admin`). A resource's monitors can be paused and resumed with the
-  `coolify.companion` action. Monitors already paused (or running) are left alone, and if one fails part
-  way, each monitor already changed goes back to how it was.
-- **Log Search** searches every server's Docker logs and can't filter by host. The results say where they
-  came from.
-- **Databases** only shows names: logins and database names, never a password. A login matches a database
-  by its uuid, or by its name only when no other database on that server has the same name.
-
-Who may use them:
-
-- Reading (Uptime, Security Center, Host Metrics, Databases, Backups, listing DNS records) needs **View
-  Coolify** and the connection (yours, or a grant).
-- **Search logs** needs **Operate Coolify resources** and an operate grant, because it shows log output.
-- Creating and removing DNS records needs **Configure Coolify** and a configure grant.
-- Anything about a Linked host also needs your own access to that host in Termix, and the server must still
-  be in that connection's Coolify.
-- If the connection's address, token or Access settings change while one of these runs, it stops before
-  the next call to the other plugin and answers `target-changed`.
-
-They are also actions: `coolify.companion-read` (offered to the assistant and MCP) reads any of them, and
-`coolify.companion` creates DNS records and pauses or resumes Uptime monitors. Removing a DNS record is
-its own action, `coolify.companion-dns-remove`: it is marked destructive, so Termix asks for a confirm, and
-it is never offered to the assistant or MCP. The plugin never
-sends a Coolify token or any other secret to another plugin.
-
-## Companion plugins on containers
-
-Built for File Manager 1.2.2, Tunnels 1.4 and Reverse Proxy 1.2.1. When one of these runs, a resource's or
-part's Overview shows a **Companion plugins** group. Each button hides while its plugin isn't running.
-
-| Button                | Plugin        | What it does                                                                                  |
-| --------------------- | ------------- | --------------------------------------------------------------------------------------------- |
-| **Browse files**      | File Manager  | Opens the Linked host at the resource's data folder                                           |
-| **Edit compose file** | File Manager  | Opens the compose file Coolify wrote there in the editor                                      |
-| **Open** _path_       | File Manager  | Opens one of the resource's storages on the server                                            |
-| **Reach from here**   | Tunnels       | Forwards a container port through the Linked host, listening on the Termix server             |
-| **Open web UI**       | Reverse Proxy | A one-time signed-in link to the container's web port, with no tunnel or public domain needed |
-
-- **Data folders** are Coolify's own: `/data/coolify/applications/<uuid>`, `/data/coolify/services/<uuid>`
-  (a service's parts share it) and `/data/coolify/databases/<uuid>`. The compose file is
-  `docker-compose.yaml` for an application and `docker-compose.yml` for a service or database. Storages come
-  from Coolify's storages list. A file storage is offered only inside the resource's data folder. A volume
-  is offered at the path on the server Coolify reports for it (a bind mount, anywhere but `/`), or else at
-  its Docker folder `/var/lib/docker/volumes/<name>/_data`. Paths with `..` are refused and the rest are
-  normalized. A storage's mount path inside the container isn't on the server, so it isn't offered.
-- **Reach from here** reads the container's internal address with `docker inspect` over SSH and asks
-  Tunnels to forward the port you enter to it. Only a private container address is used (10/8, 172.16/12,
-  192.168/16 or IPv6 unique local, IPv4 first when a container has both); loopback, `0.0.0.0`, link-local addresses such as `169.254.169.254` and
-  public addresses are refused (`bad-container-ip`). The plugin asks Tunnels to listen on the Termix
-  server's `127.0.0.1`; Tunnels decides, and the answer shows where it listens. The forward is named
-  `web:<hostId>:coolify-<uuid>` and isn't saved in your Tunnels list. **Stop** closes it, and only a
-  forward you opened here on that port can be stopped from here. One forward runs per resource and Linked
-  host (someone else's answers `tunnel-in-use`), and each person may have 5 open (`too-many-tunnels`).
-  Forwarding to your own computer isn't possible: Tunnels offers that only from the desktop app's own
-  tunnels.
-- The **Tunnels tab** gets a **Coolify** view listing the resources of the host's Coolify server (or every
-  connection's, on the hostless tab), each with a port to forward and stop. On a host that isn't a Linked
-  host it says so and lists nothing.
-- **Open web UI** needs Reverse Proxy's endpoint set up: an admin sets its **Termix address** and **Web
-  endpoint domain** (a wildcard DNS name pointing at the proxy). Until then the button explains that. The
-  link signs you in once; ask for a new one next time.
-- When there are several containers (a service), pick one from the list.
-
-Who may use them:
-
-- **Browse files** needs **View Coolify**, the connection (yours, or a grant) and your own view access to
-  the Linked host. File Manager checks its own access when it opens.
-- **Reach from here** and **Open web UI** reach the server over SSH, so they need **Operate Coolify
-  resources**, an operate grant and your own **connect** access to the Linked host, like shells.
-- If the connection's address, token or Access settings change while one of these runs, it stops before
-  the next SSH command or call to the other plugin, and after `docker inspect`, and answers
-  `target-changed`: nothing is opened.
-- The plugin never hands a companion plugin a Coolify or Termix token: only the host, the container's
-  internal address and the port.
-
-The actions `coolify.companion-read` (kind `files-paths`) and `coolify.companion` (kinds `tunnel-open`,
-`tunnel-close` and `web-ui`) do the same from Termix's API, the CLI and Automations. Over MCP,
-`tunnel-open` and `web-ui` need "Allow changes over MCP" and `confirmed: true`. The web UI link is a
-sensitive output: it is never kept in run history, and an MCP call gets it once. See [the API](api.md).
+DNS, Uptime, Log Search, Security Center, Host Metrics, Databases, Backups, File Manager, Tunnels and
+Reverse Proxy each add a Coolify feature while they run. See [Companion plugins](companions.md).
 
 ## Public status pages
 
@@ -597,15 +468,17 @@ never run. See the [API and MCP reference](api.md#the-full-coolify-api) for the 
 
 ## Permissions
 
-Admins and users get all five by default. Admins can take any of them away per role.
+Five Termix permissions, per-connection grants, **Allow changes over MCP** and confirms decide who may do
+what. See [Permissions](permissions.md).
 
-- **View Coolify**: open the plugin and read the connections you own or were granted.
-- **Operate Coolify resources**: lifecycle actions, deploys, tasks, backups, logs, container shells and
-  consoles, running commands in containers, and metrics and traffic read over SSH.
-- **Configure Coolify**: edits, variables, creates, imports, keys, sources, storage, DNS and notifications.
-- **Administer Coolify**: deletes, server create, delete and transfer, cloud provisioning, instance settings
-  and connection sharing.
-- **Use the Coolify MCP endpoint**: each call still needs the permission of the action it runs.
+## More pages
+
+- [Cloudflare tunnels](tunnels.md)
+- [Permissions](permissions.md)
+- [Companion plugins](companions.md)
+- [Troubleshooting](troubleshooting.md)
+- [API and MCP reference](api.md)
+- [Coolify API coverage](coverage.md)
 
 ## Coolify versions
 

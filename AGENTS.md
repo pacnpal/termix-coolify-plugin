@@ -66,16 +66,28 @@ Keep this section current when the plugin changes: what it does, how it is put t
 aren't obvious from the code, and anything that has bitten you before.
 
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
-  Where things stand: identity, permissions, admin settings, the vendored API and the tables exist,
-  Connections work (routes, operations, the Connections view and the "Connect Coolify" onboarding step),
-  Resources can be browsed (Overview tiles, the Resources list, a resource's Overview detail) and deployed,
-  started, stopped and restarted, host sync turns Coolify servers into locked Linked hosts, container
-  shells and database consoles open in a `coolify-shell` tab, a resource's Logs view reads and follows
-  container logs, Stats and Traffic tabs and the host card's server metrics read Sentinel and Coolify's
-  MCP, and a Linked host's card checks, installs and reboots its server's updates. Companion plugins (DNS, Uptime, Log Search, Security Center, Host
-  Metrics, Databases, Backups) add their features when they run, and owners can publish public status pages.
+  Where things stand: 1.0.0 is feature complete (connections, resources and lifecycle, host sync, shells,
+  logs, exec, metrics, server updates, companions, status pages, the full Coolify API, the MCP endpoint and
+  the `coolify.client` service). The read-only smoke test against a real Coolify is the owner's
+  (`scripts/smoke-readonly.md`). User docs: `docs/index.md`, `tunnels.md`, `permissions.md`,
+  `companions.md`, `troubleshooting.md`, `api.md`, `coverage.md`.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
+- Completeness tests: `authz.test.ts` (every route and socket has an `authz.json` entry, and no stale ones),
+  `route-parity.test.ts` (docs/api.md's "Route map" lists exactly the served routes and sockets, each with
+  a declared action or `none: <reason>`, and every route an action's row names is served and maps back),
+  `api-docs.test.ts` (one row per declared action with route, run path, scope, MCP tool and a runnable
+  `curl` whose JSON holds every required input), `mcp/server.test.ts` (one tool per action plus
+  EXTRA_TOOLS) and `coverage.test.ts`. A new route needs a Route map row and an authz entry; a new action
+  needs an api.md row.
+- `coolify.client` (`src/backend/service.ts`, provided in `activate` with `ctx.services.provide`, declared
+  in the manifest's `provides` with `coolify.view`). The manifest's `sandbox` block has no slot for
+  services (its `registry` is for `ctx.registry.provide` only). Each method is one `ctx.operations.run`
+  with `via: "service"`; it checks the action's own permission with `ctx.rbac.has` first (the mock ctx's
+  run applies no gate) and refuses a destructive action without `{ confirmed: true }`, then passes
+  `confirmed` on. Answers go through `redactFields(outputs)`, `redact()` and a JSON copy; `logsTail` takes
+  the redacted text from the logs handoff once, like MCP. Nothing in it reaches Coolify directly.
+- MCP `list_hosts` takes `connectionId`, runs `coolify.sync-preview` and keeps the rows with a `hostId`.
 - Coolify calls: `src/backend/coolify/http.ts` is the only way to Coolify (ctx.fetch, Bearer and CF Access
   headers, `redirect: "manual"`, 150 requests a minute, GET retries, every failure a `CoolifyError` with a
   `CoolifyCause`). `toRouteError` sends fixed messages only, never what Coolify sent back, because Coolify can

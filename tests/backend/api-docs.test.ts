@@ -59,6 +59,35 @@ describe("docs/api.md", () => {
     }
   });
 
+  it("each curl example is runnable: a POST with a JSON body holding every required input", () => {
+    const table = rows();
+    for (const action of manifest.contributes!.operations!.actions!) {
+      const curl = table.get(action.id)![5];
+      expect(curl, action.id).toContain("-X POST");
+      expect(curl, action.id).toContain('-H "Content-Type: application/json"');
+      const body = /-d '([^']*)'/.exec(curl);
+      expect(body, action.id).not.toBeNull();
+      const json = JSON.parse(body![1]) as {
+        input?: Record<string, unknown>;
+        confirmed?: unknown;
+      };
+      for (const field of action.inputs ?? []) {
+        if (field.required) {
+          expect(json.input, action.id).toHaveProperty(field.key);
+        }
+      }
+      if (action.scope !== "server") {
+        expect(json, action.id).toHaveProperty("hostId");
+      }
+      if (action.scope === "resource") {
+        expect(json, action.id).toHaveProperty("resourceKey");
+      }
+      if (action.risk === "destructive") {
+        expect(json.confirmed, action.id).toBe(true);
+      }
+    }
+  });
+
   it("names the MCP endpoint and every extra MCP tool", () => {
     expect(doc).toContain("/plugin-api/coolify/mcp");
     for (const tool of EXTRA_TOOLS) expect(doc).toContain(`\`${tool.name}\``);

@@ -21,14 +21,20 @@
 - The Connections view and a "Connect Coolify" setup step
 - Actions to list, check, add, change and remove connections; token fields never appear in run history
 - An MCP endpoint at `/plugin-api/coolify/mcp` for Termix API keys scoped to `operations:read` or
-  `operations:run`: one tool per action plus `list_connections`, `list_hosts` and `list_resources`, run
+  `operations:run`: one tool per action plus `list_connections`, `list_hosts`, `list_resources` and
+  `take_status_page_url`, run
   through Termix's operations with approvals and history. Changes over MCP stay off until an admin turns on
   "Allow changes over MCP"
 - MCP output masks tokens, passwords, keys, env values and compose files at any depth, and cuts long output
   at 8,000 characters
 - "Use with an MCP client" in the Connections view, with the endpoint and a client config to copy
 - An API and MCP reference (`docs/api.md`) with every action's route, run path, key scope, MCP tool and a
-  `curl` example
+  `curl` example, and a route map naming the action behind every plugin route and socket
+- The `coolify.client` service for other Termix plugins: list connections and resources, deploy, start,
+  stop and restart, read the Coolify API and tail logs, each run as the calling user through Termix's
+  operations, so permissions, confirms, approvals and run history apply. It never hands out a token
+- The MCP tool `list_hosts` lists the Linked hosts of a connection's Coolify servers
+- Docs pages for Cloudflare tunnels, permissions, companion plugins and troubleshooting
 - The Coolify tab's Overview, Resources and Connections sections. Overview counts running, degraded, stopped
   and deploying resources; a tile opens the Resources list filtered to it
 - A resource Coolify reports as exited counts as stopped, not degraded, since that is how Coolify reports
