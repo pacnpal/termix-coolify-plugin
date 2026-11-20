@@ -31,6 +31,8 @@ export interface PluginHarness {
     user?: string,
   ) => Promise<{ status: number; body: any }>;
   close: () => Promise<void>;
+  /** Where the router is served, or null with `serve: false`. */
+  address: AddressInfo | null;
 }
 
 /**
@@ -77,7 +79,7 @@ export async function startPlugin(
   await activate(mock.ctx);
 
   let server: http.Server | null = null;
-  let port = 0;
+  let address: AddressInfo | null = null;
   if (options.serve !== false) {
     const app = express();
     app.use(express.json());
@@ -87,15 +89,20 @@ export async function startPlugin(
     });
     app.use((req, res, next) => router!(req, res, next));
     server = http.createServer(app);
-    await new Promise<void>((resolve) => server!.listen(0, resolve));
-    port = (server.address() as AddressInfo).port;
+    // 127.0.0.1 only: bound to "::", a port another process holds on
+    // 127.0.0.1 still binds, and the requests below would reach that process.
+    await new Promise<void>((resolve) =>
+      server!.listen(0, "127.0.0.1", resolve),
+    );
+    address = server.address() as AddressInfo;
   }
 
   return {
     mock,
     db,
+    address,
     async request(method, path, body, user = OWNER) {
-      const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+      const response = await fetch(`http://127.0.0.1:${address?.port}${path}`, {
         method,
         headers: {
           "x-test-user": user,
