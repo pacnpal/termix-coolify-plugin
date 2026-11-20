@@ -450,8 +450,10 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   `..`. The command is `docker exec coolify-sentinel sh -c '<script>' sh '<url>'`: the script reads the
   container's own `$TOKEN` and gives it to curl on stdin (`tests/backend/metrics/sentinel-token.test.ts` runs
   it through a real `sh`). Answers go through `scrubbed()` (maskCredentials plus secret-named fields).
-  `metrics/service.ts` reads the connection once per request (`connections.snapshot`) and calls
-  `containers.assertSnapshotHolds` before every Coolify call and SSH command. Resource reads use
+  `metrics/service.ts` reads the connection once per request (`connections.snapshot`). Its Coolify calls go
+  through `read.api`/`read.http`, the snapshot's request layer wrapped by `guarded()` so
+  `containers.assertSnapshotHolds` is every request's `beforeFetch` (after the budget wait, right before
+  the fetch); SSH commands call it first too. Resource reads use
   `containers.target` (lifecycle's `authorize`); the server read over MCP needs view and any access, its
   Sentinel fallback operate and an operate grant. IPs need `traffic_ip_mode` `full` and `canConfigure`
   (coolify.configure plus owner or configure grant); anything else hides them. Traffic `limit` is clamped to
@@ -459,10 +461,12 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   `coolify.enable-metrics` is a change and in `MCP_CONFIRM_REQUIRED`. No metrics cache exists.
 - Stats socket: `src/backend/containers/stats.ts` (`WS /stats`), separate from the logs socket. One stream
   per socket, one subscribe a second (`rate-limited`), `MAX_STREAMS_PER_USER` (3) per person
-  (`too-many-streams`). A subscribe takes a snapshot and `containers.locate`; every tick checks the
-  session, `currentActor()` against the socket's user, the snapshot (first), `containers.target` and host
-  access, then runs `docker stats --no-stream` (4 KB output cap). Refusals close with 1008. The frontend
-  opens it with `openSocket` (`socket.ts`); tests mock that module.
+  (`too-many-streams`). Each subscribe has a generation; an older one's answer or failure is dropped. A
+  subscribe takes a snapshot and `containers.locate`; every tick checks the session, `currentActor()`
+  against the socket's user, the snapshot (first and again last, since the checks can wait),
+  `containers.target` and host access, then runs `docker stats --no-stream` (4 KB output cap). Refusals close with 1008. The frontend
+  opens it with `openSocket` (`socket.ts`); tests mock that module. A `choices` answer shows the Logs
+  view's picker (same `logs.pick` texts); the pick lives in `StatsTab`, keyed per resource.
 - Signals (`src/backend/ops/signals.ts`) read resources from the resources cache and server statuses from a
   `servers` cache kind (a minute, no addresses or keys kept) through `createServerStatuses`, made in
   `index.ts`. That cache works like the resources cache: rows carry `connections.revision(id)` and a

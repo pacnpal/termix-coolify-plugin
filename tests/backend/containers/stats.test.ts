@@ -358,4 +358,29 @@ describe("stats socket", () => {
     await settle();
     expect(statsRuns()).toBe(2);
   });
+
+  it("a change while a tick's checks wait stops it before docker stats runs", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { open, connectionId, statsRuns, harness: h } = await start();
+    const { socket } = await open();
+    socket.message({ connectionId, uuid: "app-web-uuid" });
+    await settle();
+    expect(statsRuns()).toBe(1);
+    // The tick's host check is the last wait before SSH: change the target
+    // while it runs.
+    const checkAccess = h.mock.ctx.hosts.checkAccess.bind(h.mock.ctx.hosts);
+    vi.spyOn(h.mock.ctx.hosts, "checkAccess").mockImplementation(
+      async (hostId, level) => {
+        h.db.sqlite
+          .prepare("UPDATE p_coolify_connections SET base_url = ?")
+          .run("https://other.example.test");
+        return checkAccess(hostId, level);
+      },
+    );
+    await vi.advanceTimersByTimeAsync(STATS_INTERVAL_MS);
+    await settle();
+    expect(statsRuns()).toBe(1);
+    expect(socket.sent.at(-1)).toMatchObject({ cause: "target-changed" });
+    expect(socket.closedWith).toBe(1008);
+  });
 });

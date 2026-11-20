@@ -240,6 +240,9 @@ export function registerStatsSocket(
       await deps.containers.assertSnapshotHolds(sub.connectionId, sub.snap);
       await deps.containers.target(sub.connectionId, sub.uuid, sub.part);
       await deps.containers.assertHostAccess(sub.hostId);
+      // Again last: the checks above can wait (a fetch, the request budget),
+      // and docker stats must run against the target that was checked.
+      await deps.containers.assertSnapshotHolds(sub.connectionId, sub.snap);
     }
 
     async function tick(sub: Subscription, gen: number): Promise<void> {
