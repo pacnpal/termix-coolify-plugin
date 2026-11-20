@@ -13,6 +13,7 @@ import type {
 } from "@termix-ssh/plugin-sdk/frontend";
 import { createApi } from "./api";
 import { forgetPreview, linkOf, useLinkedRow } from "./linked";
+import { keepSocketTarget } from "./socket";
 import { ConnectStep } from "./views/ConnectStep";
 import { CoolifyTab } from "./views/CoolifyTab";
 import { HostSection, openCoolify } from "./views/HostSection";
@@ -24,6 +25,8 @@ const IMPORT_ACTION = "coolify.import-from-coolify";
 const isLinked = (host: PluginHostRecord) => linkOf(host) !== null;
 
 export function activate(app: TermixApp): void {
+  // The Logs view's live follow opens /plugin-ws/coolify/logs through it.
+  keepSocketTarget(app);
   app.registerRailItem({
     id: TAB_ID,
     icon: Rocket,
@@ -135,6 +138,23 @@ export function activate(app: TermixApp): void {
         }
       })();
     },
+  });
+
+  // Command palette. "Coolify: Deploy…" opens the Resources list to pick
+  // from; Open shell, Logs and Sync servers join this group later.
+  app.registerPaletteGroup({
+    id: "coolify",
+    titleKey: "palette.group",
+    load: () => [
+      {
+        id: "coolify.deploy",
+        title: app.t("palette.deploy"),
+        icon: Rocket,
+        keywords: ["coolify", "deploy", "redeploy", "rebuild"],
+        run: ({ shell }) =>
+          shell.openSingletonTab(TAB_ID, { data: { section: "resources" } }),
+      },
+    ],
   });
 
   // Hosts > Import: opens the sync preview.

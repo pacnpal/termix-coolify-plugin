@@ -52,21 +52,26 @@
     "homepage": "^1.0.0",
     "file-manager": "^1.0.0",
     "tunnels": "^1.0.0",
-    "dns": "^1.0.0",
+    "dns": "~1.1.0",
     "reverse-proxy": "^1.0.0",
-    "security-center": "^1.0.0",
-    "uptime": "^1.0.0",
-    "log-search": "^1.0.0",
+    "security-center": "~1.1.0",
+    "uptime": "~1.0.1",
+    "log-search": "~1.1.0",
     "package-manager": "^1.0.0",
-    "host-metrics": "^1.0.0",
-    "databases": "^1.0.0",
-    "backups": "^1.0.0",
+    "host-metrics": "~1.4.1",
+    "databases": "~1.3.0",
+    "backups": "~1.1.0",
     "automations": "^1.0.0",
     "operations-center": "^1.0.0",
     "alerts": "^1.0.0"
   },
   "sandbox": {
-    "schedules": [],
+    "schedules": [
+      {
+        "id": "status-refresh",
+        "every": 60000
+      }
+    ],
     "events": ["host.deleted", "host.updated"]
   },
   "contributes": {
@@ -84,7 +89,6 @@
         "openFrom": ["palette"]
       }
     ],
-    "uses": ["terminal.view"],
     "hostSections": [
       {
         "id": "coolify",
@@ -439,6 +443,65 @@
           }
         },
         {
+          "id": "coolify.list-resources-all",
+          "titleKey": "ops.listResourcesAll.title",
+          "descriptionKey": "ops.listResourcesAll.description",
+          "icon": "Boxes",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "serverUuid",
+              "type": "string",
+              "labelKey": "ops.fields.serverUuid.label",
+              "descriptionKey": "ops.fields.serverUuid.description"
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.resource-get",
+          "titleKey": "ops.resourceGet.title",
+          "descriptionKey": "ops.resourceGet.description",
+          "icon": "Box",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.uuid.label",
+              "descriptionKey": "ops.fields.uuid.description",
+              "required": true
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
           "id": "coolify.sync-preview",
           "titleKey": "ops.syncPreview.title",
           "descriptionKey": "ops.syncPreview.description",
@@ -509,8 +572,8 @@
             {
               "key": "serverUuid",
               "type": "string",
-              "labelKey": "ops.fields.serverUuid.label",
-              "descriptionKey": "ops.fields.serverUuid.description",
+              "labelKey": "ops.fields.linkedServerUuid.label",
+              "descriptionKey": "ops.fields.linkedServerUuid.description",
               "pattern": "[A-Za-z0-9_-]{1,64}",
               "required": true
             }
@@ -523,39 +586,118 @@
           }
         },
         {
-          "id": "coolify.list-resources-all",
-          "titleKey": "ops.listResourcesAll.title",
-          "descriptionKey": "ops.listResourcesAll.description",
+          "id": "coolify.list-resources",
+          "titleKey": "ops.listResources.title",
+          "descriptionKey": "ops.listResources.description",
           "icon": "Boxes",
-          "scope": "server",
-          "inputs": [
-            {
-              "key": "connectionId",
-              "type": "select",
-              "labelKey": "ops.fields.connectionId.label",
-              "descriptionKey": "ops.fields.connectionId.description",
-              "optionsFrom": "coolify.list-connections",
-              "required": true
-            },
-            {
-              "key": "serverUuid",
-              "type": "string",
-              "labelKey": "ops.fields.serverFilter.label",
-              "descriptionKey": "ops.fields.serverFilter.description"
-            }
-          ],
+          "scope": "host",
           "risk": "read",
           "permission": "view",
+          "hostAccess": "connect",
           "surfaces": {
             "assistant": true,
             "mcp": true
           }
         },
         {
-          "id": "coolify.resource-get",
-          "titleKey": "ops.resourceGet.title",
-          "descriptionKey": "ops.resourceGet.description",
-          "icon": "Box",
+          "id": "coolify.deploy",
+          "titleKey": "ops.deploy.title",
+          "descriptionKey": "ops.deploy.description",
+          "icon": "Rocket",
+          "scope": "resource",
+          "resource": "coolify.resource",
+          "inputs": [
+            {
+              "key": "force",
+              "type": "boolean",
+              "labelKey": "ops.fields.force.label",
+              "descriptionKey": "ops.fields.force.description",
+              "default": false
+            },
+            {
+              "key": "wait",
+              "type": "boolean",
+              "labelKey": "ops.fields.wait.label",
+              "descriptionKey": "ops.fields.wait.description",
+              "default": false
+            }
+          ],
+          "risk": "change",
+          "permission": "operate",
+          "hostAccess": "connect",
+          "dryRun": "describe",
+          "timeoutMs": 1800000,
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.start",
+          "titleKey": "ops.start.title",
+          "descriptionKey": "ops.start.description",
+          "icon": "Play",
+          "scope": "resource",
+          "resource": "coolify.resource",
+          "risk": "change",
+          "permission": "operate",
+          "hostAccess": "connect",
+          "idempotent": true,
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.restart",
+          "titleKey": "ops.restart.title",
+          "descriptionKey": "ops.restart.description",
+          "icon": "RotateCw",
+          "scope": "resource",
+          "resource": "coolify.resource",
+          "risk": "change",
+          "permission": "operate",
+          "hostAccess": "connect",
+          "idempotent": true,
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.stop",
+          "titleKey": "ops.stop.title",
+          "descriptionKey": "ops.stop.description",
+          "icon": "Square",
+          "scope": "resource",
+          "resource": "coolify.resource",
+          "risk": "destructive",
+          "permission": "operate",
+          "hostAccess": "edit",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.sync-host",
+          "titleKey": "ops.syncHost.title",
+          "descriptionKey": "ops.syncHost.description",
+          "icon": "RefreshCw",
+          "scope": "host",
+          "risk": "change",
+          "permission": "configure",
+          "hostAccess": "edit",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.resource-deploy",
+          "titleKey": "ops.resourceDeploy.title",
+          "descriptionKey": "ops.resourceDeploy.description",
+          "icon": "Rocket",
           "scope": "server",
           "inputs": [
             {
@@ -571,9 +713,161 @@
               "type": "string",
               "labelKey": "ops.fields.uuid.label",
               "descriptionKey": "ops.fields.uuid.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            },
+            {
+              "key": "force",
+              "type": "boolean",
+              "labelKey": "ops.fields.force.label",
+              "descriptionKey": "ops.fields.force.description",
+              "default": false
+            },
+            {
+              "key": "wait",
+              "type": "boolean",
+              "labelKey": "ops.fields.wait.label",
+              "descriptionKey": "ops.fields.wait.description",
+              "default": false
+            }
+          ],
+          "risk": "change",
+          "permission": "operate",
+          "dryRun": "describe",
+          "timeoutMs": 1800000,
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.resource-restart",
+          "titleKey": "ops.resourceRestart.title",
+          "descriptionKey": "ops.resourceRestart.description",
+          "icon": "RotateCw",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.uuid.label",
+              "descriptionKey": "ops.fields.uuid.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
               "required": true
             }
           ],
+          "risk": "change",
+          "permission": "operate",
+          "idempotent": true,
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.resource-action",
+          "titleKey": "ops.resourceAction.title",
+          "descriptionKey": "ops.resourceAction.description",
+          "icon": "Power",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.uuid.label",
+              "descriptionKey": "ops.fields.uuid.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            },
+            {
+              "key": "action",
+              "type": "select",
+              "labelKey": "ops.fields.action.label",
+              "descriptionKey": "ops.fields.action.description",
+              "options": [
+                {
+                  "value": "start",
+                  "labelKey": "ops.fields.action.start"
+                },
+                {
+                  "value": "stop",
+                  "labelKey": "ops.fields.action.stop"
+                }
+              ],
+              "required": true
+            }
+          ],
+          "risk": "destructive",
+          "permission": "operate",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.signal-degraded",
+          "titleKey": "ops.signalDegraded.title",
+          "descriptionKey": "ops.signalDegraded.description",
+          "icon": "TriangleAlert",
+          "scope": "host",
+          "risk": "read",
+          "permission": "view",
+          "hostAccess": "connect",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.signal-server",
+          "titleKey": "ops.signalServer.title",
+          "descriptionKey": "ops.signalServer.description",
+          "icon": "Server",
+          "scope": "host",
+          "risk": "read",
+          "permission": "view",
+          "hostAccess": "connect",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.signal-updates",
+          "titleKey": "ops.signalUpdates.title",
+          "descriptionKey": "ops.signalUpdates.description",
+          "icon": "ShieldAlert",
+          "scope": "host",
+          "risk": "read",
+          "permission": "view",
+          "hostAccess": "connect",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.signal-deploying",
+          "titleKey": "ops.signalDeploying.title",
+          "descriptionKey": "ops.signalDeploying.description",
+          "icon": "Rocket",
+          "scope": "server",
           "risk": "read",
           "permission": "view",
           "surfaces": {
@@ -644,6 +938,667 @@
           }
         },
         {
+          "id": "coolify.server-updates",
+          "titleKey": "ops.serverUpdates.title",
+          "descriptionKey": "ops.serverUpdates.description",
+          "icon": "PackageCheck",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "serverUuid",
+              "type": "string",
+              "labelKey": "ops.fields.serverUuid.label",
+              "descriptionKey": "ops.fields.serverUuid.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.server-updates-check",
+          "titleKey": "ops.serverUpdatesCheck.title",
+          "descriptionKey": "ops.serverUpdatesCheck.description",
+          "icon": "RefreshCw",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "serverUuid",
+              "type": "string",
+              "labelKey": "ops.fields.serverUuid.label",
+              "descriptionKey": "ops.fields.serverUuid.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            }
+          ],
+          "risk": "change",
+          "permission": "operate",
+          "idempotent": true,
+          "check": "coolify.server-updates",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.server-updates-install",
+          "titleKey": "ops.serverUpdatesInstall.title",
+          "descriptionKey": "ops.serverUpdatesInstall.description",
+          "icon": "ArrowUpCircle",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "serverUuid",
+              "type": "string",
+              "labelKey": "ops.fields.serverUuid.label",
+              "descriptionKey": "ops.fields.serverUuid.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            },
+            {
+              "key": "confirm",
+              "type": "boolean",
+              "labelKey": "ops.fields.confirmInstall.label",
+              "descriptionKey": "ops.fields.confirmInstall.description",
+              "required": true
+            }
+          ],
+          "risk": "change",
+          "permission": "operate",
+          "exclusive": true,
+          "timeoutMs": 900000,
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.server-reboot",
+          "titleKey": "ops.serverReboot.title",
+          "descriptionKey": "ops.serverReboot.description",
+          "icon": "Power",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "serverUuid",
+              "type": "string",
+              "labelKey": "ops.fields.serverUuid.label",
+              "descriptionKey": "ops.fields.serverUuid.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            },
+            {
+              "key": "confirmName",
+              "type": "string",
+              "labelKey": "ops.fields.confirmName.label",
+              "descriptionKey": "ops.fields.confirmName.description",
+              "required": true
+            }
+          ],
+          "risk": "destructive",
+          "permission": "administer",
+          "exclusive": true,
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.companion-read",
+          "titleKey": "ops.companionRead.title",
+          "descriptionKey": "ops.companionRead.description",
+          "icon": "Puzzle",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "kind",
+              "type": "select",
+              "labelKey": "ops.fields.kind.label",
+              "descriptionKey": "ops.fields.kind.description",
+              "options": [
+                {
+                  "value": "companions",
+                  "labelKey": "ops.kinds.companions"
+                },
+                {
+                  "value": "uptime",
+                  "labelKey": "ops.kinds.uptime"
+                },
+                {
+                  "value": "log-search",
+                  "labelKey": "ops.kinds.logSearch"
+                },
+                {
+                  "value": "security",
+                  "labelKey": "ops.kinds.security"
+                },
+                {
+                  "value": "db-login",
+                  "labelKey": "ops.kinds.dbLogin"
+                },
+                {
+                  "value": "db-logins",
+                  "labelKey": "ops.kinds.dbLogins"
+                },
+                {
+                  "value": "backups-failed",
+                  "labelKey": "ops.kinds.backupsFailed"
+                },
+                {
+                  "value": "host-metrics",
+                  "labelKey": "ops.kinds.hostMetrics"
+                },
+                {
+                  "value": "dns-list",
+                  "labelKey": "ops.kinds.dnsList"
+                }
+              ],
+              "required": true
+            },
+            {
+              "key": "params",
+              "type": "json",
+              "labelKey": "ops.fields.params.label",
+              "descriptionKey": "ops.fields.params.readDescription"
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.companion",
+          "titleKey": "ops.companion.title",
+          "descriptionKey": "ops.companion.description",
+          "icon": "Puzzle",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "kind",
+              "type": "select",
+              "labelKey": "ops.fields.kind.label",
+              "descriptionKey": "ops.fields.kind.description",
+              "options": [
+                {
+                  "value": "dns",
+                  "labelKey": "ops.kinds.dns"
+                },
+                {
+                  "value": "uptime-pause",
+                  "labelKey": "ops.kinds.uptimePause"
+                },
+                {
+                  "value": "uptime-resume",
+                  "labelKey": "ops.kinds.uptimeResume"
+                }
+              ],
+              "required": true
+            },
+            {
+              "key": "params",
+              "type": "json",
+              "labelKey": "ops.fields.params.label",
+              "descriptionKey": "ops.fields.params.changeDescription"
+            }
+          ],
+          "risk": "change",
+          "permission": "operate",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.companion-dns-remove",
+          "titleKey": "ops.companionDnsRemove.title",
+          "descriptionKey": "ops.companionDnsRemove.description",
+          "icon": "Trash2",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.resourceUuid.label",
+              "descriptionKey": "ops.fields.resourceUuid.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            },
+            {
+              "key": "recordId",
+              "type": "number",
+              "labelKey": "ops.fields.recordId.label",
+              "descriptionKey": "ops.fields.recordId.description",
+              "min": 1,
+              "required": true
+            }
+          ],
+          "risk": "destructive",
+          "permission": "configure",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.status-page-list",
+          "titleKey": "ops.statusPageList.title",
+          "descriptionKey": "ops.statusPageList.description",
+          "icon": "Globe",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.statusPageConnection.label",
+              "descriptionKey": "ops.fields.statusPageConnection.description",
+              "optionsFrom": "coolify.list-connections"
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.status-page-create",
+          "titleKey": "ops.statusPageCreate.title",
+          "descriptionKey": "ops.statusPageCreate.description",
+          "icon": "Globe",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "title",
+              "type": "string",
+              "labelKey": "ops.fields.title.label",
+              "descriptionKey": "ops.fields.title.description",
+              "required": true
+            },
+            {
+              "key": "resources",
+              "type": "multiselect",
+              "labelKey": "ops.fields.resources.label",
+              "descriptionKey": "ops.fields.resources.description",
+              "optionsFrom": "coolify.list-resources-all",
+              "required": true
+            }
+          ],
+          "outputs": [
+            {
+              "key": "id",
+              "type": "number",
+              "labelKey": "ops.fields.statusPageResult.label"
+            },
+            {
+              "key": "handoffId",
+              "type": "string",
+              "labelKey": "ops.fields.handoffId.label",
+              "descriptionKey": "ops.fields.handoffId.description"
+            },
+            {
+              "key": "url",
+              "type": "string",
+              "labelKey": "ops.fields.statusPageUrl.label",
+              "descriptionKey": "ops.fields.statusPageUrl.description",
+              "sensitive": true
+            }
+          ],
+          "risk": "change",
+          "permission": "configure",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.status-page-rotate",
+          "titleKey": "ops.statusPageRotate.title",
+          "descriptionKey": "ops.statusPageRotate.description",
+          "icon": "RefreshCw",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "id",
+              "type": "select",
+              "labelKey": "ops.fields.statusPageId.label",
+              "descriptionKey": "ops.fields.statusPageId.description",
+              "optionsFrom": "coolify.status-page-list",
+              "required": true
+            }
+          ],
+          "outputs": [
+            {
+              "key": "id",
+              "type": "number",
+              "labelKey": "ops.fields.statusPageResult.label"
+            },
+            {
+              "key": "handoffId",
+              "type": "string",
+              "labelKey": "ops.fields.handoffId.label",
+              "descriptionKey": "ops.fields.handoffId.description"
+            },
+            {
+              "key": "url",
+              "type": "string",
+              "labelKey": "ops.fields.statusPageUrl.label",
+              "descriptionKey": "ops.fields.statusPageUrl.description",
+              "sensitive": true
+            }
+          ],
+          "risk": "destructive",
+          "permission": "configure",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.status-page-revoke",
+          "titleKey": "ops.statusPageRevoke.title",
+          "descriptionKey": "ops.statusPageRevoke.description",
+          "icon": "Trash2",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "id",
+              "type": "select",
+              "labelKey": "ops.fields.statusPageId.label",
+              "descriptionKey": "ops.fields.statusPageId.description",
+              "optionsFrom": "coolify.status-page-list",
+              "required": true
+            }
+          ],
+          "risk": "destructive",
+          "permission": "configure",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.list-api-reads",
+          "titleKey": "ops.listApiReads.title",
+          "descriptionKey": "ops.listApiReads.description",
+          "icon": "BookOpen",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.listDescription",
+              "optionsFrom": "coolify.list-connections"
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.list-api-operations",
+          "titleKey": "ops.listApiOperations.title",
+          "descriptionKey": "ops.listApiOperations.description",
+          "icon": "BookOpen",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.listDescription",
+              "optionsFrom": "coolify.list-connections"
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.api-read",
+          "titleKey": "ops.apiRead.title",
+          "descriptionKey": "ops.apiRead.description",
+          "icon": "FileSearch",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "operationId",
+              "type": "select",
+              "labelKey": "ops.fields.operationId.label",
+              "descriptionKey": "ops.fields.operationId.description",
+              "optionsFrom": "coolify.list-api-reads",
+              "required": true
+            },
+            {
+              "key": "params",
+              "type": "secret",
+              "labelKey": "ops.fields.apiParams.label",
+              "descriptionKey": "ops.fields.apiParams.description"
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.api-call",
+          "titleKey": "ops.apiCall.title",
+          "descriptionKey": "ops.apiCall.description",
+          "icon": "Send",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "operationId",
+              "type": "select",
+              "labelKey": "ops.fields.operationId.label",
+              "descriptionKey": "ops.fields.operationId.description",
+              "optionsFrom": "coolify.list-api-operations",
+              "required": true
+            },
+            {
+              "key": "params",
+              "type": "secret",
+              "labelKey": "ops.fields.apiParams.label",
+              "descriptionKey": "ops.fields.apiParams.description"
+            },
+            {
+              "key": "body",
+              "type": "secret",
+              "labelKey": "ops.fields.body.label",
+              "descriptionKey": "ops.fields.body.description"
+            }
+          ],
+          "risk": "destructive",
+          "permission": "operate",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.logs-tail",
+          "titleKey": "ops.logsTail.title",
+          "descriptionKey": "ops.logsTail.description",
+          "icon": "ScrollText",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.uuid.label",
+              "descriptionKey": "ops.fields.uuid.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            },
+            {
+              "key": "part",
+              "type": "string",
+              "labelKey": "ops.fields.part.label",
+              "descriptionKey": "ops.fields.part.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}"
+            },
+            {
+              "key": "container",
+              "type": "string",
+              "labelKey": "ops.fields.container.label",
+              "descriptionKey": "ops.fields.container.description",
+              "pattern": "[A-Za-z0-9_.-]{1,255}"
+            },
+            {
+              "key": "lines",
+              "type": "number",
+              "labelKey": "ops.fields.lines.label",
+              "descriptionKey": "ops.fields.lines.description",
+              "min": 1,
+              "max": 10000,
+              "default": 100
+            },
+            {
+              "key": "timestamps",
+              "type": "boolean",
+              "labelKey": "ops.fields.timestamps.label",
+              "default": false
+            },
+            {
+              "key": "confirm",
+              "type": "boolean",
+              "labelKey": "ops.fields.confirmLogs.label",
+              "descriptionKey": "ops.fields.confirmLogs.description",
+              "required": true
+            }
+          ],
+          "outputs": [
+            {
+              "key": "source",
+              "type": "string",
+              "labelKey": "ops.fields.source.label"
+            },
+            {
+              "key": "text",
+              "type": "textarea",
+              "labelKey": "ops.fields.logText.label",
+              "sensitive": true
+            },
+            {
+              "key": "container",
+              "type": "string",
+              "labelKey": "ops.fields.container.label"
+            }
+          ],
+          "risk": "read",
+          "permission": "operate",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
           "id": "coolify.exec",
           "titleKey": "ops.exec.title",
           "descriptionKey": "ops.exec.description",
@@ -697,6 +1652,45 @@
               "default": 30
             }
           ],
+          "outputs": [
+            {
+              "key": "hostId",
+              "type": "number",
+              "labelKey": "ops.fields.hostId.label"
+            },
+            {
+              "key": "container",
+              "type": "string",
+              "labelKey": "ops.fields.container.label"
+            },
+            {
+              "key": "exitCode",
+              "type": "number",
+              "labelKey": "ops.fields.exitCode.label"
+            },
+            {
+              "key": "timedOut",
+              "type": "boolean",
+              "labelKey": "ops.fields.timedOut.label"
+            },
+            {
+              "key": "truncated",
+              "type": "boolean",
+              "labelKey": "ops.fields.truncated.label"
+            },
+            {
+              "key": "stdout",
+              "type": "textarea",
+              "labelKey": "ops.fields.stdout.label",
+              "sensitive": true
+            },
+            {
+              "key": "stderr",
+              "type": "textarea",
+              "labelKey": "ops.fields.stderr.label",
+              "sensitive": true
+            }
+          ],
           "risk": "destructive",
           "permission": "operate",
           "timeoutMs": 150000,
@@ -705,12 +1699,211 @@
             "mcp": false
           }
         }
+      ],
+      "resources": [
+        {
+          "id": "coolify.resource",
+          "titleKey": "ops.resource.title",
+          "icon": "Boxes",
+          "list": "coolify.list-resources",
+          "key": "uuid",
+          "name": "name",
+          "status": "status",
+          "url": "fqdn",
+          "tab": "coolify",
+          "columns": [
+            {
+              "key": "kind",
+              "titleKey": "ops.resource.columns.kind",
+              "type": "text"
+            },
+            {
+              "key": "status",
+              "titleKey": "ops.resource.columns.status",
+              "type": "status"
+            },
+            {
+              "key": "fqdn",
+              "titleKey": "ops.resource.columns.fqdn",
+              "type": "text"
+            }
+          ]
+        }
+      ],
+      "signals": [
+        {
+          "id": "coolify.degraded",
+          "titleKey": "ops.signals.degraded",
+          "read": "coolify.signal-degraded",
+          "scope": "host",
+          "kind": "count",
+          "refreshSec": 60
+        },
+        {
+          "id": "coolify.server",
+          "titleKey": "ops.signals.server",
+          "read": "coolify.signal-server",
+          "scope": "host",
+          "kind": "status",
+          "refreshSec": 60,
+          "fix": "coolify.sync-host"
+        },
+        {
+          "id": "coolify.updates",
+          "titleKey": "ops.signals.updates",
+          "read": "coolify.signal-updates",
+          "scope": "host",
+          "kind": "count",
+          "refreshSec": 300
+        },
+        {
+          "id": "coolify.deploying",
+          "titleKey": "ops.signals.deploying",
+          "read": "coolify.signal-deploying",
+          "scope": "server",
+          "kind": "count",
+          "refreshSec": 30
+        }
+      ],
+      "events": [
+        {
+          "id": "coolify.deployment-finished",
+          "titleKey": "ops.events.deploymentFinished.title",
+          "descriptionKey": "ops.events.deploymentFinished.description",
+          "severity": "info",
+          "scope": "server",
+          "payload": [
+            {
+              "key": "connectionId",
+              "type": "number",
+              "labelKey": "ops.fields.connectionId.label"
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.uuid.label"
+            },
+            {
+              "key": "name",
+              "type": "string",
+              "labelKey": "ops.events.fields.name"
+            },
+            {
+              "key": "deploymentUuid",
+              "type": "string",
+              "labelKey": "ops.events.fields.deploymentUuid"
+            },
+            {
+              "key": "status",
+              "type": "string",
+              "labelKey": "ops.events.fields.status"
+            }
+          ]
+        },
+        {
+          "id": "coolify.deployment-failed",
+          "titleKey": "ops.events.deploymentFailed.title",
+          "descriptionKey": "ops.events.deploymentFailed.description",
+          "severity": "warning",
+          "scope": "server",
+          "payload": [
+            {
+              "key": "connectionId",
+              "type": "number",
+              "labelKey": "ops.fields.connectionId.label"
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.uuid.label"
+            },
+            {
+              "key": "name",
+              "type": "string",
+              "labelKey": "ops.events.fields.name"
+            },
+            {
+              "key": "deploymentUuid",
+              "type": "string",
+              "labelKey": "ops.events.fields.deploymentUuid"
+            },
+            {
+              "key": "status",
+              "type": "string",
+              "labelKey": "ops.events.fields.status"
+            }
+          ]
+        },
+        {
+          "id": "coolify.container-restarted",
+          "titleKey": "ops.events.containerRestarted.title",
+          "descriptionKey": "ops.events.containerRestarted.description",
+          "severity": "warning",
+          "scope": "host",
+          "payload": [
+            {
+              "key": "connectionId",
+              "type": "number",
+              "labelKey": "ops.fields.connectionId.label"
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.uuid.label"
+            },
+            {
+              "key": "name",
+              "type": "string",
+              "labelKey": "ops.events.fields.name"
+            }
+          ]
+        },
+        {
+          "id": "coolify.server-unreachable",
+          "titleKey": "ops.events.serverUnreachable.title",
+          "descriptionKey": "ops.events.serverUnreachable.description",
+          "severity": "critical",
+          "scope": "host",
+          "payload": [
+            {
+              "key": "connectionId",
+              "type": "number",
+              "labelKey": "ops.fields.connectionId.label"
+            },
+            {
+              "key": "serverUuid",
+              "type": "string",
+              "labelKey": "ops.fields.serverUuid.label"
+            },
+            {
+              "key": "name",
+              "type": "string",
+              "labelKey": "ops.events.fields.name"
+            }
+          ]
+        }
+      ],
+      "invokes": [
+        "package-manager.list-updates",
+        "package-manager.upgrade-all",
+        "dns.list-zones",
+        "dns.upsert-record",
+        "dns.delete-record",
+        "uptime.monitors",
+        "uptime.pause",
+        "uptime.resume",
+        "log-search.search",
+        "security-center.status",
+        "security-center.critical-vulns",
+        "databases.list-connections",
+        "backups.failed"
       ]
     },
     "mobile": {
       "mode": "webview",
       "views": ["coolify", "coolify-shell"]
-    }
+    },
+    "uses": ["terminal.view"]
   },
   "locales": "locales",
   "platforms": ["linux", "win32", "darwin"]

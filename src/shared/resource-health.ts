@@ -20,7 +20,7 @@ export interface ResourceCounts {
   deploying: number;
 }
 
-const DEGRADED = new Set(["exited", "degraded", "restarting", "dead"]);
+const DEGRADED = new Set(["degraded", "restarting", "dead", "unhealthy"]);
 const DEPLOYING = new Set([
   "starting",
   "deploying",
@@ -30,7 +30,9 @@ const DEPLOYING = new Set([
 ]);
 
 /**
- * Exited and unhealthy count as degraded. Running (healthy or unknown) is
+ * Exited is stopped, whatever its health suffix: Coolify reports a resource
+ * you stopped yourself as exited, so it isn't a fault. Degraded, restarting,
+ * dead and unhealthy count as degraded. Running (healthy or unknown) is
  * running. Starting and build states are deploying. Anything else, like
  * "stopped", "paused" or a missing status, is stopped.
  */
@@ -42,6 +44,7 @@ export function resourceHealth(
     .toLowerCase()
     .split(":");
   if (DEPLOYING.has(state)) return "deploying";
+  if (state === "exited") return "stopped";
   if (DEGRADED.has(state) || health === "unhealthy") return "degraded";
   if (state === "running") return "running";
   return "stopped";

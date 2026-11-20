@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { vi } from "vitest";
 import type {
   PluginSshExecOptions,
@@ -33,8 +34,16 @@ export interface DockerHost {
   bash?: boolean;
   /** Throw core's unknown host key error instead of running anything. */
   hostKey?: boolean;
-  /** Answers a command run in a container (coolify.exec), with its stdin. */
-  exec?: (command: string, stdin: string | undefined) => PluginSshExecResult;
+  /** What `docker logs` prints. */
+  logs?: string;
+  /**
+   * Answers a command run in a container (coolify.exec) over ctx.ssh.connect,
+   * with its stdin; "hang" never answers, until the channel is killed.
+   */
+  exec?: (
+    command: string,
+    stdin: string | undefined,
+  ) => PluginSshExecResult | "hang";
 }
 
 function result(stdout: string, code = 0): PluginSshExecResult {
@@ -66,15 +75,107 @@ export function fakeDocker(harness: PluginHarness, host: DockerHost) {
         }
         return result("");
       }
+      if (/docker logs /.test(command)) {
+        return result(host.logs ?? "");
+      }
       if (/command -v bash/.test(command)) {
         return host.bash === false ? result("", 1) : result("/bin/bash\n");
       }
-      if (/docker exec -i /.test(command) && host.exec) {
-        return host.exec(command, options?.stdin);
-      }
       return result("", 127);
     });
-  return { exec, commands, calls };
+  const channels: FakeChannel[] = [];
+  const dispose = vi.fn();
+  // Only for coolify.exec, so a test's own ctx.ssh.connect fake stays.
+  const connect = vi.spyOn(harness.mock.ctx.ssh, "connect");
+  if (host.exec) {
+    connect.mockImplementation(async () => {
+      if (host.hostKey) throw hostKeyError();
+      const client = {
+        exec(
+          command: string,
+          options: unknown,
+          callback: (err: Error | undefined, stream: FakeChannel) => void,
+        ) {
+          commands.push(command);
+          const call: { command: string; options?: PluginSshExecOptions } = {
+            command,
+            options: {},
+          };
+          calls.push(call);
+          const channel = new FakeChannel(options);
+          channels.push(channel);
+          channel.onEnd = (stdin) => {
+            call.options = { stdin };
+            const answer = host.exec
+              ? host.exec(command, stdin)
+              : result("", 127);
+            if (answer === "hang") return;
+            if (answer.stdout) channel.emit("data", Buffer.from(answer.stdout));
+            if (answer.stderr) {
+              channel.stderr.emit("data", Buffer.from(answer.stderr));
+            }
+            channel.emit("exit", answer.code);
+            channel.close();
+          };
+          callback(undefined, channel);
+          return true;
+        },
+      };
+      return {
+        client,
+        jumpClient: null,
+        host: { id: HOST_ID, ip: "203.0.113.5", port: 22, username: "deploy" },
+        dispose,
+      } as never;
+    });
+  }
+  return { exec, commands, calls, connect, channels, dispose };
+}
+
+function hostKeyError(): Error {
+  const err = new Error(
+    "HOST_KEY_UNVERIFIED: open a terminal to this host once",
+  ) as Error & { code: string };
+  err.code = "HOST_KEY_UNVERIFIED";
+  return err;
+}
+
+/** Stands in for an ssh2 exec channel opened by coolify.exec. */
+export class FakeChannel extends EventEmitter {
+  stderr = new EventEmitter();
+  signals: string[] = [];
+  closed = false;
+  onEnd: ((stdin: string | undefined) => void) | null = null;
+  constructor(readonly options: unknown) {
+    super();
+  }
+  signal(name: string) {
+    this.signals.push(name);
+  }
+  end(data?: string | Buffer) {
+    this.onEnd?.(data === undefined ? undefined : String(data));
+  }
+  close() {
+    if (this.closed) return;
+    this.closed = true;
+    this.emit("close");
+  }
+}
+
+/** Sets whether the stored probe found read:sensitive on the token. */
+export function setSensitive(
+  harness: PluginHarness,
+  connectionId: number,
+  sensitive: boolean,
+): void {
+  const row = harness.db.sqlite
+    .prepare("SELECT abilities FROM p_coolify_connections WHERE id = ?")
+    .get(connectionId) as { abilities: string };
+  const stored = JSON.parse(row.abilities);
+  stored.abilities = { ...stored.abilities, sensitive };
+  harness.db.sqlite
+    .prepare("UPDATE p_coolify_connections SET abilities = ? WHERE id = ?")
+    .run(JSON.stringify(stored), connectionId);
 }
 
 /** A plugin with one connection whose server srv-vps1-uuid has a Linked host. */

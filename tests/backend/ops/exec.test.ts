@@ -21,6 +21,11 @@ import {
   handleMcp,
   MCP_CHANGES_EXEMPT,
 } from "../../../src/backend/mcp/server.js";
+import {
+  EXEC_RATE_PER_MINUTE,
+  readExecRequest,
+} from "../../../src/backend/containers/exec.js";
+import { MAX_LINE } from "../../../src/backend/containers/logs.js";
 
 let harness: PluginHarness | null = null;
 
@@ -199,10 +204,8 @@ describe("coolify.exec", () => {
       method: "tools/call",
       params: { name: "coolify__exec", arguments: args },
     });
-    expect(run.mock.calls[0]).toEqual([
-      "coolify.exec",
-      expect.not.objectContaining({ confirmed: true }),
-    ]);
+    // Without confirmed it never reaches core.
+    expect(run).not.toHaveBeenCalled();
     await handleMcp(ctx, {
       jsonrpc: "2.0",
       id: 2,
@@ -212,34 +215,31 @@ describe("coolify.exec", () => {
         arguments: { ...args, confirmed: true },
       },
     });
-    expect(run.mock.calls[1]).toEqual([
+    expect(run.mock.calls[0]).toEqual([
       "coolify.exec",
       expect.objectContaining({ confirmed: true }),
     ]);
   });
 
-  it("timeout capped at 120s", async () => {
-    const { h, id, docker } = await start();
+  it("timeout capped at 120s", () => {
     for (const [asked, expected] of [
-      [999, 120_000],
-      [5, 5_000],
-      [undefined, 30_000],
+      [999, 120],
+      [5, 5],
+      [0, 1],
+      [undefined, 30],
     ] as const) {
-      await h.mock.ctx.operations.run("coolify.exec", {
-        input: {
-          connectionId: id,
-          uuid: WEB,
+      expect(
+        readExecRequest({
           command: "sleep 1",
           ...(asked === undefined ? {} : { timeoutSec: asked }),
-        },
-      });
-      expect(execCalls(docker).at(-1)!.options?.timeoutMs).toBe(expected);
+        }).timeoutSec,
+      ).toBe(expected);
     }
   });
 
   it("output truncated at 64KB", async () => {
     const big = "a".repeat(70 * 1024);
-    const { runs, id, docker } = await start({
+    const { runs, id } = await start({
       docker: { exec: () => ran(big, { stderr: "warning\n" }) },
     });
     const outcome = await runs.run("coolify.exec", {
@@ -254,10 +254,10 @@ describe("coolify.exec", () => {
     };
     expect(
       Buffer.byteLength(data.stdout) + Buffer.byteLength(data.stderr),
-    ).toBeLessThanOrEqual(64 * 1024);
-    expect(data.stdout).toBe("a".repeat(64 * 1024));
+    ).toBe(64 * 1024);
+    // A line longer than 16 KB comes back in pieces, one per line.
+    expect(data.stdout).toMatch(/^[a\n]+$/);
     expect(data.truncated).toBe(true);
-    expect(execCalls(docker)[0].options?.maxOutputBytes).toBe(128 * 1024);
   });
 
   it("command is passed quoted or on stdin, never interpolated", async () => {
@@ -472,6 +472,7 @@ describe("coolify.exec", () => {
       ).rejects.toThrow();
       h.mock.setActor(OWNER);
       expect(docker.commands, c.name).toEqual([]);
+      expect(docker.connect, c.name).not.toHaveBeenCalled();
       vi.restoreAllMocks();
       await h.close();
       harness = null;
@@ -550,5 +551,293 @@ describe("coolify.connection-set-exec", () => {
       execEnabled: "yes",
     });
     expect(bad.status).toBe(400);
+  });
+
+  it("toggling needs coolify.configure, even for the owner", async () => {
+    const { h, id, runs, connectionId } = await start({ execEnabled: false });
+    vi.spyOn(h.mock.ctx.rbac, "has").mockImplementation(
+      async (p) => !/configure$/.test(p),
+    );
+    await expect(
+      runs.run("coolify.connection-set-exec", {
+        connectionId: id,
+        execEnabled: true,
+      }),
+    ).rejects.toThrow();
+    const res = await h.request("PATCH", `/connections/${id}`, {
+      execEnabled: true,
+    });
+    expect(res.status).toBe(403);
+    const row = h.db.sqlite
+      .prepare("SELECT exec_enabled FROM p_coolify_connections WHERE id = ?")
+      .get(connectionId) as { exec_enabled: number };
+    expect(row.exec_enabled).toBe(0);
+  });
+});
+
+/** The handler as core calls it, with a signal the test controls. */
+function handler(h: PluginHarness, signal: AbortSignal) {
+  const found = h.mock.operationHandlers.get("coolify.exec")!;
+  return (input: Record<string, unknown>) =>
+    Promise.resolve(
+      found.run(input, { runId: null, dryRun: false, signal, log: () => {} }),
+    );
+}
+
+function setBaseUrl(h: PluginHarness, connectionId: number) {
+  h.db.sqlite
+    .prepare(
+      "UPDATE p_coolify_connections SET base_url = 'https://other.example.test' WHERE id = ?",
+    )
+    .run(connectionId);
+}
+
+describe("coolify.exec hardening", () => {
+  it("over MCP exec is refused without confirmed, before it runs", async () => {
+    const { h, id } = await start({
+      settings: { allowExec: true, allowMcpChanges: true },
+    });
+    const run = vi.fn(async () => ({ runId: "r1", status: "success" }));
+    const ctx = new Proxy(h.mock.ctx, {
+      get: (target, prop) =>
+        prop === "operations" ? { run } : Reflect.get(target, prop),
+    });
+    const answer = await handleMcp(ctx, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "coolify__exec",
+        arguments: { connectionId: id, uuid: WEB, command: "ls" },
+      },
+    });
+    const result = answer!.result as {
+      isError: boolean;
+      content: { text: string }[];
+    };
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).errorCode).toBe(
+      "confirm-required",
+    );
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("runs over ctx.ssh.connect with the command on stdin only", async () => {
+    const { runs, id, docker } = await start();
+    const outcome = await runs.run("coolify.exec", {
+      connectionId: id,
+      uuid: WEB,
+      command: "echo $(id); rm -rf /tmp/x",
+    });
+    expect(outcome.data).toMatchObject({ exitCode: 0, stdout: "hello\n" });
+    expect(docker.connect).toHaveBeenCalledWith(HOST_ID, expect.anything());
+    expect(docker.channels).toHaveLength(1);
+    expect(docker.channels[0].options).toMatchObject({ pty: false });
+    const call = execCalls(docker)[0];
+    expect(call.command).toBe("docker exec -i web-abc sh -s");
+    expect(call.options?.stdin).toBe("echo $(id); rm -rf /tmp/x");
+    expect(docker.dispose).toHaveBeenCalled();
+  });
+
+  it("a target change before connect ends with target-changed and sends nothing", async () => {
+    const { h, id, docker, connectionId } = await start();
+    const fallback = docker.exec.getMockImplementation()!;
+    // The address changes while docker ps runs, after locate's own check.
+    docker.exec.mockImplementation(async (target, command, options) => {
+      if (/docker ps /.test(command)) setBaseUrl(h, connectionId);
+      return fallback(target, command, options);
+    });
+    await expect(
+      h.mock.ctx.operations.run("coolify.exec", {
+        input: { connectionId: id, uuid: WEB, command: "ls" },
+      }),
+    ).rejects.toThrow(/changed/i);
+    expect(docker.connect).not.toHaveBeenCalled();
+    expect(execCalls(docker)).toEqual([]);
+  });
+
+  it("a target change after connect ends with target-changed before the exec is written", async () => {
+    const { h, id, docker, connectionId } = await start();
+    const connect = docker.connect.getMockImplementation()!;
+    docker.connect.mockImplementation(async (...args) => {
+      const opened = await connect(...args);
+      setBaseUrl(h, connectionId);
+      return opened;
+    });
+    await expect(
+      h.mock.ctx.operations.run("coolify.exec", {
+        input: { connectionId: id, uuid: WEB, command: "ls" },
+      }),
+    ).rejects.toThrow(/changed/i);
+    expect(docker.connect).toHaveBeenCalled();
+    expect(execCalls(docker)).toEqual([]);
+    expect(docker.dispose).toHaveBeenCalled();
+  });
+
+  it("the timeout kills the remote process and closes the session", async () => {
+    const { runs, id, docker } = await start({
+      docker: { exec: () => "hang" },
+    });
+    const outcome = await runs.run("coolify.exec", {
+      connectionId: id,
+      uuid: WEB,
+      command: "sleep 600",
+      timeoutSec: 1,
+    });
+    expect(outcome.data).toMatchObject({ timedOut: true, exitCode: null });
+    expect(docker.channels[0].signals).toContain("KILL");
+    expect(docker.channels[0].closed).toBe(true);
+    expect(docker.dispose).toHaveBeenCalled();
+  });
+
+  it("an abort kills the remote process and closes the session", async () => {
+    const { h, id, docker } = await start({ docker: { exec: () => "hang" } });
+    const abort = new AbortController();
+    const running = handler(
+      h,
+      abort.signal,
+    )({ connectionId: id, uuid: WEB, command: "sleep 600", timeoutSec: 60 });
+    await vi.waitFor(() => expect(docker.channels).toHaveLength(1));
+    abort.abort();
+    await expect(running).rejects.toThrow(/cancel/i);
+    expect(docker.channels[0].signals).toContain("KILL");
+    expect(docker.channels[0].closed).toBe(true);
+    expect(docker.dispose).toHaveBeenCalled();
+  });
+
+  it("one exec per actor per resource at a time", async () => {
+    let hang = true;
+    const { h, id, docker } = await start({
+      docker: { exec: () => (hang ? "hang" : ran("ok\n")) },
+    });
+    const abort = new AbortController();
+    const first = handler(
+      h,
+      abort.signal,
+    )({ connectionId: id, uuid: WEB, command: "sleep 600", timeoutSec: 60 });
+    await vi.waitFor(() => expect(docker.channels).toHaveLength(1));
+    await expect(
+      h.mock.ctx.operations.run("coolify.exec", {
+        input: { connectionId: id, uuid: WEB, command: "ls" },
+      }),
+    ).rejects.toThrow(/already running/i);
+    expect(docker.channels).toHaveLength(1);
+    abort.abort();
+    await expect(first).rejects.toThrow();
+    hang = false;
+    const next = await h.mock.ctx.operations.run("coolify.exec", {
+      input: { connectionId: id, uuid: WEB, command: "ls" },
+    });
+    expect(next.data).toMatchObject({ stdout: "ok\n" });
+  });
+
+  it("an actor's runs are rate limited", async () => {
+    const { h, id, docker } = await start();
+    const run = () =>
+      h.mock.ctx.operations.run("coolify.exec", {
+        input: { connectionId: id, uuid: WEB, command: "ls" },
+      });
+    for (let i = 0; i < EXEC_RATE_PER_MINUTE; i += 1) await run();
+    const before = docker.commands.length;
+    await expect(run()).rejects.toThrow(/too many/i);
+    expect(docker.commands).toHaveLength(before);
+  });
+
+  it("invalidates the resources and server status caches", async () => {
+    const { h, id, runs, connectionId } = await start();
+    h.db.sqlite
+      .prepare(
+        "INSERT INTO p_coolify_cache (connection_id, kind, json, fetched_at) VALUES (?, 'servers', '{}', CURRENT_TIMESTAMP)",
+      )
+      .run(connectionId);
+    await runs.run("coolify.exec", {
+      connectionId: id,
+      uuid: WEB,
+      command: "ls",
+    });
+    const kinds = (
+      h.db.sqlite
+        .prepare("SELECT kind FROM p_coolify_cache WHERE connection_id = ?")
+        .all(connectionId) as { kind: string }[]
+    ).map((r) => r.kind);
+    expect(kinds).not.toContain("resources");
+    expect(kinds).not.toContain("servers");
+  });
+
+  it("the audit holds only lengths and the exit code", async () => {
+    const { h, runs, id } = await start({
+      docker: { exec: () => ran("out\n", { stderr: "err!\n", code: 3 }) },
+    });
+    await runs.run("coolify.exec", {
+      connectionId: id,
+      uuid: WEB,
+      command: "secret-command-text",
+    });
+    const audit = h.mock.audits.find(
+      (a) => a.action === "coolify_container_exec",
+    )!;
+    expect(JSON.parse(String(audit.details))).toEqual({
+      commandLength: "secret-command-text".length,
+      stdoutLength: 4,
+      stderrLength: 5,
+      exitCode: 3,
+    });
+    expect(JSON.stringify(h.mock.audits)).not.toContain("secret-command-text");
+    expect(JSON.stringify(h.mock.audits)).not.toContain("err!");
+  });
+
+  it("run history keeps no output; the MCP caller gets it once", async () => {
+    const { h, runs, id } = await start({
+      docker: {
+        exec: () => ran("visible-output\n", { stderr: "warn-text\n" }),
+      },
+    });
+    await runs.run("coolify.exec", {
+      connectionId: id,
+      uuid: WEB,
+      command: "ls",
+    });
+    const kept = JSON.stringify(runs.history);
+    expect(kept).not.toContain("visible-output");
+    expect(kept).not.toContain("warn-text");
+
+    await h.mock.ctx.settings.set("allowMcpChanges", true);
+    const answer = await handleMcp(h.mock.ctx, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "coolify__exec",
+        arguments: {
+          connectionId: id,
+          uuid: WEB,
+          command: "ls",
+          confirmed: true,
+        },
+      },
+    });
+    const text = (answer!.result as { content: { text: string }[] }).content[0]
+      .text;
+    expect(JSON.parse(text).data).toMatchObject({
+      stdout: "visible-output\n",
+      stderr: "warn-text\n",
+    });
+  });
+
+  it("output is masked with the connection's own secrets, also in long lines", async () => {
+    const token = "fake-token-shell-test";
+    const long = `${"x".repeat(MAX_LINE - 10)} DB_PASSWORD=fake-long-line-secret ${"y".repeat(MAX_LINE)}`;
+    const { runs, id } = await start({
+      docker: { exec: () => ran(`token is ${token}\n${long}\n`) },
+    });
+    const outcome = await runs.run("coolify.exec", {
+      connectionId: id,
+      uuid: WEB,
+      command: "env",
+    });
+    const text = JSON.stringify(outcome.data);
+    expect(text).not.toContain(token);
+    expect(text).not.toContain("fake-long-line-secret");
+    expect(text).toContain(REDACTED_VALUE);
   });
 });

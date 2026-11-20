@@ -1,8 +1,9 @@
 import { REDACTED_VALUE } from "@termix-ssh/plugin-sdk/operations";
+import { RAW_FIELDS, SECRET_FIELDS } from "./coolify/generated/schemas.js";
 
 /** Keys whose value is a secret, at any depth (the design's "Redaction"). */
 const SECRET_KEY =
-  /(token|secret|password|passwd|private_key|api_key|apikey|webhook_secret|value|real_value|license|key_pem|client_secret|dsn)$/i;
+  /(token|secret|password|passwd|private_key|api_key|apikey|webhook_secret|value|real_value|license|key_pem|client_secret|dsn|_key|_db_url)$/i;
 
 /**
  * Text blobs that carry env values or credentials inside them: compose files,
@@ -12,21 +13,96 @@ const SECRET_KEY =
 const BLOB_KEY =
   /^(docker_compose_raw|docker_compose|custom_labels|dockerfile|logdrain_.+_config)$/i;
 
+/** Keys holding a URL with credentials in it: kept as a URL, password masked. */
+const URL_KEY = /_url$/i;
+
+/**
+ * A URL's `scheme://user:` before the password and its `@`. The scheme
+ * starts where a scheme character doesn't precede it and is at most 64
+ * long, so a long run of letters is scanned once, not from every position.
+ */
+const USERINFO =
+  /(?<![a-z0-9+.-])([a-z][a-z0-9+.-]{0,63}:\/\/[^\s/?#@:]*:)[^\s/?#]*@/gi;
+
+/** A query parameter whose name says it carries a credential. */
+const SECRET_QUERY =
+  /([?&;][\w.-]*(?:password|passwd|pwd|token|secret|key|signature|sig|auth)=)[^&#\s]+/gi;
+
 function masked(key: string): boolean {
-  return SECRET_KEY.test(key) || BLOB_KEY.test(key);
+  return (
+    SECRET_KEY.test(key) ||
+    BLOB_KEY.test(key) ||
+    SECRET_FIELDS.has(key) ||
+    // Raw config, Compose, scripts and env text, by the specs' descriptions.
+    RAW_FIELDS.has(key)
+  );
+}
+
+/**
+ * Masks the credentials inside a string, wherever a URL holds them: the
+ * userinfo password and credential query parameters. The rest stays.
+ */
+export function maskCredentials(text: string): string {
+  return text
+    .replace(USERINFO, `$1${REDACTED_VALUE}@`)
+    .replace(SECRET_QUERY, `$1${REDACTED_VALUE}`);
+}
+
+function isUrl(text: string): boolean {
+  try {
+    new URL(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A secret key's value: a URL keeps its shape with its credentials masked. */
+function maskedValue(key: string, value: unknown): unknown {
+  if (URL_KEY.test(key) && typeof value === "string" && isUrl(value)) {
+    return maskCredentials(value);
+  }
+  return REDACTED_VALUE;
+}
+
+/**
+ * A copy of `value` with every non-null value under one of `keys` masked, at
+ * any depth: an operation's log and output fields.
+ */
+export function maskKeys(value: unknown, keys: readonly string[]): unknown {
+  if (!keys.length || value === null || typeof value !== "object") {
+    return value;
+  }
+  if (Array.isArray(value)) return value.map((item) => maskKeys(item, keys));
+  return Object.fromEntries(
+    Object.entries(value).map(([key, inner]) => [
+      key,
+      keys.includes(key) && inner !== null && inner !== undefined
+        ? REDACTED_VALUE
+        : maskKeys(inner, keys),
+    ]),
+  );
+}
+
+/** Whether a redacted value hides something (whole, or inside a URL). */
+export function isMasked(value: unknown): boolean {
+  return typeof value === "string" && value.includes(REDACTED_VALUE);
 }
 
 /**
  * Returns a copy of `value` with every secret masked, at any depth. Used for
  * every generic output: operation data, MCP tool results and the API console.
- * Null stays null, so "not set" still reads as not set. The input is not
- * changed.
+ * Secret keys (by name, or described as a password or secret by a vendored
+ * spec) are masked, and every other string has the credentials inside any URL
+ * masked. Null stays null, so "not set" still reads as not set. The input is
+ * not changed.
  */
 export function redact(value: unknown): unknown {
   return walk(value, new WeakSet());
 }
 
 function walk(value: unknown, seen: WeakSet<object>): unknown {
+  if (typeof value === "string") return maskCredentials(value);
   if (value === null || typeof value !== "object") return value;
   if (seen.has(value)) return REDACTED_VALUE;
   seen.add(value);
@@ -39,119 +115,9 @@ function walk(value: unknown, seen: WeakSet<object>): unknown {
   for (const [key, inner] of Object.entries(value)) {
     out[key] =
       masked(key) && inner !== null && inner !== undefined
-        ? REDACTED_VALUE
+        ? maskedValue(key, inner)
         : walk(inner, seen);
   }
   seen.delete(value);
   return out;
-}
-
-/*
- * The text redactor works one line at a time (the text is split on "\n", so
- * no pattern ever sees a newline) and every pattern is linear: no `\s` that
- * could cross a line, no nested quantifiers, and no two adjacent unbounded
- * quantifiers over overlapping characters. Names are bounded to 128
- * characters. A JSON string value and a key block are scanned by hand, not
- * by a pattern. Callers still bound the input first (coolify.exec caps each
- * stream at EXEC_RAW_CAP before calling this).
- */
-
-/**
- * The start of `NAME=value`, `export NAME=value` or `NAME: value`, up to the
- * value's first non-blank character. Each part's characters are disjoint
- * from the next part's, so there is one way to match and no backtracking.
- */
-const TEXT_PAIR =
-  /^([ \t]*(?:export[ \t]+)?)([A-Za-z_][A-Za-z0-9_.-]{0,127})([ \t]*[=:][ \t]*)(?=[^ \t])/;
-/** `"name":` then `"`, as JSON prints it; the value is scanned by hand. */
-const JSON_KEY = /"([A-Za-z0-9_.-]{1,128})"[ \t]*:[ \t]*"/g;
-const PEM_BEGIN = "-----BEGIN ";
-const PEM_TAIL = "PRIVATE KEY-----";
-/** The kind in `-----BEGIN <kind>PRIVATE KEY-----`, like "RSA " or "". */
-const PEM_KIND = /^[A-Z0-9 ]{0,40}$/;
-
-/** Where a private key block starts in a line, and its kind. */
-function pemStart(line: string): { index: number; kind: string } | null {
-  let from = 0;
-  for (;;) {
-    const index = line.indexOf(PEM_BEGIN, from);
-    if (index === -1) return null;
-    const head = line.slice(index + PEM_BEGIN.length, index + 64);
-    const tail = head.indexOf(PEM_TAIL);
-    if (tail !== -1 && PEM_KIND.test(head.slice(0, tail))) {
-      return { index, kind: head.slice(0, tail) };
-    }
-    from = index + PEM_BEGIN.length;
-  }
-}
-
-/** The end of a JSON string whose content starts at `from`: its closing quote, or the line's end. */
-function stringEnd(line: string, from: number): number {
-  let i = from;
-  while (i < line.length && line[i] !== '"') i += line[i] === "\\" ? 2 : 1;
-  return Math.min(i, line.length);
-}
-
-/** Masks `"secret_name": "value"` in one line; a value cut at the line's end is masked too. */
-function maskJson(line: string): string {
-  let out = "";
-  let last = 0;
-  JSON_KEY.lastIndex = 0;
-  for (let m = JSON_KEY.exec(line); m; m = JSON_KEY.exec(line)) {
-    const start = m.index + m[0].length;
-    const end = stringEnd(line, start);
-    if (masked(m[1])) {
-      out += line.slice(last, start) + REDACTED_VALUE;
-      last = end;
-    }
-    JSON_KEY.lastIndex = Math.max(end + 1, start);
-  }
-  return out + line.slice(last);
-}
-
-/** One line without a key block: JSON pairs, then a `NAME=value` line. */
-function maskLine(line: string): string {
-  const json = line.includes('"') ? maskJson(line) : line;
-  const pair = TEXT_PAIR.exec(json);
-  if (!pair || !masked(pair[2])) return json;
-  const cr = json.endsWith("\r") ? "\r" : "";
-  return `${pair[0]}${REDACTED_VALUE}${cr}`;
-}
-
-/**
- * The text form of {@link redact}, for command output: values of names the
- * redactor masks (`POSTGRES_PASSWORD=…`, `"client_secret": "…"`) and private
- * key blocks are replaced, including a block whose END was cut off. Everything
- * else is kept as it is. Linear in the length of `text`.
- */
-export function redactText(text: string): string {
-  const out: string[] = [];
-  let open: string | null = null;
-  for (const line of text.split("\n")) {
-    if (open !== null) {
-      const end = `-----END ${open}${PEM_TAIL}`;
-      const at = line.indexOf(end);
-      if (at === -1) continue;
-      out.push(end + maskLine(line.slice(at + end.length)));
-      open = null;
-      continue;
-    }
-    const start = pemStart(line);
-    if (!start) {
-      out.push(maskLine(line));
-      continue;
-    }
-    const begin = `${PEM_BEGIN}${start.kind}${PEM_TAIL}`;
-    out.push(maskLine(line.slice(0, start.index)) + begin, REDACTED_VALUE);
-    const rest = line.slice(start.index + begin.length);
-    const end = `-----END ${start.kind}${PEM_TAIL}`;
-    const at = rest.indexOf(end);
-    if (at === -1) {
-      open = start.kind;
-    } else {
-      out.push(end + maskLine(rest.slice(at + end.length)));
-    }
-  }
-  if (open !== null) out.push(`-----END ${open}${PEM_TAIL}`);
-  return out.join("\n");
 }

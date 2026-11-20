@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { REDACTED_VALUE } from "@termix-ssh/plugin-sdk/operations";
-import { redact, redactText } from "../../src/backend/redact.js";
+import { redact } from "../../src/backend/redact.js";
 
 const FAKES = [
   "fake-token-redact",
@@ -104,59 +104,70 @@ describe("redact", () => {
   });
 });
 
-describe("redactText", () => {
-  it("masks secret-looking names, JSON pairs and private key blocks", () => {
-    const out = redactText(
-      [
-        "PATH=/usr/bin",
-        "  export API_TOKEN = fake-token-text",
-        "DB_PASSWORD: fake-pass-text",
-        '{"client_secret": "fake-json-text", "name": "web"}',
-        "-----BEGIN RSA PRIVATE KEY-----",
-        "fake-key-body-text",
-        "-----END RSA PRIVATE KEY-----",
-        "after",
-      ].join("\n"),
-    );
-    for (const fake of [
-      "fake-token-text",
-      "fake-pass-text",
-      "fake-json-text",
-      "fake-key-body-text",
-    ]) {
-      expect(out).not.toContain(fake);
-    }
-    expect(out).toContain("PATH=/usr/bin");
-    expect(out).toContain(`API_TOKEN = ${REDACTED_VALUE}`);
-    expect(out).toContain('"name": "web"');
-    expect(out).toContain("-----END RSA PRIVATE KEY-----\nafter");
+describe("redact: credentials inside values", () => {
+  const PW = "fake-db-password-redact";
+
+  it("masks a URL's userinfo password in any field, at any depth", () => {
+    const out = redact({
+      note: { list: [`see postgres://admin:${PW}@db:5432/app for it`] },
+    });
+    expect(JSON.stringify(out)).not.toContain(PW);
+    expect(out).toEqual({
+      note: {
+        list: [`see postgres://admin:${REDACTED_VALUE}@db:5432/app for it`],
+      },
+    });
   });
 
-  it("masks a private key block whose END was cut off", () => {
-    const out = redactText(
-      "ok\n-----BEGIN OPENSSH PRIVATE KEY-----\nfake-cut-key-body\nmore",
-    );
-    expect(out).not.toContain("fake-cut-key-body");
-    expect(out).not.toContain("more");
-    expect(out.startsWith("ok\n")).toBe(true);
+  it("masks credential query parameters and keeps the others", () => {
+    expect(
+      redact({ link: `https://x.test/a?token=${PW}&page=2&Password=${PW}` }),
+    ).toEqual({
+      link: `https://x.test/a?token=${REDACTED_VALUE}&page=2&Password=${REDACTED_VALUE}`,
+    });
+    expect(redact({ link: `https://x.test/a?key=${PW}` })).toEqual({
+      link: `https://x.test/a?key=${REDACTED_VALUE}`,
+    });
   });
 
-  it("redactText stays linear on 1 MB of whitespace and blank lines", () => {
-    const MB = 1024 * 1024;
-    const inputs = [
-      " \t \n\n\n".repeat(MB / 6),
-      `A${" ".repeat(MB)}`,
-      `${" ".repeat(MB / 2)}\n${"\n".repeat(MB / 2)}x=`,
-      `${" \n".repeat(MB / 2)}=`,
-      `export ${"\t".repeat(MB)}`,
-      `"a": ${" ".repeat(MB)}`,
-      `"${"a".repeat(MB)}`,
-      "-----BEGIN ".repeat(MB / 11),
-    ];
-    for (const input of inputs) {
-      const started = performance.now();
-      redactText(input);
-      expect(performance.now() - started).toBeLessThan(200);
-    }
+  it("keeps a *_db_url as a URL with its password masked; an unparsable one is masked whole", () => {
+    expect(
+      redact({
+        internal_db_url: `postgres://postgres:${PW}@db-uuid:5432/postgres`,
+        external_db_url: "not a url",
+      }),
+    ).toEqual({
+      internal_db_url: `postgres://postgres:${REDACTED_VALUE}@db-uuid:5432/postgres`,
+      external_db_url: REDACTED_VALUE,
+    });
+  });
+
+  it.each([
+    "manual_webhook_secret_github",
+    "influxdb_admin_password",
+    "deploy_key",
+    "api_token",
+    "client_secret",
+    "dsn",
+  ])("masks %s (by name or from the vendored schemas)", (key) => {
+    expect(redact({ [key]: PW })).toEqual({ [key]: REDACTED_VALUE });
+  });
+
+  it.each([
+    "configuration",
+    "custom_nginx_configuration",
+    "cloud_init_script",
+    "script",
+    "docker_compose",
+    "dockerfile",
+  ])("masks the raw config, Compose or script field %s whole", (key) => {
+    const raw = `services:\n  traefik:\n    environment:\n      - CF_DNS_API_TOKEN=${PW}`;
+    expect(redact({ [key]: raw })).toEqual({ [key]: REDACTED_VALUE });
+  });
+
+  it("leaves plain values and an env var's name alone", () => {
+    expect(
+      redact({ key: "DB_URL", fqdn: "https://app.test/a?page=2", port: 5432 }),
+    ).toEqual({ key: "DB_URL", fqdn: "https://app.test/a?page=2", port: 5432 });
   });
 });

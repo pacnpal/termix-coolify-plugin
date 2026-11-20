@@ -25,7 +25,7 @@ export function connectionIdInput(input: Record<string, unknown>): number {
       ? raw
       : typeof raw === "string" && /^\d{1,15}$/.test(raw)
         ? Number(raw)
-        : NaN;
+        : Number.NaN;
   if (!Number.isSafeInteger(id) || id <= 0) {
     throw new ConnectionError("not-found", "Coolify connection not found");
   }

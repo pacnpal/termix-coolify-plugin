@@ -1,11 +1,7 @@
-import type {
-  PluginContext,
-  PluginSshExecResult,
-} from "@termix-ssh/plugin-sdk/backend";
+import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import type { ResourceDto } from "../coolify/dto.js";
-import type { Connections } from "../connections/service.js";
-import { redactText } from "../redact.js";
-import type { Resources } from "../resources/service.js";
+import { ConnectionError, type Connections } from "../connections/service.js";
+import type { Lifecycle } from "../resources/lifecycle.js";
 import { isHostKeyError, sshRunner, type SshRunner } from "../ssh.js";
 import type { Sync } from "../sync/service.js";
 import {
@@ -25,14 +21,9 @@ export type ContainerErrorCode =
   | "not-running"
   | "container-not-found"
   | "host-key"
-  | "ssh-failed"
-  // coolify.exec: the admin setting or the owner's opt-in is off.
-  | "exec-off"
-  | "forbidden";
+  | "ssh-failed";
 
 const STATUS: Record<ContainerErrorCode, 400 | 403 | 404 | 409 | 502> = {
-  "exec-off": 403,
-  forbidden: 403,
   "invalid-input": 400,
   "not-found": 404,
   "not-linked": 409,
@@ -85,6 +76,28 @@ export interface ShellChoices {
   choices: ContainerChoice[];
 }
 
+type Snapshot = Awaited<ReturnType<Connections["snapshot"]>>;
+
+/** Where a resource's container runs, checked as the actor. */
+export interface ContainerPlace {
+  connectionId: number;
+  /** The one read of the connection every later step is checked against. */
+  snap: Snapshot;
+  serverUuid: string;
+  hostId: number;
+}
+
+export type Located =
+  | { kind: "choices"; choices: ContainerChoice[] }
+  | {
+      kind: "container";
+      res: ResourceDto;
+      where: ContainerPlace;
+      /** Whether docker needs sudo for the SSH user. */
+      sudo: boolean;
+      container: ContainerChoice;
+    };
+
 const UUID = /^[A-Za-z0-9_-]{1,64}$/;
 
 function invalid(message: string): ContainerError {
@@ -124,117 +137,53 @@ export function readShellRequest(body: unknown): ShellRequest {
   return out;
 }
 
-/** coolify.exec output, stdout and stderr together, is cut at this many bytes. */
-export const EXEC_MAX_OUTPUT = 64 * 1024;
-/**
- * Each stream is cut to this many bytes before it is redacted: 64 KB plus a
- * margin, so the redactor's input is always bounded.
- */
-export const EXEC_RAW_CAP = 128 * 1024;
-/** The longest coolify.exec may run, in seconds. */
-export const EXEC_MAX_TIMEOUT_SEC = 120;
-export const EXEC_DEFAULT_TIMEOUT_SEC = 30;
-const EXEC_MAX_COMMAND = 16 * 1024;
-
-export interface ExecRequest {
-  part?: string;
-  container?: string;
-  command: string;
-  /** Between 1 and EXEC_MAX_TIMEOUT_SEC. */
-  timeoutSec: number;
-}
-
-/** What coolify.exec answers. The output is redacted and cut at 64 KB. */
-export interface ExecAnswer {
-  hostId: number;
-  container: string;
-  /** Null when the command was killed or ran out of time. */
-  exitCode: number | null;
-  timedOut: boolean;
-  truncated: boolean;
-  stdout: string;
-  stderr: string;
-}
-
-/**
- * Checks an exec request (an operation input). The timeout is capped at
- * EXEC_MAX_TIMEOUT_SEC whatever was asked.
- */
-export function readExecRequest(body: unknown): ExecRequest {
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    throw invalid("A JSON object is required");
-  }
-  const raw = body as Record<string, unknown>;
-  const { part, container } = readShellRequest({
-    part: raw.part,
-    container: raw.container,
-  });
-  const command = raw.command;
-  if (typeof command !== "string" || !command.trim()) {
-    throw invalid("command is required");
-  }
-  if (command.length > EXEC_MAX_COMMAND) {
-    throw invalid("command is too long");
-  }
-  const asked = raw.timeoutSec;
-  let timeoutSec = EXEC_DEFAULT_TIMEOUT_SEC;
-  if (asked !== undefined && asked !== null && asked !== "") {
-    const n = typeof asked === "string" ? Number(asked) : asked;
-    if (typeof n !== "number" || !Number.isFinite(n)) {
-      throw invalid("timeoutSec must be a number of seconds");
-    }
-    timeoutSec = Math.min(EXEC_MAX_TIMEOUT_SEC, Math.max(1, Math.floor(n)));
-  }
-  return {
-    ...(part ? { part } : {}),
-    ...(container ? { container } : {}),
-    command,
-    timeoutSec,
-  };
-}
-
-/** The longest start of `text` that fits in `max` UTF-8 bytes, whole characters only. */
-function cutBytes(text: string, max: number): string {
-  const bytes = Buffer.from(text, "utf8");
-  if (bytes.length <= max) return text;
-  let end = Math.max(0, max);
-  while (end > 0 && (bytes[end] & 0xc0) === 0x80) end--;
-  return bytes.subarray(0, end).toString("utf8");
-}
-
 export interface ContainersDeps {
   connections: Connections;
-  resources: Resources;
-  sync: Sync;
+  /** Its `authorize` is the access check: the same as lifecycle's. */
+  lifecycle: Pick<Lifecycle, "authorize">;
+  sync: Pick<Sync, "linkedHostFor">;
   /** SSH on a Linked host; ctx.ssh.exec unless a test gives another. */
   run?: SshRunner;
 }
 
 /**
- * Container shells, database consoles and coolify.exec. Everything is
- * checked before any SSH: the connection (owner or any Grant: these need host
- * access, not a grant level), the resource in that connection's list, its
- * server's Linked host and the actor's own access to that host (`connect`
- * for a shell, `edit` to run a command).
+ * Container shells and database consoles. Everything is checked before any
+ * SSH: lifecycle's `authorize` (coolify.operate, the owner or an operate or
+ * configure grant, and a uuid in that connection's own list), its server's
+ * Linked host and the actor's own `connect` access to that host. The whole
+ * answer is about one snapshot of the connection: if its address, token,
+ * Access token or TLS settings change before SSH or before the command is
+ * answered, it ends with target-changed.
  */
 export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
   const run = deps.run ?? sshRunner(ctx);
 
   async function fingerprints(
-    connectionId: number,
+    snap: Snapshot,
     serverUuid: string,
   ): Promise<string[]> {
     try {
-      const api = await deps.connections.api(connectionId);
-      return (await api.server(serverUuid)).hostKeyFingerprints;
+      return (await snap.api.server(serverUuid)).hostKeyFingerprints;
     } catch {
       return [];
     }
   }
 
+  /** Fails closed unless the connection still points at the snapshot's target. */
+  async function assertSnapshotHolds(connectionId: number, snap: Snapshot) {
+    if (
+      (await deps.connections.revision(connectionId)) !== snap.view.revision
+    ) {
+      throw new ConnectionError(
+        "target-changed",
+        "The connection's address, token or Access settings changed. Open the shell again.",
+      );
+    }
+  }
+
   /** Runs one probe; core's host key refusal becomes a host-key answer. */
   async function probe<T>(
-    target: { connectionId: number; serverUuid: string; hostId: number },
+    target: ContainerPlace,
     fn: () => Promise<T>,
   ): Promise<T> {
     try {
@@ -247,10 +196,7 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
           "Open a server terminal once to trust this host's key.",
           {
             hostId: target.hostId,
-            fingerprints: await fingerprints(
-              target.connectionId,
-              target.serverUuid,
-            ),
+            fingerprints: await fingerprints(target.snap, target.serverUuid),
           },
         );
       }
@@ -294,42 +240,47 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
     uuid: string,
     part: string | undefined,
   ): Promise<{ res: ResourceDto; serverUuid: string | null }> {
-    if (!UUID.test(uuid)) {
-      throw new ContainerError("not-found", "Coolify resource not found");
-    }
-    // Checks the actor's access to the connection first: another user's
-    // connection is a 404, and the uuid must be one of its resources.
-    const rows = await deps.resources.list(connectionId);
-    const res = rows.find((r) => r.uuid === uuid);
-    if (!res)
-      throw new ContainerError("not-found", "Coolify resource not found");
+    const res = await deps.lifecycle.authorize(connectionId, uuid);
     if (!part) return { res, serverUuid: res.serverUuid };
-    const found = rows.find((r) => r.uuid === part && r.parentUuid === uuid);
-    if (!found) throw new ContainerError("not-found", "Coolify Part not found");
+    let found: ResourceDto | null = null;
+    try {
+      found = await deps.lifecycle.authorize(connectionId, part);
+    } catch (err) {
+      if (!(err instanceof ConnectionError) || err.code !== "not-found") {
+        throw err;
+      }
+    }
+    if (!found || found.parentUuid !== uuid) {
+      throw new ContainerError("not-found", "Coolify Part not found");
+    }
     return { res: found, serverUuid: found.serverUuid ?? res.serverUuid };
   }
 
+  /** The actor's own connect access to a Linked host, or no-host-access. */
+  async function assertHostAccess(hostId: number): Promise<void> {
+    const access = await ctx.hosts.checkAccess(hostId, "connect");
+    if (!access?.hasAccess) {
+      throw new ContainerError(
+        "no-host-access",
+        "You can't open this server's Linked host.",
+      );
+    }
+  }
+
   /**
-   * The resource's running container on its Linked host, or the choices
-   * when several match. Every refusal here comes before any SSH: the
-   * resource in the connection's list, its Linked host and the actor's own
-   * access to that host at `level`.
+   * The resource's container on its Linked host, after every check: the
+   * resource (target, lifecycle's authorize), the Linked host (else
+   * not-linked), the actor's own connect access to it (else no-host-access),
+   * the snapshot's revision, then docker ps. A chosen container must be one
+   * of this resource's; several without a choice answer choices. Whether it
+   * runs is the caller's to judge.
    */
   async function locate(
     connectionId: number,
+    snap: Snapshot,
     uuid: string,
     request: { part?: string; container?: string },
-    level: "connect" | "edit",
-  ): Promise<
-    | {
-        res: ResourceDto;
-        serverUuid: string;
-        hostId: number;
-        sudo: boolean;
-        chosen: ContainerChoice;
-      }
-    | ShellChoices
-  > {
+  ): Promise<Located> {
     const { res, serverUuid } = await target(connectionId, uuid, request.part);
     const hostId = serverUuid
       ? await deps.sync.linkedHostFor(connectionId, serverUuid)
@@ -340,16 +291,9 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
         "Link this server first: sync it from Coolify to make it a Linked host.",
       );
     }
-    const access = await ctx.hosts.checkAccess(hostId, level);
-    if (!access?.hasAccess) {
-      throw new ContainerError(
-        "no-host-access",
-        level === "edit"
-          ? "Running a command needs your own edit access to this server's Linked host."
-          : "You can't open this server's Linked host.",
-      );
-    }
-    const where = { connectionId, serverUuid, hostId };
+    await assertHostAccess(hostId);
+    const where: ContainerPlace = { connectionId, snap, serverUuid, hostId };
+    await assertSnapshotHolds(connectionId, snap);
 
     const sudo = await probe(where, () => needsSudo(hostId));
     const containers = await probe(where, () =>
@@ -365,7 +309,7 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
         );
       }
     } else if (containers.length > 1) {
-      return { choices: containers };
+      return { kind: "choices", choices: containers };
     } else {
       chosen = containers[0];
     }
@@ -375,39 +319,32 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
         "No container of this resource was found on its server.",
       );
     }
-    if (!chosen.running) {
-      throw new ContainerError("not-running", "The container isn't running.");
-    }
-    return { res, serverUuid, hostId, sudo, chosen };
-  }
-
-  async function audit(
-    found: { hostId: number; container: string },
-    details: Record<string, unknown>,
-    success: boolean,
-  ) {
-    await ctx.audit.record({
-      action: "coolify_container_exec",
-      resourceType: "host",
-      resourceId: String(found.hostId),
-      resourceName: found.container,
-      details: JSON.stringify(details),
-      success,
-      errorMessage: success ? undefined : "The command did not finish",
-    });
+    return { kind: "container", res, where, sudo, container: chosen };
   }
 
   return {
+    target,
+    locate,
+    assertHostAccess,
+    assertSnapshotHolds,
+    /** Runs SSH work on a located host; a host key refusal becomes host-key. */
+    guard: probe,
+
     async shell(
       connectionId: number,
       uuid: string,
       body: unknown,
     ): Promise<ShellAnswer | ShellChoices> {
       const request = readShellRequest(body);
-      const found = await locate(connectionId, uuid, request, "connect");
-      if ("choices" in found) return found;
-      const { res, serverUuid, hostId, sudo, chosen } = found;
-      const where = { connectionId, serverUuid, hostId };
+      // Read once: every later step is checked against this target.
+      const snap = await deps.connections.snapshot(connectionId);
+      const located = await locate(connectionId, snap, uuid, request);
+      if (located.kind === "choices") return { choices: located.choices };
+      const { res, where, sudo, container: chosen } = located;
+      const { hostId, serverUuid } = where;
+      if (!chosen.running) {
+        throw new ContainerError("not-running", "The container isn't running.");
+      }
 
       const engine = request.console === "db" ? engineOf(res.engine) : null;
       let command: string;
@@ -435,119 +372,17 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
         }
         throw err;
       }
+      const hostKeys = await fingerprints(snap, serverUuid);
+      await assertSnapshotHolds(connectionId, snap);
       const answer: ShellAnswer = {
         hostId,
         title: res.name,
         container: chosen.name,
         command,
-        fingerprints: await fingerprints(connectionId, serverUuid),
+        fingerprints: hostKeys,
       };
       if (request.console === "db" && !engine) answer.note = "no-console";
       return answer;
-    },
-
-    /**
-     * coolify.exec: runs one command in the resource's container and returns
-     * its output, cut at 64 KB and redacted. Refused, before any SSH and
-     * before Coolify is asked, unless the actor holds coolify.operate, the
-     * admin setting allowExec is on and the connection's owner turned on
-     * execEnabled; then it needs the actor's own edit access to the Linked
-     * host. Anything that can't be read refuses. The command goes to `sh -s`
-     * on standard input, never into the command line. Each run is audited
-     * with the command's length, never its text.
-     */
-    async exec(
-      connectionId: number,
-      uuid: string,
-      body: unknown,
-    ): Promise<ExecAnswer | ShellChoices> {
-      const request = readExecRequest(body);
-      if ((await ctx.rbac.has("operate")) !== true) {
-        throw new ContainerError(
-          "forbidden",
-          "Running a command needs Operate Coolify resources.",
-        );
-      }
-      if ((await ctx.settings.get("allowExec")) !== true) {
-        throw new ContainerError(
-          "exec-off",
-          "Running commands in containers is turned off by an admin.",
-        );
-      }
-      const connection = await deps.connections.get(connectionId);
-      if (!connection) {
-        throw new ContainerError("not-found", "Coolify connection not found");
-      }
-      if (connection.execEnabled !== true) {
-        throw new ContainerError(
-          "exec-off",
-          "The connection's owner hasn't allowed running commands in its containers.",
-        );
-      }
-      const found = await locate(connectionId, uuid, request, "edit");
-      if ("choices" in found) return found;
-      const { serverUuid, hostId, sudo, chosen } = found;
-      const container = assertContainerName(chosen.name);
-      const details = {
-        connectionId,
-        uuid,
-        part: request.part ?? null,
-        container,
-        commandLength: request.command.length,
-        timeoutSec: request.timeoutSec,
-      };
-      let result: PluginSshExecResult;
-      try {
-        result = await probe({ connectionId, serverUuid, hostId }, () =>
-          run(hostId, `${dockerPrefix(sudo)} exec -i ${container} sh -s`, {
-            stdin: request.command,
-            timeoutMs: request.timeoutSec * 1000,
-            maxOutputBytes: EXEC_RAW_CAP,
-          }),
-        );
-      } catch (err) {
-        await audit({ hostId, container }, details, false);
-        throw err;
-      }
-      // Bound each stream first, whatever SSH handed back, so the redactor
-      // never sees more than EXEC_RAW_CAP. Then redact, then cut to 64 KB:
-      // the margin keeps a secret near the 64 KB line whole for the redactor.
-      const rawOut = result.stdout ?? "";
-      const rawErr = result.stderr ?? "";
-      const cappedOut = cutBytes(rawOut, EXEC_RAW_CAP);
-      const cappedErr = cutBytes(rawErr, EXEC_RAW_CAP);
-      const fullOut = redactText(cappedOut);
-      const fullErr = redactText(cappedErr);
-      const stdout = cutBytes(fullOut, EXEC_MAX_OUTPUT);
-      const stderr = cutBytes(
-        fullErr,
-        EXEC_MAX_OUTPUT - Buffer.byteLength(stdout),
-      );
-      const truncated =
-        result.truncated === true ||
-        cappedOut.length < rawOut.length ||
-        cappedErr.length < rawErr.length ||
-        stdout.length < fullOut.length ||
-        stderr.length < fullErr.length;
-      await audit(
-        { hostId, container },
-        {
-          ...details,
-          exitCode: result.code,
-          timedOut: result.timedOut,
-          truncated,
-        },
-        result.code === 0 && !result.timedOut,
-      );
-      return {
-        hostId,
-        container,
-        exitCode: result.code,
-        timedOut: result.timedOut === true,
-        truncated,
-        stdout,
-        stderr,
-      };
     },
   };
 }
