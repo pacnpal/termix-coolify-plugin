@@ -1,7 +1,9 @@
 Coolify for Termix brings your Coolify servers, applications, services and databases into Termix.
 
-So far you can connect Coolify instances, see what each API token can do, and sync Coolify servers into
-Termix hosts. Resources, shells and the rest come with the rest of release 1.0.0.
+So far you can connect Coolify instances, see what each API token can do, browse each connection's
+applications, services and databases, deploy, start, stop and restart them, open a shell or database console
+in their containers, and sync Coolify servers into Termix hosts. Logs and the rest come with the rest of release
+1.0.0.
 
 ## Turn it on
 
@@ -18,13 +20,25 @@ Termix hosts. Resources, shells and the rest come with the rest of release 1.0.0
 3. Under **Advanced**, if you need them:
    - **Cloudflare Access client ID and secret**, when the Coolify dashboard sits behind Cloudflare Access.
    - **On my local network**, when Coolify has a private address such as `192.168.1.10`.
+
+   The address should use `https`. Plain `http` is accepted only for `localhost` (`127.0.0.0/8`, `::1`),
+   and for a private or link-local IP address (such as `192.168.1.10` or `fd00::5`) when **On my local
+   network** is on. Every other name needs `https`, even one like `coolify.lan`, because a name can point
+   anywhere. Anything else is refused before Termix sends a request. With plain `http` to a private IP,
+   the token and any Cloudflare Access secret do travel in the clear on your own network, so choose it only
+   for a network you trust.
    - **CA certificate**, when Coolify uses a certificate from a private CA.
+
 4. Save. Termix checks the connection and shows what the token can do:
    - Coolify answers, and is 4.4 or newer (older versions are refused).
    - The team, or, for a token scoped to some projects, the team of its first project. A scoped token can't
      see servers, so it has no host sync, shells or keys, and can't set up notifications.
-   - Whether it can read private keys and logs (`read:sensitive`) and instance settings (`root`).
-     Write, deploy and delete can't be checked without changing something; they're checked on first use.
+   - Whether it can read private keys and logs (`read:sensitive`). Logs are tried on an application, a
+     database or a service's part; when the token sees none of them, the check says "not checked" rather
+     than "can't".
+   - Whether it can read instance settings, which Coolify allows to any root team admin's token. This
+     doesn't show the `root` ability, which, like write, deploy and delete, can't be checked without
+     changing something; they're checked on first use.
 
 The token is stored encrypted and never shown again. When you edit a connection, leave the token empty to
 keep the stored one. **Check again** reruns the checks. **Remove** forgets the connection and its token;
@@ -36,16 +50,135 @@ off in Coolify (Settings, Advanced), Coolify is behind Cloudflare Access, or the
 Connections are also actions, for the CLI, Automations and the phone app: `coolify.list-connections`,
 `coolify.connection-probe`, `coolify.connection-create`, `coolify.connection-update` and
 `coolify.connection-delete`. The token and Cloudflare Access fields are secret inputs: they never appear in
-run history. Only the two reads are offered to the assistant and MCP.
+run history. Only the two reads are offered to the assistant and Termix's main MCP server; the plugin's own
+MCP endpoint (below) offers all five.
 
 Adding, changing and removing connections needs **Configure Coolify**; listing and checking them needs
 **View Coolify**. Each person sees only their own connections.
 
+## Overview and resources
+
+The Coolify tab has its sections on the left (a select at the top on a phone): **Overview**, **Resources**,
+**Servers** (with **Configure Coolify**, see below) and **Connections**. With no connection yet it opens on
+Connections. With more than one, pick the connection in the section's header.
+
+**Overview** counts the connection's resources by status:
+
+- **Running**: running, healthy or with no health check.
+- **Degraded**: restarting, dead, or unhealthy.
+- **Stopped**: exited, stopped, paused or with no status. Coolify reports a resource you stopped
+  yourself as exited, so exited counts as stopped, not degraded.
+- **Deploying**: starting or building.
+
+Service parts aren't counted on their own; their service's status covers them. Choose a tile to open the
+Resources list filtered to that status.
+
+**Resources** lists every application, service and database, with each service's parts (its containers,
+like n8n's worker or its Postgres) right under it. Each row shows the status, the Coolify server, the project
+and environment, the domains and the last deploy. Search matches names, domains, projects, environments and
+servers; filter by type and by status. Choose a row to open the resource's Overview; a service's Overview
+lists its parts, and choosing one opens it.
+
+The plugin reads Coolify's lists of applications, services and databases, never its heavier `/resources`
+list, and keeps only what it shows: no environment values, private keys, tokens, passwords or compose files.
+Statuses are cached for 20 seconds; **Refresh** fetches them again.
+
+The same reads are actions, for the CLI, Automations, the assistant and MCP: `coolify.list-resources-all`
+(optionally for one Coolify server) and `coolify.resource-get`. Both need **View Coolify**.
+
+## Deploy, start, stop and restart
+
+A resource's header has **Deploy**, **Force rebuild**, **Restart**, and **Start** (when it is stopped or
+exited) or **Stop**. **Stop** and **Force rebuild** ask first, naming the resource. Deploy calls Coolify's
+`/deploy` for the resource; a force rebuild builds without Coolify's build cache. A service's parts restart one
+by one from the **Restart** button on each part in the service's Overview; a part opened on its own has
+Restart and Start or Stop, and deploys with its service. In the command palette, **Coolify: Deploy…** opens
+the Resources list to pick from.
+
+These need **Operate Coolify resources**, and the connection must be yours or shared with you at operate or
+configure. They work whether or not the resource's server has a Linked host:
+
+- With a Linked host, each press runs `coolify.deploy`, `coolify.start`, `coolify.restart` or `coolify.stop`
+  on that host, so it shows in the host's history.
+- Without one, it runs `coolify.resource-deploy`, `coolify.resource-restart`, or `coolify.resource-action`
+  (start or stop, confirmed) with the connection and the resource's uuid.
+
+A uuid is only accepted when it is one of that connection's own resources (and, for a Linked host, one on
+that host's server). When the Coolify token lacks the ability, the answer says so (`forbidden-ability`).
+
+The same actions work from the CLI, Automations and the phone app. `coolify.deploy` and
+`coolify.resource-deploy` can **wait** for the deployment: the run then follows it to the end, fails when it
+fails, and sends the `coolify.deployment-finished` or `coolify.deployment-failed` event. A dry run of a deploy
+says what it would deploy, and on which server. Deploy and restart are offered to the assistant and MCP; start
+and stop aren't.
+
+Linked hosts also get:
+
+- `coolify.list-resources`: the resources on the host's server, shown in Termix's resources table and on
+  the host page. A host that isn't linked lists none, without asking Coolify.
+- `coolify.sync-host`: updates this one host from its Coolify server (owner only, **Configure Coolify**).
+- Status tiles: degraded resources (`coolify.degraded`), whether Coolify can reach the server
+  (`coolify.server`) and security updates from Coolify's last update check (`coolify.updates`), plus
+  `coolify.deploying`, the resources deploying now across your connections. They read the same short caches
+  as the tab, so many hosts on one connection cost one Coolify request.
+
+## Container shells and database consoles
+
+A resource's or part's **Shell** view has **Open shell**, and a database (or a service's database part) also
+has **Open database console**. Each opens a **Coolify shell** tab with Termix's own terminal (SSH Terminal's)
+on the server's Linked host, running `docker exec` into the container.
+
+- The plugin finds the container over SSH by Coolify's labels: the resource's uuid label first, then the
+  labels Coolify used before 4.4, which carry the numeric id. A service part is found by its own uuid label,
+  then by its compose service name.
+- `bash` is used when the container has it, otherwise `sh`. `sudo` is added when the SSH user isn't root and
+  isn't in the `docker` group.
+- **Database consoles** start the engine's own client: `psql`, `mysql` or `mariadb`, `mongosh`, `redis-cli`
+  (Redis and Dragonfly), `keydb-cli`, `clickhouse-client` or `sqlite3`. The credentials are the ones Coolify
+  set in the container's environment, and they are read inside the container when the console starts. No
+  password is in the command, sent to the browser or logged. Consoles also keep passwords out of process
+  arguments, which any user on the server can list with `ps`: each client gets its password from an
+  environment variable (`mongosh` reads it in JavaScript from `process.env`). An engine with no known console
+  opens a shell instead, with a note.
+- **Several containers** (a service with parts, say): pick one from the list.
+- **Not running**: start the resource first.
+- **Link this server first**: the resource's server has no Linked host yet; sync it from Coolify.
+- **Open a server terminal once to trust this host's key**: Termix hasn't trusted the server's SSH key yet.
+  **Open server terminal** opens one, where you confirm the key. Coolify's fingerprint for the key is shown
+  so you can compare.
+- If the connection's address, token or Access token changes while a shell is being opened, it stops and asks
+  you to open it again, so a shell never reaches a container of another Coolify.
+- Without the SSH Terminal plugin the tab shows the command to copy and run in a terminal on the server.
+
+Shells and consoles are checked like deploys: **Operate Coolify resources**, and the connection's owner or an
+operate or configure grant. They also need your own **connect** access to the Linked host, because a shell on
+a server can read every container's secrets.
+
+The action `coolify.shell-command` (offered to the assistant and MCP) answers the same `docker exec` command,
+or the list of containers to choose from, for a client with its own SSH. It makes the same checks. See
+[the API](api.md).
+
+## Use with an MCP client
+
+The plugin serves its own MCP endpoint at `/plugin-api/coolify/mcp`. The Connections view shows the address
+and a client config under **Use with an MCP client**; put a Termix API key with the scope `operations:read`
+(read tools only) or `operations:run` where the config says `<your Termix API key>`.
+
+Every action is a tool, plus `list_connections`, `list_hosts` and `list_resources`. Each call runs as the
+key's user through Termix's operations, so permissions, approvals and history apply. Read tools, deploy and
+restart (`coolify__deploy`, `coolify__restart`, `coolify__resource_deploy`, `coolify__resource_restart`)
+always work; other tools that change something, start and stop included, answer "changes over MCP are
+turned off" until an admin turns on **Allow changes over MCP**. Output never carries tokens, passwords, keys, env values or compose files, and long output is cut
+at 8,000 characters. [API and MCP reference](api.md) lists every action with its route, run path, key scope,
+MCP tool and a `curl` example.
+
 ## Sync servers into hosts
 
 Each Coolify server can become a **Linked host**: a Termix host that Coolify for Termix creates and keeps in
-step with Coolify. Open it from **Sync servers** on a connection, **Import from Coolify** in the hosts import
-menu, or **Sync from Coolify** on a Linked host.
+step with Coolify. Host sync is the Coolify tab's **Servers** section, for the connection picked in its
+header. **Sync servers** on a connection, **Import from Coolify** in the hosts import menu and **Sync from
+Coolify** on a Linked host all open it. Only the connection's owner can sync it, and a scoped token can't
+see servers, so the section says so instead.
 
 1. The preview lists every server the token can see and what it becomes: name, address, port and user, in
    the **Coolify** folder (**Coolify / <connection>** when you have several connections), tagged `coolify`,
@@ -54,14 +187,20 @@ menu, or **Sync from Coolify** on a Linked host.
    and the others sync anyway:
    - **The server Coolify runs on** (Coolify calls it `host.docker.internal`, `localhost` or `127.x`): enter
      the address Termix should use. The connection's own host name is offered with one click. The address is
-     kept for later syncs. You can set an address for any server the same way.
+     kept for later syncs. Every server still in Coolify has the same **Address Termix uses** field, so
+     you can give any of them another address; leave it empty to use the one Coolify has.
    - **No key to copy**: when the token can't read keys (it lacks `read:sensitive`) or an admin turned off
-     **Allow copying Coolify SSH keys**, pick one of your Termix credentials for the server. Only your own credentials are accepted; a picked
-     credential you no longer have blocks the server until you pick another.
-   - **Behind a Cloudflare tunnel**: tunnelled servers are listed but can't be synced yet.
+     **Allow copying Coolify SSH keys**, pick one of your Termix credentials for the server. Only your own
+     credentials are accepted. A picked credential you no longer have blocks the server and shows the picker
+     again until you pick another; one that couldn't be checked can be picked again or tried as it is.
+     When copying a server's key fails (Coolify refuses to send it, or sends no key), the server asks for a
+     credential the same way until you pick one or a later sync copies the key.
+   - **Behind a Cloudflare tunnel**: see [Servers behind Cloudflare tunnels](#servers-behind-cloudflare-tunnels).
 3. With keys readable, each Coolify key is copied once into a Termix credential named
    **Coolify: <connection> / <key>** and shared by every server that uses it. It is reused on later syncs
-   and replaced only when the key's fingerprint changes. Every copy is written to the audit log. The key is
+   and replaced when the key's fingerprint changes, or when you deleted that credential in Termix (the
+   key is copied again). When your credentials can't be read to check, the server isn't synced and says
+   so. Every copy is written to the audit log. The key is
    never stored by the plugin, logged or sent back to the browser.
 
 Syncing again updates the same hosts in place, so pins, shares and history stay. A server removed from
@@ -75,10 +214,60 @@ host and keeps it. If you delete a Linked host yourself, the plugin forgets the 
 and credential choice, so the next sync creates it again. Removing a connection unlinks its hosts, or
 deletes them when you ask it to.
 
+Syncs, unlinks and removing a connection run one at a time for each connection, so two people (or two
+tabs) syncing at once never make two hosts for one server. If a host was made but its link couldn't be
+saved, the host is deleted again rather than left locked. A sync that was waiting while its connection
+was removed finds the connection gone and creates nothing.
+
+A sync works on one snapshot of the connection: the server list, the Coolify address in host notes and
+the Cloudflare Access token written on tunnelled hosts all come from the same read. If someone changes
+the connection's address, token, Access token or TLS settings while a sync runs, the sync stops at its
+next step that would save, copy a key or change a host, with **The connection's address, token or
+Cloudflare Access settings changed during the sync** (`target-changed`). No host gets the new settings,
+and a host made just before the change is removed again. Sync again.
+
 Syncing and unlinking need **Configure Coolify** and only the connection's owner can do them; the preview
 needs **View Coolify**. They are also actions: `coolify.sync-preview` (offered to the assistant and MCP),
 `coolify.sync-apply` (without a server list it syncs every server with its saved address and credential)
 and `coolify.unlink`.
+
+### Servers behind Cloudflare tunnels
+
+When Coolify reaches a server through a Cloudflare tunnel, its Linked host uses the **SSH Terminal**
+plugin's own Cloudflare tunnel, which then carries every SSH connection to that host: the terminal, files,
+Docker and this plugin. Sync sets:
+
+- the host address to the tunnel hostname (Coolify's address for the server), with Coolify's port and user;
+- SSH Terminal's tunnel settings on the host: tunnel on, the tunnel hostname, and port 443;
+- the connection's Cloudflare Access service token, when one is set, as SSH Terminal's service token ID and
+  secret. The token is written only into those host settings. It never appears in the preview, sync
+  results, run history, logs or the audit log.
+
+Each sync writes these settings in full, so nothing stale stays behind: when you remove the connection's
+Access token, the next sync clears it from tunnelled hosts. When a server is no longer behind a tunnel, the
+next sync turns SSH Terminal's tunnel off on its host and clears the tunnel hostname and token. Termix only
+takes SSH Terminal's settings while it is on, so until then that server says **This server is no longer
+behind a Cloudflare tunnel, but its host still has SSH Terminal's tunnel settings**, with **Open Plugins**,
+and its host is left as it is. Hosts that were never tunnelled don't need SSH Terminal.
+
+Hosts linked before 1.0's database migration have no record of whether sync gave them tunnel settings, so
+they count as possibly tunnelled: once their server is a plain one, they may need SSH Terminal on for one
+sync to confirm their tunnel is off. After that they sync without it.
+
+This needs **SSH Terminal 1.2.0 or newer**, turned on. Version 1.0.3 tunnelled only its own terminal tab.
+Until then a tunnelled server can't sync and says why, with an **Open Plugins** button that opens Termix's
+Plugins tab:
+
+- **Turn on the SSH Terminal plugin to reach servers behind Cloudflare tunnels**: SSH Terminal isn't
+  installed or is turned off. It is also shown when the plugin list can't be read, so a tunnelled host is
+  never made without a tunnel.
+- **Update SSH Terminal to 1.2.0 or newer; older versions tunnel only the terminal.**
+
+When you add a connection and Coolify has tunnelled servers, the setup checklist shows the same check once.
+
+A tunnelled Linked host's Coolify card says **Tunnel: through SSH Terminal (Cloudflare)** and has **Open
+tunnel settings**, which opens the host editor. SSH Terminal's tunnel fields there stay read only while the
+host is linked; unlink it to change them by hand.
 
 ## Server updates
 

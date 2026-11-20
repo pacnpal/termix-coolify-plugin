@@ -41,13 +41,15 @@ export async function startPlugin(
   options: {
     fetch?: (url: string, init?: PluginFetchInit) => Promise<Response>;
     permissions?: string[];
-    serve?: boolean;
-    /** Admin settings, like allowKeyCopy. */
+    /** Seed for the plugin's admin settings, like allowKeyCopy. */
     settings?: Record<string, unknown>;
+    serve?: boolean;
     /** What ctx.plugins.list answers. */
     installedPlugins?: MockContextOptions["installedPlugins"];
     /** What ctx.credentials.list answers: the actor's own credentials. */
     credentialSummaries?: MockContextOptions["credentialSummaries"];
+    /** Hosts ctx.hosts.get and checkAccess answer with. */
+    hosts?: MockContextOptions["hosts"];
   } = {},
 ): Promise<PluginHarness> {
   const db = await createTestDb(pluginDir);
@@ -65,10 +67,11 @@ export async function startPlugin(
     db: db.database,
     router: () => (router = express.Router()),
     permissions: options.permissions,
-    fetch: options.fetch,
     settings: options.settings,
+    fetch: options.fetch,
     installedPlugins: options.installedPlugins,
     credentialSummaries: options.credentialSummaries,
+    hosts: options.hosts,
     actor: OWNER,
   });
   await activate(mock.ctx);

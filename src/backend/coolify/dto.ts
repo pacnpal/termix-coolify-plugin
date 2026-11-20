@@ -52,6 +52,8 @@ export interface ResourceDto {
   kind: ResourceKind;
   status: string;
   serverUuid: string | null;
+  /** The Coolify server's name, when the payload carries it. */
+  serverName: string | null;
   projectName: string | null;
   environmentName: string | null;
   fqdns: string[];
@@ -62,7 +64,8 @@ export interface ResourceDto {
 
 export interface DeploymentDto {
   uuid: string;
-  resourceUuid: string;
+  /** The application's uuid, or null when the answer doesn't name it. */
+  resourceUuid: string | null;
   status: string;
   commit: string | null;
   createdAt: string;
@@ -237,6 +240,13 @@ function serverUuidOf(raw: Raw): string | null {
   );
 }
 
+function serverNameOf(raw: Raw): string | null {
+  return (
+    strOrNull(obj(raw.server).name) ??
+    strOrNull(obj(obj(raw.destination).server).name)
+  );
+}
+
 function placeOf(raw: Raw): {
   projectName: string | null;
   environmentName: string | null;
@@ -250,24 +260,48 @@ function placeOf(raw: Raw): {
   };
 }
 
+/** Fields a stripper sets from outside the raw object, or reads differently. */
+type ResourceExtra = Partial<
+  Pick<
+    ResourceDto,
+    | "serverUuid"
+    | "serverName"
+    | "projectName"
+    | "environmentName"
+    | "fqdns"
+    | "parentUuid"
+    | "engine"
+    | "lastDeployAt"
+  >
+>;
+
+/** Picks each field by name; nothing from `raw` or `extra` is spread. */
 function resource(
   raw: Raw,
   kind: ResourceKind,
-  extra: Partial<ResourceDto> = {},
+  extra: ResourceExtra = {},
 ): ResourceDto {
+  const place = placeOf(raw);
   return {
     uuid: str(raw.uuid),
     id: num(raw.id),
     name: str(raw.name),
     kind,
     status: str(raw.status, "unknown"),
-    serverUuid: serverUuidOf(raw),
-    ...placeOf(raw),
-    fqdns: [],
-    parentUuid: null,
-    engine: null,
-    lastDeployAt: null,
-    ...extra,
+    serverUuid:
+      extra.serverUuid !== undefined ? extra.serverUuid : serverUuidOf(raw),
+    serverName:
+      extra.serverName !== undefined ? extra.serverName : serverNameOf(raw),
+    projectName:
+      extra.projectName !== undefined ? extra.projectName : place.projectName,
+    environmentName:
+      extra.environmentName !== undefined
+        ? extra.environmentName
+        : place.environmentName,
+    fqdns: extra.fqdns ?? [],
+    parentUuid: extra.parentUuid ?? null,
+    engine: extra.engine ?? null,
+    lastDeployAt: extra.lastDeployAt ?? null,
   };
 }
 
@@ -290,25 +324,30 @@ export function toDatabase(input: unknown): ResourceDto {
 export function toService(input: unknown): ResourceDto[] {
   const raw = obj(input);
   const service = resource(raw, "service");
-  const inherit = {
+  const inherit = (more: ResourceExtra): ResourceExtra => ({
     parentUuid: service.uuid,
     serverUuid: service.serverUuid,
+    serverName: service.serverName,
     projectName: service.projectName,
     environmentName: service.environmentName,
-  };
+    fqdns: more.fqdns,
+    engine: more.engine,
+  });
   const apps = list(raw.applications).map((part) => {
     const p = obj(part);
-    return resource(p, "service-application", {
-      ...inherit,
-      fqdns: fqdns(p.fqdn),
-    });
+    return resource(
+      p,
+      "service-application",
+      inherit({ fqdns: fqdns(p.fqdn) }),
+    );
   });
   const dbs = list(raw.databases).map((part) => {
     const p = obj(part);
-    return resource(p, "service-database", {
-      ...inherit,
-      engine: strOrNull(p.image),
-    });
+    return resource(
+      p,
+      "service-database",
+      inherit({ engine: strOrNull(p.image) }),
+    );
   });
   return [service, ...apps, ...dbs];
 }
@@ -325,11 +364,15 @@ export function toPart(
     : resource(raw, kind, { parentUuid, engine: strOrNull(raw.image) });
 }
 
-export function toDeployment(input: unknown): DeploymentDto {
+/**
+ * One deployment. `appUuid` is the application it was listed for, when known;
+ * `application_id` is a database id, never a uuid, so it is not used.
+ */
+export function toDeployment(input: unknown, appUuid?: string): DeploymentDto {
   const raw = obj(input);
   return {
     uuid: str(raw.deployment_uuid ?? raw.uuid),
-    resourceUuid: str(raw.application_uuid ?? raw.application_id),
+    resourceUuid: strOrNull(raw.application_uuid) ?? appUuid ?? null,
     status: str(raw.status, "unknown"),
     commit: strOrNull(raw.commit),
     createdAt: str(raw.created_at),

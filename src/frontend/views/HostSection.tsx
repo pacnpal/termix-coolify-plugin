@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Boxes, Lock, RefreshCw, Unlink } from "lucide-react";
+import { Boxes, Cloud, Lock, RefreshCw, Settings2, Unlink } from "lucide-react";
 import {
   usePermission,
   usePluginApi,
@@ -111,6 +111,29 @@ export function HostSection({ host, shell }: HostSectionProps) {
         <Lock className="mt-0.5 size-3.5 shrink-0" />
         {t("hostSection.locked")}
       </p>
+      {row?.tunnel && (
+        <div className="flex flex-col gap-2">
+          <p className="flex items-start gap-2">
+            <Cloud className="mt-0.5 size-3.5 shrink-0" />
+            {t("hostSection.tunnel")}
+          </p>
+          <p className="text-muted-foreground text-xs">
+            {t("hostSection.tunnelReadOnly")}
+          </p>
+          {shell.editHost && (
+            <div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => shell.editHost?.(Number(host.id))}
+              >
+                <Settings2 className="size-3.5" />
+                {t("hostSection.openTunnelSettings")}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
       {error && <NoticePanel tone="destructive" title={error} />}
       <ServerUpdates link={link} />
       <div className="flex flex-wrap gap-2">

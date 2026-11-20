@@ -1,7 +1,25 @@
-import type { Router } from "express";
+import type { Request, Response, Router } from "express";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
-import { idParam, safe } from "../connections/routes.js";
-import type { Updates } from "./service.js";
+import { idParam, sendError } from "../connections/routes.js";
+import { UpdateError, type Updates } from "./service.js";
+
+/** Like connections' `safe`, with UpdateError's own statuses. Never throws. */
+function handle(
+  ctx: PluginContext,
+  fn: (req: Request, res: Response) => Promise<unknown>,
+) {
+  return async (req: Request, res: Response) => {
+    try {
+      await fn(req, res);
+    } catch (err) {
+      if (err instanceof UpdateError) {
+        res.status(err.status).json({ error: err.message, cause: err.code });
+        return;
+      }
+      sendError(ctx, res, err);
+    }
+  };
+}
 
 export function registerUpdateRoutes(
   router: Router,
@@ -49,7 +67,7 @@ export function registerUpdateRoutes(
   router.get(
     "/connections/:id/servers/:uuid/updates",
     view,
-    safe(ctx, async (req, res) => {
+    handle(ctx, async (req, res) => {
       res.json(await updates.status(idParam(req), req.params.uuid));
     }),
   );
@@ -91,9 +109,8 @@ export function registerUpdateRoutes(
    */
   router.post(
     "/connections/:id/servers/:uuid/updates/check",
-    view,
     operate,
-    safe(ctx, async (req, res) => {
+    handle(ctx, async (req, res) => {
       res.json(await updates.check(idParam(req), req.params.uuid));
     }),
   );
@@ -149,9 +166,8 @@ export function registerUpdateRoutes(
    */
   router.post(
     "/connections/:id/servers/:uuid/updates/install",
-    view,
     operate,
-    safe(ctx, async (req, res) => {
+    handle(ctx, async (req, res) => {
       res.json(
         await updates.install(idParam(req), req.params.uuid, req.body ?? {}),
       );
@@ -207,9 +223,8 @@ export function registerUpdateRoutes(
    */
   router.post(
     "/connections/:id/servers/:uuid/reboot",
-    view,
     administer,
-    safe(ctx, async (req, res) => {
+    handle(ctx, async (req, res) => {
       res.json(
         await updates.reboot(idParam(req), req.params.uuid, req.body ?? {}),
       );

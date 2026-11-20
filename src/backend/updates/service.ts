@@ -57,6 +57,45 @@ export interface RebootResult {
 }
 
 type Grant = Exclude<AccessLevel, "owner">;
+
+export type UpdateErrorCode =
+  | "not-linked"
+  | "confirm-required"
+  | "name-mismatch"
+  | "host-forbidden"
+  | "needs-sudo"
+  | "unsupported-os"
+  | "host-key"
+  | "ssh-failed"
+  | "companion-failed";
+
+const UPDATE_STATUS: Record<UpdateErrorCode, 400 | 403 | 409 | 502> = {
+  "not-linked": 409,
+  "confirm-required": 400,
+  "name-mismatch": 400,
+  "host-forbidden": 403,
+  "needs-sudo": 409,
+  "unsupported-os": 409,
+  "host-key": 409,
+  "ssh-failed": 502,
+  "companion-failed": 502,
+};
+
+/**
+ * A refusal on the way to a server's packages, with its own statuses (409
+ * for not-linked, as ContainerError has). Its message is fixed text.
+ */
+export class UpdateError extends Error {
+  readonly code: UpdateErrorCode;
+  readonly status: 400 | 403 | 409 | 502;
+
+  constructor(code: UpdateErrorCode, message: string) {
+    super(message);
+    this.name = "UpdateError";
+    this.code = code;
+    this.status = UPDATE_STATUS[code];
+  }
+}
 type HostLevel = "connect" | "edit";
 
 export const PACKAGE_MANAGER = "package-manager";
@@ -401,10 +440,9 @@ export function createUpdates(
   async function linkedHost(id: number, uuid: string): Promise<number> {
     const hostId = await sync.linkedHostFor(id, uuid);
     if (!hostId) {
-      throw new ConnectionError(
+      throw new UpdateError(
         "not-linked",
         "This Coolify server has no Linked host. Sync it first.",
-        409,
       );
     }
     return hostId;
@@ -422,10 +460,9 @@ export function createUpdates(
       (access.isOwner === true ||
         HOST_LEVELS[level].has(String(access.permissionLevel)));
     if (!ok) {
-      throw new ConnectionError(
+      throw new UpdateError(
         "host-forbidden",
         `You need ${level} access to this server's Linked host`,
-        403,
       );
     }
   }
@@ -453,23 +490,14 @@ export function createUpdates(
       ctx.log.warn(`coolify updates ssh failed: ${errorName(err)}`);
       // Core's host key refusals tell the user what to do; show them as they are.
       if (code === "HOST_KEY_UNVERIFIED" || code === "HOST_KEY_CHANGED") {
-        throw new ConnectionError(
-          "ssh-failed",
-          String((err as Error).message),
-          409,
-        );
+        throw new UpdateError("ssh-failed", String((err as Error).message));
       }
-      throw new ConnectionError(
-        "ssh-failed",
-        "SSH to the Linked host failed",
-        502,
-      );
+      throw new UpdateError("ssh-failed", "SSH to the Linked host failed");
     }
     if (result.timedOut) {
-      throw new ConnectionError(
+      throw new UpdateError(
         "ssh-failed",
         "The command on the Linked host ran out of time",
-        502,
       );
     }
     return result;
@@ -481,10 +509,9 @@ export function createUpdates(
     const probe = await exec(hostId, PLATFORM_PROBE_COMMAND, 30_000);
     const pkg = parsePlatformProbe(probe.stdout).pkg;
     if (!pkg) {
-      throw new ConnectionError(
+      throw new UpdateError(
         "unsupported-os",
         "No apt, dnf, yum or pacman on this server",
-        409,
       );
     }
     return pkg;
@@ -503,13 +530,12 @@ export function createUpdates(
       });
     } catch (err) {
       ctx.log.warn(`coolify package-manager call failed: ${errorName(err)}`);
-      throw new ConnectionError("companion-failed", failure, 502);
+      throw new UpdateError("companion-failed", failure);
     }
     if (outcomeFailed(outcome)) {
-      throw new ConnectionError(
+      throw new UpdateError(
         "companion-failed",
         outcome.error ? `${failure}: ${outcome.error}` : failure,
-        502,
       );
     }
     return outcome;
@@ -640,10 +666,9 @@ export function createUpdates(
         { permission: "operate", grant: "operate", host: "edit" },
         () => {
           if (body.confirm !== true) {
-            throw new ConnectionError(
+            throw new UpdateError(
               "confirm-required",
               "Installing updates needs confirm: true",
-              400,
             );
           }
         },
@@ -667,17 +692,15 @@ export function createUpdates(
         const pkg = await platform(hostId);
         const out = await exec(hostId, installCommand(pkg), 600_000);
         if (out.code !== 0 && sudoRefused(out.stderr)) {
-          throw new ConnectionError(
+          throw new UpdateError(
             "needs-sudo",
             "The SSH login is not root and sudo asks for a password. Use root or passwordless sudo, as Coolify does.",
-            409,
           );
         }
         if (out.code !== 0) {
-          throw new ConnectionError(
+          throw new UpdateError(
             "ssh-failed",
             "The upgrade failed on the server",
-            502,
           );
         }
         result = {
@@ -712,25 +735,22 @@ export function createUpdates(
         !server.name ||
         body.confirmName !== server.name
       ) {
-        throw new ConnectionError(
+        throw new UpdateError(
           "name-mismatch",
           "Type the server's exact name to reboot it",
-          400,
         );
       }
       const out = await exec(hostId, rebootCommand(), 30_000);
       if (out.code !== 0 && sudoRefused(out.stderr)) {
-        throw new ConnectionError(
+        throw new UpdateError(
           "needs-sudo",
           "The SSH login is not root and sudo asks for a password. Use root or passwordless sudo, as Coolify does.",
-          409,
         );
       }
       if (out.code !== 0) {
-        throw new ConnectionError(
+        throw new UpdateError(
           "ssh-failed",
           "The reboot was refused on the server",
-          502,
         );
       }
       await writeFresh(connectionId, uuid, null);

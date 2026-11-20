@@ -658,10 +658,14 @@ my local network", and a CA certificate. On save, the probe runs:
      no notifications. It still offers everything that does work.
 4. Non-mutating ability checks:
    - Keys readable? Try `GET /security/keys/{first}` and discard `private_key` immediately.
-   - Logs readable? Try one resource's logs with `lines=1`.
-   - Is it root? Try `GET /settings/email`.
-   - Write, deploy and delete can't be probed without side effects. They're marked "checked on first use",
-     and a 403 is translated to "this token lacks the X ability".
+   - Logs readable? Try one resource's logs with `lines=1`: an application, else a database, else a
+     service's part (a token may see only compose services). When the token sees none, the step is marked
+     "nothing to probe" and the ability stays unproven, not refused.
+   - Instance settings readable? Try `GET /settings/email`. Coolify answers it for any root-team admin's
+     token, whatever its abilities, so it is recorded as its own step and sets no ability.
+   - Root, write, deploy and delete can't be probed without side effects (no read-only call needs the
+     `root` ability alone). They're marked "checked on first use", and a 403 is translated to "this token
+     lacks the X ability".
 5. Store the ability summary. The UI hides or disables sections the token can't use, with the reason.
 
 Each step's failure maps to a cause and a fix:
@@ -827,7 +831,8 @@ header. A `SideNav` holds these sections:
 
 **Overview**
 
-- Tiles: running, degraded, stopped, deploying, critical CVEs, failed backups (24 hours).
+- Tiles: running, degraded, stopped, deploying, critical CVEs, failed backups (24 hours). A resource
+  Coolify reports as exited counts as stopped, not degraded: that is how Coolify reports one you stopped.
 - An attention list, deployments in progress, and recent events.
 
 **Projects**
@@ -1090,11 +1095,11 @@ REST API (Termix API keys) and through Termix's MCP. Nothing may exist only as a
      - **The wrapper's own permission is not enough.** Each `operationId` resolves to the Termix permission
        and grant level that the Permissions table gives the same action, kept as two separate values:
        - reads need `coolify.view`, except reads that carry log or command output, which need
-         `coolify.operate`: `/logs` endpoints, deployments (which carry build logs) and task or backup
-         executions;
+         `coolify.operate`: `/logs` endpoints, deployments (which carry build logs), task or backup
+         executions, and a server transfer's status (which carries the migration log and error);
        - lifecycle, deploys, tasks and backups need `coolify.operate`;
-       - deletes, starting a server create, transfer or migration (reading a transfer's status is a
-         read), cloud provisioning and instance settings need
+       - deletes, starting a server create, transfer or migration, cloud provisioning and instance
+         settings need
          `coolify.administer` (with a configure grant, or ownership);
        - everything else needs `coolify.configure`.
      - The three-way minimum (see Permissions) is applied to that, in both the call and the operation
@@ -1334,10 +1339,19 @@ follows the Uptime plugin's pattern instead.
   (`coolify.status-page-create`, `coolify.status-page-rotate`), it comes back only as an output marked
   `sensitive`, which Termix drops before the run is stored or shown, and the run's summary names the page,
   never the URL. So run history, logs and MCP call records never hold the token.
-- **Getting that URL to an MCP client.** Because the stored run doesn't hold the URL, the handler also keeps
-  it in process memory for at most 5 minutes, for the same user, readable once. The plugin's MCP endpoint
-  takes it from there and adds it to that one `tools/call` response. A second read, another user or a
-  restart gets nothing, and the owner can rotate to get a new URL.
+- **Getting that URL to an API or MCP client.** Because the stored run doesn't hold the URL, the handler also
+  keeps it in process memory for at most 5 minutes, keyed by the actor and that run's id, readable once, and
+  returns only the run's handoff id in its data.
+  - The plugin's MCP endpoint takes it from there and adds it to that one `tools/call` response.
+  - When the run needed an approval, or came through Termix's REST `operations:run`, the same actor takes it
+    afterwards with the handoff id, by one of two paths:
+    - `POST /plugin-api/coolify/status-pages/handoff/:handoffId`, which needs a signed-in session or an
+      unscoped API key. Core lets a key scoped to `operations:*` reach only `/operations/...` and the plugin's
+      `/mcp` endpoint, so a scoped key gets 403 here.
+    - The MCP tool `take_status_page_url` on the plugin's `/mcp` endpoint, which a scoped `operations:run` key
+      can reach, given `coolify.mcp`. This is the path for scoped keys.
+  - A second read, another user, another run's id, an expired entry or a restart gets nothing, and the owner
+    can rotate to get a new URL.
 - **Content:** the owner picks which resources appear. The page shows only display names, status, last
   deploy time and result, and uptime when the Uptime plugin is there.
   - It never shows uuids, servers, domains the owner didn't tick, logs or anything sensitive.
