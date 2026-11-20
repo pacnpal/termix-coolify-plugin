@@ -23,15 +23,20 @@ const LOGS_TIMEOUT_MS = 30_000;
 
 const UUID = /^[A-Za-z0-9_-]{1,64}$/;
 
-/** A name that says its value is a secret, with its optional quote. */
-const NAME = String.raw`[\w.-]{0,64}(?:password|passwd|pwd|secret|token|api_?key|private_?key|access_?key|credentials?)[\w.-]{0,64}["']?`;
+/**
+ * A name that says its value is a secret, from its keyword on, with its
+ * optional quote. It starts at the keyword, not at the name's first
+ * character (`DB_` of `DB_PASSWORD` stays as it is either way), so a long
+ * run of word characters is never rescanned from every position.
+ */
+const NAME = String.raw`(?:password|passwd|pwd|secret|token|api_?key|private_?key|access_?key|credentials?)[\w.-]{0,64}["']?`;
 
 /**
  * A YAML `name: value` that starts its line with an unquoted value: the
  * value is the rest of the line.
  */
 const YAML_FIELD = new RegExp(
-  String.raw`^([ \t]*(?:-[ \t]+)?["']?${NAME}[ \t]{0,8}:[ \t]{1,8})(?!["'])[^\r\n]+`,
+  String.raw`^([ \t]*(?:-[ \t]+)?["']?[\w.-]{0,64}${NAME}[ \t]{0,8}:[ \t]{1,8})(?!["'])[^\r\n]+`,
   "gim",
 );
 
@@ -43,7 +48,7 @@ const YAML_FIELD = new RegExp(
  * `&`), so the next secret on the line is matched too.
  */
 const SECRET_FIELD = new RegExp(
-  String.raw`(\b${NAME}\s{0,8}[:=][ \t]{0,8})("(?:[^"\\\r\n]|\\.)*"|'(?:[^'\\\r\n]|\\.)*'|["'][^\r\n]*|[^\s&]+)`,
+  String.raw`(${NAME}\s{0,8}[:=][ \t]{0,8})("(?:[^"\\\r\n]|\\.)*"|'(?:[^'\\\r\n]|\\.)*'|["'][^\r\n]*|[^\s&]+)`,
   "gi",
 );
 
@@ -58,11 +63,15 @@ function maskField(head: string, value: string): string {
   return `${head}${REDACTED_VALUE}`;
 }
 
-/** An Authorization or Proxy-Authorization header's credential, any length. */
+/**
+ * An Authorization or Proxy-Authorization header's credential, any length.
+ * Brackets count, so a credential with the connection token masked inside
+ * it stays one run and its tail is masked too.
+ */
 const AUTHORIZATION =
-  /(\b(?:proxy-)?authorization["']?\s{0,8}[:=]\s{0,8}["']?(?:(?:bearer|basic|token|digest)\s+)?)[A-Za-z0-9._~+/=|-]+/gi;
+  /(\b(?:proxy-)?authorization["']?\s{0,8}[:=]\s{0,8}["']?(?:(?:bearer|basic|token|digest)\s+)?)[A-Za-z0-9._~+/=|[\]-]+/gi;
 /** A credential after an auth scheme word elsewhere in a line. */
-const AUTH_HEADER = /(\b(?:bearer|basic|token)\s+)[A-Za-z0-9._~+/=|-]{8,}/gi;
+const AUTH_HEADER = /(\b(?:bearer|basic|token)\s+)[A-Za-z0-9._~+/=|[\]-]{8,}/gi;
 /** Passes before redaction is taken as settled; each pass only masks more. */
 const MAX_PASSES = 4;
 
@@ -262,6 +271,13 @@ export const MAX_LINE = 16 * 1024;
 const CUT_CONTEXT = 1024;
 /** Cut points tried before a long line is masked from there to its end. */
 const CUT_TRIES = 32;
+/**
+ * Raw text before a cut that its check looks at: longer than any bounded
+ * match (a secret, a URL's credentials, a field's name and short value). A
+ * match that starts further back is unbounded and runs to the cut, which
+ * the caller catches (the redacted prefix then ends masked).
+ */
+const CUT_WINDOW = 4096;
 
 /** `text` in pieces of at most MAX_LINE. */
 function pieces(text: string): string[] {
@@ -273,18 +289,113 @@ function pieces(text: string): string[] {
 }
 
 /**
- * Where a long line can be cut so that redacting the two halves apart masks
- * exactly what redacting it whole would: no secret, field or URL credential
- * spans the cut. Tries `from`, then earlier whitespace. 0 when none works.
+ * Where a long line can be cut so that no bounded match (a secret, a field,
+ * a URL credential) spans the cut: around the cut, redacting the two halves
+ * apart masks exactly what redacting them together would. Only a window of
+ * CUT_WINDOW before the cut and what follows it (the kept-back context) is
+ * checked, so each try costs the same however long the line is. Tries
+ * `from`, then earlier whitespace. 0 when none works.
  */
+/** A secret field's head, without its value. */
+const SECRET_HEAD = new RegExp(String.raw`${NAME}\s{0,8}[:=][ \t]{0,8}`, "gi");
+/** A YAML secret line's head: its value is the rest of the line. */
+const YAML_HEAD = new RegExp(
+  String.raw`^[ \t]*(?:-[ \t]+)?["']?[\w.-]{0,64}${NAME}[ \t]{0,8}:`,
+  "im",
+);
+/** An auth credential's head, either kind. */
+const AUTH_HEAD =
+  /\b(?:(?:proxy-)?authorization["']?\s{0,8}[:=]\s{0,8}["']?(?:(?:bearer|basic|token|digest)\s+)?|(?:bearer|basic|token)\s+)/gi;
+/**
+ * Where an open secret context ends at a cut: only whitespace. `@`, `/`,
+ * `&` and every other mid-token character keep it open (a password may hold
+ * any of them), so an over-long line is masked too much, never too little.
+ */
+const CONTEXT_END = /\s/g;
+
+/** The index of `text[from]`'s closing quote, honouring backslashes, or -1. */
+function closingQuote(text: string, from: number): number {
+  const quote = text[from];
+  for (let i = from + 1; i < text.length; i += 1) {
+    if (text[i] === "\\") i += 1;
+    else if (text[i] === quote) return i;
+  }
+  return -1;
+}
+
+/**
+ * Where a secret that is still open at the end of `text` starts, or -1:
+ * a URL's `scheme://` whose userinfo hasn't ended, a quoted secret value
+ * without its closing quote, an unquoted secret value or a YAML secret line
+ * running to the end, or an Authorization credential running to the end.
+ * `text` starts where nothing was open (a line's start or an earlier clean
+ * cut), and every scan moves forward, so this is linear in `text`.
+ * Conservative: anything that might still be a secret counts as open.
+ */
+export function openSecretStart(text: string): number {
+  let open = -1;
+  const note = (at: number) => {
+    if (open < 0 || at < open) open = at;
+  };
+  // The first `scheme://` of the last token: open until whitespace.
+  let lastSpace = text.length - 1;
+  while (lastSpace >= 0 && !/\s/.test(text[lastSpace])) lastSpace -= 1;
+  const url = text.indexOf("://", lastSpace + 1);
+  if (url >= 0) {
+    let start = url;
+    while (
+      start > 0 &&
+      url - start < 64 &&
+      /[a-z0-9+.-]/i.test(text[start - 1])
+    ) {
+      start -= 1;
+    }
+    note(start);
+  }
+  const yaml = YAML_HEAD.exec(text);
+  if (yaml) note(yaml.index);
+  SECRET_HEAD.lastIndex = 0;
+  for (let m = SECRET_HEAD.exec(text); m; m = SECRET_HEAD.exec(text)) {
+    const value = m.index + m[0].length;
+    const quote = text[value];
+    if (quote === '"' || quote === "'") {
+      const close = closingQuote(text, value);
+      if (close < 0) {
+        note(m.index);
+        break;
+      }
+      SECRET_HEAD.lastIndex = close + 1;
+      continue;
+    }
+    CONTEXT_END.lastIndex = value;
+    const end = CONTEXT_END.exec(text);
+    if (!end) {
+      note(m.index);
+      break;
+    }
+    SECRET_HEAD.lastIndex = Math.max(end.index, value);
+  }
+  AUTH_HEAD.lastIndex = 0;
+  let last: RegExpExecArray | null = null;
+  for (let m = AUTH_HEAD.exec(text); m; m = AUTH_HEAD.exec(text)) last = m;
+  if (last) {
+    CONTEXT_END.lastIndex = last.index + last[0].length;
+    if (!CONTEXT_END.exec(text)) note(last.index);
+  }
+  return open;
+}
+
 function safeCut(text: string, secrets: readonly string[], from: number) {
-  const whole = redactLog(text, secrets);
   let p = from;
   for (let tries = 0; tries < CUT_TRIES && p > 0; tries += 1) {
-    const left = redactLog(text.slice(0, p), secrets);
-    if (left + redactLog(text.slice(p), secrets) === whole) return p;
+    const start = Math.max(0, p - CUT_WINDOW);
+    const window = text.slice(start);
+    const at = p - start;
+    const left = redactLog(window.slice(0, at), secrets);
+    const right = redactLog(window.slice(at), secrets);
+    if (left + right === redactLog(window, secrets)) return p;
     const space = text.lastIndexOf(" ", p - 2);
-    p = space >= 0 ? space + 1 : p - CUT_CONTEXT;
+    p = space > start ? space + 1 : p - CUT_CONTEXT;
   }
   return 0;
 }
@@ -328,7 +439,41 @@ export function lineSplitter(
           skipping = true;
           break;
         }
-        out.push(...pieces(redactLog(carry.slice(0, cut), secrets)));
+        const prefix = carry.slice(0, cut);
+        let openAt = openSecretStart(prefix);
+        // The connection's own secrets can be longer than safeCut's window:
+        // one that starts before the cut and runs past it is open too. The
+        // kept-back context is at least twice the longest, so it is whole.
+        for (const secret of secrets) {
+          if (!secret) continue;
+          const at = carry.indexOf(
+            secret,
+            Math.max(0, cut - secret.length + 1),
+          );
+          if (at >= 0 && at < cut && (openAt < 0 || at < openAt)) openAt = at;
+        }
+        if (openAt >= 0) {
+          // A secret is open at the cut: mask from its start (from the word
+          // before it, so nothing bounded straddles) to the end of the line.
+          const space = prefix.lastIndexOf(" ", openAt - 1);
+          const clean =
+            space >= 0 && openAt - space < CUT_WINDOW ? space + 1 : 0;
+          if (clean > 0)
+            out.push(...pieces(redactLog(prefix.slice(0, clean), secrets)));
+          out.push(REDACTED_VALUE);
+          carry = "";
+          skipping = true;
+          break;
+        }
+        const sent = redactLog(prefix, secrets);
+        out.push(...pieces(sent));
+        if (sent.endsWith(REDACTED_VALUE) && !prefix.endsWith(REDACTED_VALUE)) {
+          // A mask ran to the cut (a YAML value, an unclosed quote, a token
+          // longer than the window): the rest of the line may be more of it.
+          carry = "";
+          skipping = true;
+          break;
+        }
         carry = carry.slice(cut);
       }
     }

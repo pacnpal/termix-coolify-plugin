@@ -343,9 +343,16 @@ console }`, calls the shell route and draws `PluginComponent id="terminal.view"`
   pass). Authorization and Proxy-Authorization credentials are masked at any length; a bare scheme word
   (`Bearer x`) needs 8 characters. `redactLog` repeats the passes until the text stops changing (at most
   `MAX_PASSES`). LogsView keeps the follow's own source (`followSource`) for its badge. Followed bytes go through `lineSplitter`: one streaming `TextDecoder` per
-  stdout/stderr, and a line over MAX_LINE is cut only at a point `safeCut` proves changes nothing
-  (redacting the halves equals redacting the whole), keeping 1 KiB (or twice the longest secret) back;
-  with no safe cut the rest of that line becomes one `[redacted]`.
+  stdout/stderr, and a line over MAX_LINE is cut only at a point `safeCut` finds no bounded match
+  across (redacting the halves of a 4 KiB `CUT_WINDOW` around it equals redacting it whole), keeping
+  1 KiB (or twice the longest secret) back; with no safe cut the rest of that line becomes one
+  `[redacted]`. Window equality isn't proof for a secret that starts before the window, so each cut
+  first asks `openSecretStart(prefix)` (one forward scan from the last clean cut): an open URL
+  userinfo, quoted or unquoted secret value, YAML secret line or Authorization credential masks from its
+  start to the end of the line. A prefix whose redaction ends masked does the same. At a cut a context
+  closes only at whitespace (or its own closing quote): `@`, `/` and `&` never close it. The connection's
+  own secrets, which can outrun the window, are checked by `indexOf` across the cut. A seeded 500-case
+  property test in `logs.test.ts` streams mixed secret shapes 1–5× MAX_LINE long in random chunks.
 - logs-tail over MCP: `text` is a sensitive output, so core drops it from run history and from what
   `redactFields` passes on. The handler keeps the redacted text in memory (`takeLogText`, per user and
   `handoffId`, 60 s, 16 MB at most) and `actionResult` in `mcp/server.ts` puts it back into that one

@@ -16,8 +16,13 @@ const BLOB_KEY =
 /** Keys holding a URL with credentials in it: kept as a URL, password masked. */
 const URL_KEY = /_url$/i;
 
-/** A URL's `scheme://user:` before the password and its `@`. */
-const USERINFO = /([a-z][a-z0-9+.-]*:\/\/[^\s/?#@:]*:)[^\s/?#]*@/gi;
+/**
+ * A URL's `scheme://user:` before the password and its `@`. The scheme
+ * starts where a scheme character doesn't precede it and is at most 64
+ * long, so a long run of letters is scanned once, not from every position.
+ */
+const USERINFO =
+  /(?<![a-z0-9+.-])([a-z][a-z0-9+.-]{0,63}:\/\/[^\s/?#@:]*:)[^\s/?#]*@/gi;
 
 /** A query parameter whose name says it carries a credential. */
 const SECRET_QUERY =

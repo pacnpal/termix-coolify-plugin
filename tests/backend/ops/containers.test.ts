@@ -220,7 +220,11 @@ describe("logs-tail operation", () => {
       expect(route.body.source).toBe(sensitive ? "coolify" : "ssh");
     }
     // The text is a sensitive output: run history never keeps it.
-    expect(JSON.stringify(runs.history)).not.toMatch(/c1|s1/);
+    // (Matched as whole lines: a random handoffId can hold "c1".)
+    const history = JSON.stringify(runs.history);
+    for (const line of ["c1\\n", "c2\\n", "s1\\n", "s2\\n"]) {
+      expect(history).not.toContain(line);
+    }
   });
 
   it("logs-tail reads nothing without confirm: true (MCP and ops alike)", async () => {

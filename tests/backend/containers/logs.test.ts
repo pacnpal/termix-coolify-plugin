@@ -4,7 +4,190 @@ import { OTHER, OWNER, type PluginHarness } from "../helpers/plugin.js";
 import { resourceLists } from "../helpers/resources.js";
 import { fakeDocker, HOST_ID, setSensitive, startShell } from "./fixtures.js";
 import { RECHECK_MS } from "../../../src/backend/containers/sockets.js";
-import { MAX_LINE, redactLog } from "../../../src/backend/containers/logs.js";
+import {
+  lineSplitter,
+  MAX_LINE,
+  redactLog,
+} from "../../../src/backend/containers/logs.js";
+
+/** A deterministic secret of `n` characters from `alphabet`, no 6-gram repeating much. */
+function secretOf(
+  n: number,
+  alphabet = "abcdefghijklmnopqrstuvwxyz0123456789",
+) {
+  let seed = 12345;
+  let out = "";
+  for (let i = 0; i < n; i += 1) {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    out += alphabet[seed % alphabet.length];
+  }
+  return out;
+}
+
+/** Streams `text` through a follow's splitter in 4 KiB chunks. */
+function streamed(text: string): string[] {
+  const sent: string[] = [];
+  const split = lineSplitter([], (lines) => sent.push(...lines));
+  for (let i = 0; i < text.length; i += 4096) {
+    split.data(Buffer.from(text.slice(i, i + 4096)));
+  }
+  split.end();
+  return sent;
+}
+
+/** Any 6-character slice of `secret` in any piece. */
+function leakedSlice(pieces: string[], secret: string): string | null {
+  const grams = new Set<string>();
+  for (let i = 0; i + 6 <= secret.length; i += 1)
+    grams.add(secret.slice(i, i + 6));
+  for (const piece of pieces) {
+    for (let i = 0; i + 6 <= piece.length; i += 1) {
+      const gram = piece.slice(i, i + 6);
+      if (grams.has(gram)) return gram;
+    }
+  }
+  return null;
+}
+
+/** A seeded PRNG (mulberry32): the same cases every run. */
+function prng(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+describe("long-line redaction property", () => {
+  // Secrets use only [A-Z0-9] (and @ in URL passwords); filler, keys and the
+  // mask are lower case, so any run of six of them in the output is a leak.
+  const LEAK = /[A-Z0-9@]{6}/;
+  const CASES = 500;
+
+  it("never emits six characters of a secret, whatever the shape, length or chunking", () => {
+    const rand = prng(20261120);
+    const int = (lo: number, hi: number) =>
+      lo + Math.floor(rand() * (hi - lo + 1));
+    const pick = <T>(list: readonly T[]) => list[int(0, list.length - 1)];
+    // Secrets are slices of one seeded pool at random offsets: building
+    // each character apart cost more than the redaction under test.
+    let pool = "";
+    for (let i = 0; i < 256 * 1024; i += 1) {
+      pool += "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[int(0, 35)];
+    }
+    const upper = (n: number) => {
+      const at = int(0, pool.length - n);
+      return pool.slice(at, at + n);
+    };
+    const words = [
+      "lorem",
+      "ipsum",
+      "dolor",
+      "sit",
+      "amet",
+      "x.y",
+      "a-b",
+      "q&r",
+      "s/t",
+    ];
+    let fillerPool = "";
+    while (fillerPool.length < 64 * 1024) fillerPool += pick(words) + " ";
+    const filler = (n: number) => {
+      const at = int(0, fillerPool.length - n);
+      return fillerPool.slice(at, at + n);
+    };
+    const withAt = (n: number) => {
+      const s = upper(n);
+      const at = int(1, n - 2);
+      return s.slice(0, at) + "@" + s.slice(at + 1);
+    };
+    const shapes: ((n: number) => string)[] = [
+      (n) => `postgres://app:${upper(n)}@db/app`,
+      (n) => `postgres://app:${withAt(n)}@db/app`,
+      (n) => `{"password": "${upper(n)}"}`,
+      (n) => `secret='${upper(n)}'`,
+      (n) => `token=${upper(n)}`,
+      (n) => `db_password=${upper(n)}`,
+      (n) => `Authorization: Basic ${upper(n)}`,
+      (n) => `proxy-authorization: Bearer ${upper(n)}`,
+    ];
+    const failures: number[] = [];
+    const started = performance.now();
+    for (let c = 0; c < CASES; c += 1) {
+      const token = upper(int(1024, 30 * 1024));
+      const access = upper(int(1024, 4096));
+      const target = int(1, 5) * MAX_LINE;
+      let line =
+        rand() < 0.15 ? `password: ${upper(int(1024, 30 * 1024))} ` : "";
+      while (line.length < target) {
+        const r = rand();
+        line += filler(int(1, 6000)) + " ";
+        if (r < 0.15) line += token + " ";
+        else if (r < 0.25) line += access + " ";
+        else line += pick(shapes)(int(1024, 30 * 1024)) + " ";
+      }
+      // The whole line, redacted at once, shows no secret: the shapes are
+      // ones redactLog masks.
+      const whole = redactLog(line, [token, access]);
+      const wholeLeak = LEAK.exec(whole);
+      expect(
+        wholeLeak &&
+          whole.slice(Math.max(0, wholeLeak.index - 60), wholeLeak.index + 20),
+        `case ${c} whole`,
+      ).toBeNull();
+      const sent: string[] = [];
+      const split = lineSplitter([token, access], (l) => sent.push(...l));
+      for (let i = 0; i < line.length;) {
+        const size = int(1, 8192);
+        split.data(Buffer.from(line.slice(i, i + size)));
+        i += size;
+      }
+      split.data(Buffer.from("\n"));
+      split.end();
+      if (sent.some((piece) => LEAK.test(piece) || piece.length > MAX_LINE)) {
+        failures.push(c);
+      }
+    }
+    expect(failures, `${failures.length} of ${CASES} cases leaked`).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(3000);
+  });
+});
+
+describe("long-line cuts with an open secret", () => {
+  it("Codex's repro: a URL password with an @ in it", () => {
+    const sent = streamed(
+      "postgres://app:abc@" + "x".repeat(20000) + "@db/app",
+    );
+    expect(sent.join("")).not.toContain("xxxxxx");
+    expect(sent.join("")).not.toContain("abc@");
+  });
+
+  it("Codex's repro: a URL password longer than the window", () => {
+    const sent = streamed("postgres://app:" + "x".repeat(20000) + "@db/app");
+    expect(sent.join("")).not.toContain("xxxxxx");
+    expect(sent.join("")).toContain("[redacted]");
+  });
+
+  const filler = (n: number) =>
+    "lorem ipsum ".repeat(Math.ceil(n / 12)).slice(0, n);
+  const secret = secretOf(6000);
+  for (const [name, line] of [
+    ["a quoted password value", `{"password": "${secret}"} `],
+    ["a token= value", `token=${secret} `],
+    ["an Authorization: Basic credential", `Authorization: Basic ${secret} `],
+    ["a URL with a password", `postgres://app:${secret}@db/app `],
+  ] as const) {
+    it(`masks ${name} longer than 4 KiB across the cut`, () => {
+      const sent = streamed(filler(14000) + line + filler(30000));
+      expect(leakedSlice(sent, secret), name).toBeNull();
+      for (const piece of sent)
+        expect(piece.length).toBeLessThanOrEqual(MAX_LINE);
+    });
+  }
+});
 
 describe("redactLog", () => {
   const masked = (text: string) => redactLog(text, []);
@@ -63,6 +246,58 @@ describe("redactLog", () => {
       const out = masked(line);
       expect(out, line).toContain("[redacted]");
       expect(out, line).not.toMatch(/dTpw|abc/);
+    }
+  });
+
+  it("redacts one MAX_LINE line within budget, adversarial ones too", () => {
+    const inputs = [
+      // Scheme-like letter runs, dotted words, a secret field every so often.
+      ("abcdefghij".repeat(40) + " a-b.c-d.e-f " + "password=x ").repeat(
+        Math.ceil(MAX_LINE / 470),
+      ),
+      "a-".repeat(MAX_LINE / 2),
+      "q".repeat(MAX_LINE),
+      'password="' + "\\".repeat(MAX_LINE),
+      'password="' + '\\"'.repeat(MAX_LINE / 2),
+      "x://" + "y".repeat(MAX_LINE),
+      "&" + "token".repeat(MAX_LINE / 5),
+    ].map((s) => s.slice(0, MAX_LINE));
+    for (const line of inputs) {
+      const started = performance.now();
+      redactLog(line, [TOKEN]);
+      expect(performance.now() - started, line.slice(0, 20)).toBeLessThan(20);
+    }
+  });
+
+  it("streams 2 MB with no newline through the follow splitter in 500 ms, leaking nothing", () => {
+    const block =
+      "z".repeat(3000) +
+      ` ${TOKEN} ` +
+      "word-".repeat(400) +
+      " password=fake-perf-pass " +
+      "abcdefghij".repeat(300);
+    const text = block.repeat(Math.ceil((2 * 1024 * 1024) / block.length));
+    const sent: string[] = [];
+    const split = lineSplitter([TOKEN], (lines) => sent.push(...lines));
+    const started = performance.now();
+    for (let i = 0; i < text.length; i += 64 * 1024) {
+      split.data(Buffer.from(text.slice(i, i + 64 * 1024)));
+    }
+    split.end();
+    const took = performance.now() - started;
+    expect(took).toBeLessThan(500);
+    expect(sent.length).toBeGreaterThan(100);
+    for (const piece of sent) {
+      expect(piece.length).toBeLessThanOrEqual(MAX_LINE);
+      for (const leak of [
+        TOKEN,
+        TOKEN.slice(0, 6),
+        TOKEN.slice(-6),
+        "fake-perf",
+        "perf-pass",
+      ]) {
+        expect(piece).not.toContain(leak);
+      }
     }
   });
 
