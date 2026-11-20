@@ -249,6 +249,33 @@ describe("companion operations", () => {
     ).rejects.toThrow(routeMissing.body.error);
   });
 
+  it("companion-dns-remove and dns-list refuse a record whose resource the current target hides", async () => {
+    const { harness: h, runs, id, companions, fake } = await start();
+    const base = `/connections/${id}/resources/app-web-uuid/dns`;
+    const made = await h.request("POST", base, { fqdn: "a.example.test" });
+    companions.calls.length = 0;
+    await changeTarget(h, Number(id));
+    fake.set("GET /applications", { json: [] });
+    await expect(
+      runs.run("coolify.companion-dns-remove", {
+        connectionId: id,
+        uuid: "app-web-uuid",
+        recordId: made.body.id,
+      }),
+    ).rejects.toMatchObject({ code: "not-found" });
+    await expect(
+      runs.run("coolify.companion-read", {
+        connectionId: id,
+        kind: "dns-list",
+        params: { uuid: "app-web-uuid" },
+      }),
+    ).rejects.toMatchObject({ code: "not-found" });
+    expect(companions.calls).toEqual([]);
+    expect(
+      h.db.sqlite.prepare("SELECT id FROM p_coolify_dns_records").all(),
+    ).toHaveLength(1);
+  });
+
   it("uptime-pause and uptime-resume run uptime.pause and uptime.resume for the resource's monitors", async () => {
     const { runs, id, companions } = await start();
     const paused = await runs.run("coolify.companion", {

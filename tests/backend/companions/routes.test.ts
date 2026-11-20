@@ -671,6 +671,51 @@ describe("fails closed", () => {
     expect(companions.calls).toEqual([]);
   });
 
+  it("a stored DNS record is not listed or removed once the current target hides its resource", async () => {
+    const { harness: h, connectionId, companions, fake } = await start();
+    const base = `/connections/${connectionId}/resources/app-web-uuid/dns`;
+    const made = await h.request("POST", base, {
+      fqdn: "a.example.test",
+      type: "A",
+      content: "203.0.113.11",
+    });
+    expect(made.status).toBe(201);
+    companions.calls.length = 0;
+    // Repointed (a new token, so a new revision and a cold cache), and the
+    // new target's Coolify doesn't expose the resource.
+    await changeTarget(h, connectionId);
+    fake.set("GET /applications", { json: [] });
+
+    const listed = await h.request("GET", base);
+    expect(listed.status).toBe(404);
+    const removed = await h.request("DELETE", `${base}/${made.body.id}`);
+    expect(removed.status).toBe(404);
+    expect(removed.body.cause).toBe("not-found");
+    expect(companions.calls).toEqual([]);
+    expect(
+      h.db.sqlite.prepare("SELECT id FROM p_coolify_dns_records").all(),
+    ).toHaveLength(1);
+  });
+
+  it("a stored DNS record is not removed when the resource list can't be read", async () => {
+    const { harness: h, connectionId, companions, fake } = await start();
+    const base = `/connections/${connectionId}/resources/app-web-uuid/dns`;
+    const made = await h.request("POST", base, {
+      fqdn: "a.example.test",
+      type: "A",
+      content: "203.0.113.11",
+    });
+    companions.calls.length = 0;
+    await changeTarget(h, connectionId);
+    fake.set("GET /applications", { status: 500, json: {} });
+    const removed = await h.request("DELETE", `${base}/${made.body.id}`);
+    expect(removed.status).toBeGreaterThanOrEqual(400);
+    expect(companions.calls).toEqual([]);
+    expect(
+      h.db.sqlite.prepare("SELECT id FROM p_coolify_dns_records").all(),
+    ).toHaveLength(1);
+  });
+
   it("reads resources from the shared resource cache, not Coolify every time", async () => {
     const { harness: h, connectionId, fake } = await start();
     const apps = () =>

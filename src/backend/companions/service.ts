@@ -254,6 +254,21 @@ export function createCompanions(
     return found;
   }
 
+  /**
+   * Before any stored row is read or acted on: the resource is in the
+   * current target's own list (a miss, or a list that can't be read,
+   * refuses), and that target is still the snapshot's.
+   */
+  async function exposed(
+    connectionId: number,
+    snap: Snapshot,
+    uuid: string,
+  ): Promise<ResourceDto> {
+    const resource = await resourceOf(connectionId, uuid);
+    await holds(connectionId, snap);
+    return resource;
+  }
+
   /** The Linked host of a server, when the actor may see it. Fails closed. */
   async function hostOf(
     connectionId: number,
@@ -351,9 +366,9 @@ export function createCompanions(
       connectionId: number,
       uuid: string,
     ): Promise<DnsRecordView[]> {
-      await need(connectionId, "view");
+      const snap = await need(connectionId, "view");
       await requireCompanion(ctx, "dns");
-      if (!UUID.test(uuid)) throw resourceNotFound();
+      await exposed(connectionId, snap, uuid);
       const rows = (await (
         await dbClient(ctx)
       )
@@ -449,6 +464,9 @@ export function createCompanions(
     ): Promise<{ id: number; removed: true }> {
       const snap = await need(connectionId, "configure");
       await requireCompanion(ctx, "dns");
+      // The stored row alone proves nothing about the current target: the
+      // resource must still be one it exposes, or nothing is removed.
+      await exposed(connectionId, snap, uuid);
       const row = await storedRecord(connectionId, uuid, recordId);
       const handle = parseHandle(row.handle);
       if (!handle) throw new CompanionError("companion-failed", "dns");

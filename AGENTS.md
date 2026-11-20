@@ -316,7 +316,10 @@ console }`, calls the shell route and draws `PluginComponent id="terminal.view"`
   with a fixed message. DNS: `dns.list-zones` (longest matching zone, its `id` or else its `name`),
   `dns.upsert-record` and `dns.delete-record` take `zone`, `type`, `name`, `content`; the
   `dns_records.handle` column holds exactly those four as JSON text, and removal looks the row up by id,
-  connection and resource, so only a record made here can be removed. `setMonitorsPaused` is the hook for
+  connection and resource, so only a record made here can be removed. A stored row is never enough on
+  its own: listing and removing first need the resource in the current target's list (`exposed`:
+  `resourceOf`, then the snapshot's revision), so a repoint or a narrowed token that hides it, or a list
+  that can't be read, refuses before any row is read or any DNS call runs. `setMonitorsPaused` is the hook for
   pausing Uptime during deploys (ticket #10 decides when). Files, Tunnels and Reverse Proxy are ticket #19.
   Nothing here writes host or plugin settings. Frontend: `src/frontend/companions.ts` (`useCompanions`),
   `views/CompanionActions.tsx` (at the end of `ResourceDetail`'s Overview, with `useTabs()` as its shell)
