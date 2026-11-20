@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePluginApi, useTranslation } from "@termix-ssh/plugin-sdk/frontend";
 import {
+  Button,
   ListRow,
   LoadingState,
   MiniStat,
@@ -57,11 +58,25 @@ function isLiveStats(value: unknown): value is LiveStats & { type: "stats" } {
   );
 }
 
+/** Waits before each automatic reconnect; after the last, only the button. */
+export const RECONNECT_DELAYS_MS = [1_000, 3_000, 9_000];
+/** The close code the backend refuses with: access or the target changed. */
+const REFUSED = 1008;
+
+/** Why the live readout stopped, shown with a Reconnect button. */
+type Stopped = { message: string } | null;
+
 /**
  * The live docker stats readout, from the /stats socket while the view is
  * visible. It closes the socket when hidden or gone. A resource with several
  * containers answers choices: the picker (as the Logs view's) sets
  * `container`, which subscribes again with it.
+ *
+ * A socket that fails or closes on its own shows why (a 1008 is a refusal,
+ * with the backend's cause), keeps the last sample marked stale, and offers
+ * Reconnect. A lost connection is retried on its own at most
+ * RECONNECT_DELAYS_MS.length times; a refusal never is. Each socket is one
+ * generation: events from a superseded one are dropped.
  */
 function LiveReadout({
   connectionId,
@@ -82,18 +97,54 @@ function LiveReadout({
   const { t } = useTranslation();
   const [stats, setStats] = useState<LiveStats | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
+  const [stopped, setStopped] = useState<Stopped>(null);
   const [choices, setChoices] = useState<ContainerChoice[] | null>(null);
+  // Bumped to open a new socket: Reconnect and the automatic retries.
+  const [attempt, setAttempt] = useState(0);
+  const retries = useRef(0);
+  const generation = useRef(0);
+
+  // A new resource or container starts clean, with a fresh retry budget.
+  useEffect(() => {
+    retries.current = 0;
+    setStats(null);
+  }, [connectionId, uuid, container]);
 
   useEffect(() => {
     if (!isVisible) return;
+    const gen = ++generation.current;
+    const current = () => gen === generation.current;
     let socket: Awaited<ReturnType<OpenLive>> = null;
-    let gone = false;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    let ended = false;
     setFailed(null);
+    setStopped(null);
     setChoices(null);
-    setStats(null);
+
+    /** The socket ended without the view asking: say why, maybe retry. */
+    function lost(code: number | null, reason: string) {
+      if (!current() || ended) return;
+      ended = true;
+      if (code === REFUSED) {
+        setStopped({
+          message: t(`metrics.live.errors.${reason}`, {
+            defaultValue: t("metrics.live.refused"),
+          }),
+        });
+        return;
+      }
+      setStopped({ message: t("metrics.live.disconnected") });
+      const wait = RECONNECT_DELAYS_MS[retries.current];
+      if (wait === undefined) return;
+      retries.current += 1;
+      retry = setTimeout(() => {
+        if (current()) setAttempt((n) => n + 1);
+      }, wait);
+    }
+
     open("/stats")
       .then((s) => {
-        if (gone) {
+        if (!current()) {
           s?.close();
           return;
         }
@@ -103,6 +154,7 @@ function LiveReadout({
           return;
         }
         s.onmessage = (event) => {
+          if (!current()) return;
           let body: unknown;
           try {
             body = JSON.parse(String(event.data));
@@ -110,6 +162,8 @@ function LiveReadout({
             return;
           }
           if (isLiveStats(body)) {
+            retries.current = 0;
+            setStopped(null);
             setStats(body);
           } else if ((body as { type?: unknown })?.type === "choices") {
             setChoices(choicesOf(body));
@@ -122,6 +176,10 @@ function LiveReadout({
             );
           }
         };
+        // A browser always follows error with close, which says why.
+        s.onerror = () => undefined;
+        s.onclose = (event: { code?: number; reason?: string }) =>
+          lost(event?.code ?? null, String(event?.reason ?? ""));
         const start = () =>
           s.send(
             JSON.stringify({
@@ -134,13 +192,28 @@ function LiveReadout({
         else s.onopen = start;
       })
       .catch(() => {
-        if (!gone) setFailed(t("metrics.live.unavailable"));
+        if (current()) setFailed(t("metrics.live.unavailable"));
       });
     return () => {
-      gone = true;
+      // Unmount, hiding or a new resource: a new generation, and nothing
+      // from this socket reaches the view any more.
+      generation.current += 1;
+      if (retry) clearTimeout(retry);
       socket?.close();
     };
-  }, [connectionId, uuid, container, isVisible, open, t]);
+  }, [connectionId, uuid, container, isVisible, open, t, attempt]);
+
+  const reconnect = () => {
+    retries.current = 0;
+    setAttempt((n) => n + 1);
+  };
+  const reconnectButton = (
+    <div>
+      <Button size="sm" variant="outline" onClick={reconnect}>
+        {t("metrics.live.reconnect")}
+      </Button>
+    </div>
+  );
 
   return (
     <section className="flex flex-col gap-2">
@@ -148,7 +221,10 @@ function LiveReadout({
         {t("metrics.live.title")}
       </h3>
       {failed ? (
-        <p className="text-muted-foreground text-xs">{failed}</p>
+        <>
+          <p className="text-muted-foreground text-xs">{failed}</p>
+          {reconnectButton}
+        </>
       ) : choices ? (
         <div className="flex flex-col gap-2">
           <div>
@@ -170,27 +246,48 @@ function LiveReadout({
             ))}
           </PanelList>
         </div>
-      ) : stats ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <MiniStat
-            caption={t("metrics.cpu")}
-            value={formatPercent(stats.cpu)}
-          />
-          <MiniStat
-            caption={t("metrics.memory")}
-            value={formatBytes(stats.memBytes)}
-          />
-          <MiniStat
-            caption={t("metrics.live.received")}
-            value={formatBytes(stats.netRx)}
-          />
-          <MiniStat
-            caption={t("metrics.live.sent")}
-            value={formatBytes(stats.netTx)}
-          />
-        </div>
       ) : (
-        <LoadingState compact label={t("metrics.live.waiting")} />
+        <>
+          {stopped && (
+            <>
+              <p className="text-muted-foreground text-xs">{stopped.message}</p>
+              {reconnectButton}
+            </>
+          )}
+          {stats ? (
+            <>
+              {stopped && (
+                <p className="text-muted-foreground text-xs">
+                  {t("metrics.live.stale")}
+                </p>
+              )}
+              <div
+                className={`grid grid-cols-2 gap-3 sm:grid-cols-4${stopped ? " opacity-60" : ""}`}
+              >
+                <MiniStat
+                  caption={t("metrics.cpu")}
+                  value={formatPercent(stats.cpu)}
+                />
+                <MiniStat
+                  caption={t("metrics.memory")}
+                  value={formatBytes(stats.memBytes)}
+                />
+                <MiniStat
+                  caption={t("metrics.live.received")}
+                  value={formatBytes(stats.netRx)}
+                />
+                <MiniStat
+                  caption={t("metrics.live.sent")}
+                  value={formatBytes(stats.netTx)}
+                />
+              </div>
+            </>
+          ) : (
+            !stopped && (
+              <LoadingState compact label={t("metrics.live.waiting")} />
+            )
+          )}
+        </>
       )}
     </section>
   );

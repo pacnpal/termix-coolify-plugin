@@ -1263,7 +1263,11 @@
         "target-changed": "The connection changed. Open the tab again.",
         "too-many-streams": "Too many live readouts are open. Close one and try again.",
         "forbidden": "You don't have access to these stats."
-      }
+      },
+      "disconnected": "The live readout lost its connection.",
+      "refused": "The live readout stopped: your access or the connection changed.",
+      "stale": "Last reading, not live",
+      "reconnect": "Reconnect"
     },
     "off": {
       "title": "Metrics are off for this server",

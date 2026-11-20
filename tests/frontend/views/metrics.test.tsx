@@ -23,6 +23,8 @@ class FakeLive {
   readyState = 1;
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
+  onclose: ((event: { code: number; reason: string }) => void) | null = null;
+  onerror: (() => void) | null = null;
   sent: unknown[] = [];
   closed = false;
   send(data: string) {
@@ -34,7 +36,24 @@ class FakeLive {
   push(body: unknown) {
     this.onmessage?.({ data: JSON.stringify(body) });
   }
+  /** The server or the network ends the socket. */
+  drop(code = 1006, reason = "") {
+    this.readyState = 3;
+    this.onerror?.();
+    this.onclose?.({ code, reason });
+  }
 }
+
+const SAMPLE = {
+  type: "stats",
+  container: "web-abc",
+  cpu: 12.5,
+  memPct: 3.1,
+  memBytes: 64 * 1024 * 1024,
+  netRx: 1500,
+  netTx: 2_000_000,
+  at: 1,
+};
 
 const live = vi.hoisted(() => ({
   socket: null as unknown,
@@ -172,6 +191,104 @@ describe("resource detail tabs", () => {
     expect(
       screen.queryByRole("button", { name: locales.detail.tabs.stats }),
     ).toBeNull();
+  });
+});
+
+describe("Stats tab live connection", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("a dropped socket shows disconnected, keeps the last sample as stale, and Reconnect subscribes again", async () => {
+    const sockets: FakeLive[] = [];
+    live.open = vi.fn(async () => {
+      const socket = new FakeLive();
+      sockets.push(socket);
+      return socket;
+    });
+    const api = stubApi([[/\/resources\/app-web-uuid\/metrics/, HISTORY]]);
+    await setup(api);
+    await openDetail("web", locales.detail.tabs.stats);
+    await waitFor(() => expect(sockets[0]?.sent).toHaveLength(1));
+    sockets[0].push(SAMPLE);
+    expect(await screen.findByText("12.5%")).toBeTruthy();
+    expect(screen.queryByText(L.live.stale)).toBeNull();
+
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    sockets[0].drop(1006);
+    vi.useRealTimers();
+    expect(await screen.findByText(L.live.disconnected)).toBeTruthy();
+    expect(screen.getByText(L.live.stale)).toBeTruthy();
+    expect(screen.getByText("12.5%")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: L.live.reconnect }));
+    await waitFor(() => expect(sockets[1]?.sent).toHaveLength(1));
+    expect(sockets[1].sent[0]).toEqual({
+      connectionId: 1,
+      uuid: "app-web-uuid",
+    });
+    // The superseded socket's events change nothing.
+    sockets[0].push({ ...SAMPLE, cpu: 99.5 });
+    sockets[0].drop(1006);
+    sockets[1].push({ ...SAMPLE, cpu: 33.5 });
+    expect(await screen.findByText("33.5%")).toBeTruthy();
+    expect(screen.queryByText("99.5%")).toBeNull();
+    expect(screen.queryByText(L.live.disconnected)).toBeNull();
+    expect(screen.queryByText(L.live.stale)).toBeNull();
+  });
+
+  it("a 1008 close shows why and never retries on its own", async () => {
+    const sockets: FakeLive[] = [];
+    live.open = vi.fn(async () => {
+      const socket = new FakeLive();
+      sockets.push(socket);
+      return socket;
+    });
+    const api = stubApi([[/\/resources\/app-web-uuid\/metrics/, HISTORY]]);
+    await setup(api);
+    await openDetail("web", locales.detail.tabs.stats);
+    await waitFor(() => expect(sockets[0]?.sent).toHaveLength(1));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    sockets[0].drop(1008, "target-changed");
+    await vi.advanceTimersByTimeAsync(60_000);
+    vi.useRealTimers();
+    expect(
+      await screen.findByText(L.live.errors["target-changed"]),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: L.live.reconnect })).toBeTruthy();
+    expect(live.open).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a lost connection at most 3 times, with growing waits", async () => {
+    const sockets: FakeLive[] = [];
+    live.open = vi.fn(async () => {
+      const socket = new FakeLive();
+      sockets.push(socket);
+      return socket;
+    });
+    const api = stubApi([[/\/resources\/app-web-uuid\/metrics/, HISTORY]]);
+    await setup(api);
+    await openDetail("web", locales.detail.tabs.stats);
+    await waitFor(() => expect(sockets[0]?.sent).toHaveLength(1));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const waits: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const before = sockets.length;
+      sockets[before - 1].drop(1006);
+      let waited = 0;
+      while (sockets.length === before && waited < 60_000) {
+        await vi.advanceTimersByTimeAsync(250);
+        waited += 250;
+      }
+      if (sockets.length === before) break;
+      waits.push(waited);
+    }
+    vi.useRealTimers();
+    expect(waits).toHaveLength(3);
+    expect(waits[0]).toBeLessThan(waits[1]);
+    expect(waits[1]).toBeLessThan(waits[2]);
+    expect(live.open).toHaveBeenCalledTimes(4);
+    expect(await screen.findByText(L.live.disconnected)).toBeTruthy();
   });
 });
 

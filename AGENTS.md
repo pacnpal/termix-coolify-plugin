@@ -467,6 +467,9 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   `containers.target` and host access, then runs `docker stats --no-stream` (4 KB output cap). Refusals close with 1008. The frontend
   opens it with `openSocket` (`socket.ts`); tests mock that module. A `choices` answer shows the Logs
   view's picker (same `logs.pick` texts); the pick lives in `StatsTab`, keyed per resource.
+  A socket that closes on its own shows why (1008: the backend's cause under `metrics.live.errors`,
+  else `refused`), keeps the last sample marked stale, and offers Reconnect; a lost connection retries
+  itself `RECONNECT_DELAYS_MS` (3, growing), a refusal never. A generation ref drops superseded sockets.
 - Signals (`src/backend/ops/signals.ts`) read resources from the resources cache and server statuses from a
   `servers` cache kind (a minute, no addresses or keys kept) through `createServerStatuses`, made in
   `index.ts`. That cache works like the resources cache: rows carry `connections.revision(id)` and a

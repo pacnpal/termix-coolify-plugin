@@ -233,7 +233,10 @@ Coolify does, plus through Coolify's own MCP endpoint when that is turned on for
 
 - **Stats** (a tab on a resource or part): the container's CPU and memory history from Sentinel, for 1 hour,
   24 hours, 7 days or 30 days, and a **Live** readout from `docker stats` every 3 seconds while the tab is
-  open. Leaving the tab stops it. You can have at most 3 live readouts open at once.
+  open. Leaving the tab stops it. You can have at most 3 live readouts open at once. If the connection
+  drops, the readout says so, marks the last reading as not live and tries again up to 3 times;
+  **Reconnect** starts it again by hand. When your access or the connection changed, it says why
+  and waits for **Reconnect**.
 - **Traffic** (a tab on applications): requests over time, top paths, and breakdowns by status code,
   country, browser and bot, for 24 hours, 7 or 30 days. It needs Coolify's traffic analytics on for the
   server; Coolify's API can't turn that on, so the tab says where to do it in Coolify. Client IPs show only
