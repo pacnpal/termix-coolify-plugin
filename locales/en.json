@@ -1342,6 +1342,7 @@
     "tunnelsMissing": "Install and turn on Tunnels to reach Coolify containers from here.",
     "viewTitle": "Coolify",
     "noResources": "No Coolify resources run on this host.",
+    "notCoolifyHost": "This host isn't a Coolify server's Linked host, so it has no Coolify resources to reach.",
     "errors": {
       "proxyNotConfigured": "Reverse Proxy isn't set up for web pages yet. An admin sets its Termix address and Web endpoint domain in Settings.",
       "companionMissing": "That plugin isn't running any more.",

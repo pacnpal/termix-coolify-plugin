@@ -178,6 +178,8 @@ export interface ContainerCompanionsDeps {
 interface OpenForward {
   actor: string;
   port: number;
+  /** An open still on its way: it holds the name and a slot, can't be closed. */
+  pending?: boolean;
 }
 
 /**
@@ -356,29 +358,44 @@ export function createContainerCompanions(
       const { where, res, sudo, container } = located;
       const name = tunnelName(where.hostId, segment("uuid", res.uuid));
       const held = forwards.get(name);
-      if (held && held.actor !== who) {
+      // Another person's forward, or an open of this name still on its way
+      // (anyone's), is in use: two opens never race for one name.
+      if (held && (held.actor !== who || held.pending)) {
         throw new ContainerCompanionError("tunnel-in-use");
       }
       const mine = [...forwards.values()].filter((f) => f.actor === who);
       if (!held && mine.length >= TUNNELS_MAX_PER_ACTOR) {
         throw new ContainerCompanionError("too-many-tunnels");
       }
-      const targetHost = await containerIp(where, container.name, sudo);
-      if (held) {
-        // The same actor reopening: the old forward goes first.
+      // Reserved before the first await, so concurrent opens see this slot.
+      forwards.set(name, { actor: who, port, pending: true });
+      let oldStopped = !held;
+      let forwardAsked = false;
+      try {
+        const targetHost = await containerIp(where, container.name, sudo);
+        if (held) {
+          // The same actor reopening: the old forward goes first.
+          await holds(connectionId, snap);
+          await closeForward(tunnels, name);
+          oldStopped = true;
+        }
         await holds(connectionId, snap);
-        await closeForward(tunnels, name);
-        forwards.delete(name);
+        forwardAsked = true;
+        const bound = await openForward(tunnels, {
+          hostId: where.hostId,
+          name,
+          targetHost,
+          targetPort: port,
+        });
+        forwards.set(name, { actor: who, port });
+        return { name, hostId: where.hostId, targetPort: port, ...bound };
+      } catch (err) {
+        if (oldStopped) forwards.delete(name);
+        else forwards.set(name, held!);
+        // Tunnels may have opened it before failing to answer: stop it.
+        if (forwardAsked) await closeForward(tunnels, name).catch(() => {});
+        throw err;
       }
-      await holds(connectionId, snap);
-      const bound = await openForward(tunnels, {
-        hostId: where.hostId,
-        name,
-        targetHost,
-        targetPort: port,
-      });
-      forwards.set(name, { actor: who, port });
-      return { name, hostId: where.hostId, targetPort: port, ...bound };
     },
 
     async tunnelClose(
@@ -410,7 +427,7 @@ export function createContainerCompanions(
       const name = tunnelName(hostId, segment("uuid", res.uuid));
       const held = forwards.get(name);
       // Only a forward this plugin opened, for this actor, on this port.
-      if (!held || held.actor !== who || held.port !== port) {
+      if (!held || held.pending || held.actor !== who || held.port !== port) {
         throw new ContainerCompanionError("tunnel-not-found");
       }
       const tunnels = await tunnelsAccess(ctx);

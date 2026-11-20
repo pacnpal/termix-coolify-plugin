@@ -315,6 +315,34 @@ describe("Coolify view in the Tunnels tab", () => {
     expect(within(view).getByText(C.localNote)).toBeTruthy();
   });
 
+  it("on a host with no Coolify link, reads no connection and lists nothing", async () => {
+    const api = companionApi({ tunnels: true });
+    const plain = { ...host, id: 8, name: "plain", pluginSettings: {} };
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions: OPERATE,
+      hosts: [host, plain],
+    });
+    const r = rendered;
+    await waitFor(() =>
+      expect(r.registered.extensions("tunnels.views")).toHaveLength(1),
+    );
+    api.get.mockClear();
+    const view = rendered.renderExtension(
+      "tunnels.views",
+      "coolify.resources",
+      "view",
+      { host: plain },
+    );
+    expect(await within(view).findByText(C.notCoolifyHost)).toBeTruthy();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const calls = api.get.mock.calls.map(([url]) => String(url));
+    expect(calls.filter((u) => u.startsWith("/connections"))).toEqual([]);
+    expect(within(view).queryByRole("group")).toBeNull();
+  });
+
   it("isn't added without coolify.operate", async () => {
     rendered = await renderWithApp(plugin, {
       manifest,

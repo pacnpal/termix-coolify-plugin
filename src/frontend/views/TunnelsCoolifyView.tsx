@@ -42,9 +42,13 @@ export function TunnelsCoolifyView({
   const canOperate = usePermission("operate");
   const map = useCompanions();
   const link = linkOf(host ?? null);
+  // A host that isn't a Linked host has no Coolify resources: only the
+  // hostless tab lists every connection's.
+  const unlinked = !!host && !link;
   const [sections, setSections] = useState<Section[] | null>(null);
 
   useEffect(() => {
+    if (unlinked) return;
     let live = true;
     void (async () => {
       try {
@@ -77,9 +81,17 @@ export function TunnelsCoolifyView({
       live = false;
     };
     // The link is read from the host; its two fields are what matter.
-  }, [api, link?.connectionId, link?.serverUuid]);
+  }, [api, unlinked, link?.connectionId, link?.serverUuid]);
 
   if (!canOperate) return null;
+  if (unlinked) {
+    return (
+      <EmptyState
+        icon={Network}
+        title={t("containerCompanions.notCoolifyHost")}
+      />
+    );
+  }
   if (map && !map.tunnels) {
     return (
       <NoticePanel

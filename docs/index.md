@@ -507,7 +507,8 @@ part's Overview shows a **Companion plugins** group. Each button hides while its
   Forwarding to your own computer isn't possible: Tunnels offers that only from the desktop app's own
   tunnels.
 - The **Tunnels tab** gets a **Coolify** view listing the resources of the host's Coolify server (or every
-  connection's, on the hostless tab), each with a port to forward and stop.
+  connection's, on the hostless tab), each with a port to forward and stop. On a host that isn't a Linked
+  host it says so and lists nothing.
 - **Open web UI** needs Reverse Proxy's endpoint set up: an admin sets its **Termix address** and **Web
   endpoint domain** (a wildcard DNS name pointing at the proxy). Until then the button explains that. The
   link signs you in once; ask for a new one next time.

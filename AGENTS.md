@@ -558,8 +558,11 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   format and the docker ps name, revision again, then the companion call. Only a private container IP
   passes (`isContainerIp`: 10/8, 172.16/12, 192.168/16, fc00::/7). The registry (`forwards`, by tunnel
   name) records the actor and port: close needs both to match (`tunnel-not-found`), another actor's name
-  is `tunnel-in-use`, and `TUNNELS_MAX_PER_ACTOR` (5) is `too-many-tunnels`. It is per process and a
-  restart forgets it. The call is `forward(hostId, { targetHost, targetPort, bindHost: "127.0.0.1" },
+  is `tunnel-in-use`, and `TUNNELS_MAX_PER_ACTOR` (5) is `too-many-tunnels`. An open reserves its name
+  and slot (`pending`) synchronously right after those checks, before any await, so concurrent opens can't
+  pass the cap or open one name twice (a pending name is `tunnel-in-use` and can't be closed); every
+  failure gives the reservation back (or restores the forward it was reopening) and stops a forward
+  Tunnels may have opened. It is per process and a restart forgets it. The call is `forward(hostId, { targetHost, targetPort, bindHost: "127.0.0.1" },
 { name })` (checked against Plugin-Tunnels' `src/backend/service.ts`; the name goes in the third
   argument and must be `web:<hostId>:<id>`), and Tunnels' `bindHost`/`bindPort` are passed on. Close is
   `stop(name)`, never the answer's `close()`, which doesn't survive the process boundary; a later forward
@@ -569,5 +572,7 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   `confirmed: true`. Frontend: `views/ContainerCompanions.tsx` (in ResourceDetail's Overview, keyed by
   connection, uuid and `revision`, request generations through `useLatest`; Browse files with view, the
   rest with operate) and `views/TunnelsCoolifyView.tsx` (`tunnels.views`, registered only with
-  `hasPermission("operate")`, rows keyed the same way). `files.openHost` and `files.openEditor` are File
+  `hasPermission("operate")`, rows keyed the same way; a host given without a Coolify link is its own
+  state, `notCoolifyHost`, with no connection read, since only the hostless tab lists every connection's
+  resources). `files.openHost` and `files.openEditor` are File
   Manager frontend actions run with `invokeAction`.
