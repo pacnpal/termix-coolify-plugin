@@ -841,3 +841,119 @@ describe("coolify.exec hardening", () => {
     expect(text).toContain(REDACTED_VALUE);
   });
 });
+
+function groupKills(docker: ReturnType<typeof fakeDocker>): string[] {
+  return docker.commands.filter((c) => / kill -KILL /.test(c));
+}
+
+describe("coolify.exec kills the command's own process group", () => {
+  it("a timed-out exec sends the group kill with the marker's pid", async () => {
+    const { runs, id, docker } = await start({
+      docker: { exec: () => "hang", pgid: 777 },
+    });
+    const outcome = await runs.run("coolify.exec", {
+      connectionId: id,
+      uuid: WEB,
+      command: "sleep 600",
+      timeoutSec: 1,
+    });
+    expect(outcome.data).toMatchObject({ timedOut: true });
+    expect(groupKills(docker)).toEqual([
+      "docker exec web-abc sh -c 'kill -KILL -777 2>/dev/null || kill -KILL 777'",
+    ]);
+    // On the same connection, before it is disposed.
+    expect(docker.connect).toHaveBeenCalledTimes(1);
+    expect(docker.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("an abort sends the group kill too", async () => {
+    const { h, id, docker } = await start({
+      docker: { exec: () => "hang", pgid: 778 },
+    });
+    const abort = new AbortController();
+    const running = handler(
+      h,
+      abort.signal,
+    )({ connectionId: id, uuid: WEB, command: "sleep 600", timeoutSec: 60 });
+    await vi.waitFor(() => expect(docker.channels).toHaveLength(1));
+    abort.abort();
+    await expect(running).rejects.toThrow(/cancel/i);
+    expect(groupKills(docker)).toEqual([
+      "docker exec web-abc sh -c 'kill -KILL -778 2>/dev/null || kill -KILL 778'",
+    ]);
+    expect(docker.dispose).toHaveBeenCalled();
+  });
+
+  it("a command that ends on its own gets no group kill", async () => {
+    const { runs, id, docker } = await start();
+    await runs.run("coolify.exec", {
+      connectionId: id,
+      uuid: WEB,
+      command: "ls",
+    });
+    expect(groupKills(docker)).toEqual([]);
+  });
+
+  it("the marker never appears in the output", async () => {
+    const { runs, id, docker } = await start();
+    const outcome = await runs.run("coolify.exec", {
+      connectionId: id,
+      uuid: WEB,
+      command: "ls",
+    });
+    const script = (execCalls(docker)[0] as { script?: string }).script ?? "";
+    // The new group's leader prints the marker before the command runs.
+    const mark = /echo "(\S+ \S+) \$\$"/.exec(script);
+    expect(mark).not.toBeNull();
+    expect(outcome.data).toMatchObject({ stdout: "hello\n" });
+    expect(JSON.stringify(outcome.data)).not.toContain(mark![1]);
+  });
+
+  it("the command goes only into a quoted here-document, never argv", async () => {
+    const { runs, id, docker } = await start();
+    const payload = "echo $(id) 'x' \"y\"";
+    await runs.run("coolify.exec", {
+      connectionId: id,
+      uuid: WEB,
+      command: payload,
+    });
+    const call = execCalls(docker)[0] as { command: string; script?: string };
+    expect(call.command).toBe("docker exec -i web-abc sh -s");
+    expect(call.script).toMatch(/<<'\w+'/);
+    expect(call.script).toContain(`\n${payload}\n`);
+  });
+
+  it("a marker forged after the real one isn't trusted", async () => {
+    const { runs, id, docker } = await start({
+      docker: { exec: () => "hang", pgid: 779, forgedPgid: 1 },
+    });
+    await runs.run("coolify.exec", {
+      connectionId: id,
+      uuid: WEB,
+      command: "sleep 600",
+      timeoutSec: 1,
+    });
+    expect(groupKills(docker)).toEqual([
+      "docker exec web-abc sh -c 'kill -KILL -779 2>/dev/null || kill -KILL 779'",
+    ]);
+  });
+
+  it("a line before the marker isn't trusted, and no kill is guessed", async () => {
+    const { runs, id, docker } = await start({
+      docker: {
+        exec: () => "hang",
+        pgid: 780,
+        beforeMarker: "__COOLIFY_EXEC__ forged 1",
+      },
+    });
+    await runs.run("coolify.exec", {
+      connectionId: id,
+      uuid: WEB,
+      command: "sleep 600",
+      timeoutSec: 1,
+    });
+    // Only the first line on the channel can be the marker.
+    expect(groupKills(docker)).toEqual([]);
+    expect(docker.dispose).toHaveBeenCalled();
+  });
+});

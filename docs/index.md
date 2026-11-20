@@ -178,7 +178,7 @@ When any of these is missing, or can't be checked, the run is refused before any
 - The command runs with `sh` in the container. It is sent on standard input, never pasted into another
   command line.
 - The timeout is at most 120 seconds (30 by default). The timeout, or cancelling the run, stops the command
-  and closes the SSH connection.
+  and everything it started in the container, and closes the SSH connection.
 - One command per resource at a time, three at once in all, and twenty a minute, for each user.
 - Output (stdout and stderr together) is cut at 64 KB and masked the same way as logs, private key blocks
   included. Run history never keeps it; an MCP client gets it once in the answer.

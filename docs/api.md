@@ -218,8 +218,8 @@ The command goes to `sh -s` on standard input (`docker exec -i <container> sh -s
 into another command line; the container name comes only from the resource and must match
 `[A-Za-z0-9_.-]`. The run is about one read of the connection: if its address, token, Access token or TLS
 settings change before the SSH connection opens or before the command is sent, it ends with
-`target-changed` and sends nothing. The timeout, a cancel or the output cap kills the command over SSH and
-closes the connection.
+`target-changed` and sends nothing. The timeout, a cancel or the output cap kills the command over SSH, then
+kills its process group inside the container, and closes the connection.
 
 The data is `{ hostId, container, exitCode, timedOut, truncated, stdout, stderr }`, or `{ choices }` when
 several containers match. Each line of stdout and stderr goes through the same masking as logs (the

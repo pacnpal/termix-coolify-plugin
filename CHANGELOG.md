@@ -182,7 +182,7 @@
   MCP" and the connection's owner turns it on for that connection. Each run needs Operate Coolify
   resources, the owner or an operate or configure Grant, your own edit access to the Linked host and a
   confirm, and over MCP also "Allow changes over MCP" and `confirmed: true`. One run per resource at a
-  time, three at once and twenty a minute per user; the timeout or a cancel stops the command and closes
+  time, three at once and twenty a minute per user; the timeout or a cancel stops the command and its processes in the container and closes
   the SSH connection, and a connection whose target changes while a run starts sends nothing. Runs are
   audited with lengths and the exit code only; run history keeps neither the command nor its output
 - The owner's "Allow running commands in containers through the API and MCP" switch in the connection

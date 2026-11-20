@@ -114,6 +114,51 @@ function cutBytes(text: string, max: number): string {
   return bytes.subarray(0, end).toString("utf8");
 }
 
+/** The first word of the line the command's group leader prints first. */
+export const EXEC_MARK = "__COOLIFY_EXEC__";
+/** How long the group kill after a timeout, abort or cap may take. */
+const GROUP_KILL_TIMEOUT_MS = 5_000;
+/** The marker line is short; a longer first line is output. */
+const MARK_MAX = 128;
+
+/**
+ * The script coolify.exec writes to `sh -s` in the container. The command is
+ * only data, in a quoted here-document whose delimiter holds `nonce`. Its
+ * shell runs in a new session when `setsid` exists (busybox and util-linux
+ * both have it), so it leads its own process group, and it prints
+ * `EXEC_MARK <nonce> <pid>` before the command runs: the first line on
+ * stdout. Without setsid the pid is only that shell's.
+ */
+export function execScript(command: string, nonce: string): string {
+  const delim = `COOLIFY_EXEC_${nonce}`;
+  const body = command.endsWith("\n") ? command : `${command}\n`;
+  return [
+    "s=",
+    "command -v setsid >/dev/null 2>&1 && s=setsid",
+    `$s sh -c 'echo "${EXEC_MARK} ${nonce} $$"; exec sh -s' <<'${delim}' &`,
+    `${body}${delim}`,
+    "wait $!",
+    "",
+  ].join("\n");
+}
+
+/** A nonce whose delimiter line isn't a line of the command. */
+function nonceFor(command: string): string {
+  const lines = new Set(command.split("\n"));
+  for (;;) {
+    const nonce = crypto.randomUUID().replace(/-/g, "");
+    if (!lines.has(`COOLIFY_EXEC_${nonce}`)) return nonce;
+  }
+}
+
+/** The group id in `line` when it is this run's marker, else null. */
+function markedPid(line: string, nonce: string): number | null {
+  const m = /^(\S+) (\S+) ([1-9]\d{0,9})\r?$/.exec(line);
+  if (!m || m[1] !== EXEC_MARK || m[2] !== nonce) return null;
+  const pid = Number(m[3]);
+  return pid > 1 && pid <= 0x7fffffff ? pid : null;
+}
+
 const PEM_BEGIN = /-----BEGIN ([A-Z0-9 ]{0,40})PRIVATE KEY-----/;
 
 /**
@@ -366,6 +411,10 @@ export function createExec(ctx: PluginContext, deps: ExecDeps) {
         );
         let stream: ExecStream | null = null;
         let stopped = false;
+        let ended = false;
+        let pgid: number | null = null;
+        let disposed = false;
+        const nonce = nonceFor(request.command);
         const kill = () => {
           try {
             stream?.signal?.("KILL");
@@ -382,6 +431,46 @@ export function createExec(ctx: PluginContext, deps: ExecDeps) {
           if (stopped) return;
           stopped = true;
           kill();
+        };
+        const client = connection.client as ExecClient;
+        /**
+         * Kills the command's process group in the container, on this same
+         * connection: closing the channel only ends docker exec on the host.
+         * Checked against the snapshot first; a failure is logged, not thrown.
+         */
+        const groupKill = async (group: number) => {
+          try {
+            await deps.containers.assertSnapshotHolds(connectionId, snap);
+            const line = `${dockerPrefix(sudo)} exec ${container} sh -c 'kill -KILL -${group} 2>/dev/null || kill -KILL ${group}'`;
+            await new Promise<void>((resolve, reject) => {
+              const timer = setTimeout(
+                () => reject(new Error("timed out")),
+                GROUP_KILL_TIMEOUT_MS,
+              );
+              client.exec(line, { pty: false }, (e, opened) => {
+                if (e) {
+                  clearTimeout(timer);
+                  reject(e);
+                  return;
+                }
+                opened.on("close", () => {
+                  clearTimeout(timer);
+                  resolve();
+                });
+              });
+            });
+          } catch {
+            ctx.log.warn(
+              "coolify exec: the command's process group could not be killed",
+            );
+          }
+        };
+        /** Ends the run: kills what is still running, then the connection. */
+        const shutdown = async () => {
+          if (disposed) return;
+          disposed = true;
+          stop();
+          if (!ended && pgid !== null) await groupKill(pgid);
           connection.dispose();
         };
 
@@ -416,9 +505,34 @@ export function createExec(ctx: PluginContext, deps: ExecDeps) {
         const errSplit = lineSplitter(secrets, (lines) =>
           lines.forEach(errLines),
         );
-        const reader = (split: typeof outSplit) => {
+        const reader = (split: typeof outSplit, marked: boolean) => {
           let raw = 0;
-          return (chunk: unknown) => {
+          // Only the first line of stdout can be the marker: it is written
+          // before the command runs. Every later line is output.
+          let head: Buffer | null = marked ? Buffer.alloc(0) : null;
+          const feed = (chunk: unknown) => {
+            if (head === null) return chunk;
+            const bytes =
+              typeof chunk === "string"
+                ? Buffer.from(chunk)
+                : Buffer.from(chunk as Uint8Array);
+            head = Buffer.concat([head, bytes]);
+            const at = head.indexOf(0x0a);
+            if (at < 0 && head.length <= MARK_MAX) return null;
+            const rest = head;
+            head = null;
+            if (at >= 0) {
+              const pid = markedPid(rest.subarray(0, at).toString(), nonce);
+              if (pid !== null) {
+                pgid = pid;
+                return rest.subarray(at + 1);
+              }
+            }
+            return rest;
+          };
+          return (input: unknown) => {
+            const chunk = feed(input);
+            if (chunk === null) return;
             for (const piece of slices(chunk)) {
               if (stopped || truncated) return;
               // Nothing past the raw cap reaches the redactor.
@@ -472,8 +586,8 @@ export function createExec(ctx: PluginContext, deps: ExecDeps) {
             kill();
             await done;
           } else {
-            stream.on("data", reader(outSplit));
-            stream.stderr?.on("data", reader(errSplit));
+            stream.on("data", reader(outSplit, true));
+            stream.stderr?.on("data", reader(errSplit, false));
             stream.on("exit", (code) => {
               if (typeof code === "number") exitCode = code;
             });
@@ -482,16 +596,17 @@ export function createExec(ctx: PluginContext, deps: ExecDeps) {
                 exitCode = code;
               }
               if (!stopped) {
+                ended = true;
                 outSplit.end();
                 errSplit.end();
               }
               finish?.();
             });
-            stream.end(request.command);
+            stream.end(execScript(request.command, nonce));
             await done;
           }
         } catch (e) {
-          stop();
+          await shutdown();
           await audit(
             { hostId, container },
             {
@@ -507,7 +622,7 @@ export function createExec(ctx: PluginContext, deps: ExecDeps) {
           clearTimeout(timer);
           signal?.removeEventListener("abort", onAbort);
         }
-        stop();
+        await shutdown();
         if (timedOut || truncated) exitCode = null;
         const stdout = out.join("");
         const stderr = err.join("");

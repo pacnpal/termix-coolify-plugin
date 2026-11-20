@@ -44,6 +44,12 @@ export interface DockerHost {
     command: string,
     stdin: string | undefined,
   ) => PluginSshExecResult | "hang";
+  /** The process group id the exec script's marker line reports. */
+  pgid?: number;
+  /** A line written before the real marker, as a forged one would be. */
+  beforeMarker?: string;
+  /** A marker with the real prefix, forged by the command after the real one. */
+  forgedPgid?: number;
 }
 
 function result(stdout: string, code = 0): PluginSshExecResult {
@@ -97,18 +103,49 @@ export function fakeDocker(harness: PluginHarness, host: DockerHost) {
           callback: (err: Error | undefined, stream: FakeChannel) => void,
         ) {
           commands.push(command);
-          const call: { command: string; options?: PluginSshExecOptions } = {
-            command,
-            options: {},
-          };
+          const call: {
+            command: string;
+            options?: PluginSshExecOptions;
+            script?: string;
+          } = { command, options: {} };
           calls.push(call);
           const channel = new FakeChannel(options);
           channels.push(channel);
+          if (/ kill -KILL /.test(command)) {
+            // The group kill: it ends on its own.
+            queueMicrotask(() => {
+              channel.emit("exit", 0);
+              channel.close();
+            });
+            callback(undefined, channel);
+            return true;
+          }
           channel.onEnd = (stdin) => {
-            call.options = { stdin };
+            // The exec script carries the command in a quoted here-document
+            // and has the new group's leader print a marker line first.
+            const doc = stdin && /<<'(\w+)'[^\n]*\n([\s\S]*)\n\1\n/.exec(stdin);
+            const mark = stdin && /echo "(\S+ \S+) \$\$"/.exec(stdin);
+            const command_ = doc ? doc[2] : stdin;
+            call.options = { stdin: command_ };
+            call.script = stdin;
             const answer = host.exec
-              ? host.exec(command, stdin)
+              ? host.exec(command, command_)
               : result("", 127);
+            if (host.beforeMarker) {
+              channel.emit("data", Buffer.from(`${host.beforeMarker}\n`));
+            }
+            if (mark) {
+              channel.emit(
+                "data",
+                Buffer.from(`${mark[1]} ${host.pgid ?? 4242}\n`),
+              );
+            }
+            if (mark && host.forgedPgid !== undefined) {
+              channel.emit(
+                "data",
+                Buffer.from(`${mark[1]} ${host.forgedPgid}\n`),
+              );
+            }
             if (answer === "hang") return;
             if (answer.stdout) channel.emit("data", Buffer.from(answer.stdout));
             if (answer.stderr) {
