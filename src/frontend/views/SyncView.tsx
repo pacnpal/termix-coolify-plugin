@@ -30,6 +30,7 @@ import {
   type SyncRow,
 } from "../api";
 import { describeFailure } from "./ConnectionForm";
+import { OpenPluginsButton, SSH_TERMINAL_CAUSES } from "./SshTerminalCheck";
 
 type T = ReturnType<typeof useTranslation>["t"];
 
@@ -55,27 +56,40 @@ const RESULT_TONE: Record<SyncResult["status"], StatusTone> = {
   failed: "bad",
 };
 
+/**
+ * The causes a picked Termix credential fixes: none picked yet, the stored one
+ * is no longer the actor's, or the actor's credentials couldn't be read.
+ */
+const CREDENTIAL_CAUSES: ReadonlySet<string> = new Set([
+  "needs-credential",
+  "credential-not-found",
+  "credential-check-failed",
+]);
+
+function needsCredential(row: SyncRow): boolean {
+  return row.cause !== undefined && CREDENTIAL_CAUSES.has(row.cause);
+}
+
 function draftOf(row: SyncRow): Draft {
+  // A stored credential that is gone can't be picked again.
+  const stored =
+    row.credentialId && row.cause !== "credential-not-found"
+      ? String(row.credentialId)
+      : "";
   return {
     include: row.status === "new" || row.status === "linked",
     address: row.addressOverride ?? "",
-    credentialId: row.credentialId ? String(row.credentialId) : "",
+    credentialId: stored,
   };
 }
 
 /** Whether a row can be included with what has been entered so far. */
 function ready(row: SyncRow, draft: Draft): boolean {
   if (row.status === "gone") return false;
-  switch (row.cause) {
-    case "needs-tunnel-support":
-      return false;
-    case "needs-address":
-      return draft.address.trim() !== "";
-    case "needs-credential":
-      return draft.credentialId !== "";
-    default:
-      return true;
-  }
+  if (row.cause && SSH_TERMINAL_CAUSES.has(row.cause)) return false;
+  if (row.cause === "needs-address") return draft.address.trim() !== "";
+  if (needsCredential(row)) return draft.credentialId !== "";
+  return true;
 }
 
 /** The choices to send: one per server still in Coolify. */
@@ -137,6 +151,7 @@ function SyncRowView({
   const { t } = useTranslation();
   const canInclude = ready(row, draft);
   const gone = row.status === "gone";
+  const needsAddress = row.cause === "needs-address";
   return (
     <div data-sync-row={row.server.uuid}>
       <ListRow
@@ -184,18 +199,31 @@ function SyncRowView({
             {causeText(t, row.cause)}
           </p>
         )}
-        {row.cause === "needs-address" || row.addressOverride ? (
+        {row.cause && SSH_TERMINAL_CAUSES.has(row.cause) && (
+          <div>
+            <OpenPluginsButton />
+          </div>
+        )}
+        {gone ? null : (
           <TextField
             label={t("sync.address")}
             value={draft.address}
-            placeholder={row.suggestedAddress ?? ""}
-            hint={t("sync.addressHint", { ip: row.server.ip })}
+            placeholder={row.suggestedAddress ?? row.server.ip}
+            hint={
+              needsAddress
+                ? t("sync.addressHint", { ip: row.server.ip })
+                : t("sync.addressOptionalHint", { ip: row.server.ip })
+            }
             mono
             onChange={(value) =>
               onDraft({
                 ...draft,
                 address: value,
-                include: value.trim() !== "",
+                // The Coolify host is included once it has an address; any
+                // other server keeps its choice, and typing one includes it.
+                include: needsAddress
+                  ? value.trim() !== ""
+                  : draft.include || value.trim() !== "",
               })
             }
             aside={
@@ -216,13 +244,17 @@ function SyncRowView({
               ) : undefined
             }
           />
-        ) : null}
-        {row.cause === "needs-credential" && (
+        )}
+        {needsCredential(row) && (
           <SelectField
             label={t("sync.credential")}
             value={draft.credentialId}
             placeholder={t("sync.credentialPlaceholder")}
-            hint={t("sync.credentialHint")}
+            hint={
+              row.cause === "needs-credential"
+                ? t("sync.credentialHint")
+                : undefined
+            }
             options={credentials}
             onChange={(value) =>
               onDraft({ ...draft, credentialId: value, include: value !== "" })
@@ -324,11 +356,9 @@ export function SyncView({
   }, [load]);
 
   // Credentials are read only when a server needs one picked.
-  const needsCredential = (rows ?? []).some(
-    (row) => row.cause === "needs-credential",
-  );
+  const pickNeeded = (rows ?? []).some(needsCredential);
   useEffect(() => {
-    if (!needsCredential) return;
+    if (!pickNeeded) return;
     let live = true;
     listCredentials()
       .then((list) => {
@@ -344,7 +374,7 @@ export function SyncView({
     return () => {
       live = false;
     };
-  }, [needsCredential]);
+  }, [pickNeeded]);
 
   async function apply() {
     if (!rows) return;

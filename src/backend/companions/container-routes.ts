@@ -3,7 +3,11 @@ import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { idParam, sendError } from "../connections/routes.js";
 import { ContainerError } from "../containers/service.js";
 import { uuidParam } from "../resources/routes.js";
-import type { ContainerCompanions } from "./container-service.js";
+import {
+  ContainerCompanionError,
+  type ContainerCompanions,
+} from "./container-service.js";
+import { CompanionError } from "./detect.js";
 
 function partQuery(req: Request): string | undefined {
   const part = req.query.part;
@@ -11,6 +15,16 @@ function partQuery(req: Request): string | undefined {
 }
 
 function fail(ctx: PluginContext, res: Response, err: unknown): void {
+  if (err instanceof ContainerCompanionError) {
+    res.status(err.status).json({ error: err.message, cause: err.code });
+    return;
+  }
+  if (err instanceof CompanionError) {
+    res
+      .status(err.status)
+      .json({ error: err.message, cause: err.code, plugin: err.plugin });
+    return;
+  }
   if (err instanceof ContainerError) {
     res
       .status(err.status)
@@ -55,32 +69,6 @@ export function registerContainerCompanionRoutes(
 
   /**
    * @openapi
-   * /plugin-api/coolify/companions:
-   *   get:
-   *     summary: Which companion plugins are running
-   *     description: >-
-   *       One flag per companion feature (files, tunnels, reverseProxy, dns,
-   *       uptime, logSearch, packageManager, securityCenter, hostMetrics,
-   *       databases, backups), true when that plugin is installed and running.
-   *       Cached for 60 seconds.
-   *     tags:
-   *       - Coolify
-   *     responses:
-   *       200:
-   *         description: The flags
-   *       403:
-   *         description: Missing coolify.view
-   */
-  router.get(
-    "/companions",
-    view,
-    guarded(ctx, async (_req, res) => {
-      res.json(await companions.map());
-    }),
-  );
-
-  /**
-   * @openapi
    * /plugin-api/coolify/connections/{id}/resources/{uuid}/paths:
    *   get:
    *     summary: Where a resource's files are on its server, for File Manager
@@ -90,8 +78,9 @@ export function registerContainerCompanionRoutes(
    *       Part uses its service's), its compose file, and each storage's
    *       place on the server (a bind mount's or file's host path, or a
    *       Docker volume's _data folder), from Coolify's storages list
-   *       without file contents. Needs File Manager, coolify.operate and the
-   *       caller's own connect access to the Linked host.
+   *       without file contents. A file storage outside the data folder is
+   *       left out. Needs File Manager, coolify.view, the owner or a grant,
+   *       and the caller's own view access to the Linked host.
    *     tags:
    *       - Coolify
    *     parameters:
@@ -114,19 +103,21 @@ export function registerContainerCompanionRoutes(
    *       200:
    *         description: "{ hostId, dataDir, composeFile, volumes: string[] }"
    *       403:
-   *         description: Missing coolify.operate, or no connect access to the Linked host (no-host-access)
+   *         description: Missing coolify.view, or no view access to the Linked host (no-host-access)
    *       404:
    *         description: >-
    *           No such resource or connection, another user's, or File Manager
    *           isn't running (companion-missing, with plugin)
    *       409:
-   *         description: not-linked (the server has no Linked host)
+   *         description: >-
+   *           not-linked (the server has no Linked host), target-changed, or
+   *           companions-unknown when Termix's plugin list can't be read
    *       502:
    *         description: Coolify failed, with a cause
    */
   router.get(
     "/connections/:id/resources/:uuid/paths",
-    operate,
+    view,
     guarded(ctx, async (req, res) => {
       res.json(
         await companions.paths(idParam(req), uuidParam(req), partQuery(req)),
@@ -190,11 +181,16 @@ export function registerContainerCompanionRoutes(
    *           No such resource or connection, container-not-found, or Tunnels
    *           isn't running (companion-missing, with plugin)
    *       409:
-   *         description: not-linked, not-running or host-key
+   *         description: >-
+   *           not-linked, not-running, host-key, target-changed,
+   *           tunnel-in-use (another person's forward of this resource) or
+   *           companions-unknown
+   *       429:
+   *         description: too-many-tunnels (5 forwards open already)
    *       502:
    *         description: >-
    *           SSH or Tunnels failed, or bad-container-ip when docker inspect
-   *           answers no IP address
+   *           answers no private container address
    */
   router.post(
     "/connections/:id/resources/:uuid/tunnel",
@@ -213,7 +209,8 @@ export function registerContainerCompanionRoutes(
    *   delete:
    *     summary: Stop reaching a container from the Termix server
    *     description: >-
-   *       Closes the Tunnels forward web:<hostId>:coolify-<uuid>. Needs
+   *       Closes the Tunnels forward web:<hostId>:coolify-<uuid>, only when the
+   *       caller opened it here on that port. Needs
    *       Tunnels, coolify.operate and the caller's own connect access to the
    *       Linked host.
    *     tags:
@@ -248,9 +245,12 @@ export function registerContainerCompanionRoutes(
    *       403:
    *         description: Missing coolify.operate, or no connect access to the Linked host (no-host-access)
    *       404:
-   *         description: No such resource or connection, or Tunnels isn't running (companion-missing)
+   *         description: >-
+   *           No such resource or connection, Tunnels isn't running
+   *           (companion-missing), or tunnel-not-found: no forward the caller
+   *           opened here for this resource and port
    *       409:
-   *         description: not-linked
+   *         description: not-linked, target-changed or companions-unknown
    *       502:
    *         description: Tunnels failed (companion-failed)
    */
@@ -328,9 +328,11 @@ export function registerContainerCompanionRoutes(
    *           No such resource or connection, container-not-found, or Reverse
    *           Proxy isn't running (companion-missing, with plugin)
    *       409:
-   *         description: proxy-not-configured, not-linked, not-running or host-key
+   *         description: >-
+   *           proxy-not-configured, not-linked, not-running, host-key,
+   *           target-changed or companions-unknown
    *       502:
-   *         description: SSH or Reverse Proxy failed, or bad-container-ip
+   *         description: SSH or Reverse Proxy failed, or bad-container-ip (no private container address)
    */
   router.post(
     "/connections/:id/resources/:uuid/web-ui",

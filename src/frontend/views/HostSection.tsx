@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Boxes, Lock, RefreshCw, Unlink } from "lucide-react";
+import { Boxes, Cloud, Lock, RefreshCw, Settings2, Unlink } from "lucide-react";
 import {
   usePermission,
   usePluginApi,
@@ -16,6 +16,9 @@ import {
 import { createApi, failureOf } from "../api";
 import { forgetPreview, linkOf, useLinkedRow, type HostLink } from "../linked";
 import { describeFailure } from "./ConnectionForm";
+import { ServerMetrics } from "./ServerMetrics";
+import { HostCompanions } from "./HostCompanions";
+import { ServerUpdates } from "./ServerUpdates";
 
 /** Opens the Coolify tab on a section for one Linked host's connection. */
 export function openCoolify(
@@ -42,16 +45,23 @@ export function HostSection({ host, shell }: HostSectionProps) {
   const link = linkOf(host);
   const row = useLinkedRow(link);
   const [connectionName, setConnectionName] = useState<string | null>(null);
+  const [revision, setRevision] = useState<string | null>(null);
   const [unlinked, setUnlinked] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const connectionId = link?.connectionId ?? 0;
   useEffect(() => {
+    // A revision read for another connection never keys this one's card.
+    setRevision(null);
     if (!connectionId) return;
     let live = true;
     api
       .getConnection(connectionId)
-      .then((c) => live && setConnectionName(c?.name ?? null))
+      .then((c) => {
+        if (!live) return;
+        setConnectionName(c?.name ?? null);
+        setRevision(c?.revision ?? null);
+      })
       .catch(() => undefined);
     return () => {
       live = false;
@@ -110,7 +120,39 @@ export function HostSection({ host, shell }: HostSectionProps) {
         <Lock className="mt-0.5 size-3.5 shrink-0" />
         {t("hostSection.locked")}
       </p>
+      <ServerMetrics
+        key={`${link.connectionId}:${link.serverUuid}:${revision ?? ""}`}
+        api={api}
+        connectionId={link.connectionId}
+        serverUuid={link.serverUuid}
+        serverName={row?.server.name ?? host.name ?? link.serverUuid}
+      />
+      {row?.tunnel && (
+        <div className="flex flex-col gap-2">
+          <p className="flex items-start gap-2">
+            <Cloud className="mt-0.5 size-3.5 shrink-0" />
+            {t("hostSection.tunnel")}
+          </p>
+          <p className="text-muted-foreground text-xs">
+            {t("hostSection.tunnelReadOnly")}
+          </p>
+          {shell.editHost && (
+            <div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => shell.editHost?.(Number(host.id))}
+              >
+                <Settings2 className="size-3.5" />
+                {t("hostSection.openTunnelSettings")}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+      <HostCompanions link={link} shell={shell} revision={revision} />
       {error && <NoticePanel tone="destructive" title={error} />}
+      <ServerUpdates link={link} revision={revision} />
       <div className="flex flex-wrap gap-2">
         <Button
           size="sm"

@@ -4,7 +4,7 @@ import type {
   PluginSummary,
 } from "@termix-ssh/plugin-sdk/backend";
 import { healthyCoolify } from "../helpers/fake-coolify.js";
-import { startPlugin, type PluginHarness } from "../helpers/plugin.js";
+import { OWNER, startPlugin, type PluginHarness } from "../helpers/plugin.js";
 import { resourceLists, SECRET } from "../helpers/resources.js";
 import { HOST_ID, linkedHost } from "../containers/fixtures.js";
 
@@ -114,6 +114,7 @@ export async function startCompanions(
     permissions?: string[];
     proxyReady?: boolean;
     services?: Record<string, object>;
+    settings?: Record<string, unknown>;
   } = {},
 ) {
   const running = options.running ?? [FILES, TUNNELS, REVERSE_PROXY];
@@ -168,16 +169,22 @@ export async function startCompanions(
     hosts: [linkedHost],
     installedPlugins: [plugin("coolify"), ...running.map(plugin)],
     services: options.services ?? fakes.services,
+    settings: options.settings,
   });
-  const created = await harness.request("POST", "/connections", {
-    name: "Prod",
-    baseUrl: "https://coolify.example.test",
-    token: TOKEN,
-  });
-  if (created.status !== 201) {
-    throw new Error(`connection not created: ${created.status}`);
-  }
-  const connectionId = created.body.id as number;
+  // Written directly, so an actor without coolify.configure still has one.
+  harness.db.sqlite
+    .prepare(
+      "INSERT INTO p_coolify_connections (user_id, name, base_url, token_sealed) VALUES (?, ?, ?, ?)",
+    )
+    .run(
+      OWNER,
+      "Prod",
+      "https://coolify.example.test",
+      await harness.mock.ctx.secrets.seal(TOKEN),
+    );
+  const { id: connectionId } = harness.db.sqlite
+    .prepare("SELECT id FROM p_coolify_connections WHERE name = 'Prod'")
+    .get() as { id: number };
   harness.db.sqlite
     .prepare(
       "INSERT INTO p_coolify_servers (connection_id, server_uuid, host_id) VALUES (?, ?, ?)",

@@ -56,6 +56,32 @@ export function registerSyncOperations(ctx: PluginContext, sync: Sync): void {
     },
   });
 
+  ctx.operations.register("coolify.sync-host", {
+    run: async (_input, { hostId }) => {
+      const link = hostId ? await sync.linkOfHost(hostId) : null;
+      if (!link) {
+        throw new ConnectionError(
+          "not-linked",
+          "This host is not linked to a Coolify server",
+        );
+      }
+      await sync.assertOwner(link.connectionId);
+      // Only this host's server is included; the others are left as they are.
+      const results = await sync.apply(link.connectionId, [
+        { uuid: link.serverUuid, include: true },
+      ]);
+      const mine = results.find((r) => r.uuid === link.serverUuid) ?? null;
+      const status = mine?.status ?? "gone";
+      return {
+        summary: mine
+          ? `${mine.name}: ${status}${mine.cause ? ` (${mine.cause})` : ""}`
+          : "This server is gone from Coolify",
+        changed: status === "created" || status === "updated",
+        data: { result: mine },
+      };
+    },
+  });
+
   ctx.operations.register("coolify.unlink", {
     run: async (input) => {
       const id = connectionIdInput(input);

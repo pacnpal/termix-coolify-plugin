@@ -325,6 +325,68 @@ describe("container shell route", () => {
     expect(docker.commands).toEqual([]);
   });
 
+  it("a view grant on the connection is refused before any SSH", async () => {
+    const { harness: h, connectionId } = await start();
+    h.db.sqlite
+      .prepare(
+        "INSERT INTO p_coolify_grants (connection_id, user_id, level) VALUES (?, ?, 'view')",
+      )
+      .run(connectionId, OTHER);
+    const docker = fakeDocker(h, { ps: [WEB_RUNNING] });
+    const res = await h.request(
+      "POST",
+      shellPath(connectionId, "app-web-uuid"),
+      {},
+      OTHER,
+    );
+    expect(res.status).toBe(403);
+    expect(res.body.cause).toBe("forbidden");
+    expect(docker.commands).toEqual([]);
+  });
+
+  it("a target change while the shell is resolved answers target-changed, not a command", async () => {
+    const { harness: h, connectionId } = await start();
+    const docker = fakeDocker(h, { ps: [WEB_RUNNING] });
+    const real = docker.exec.getMockImplementation()!;
+    docker.exec.mockImplementation(async (...args) => {
+      // The owner points the connection at another token mid-way.
+      h.db.sqlite
+        .prepare("UPDATE p_coolify_connections SET token_sealed = ?")
+        .run("sealed:another-instance");
+      return real(...args);
+    });
+    const res = await h.request(
+      "POST",
+      shellPath(connectionId, "app-web-uuid"),
+      {},
+    );
+    expect(res.status).toBe(409);
+    expect(res.body.cause).toBe("target-changed");
+    expect(res.body.command).toBeUndefined();
+  });
+
+  it("a target change before any SSH runs nothing", async () => {
+    const { harness: h, connectionId } = await start();
+    const docker = fakeDocker(h, { ps: [WEB_RUNNING] });
+    const checkAccess = h.mock.ctx.hosts.checkAccess.bind(h.mock.ctx.hosts);
+    vi.spyOn(h.mock.ctx.hosts, "checkAccess").mockImplementation(
+      async (...args) => {
+        h.db.sqlite
+          .prepare("UPDATE p_coolify_connections SET token_sealed = ?")
+          .run("sealed:another-instance");
+        return checkAccess(...args);
+      },
+    );
+    const res = await h.request(
+      "POST",
+      shellPath(connectionId, "app-web-uuid"),
+      {},
+    );
+    expect(res.status).toBe(409);
+    expect(res.body.cause).toBe("target-changed");
+    expect(docker.commands).toEqual([]);
+  });
+
   it("without coolify.operate 403", async () => {
     const { harness: h, connectionId } = await start({
       permissions: ["coolify.view", "coolify.configure"],

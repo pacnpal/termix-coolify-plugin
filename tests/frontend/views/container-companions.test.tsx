@@ -170,11 +170,11 @@ describe("container companion buttons", () => {
     expect(button(C.browse)).toBeNull();
   });
 
-  it("hides every companion button without coolify.operate", async () => {
+  it("shows only Browse files without coolify.operate", async () => {
     await openWeb({ files: true, tunnels: true, reverseProxy: true }, [
       "coolify.view",
     ]);
-    await waitFor(() => expect(button(C.browse)).toBeNull());
+    await waitFor(() => expect(button(C.browse)).not.toBeNull());
     expect(button(C.reach)).toBeNull();
     expect(button(C.webUi)).toBeNull();
   });
@@ -235,7 +235,10 @@ describe("container companion buttons", () => {
       "/connections/1/resources/app-web-uuid/tunnel",
       { port: 3000 },
     );
-    fireEvent.click(screen.getByRole("button", { name: C.stop }));
+    const panel = document.querySelector(
+      '[data-companions="container"]',
+    ) as HTMLElement;
+    fireEvent.click(within(panel).getByRole("button", { name: C.stop }));
     await waitFor(() =>
       expect(api.delete).toHaveBeenCalledWith(
         "/connections/1/resources/app-web-uuid/tunnel/3000",

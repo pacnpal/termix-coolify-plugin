@@ -19,6 +19,8 @@ import { ForwardControl } from "./ContainerCompanions";
 
 interface Section {
   connectionId: number;
+  /** The connection's target: a changed one starts each forward anew. */
+  revision: string;
   name: string;
   rows: Resource[];
 }
@@ -58,7 +60,12 @@ export function TunnelsCoolifyView({
                 r.kind !== "service" &&
                 (!link || r.serverUuid === link.serverUuid),
             );
-            return { connectionId: c.id, name: c.name, rows };
+            return {
+              connectionId: c.id,
+              revision: c.revision,
+              name: c.name,
+              rows,
+            };
           }),
         );
         if (live) setSections(loaded.filter((s) => s.rows.length > 0));
@@ -97,7 +104,7 @@ export function TunnelsCoolifyView({
           <GroupHeading title={section.name} count={section.rows.length} />
           {section.rows.map((r) => (
             <div
-              key={r.uuid}
+              key={`${section.connectionId}:${r.uuid}:${section.revision}`}
               role="group"
               aria-label={r.name}
               className="flex flex-col gap-1 rounded-md border p-2"

@@ -85,7 +85,7 @@ describe("host sync", () => {
     });
     expect(byUuid(rows, "srv-vps1")).toMatchObject({
       status: "blocked",
-      cause: "needs-tunnel-support",
+      cause: "needs-ssh-terminal",
       tunnel: true,
     });
   });
@@ -204,6 +204,93 @@ describe("host sync", () => {
       status: "blocked",
       cause: "needs-credential",
     });
+  });
+
+  it("a key copy that fails is remembered, so the preview asks for a credential", async () => {
+    const fake = syncCoolify();
+    const { harness: h, connectionId } = await start({
+      fake,
+      ownCredentials: [42],
+    });
+    fake.set("GET /security/keys/key-uuid", {
+      status: 403,
+      json: { message: "Forbidden." },
+    });
+    await apply(h, connectionId, only("srv-web1"));
+    expect(byUuid(await preview(h, connectionId), "srv-web1")).toMatchObject({
+      status: "blocked",
+      cause: "needs-credential",
+      mode: "termix",
+    });
+
+    // A picked credential clears it.
+    const picked = await apply(h, connectionId, [
+      { uuid: "srv-web1", include: true, credentialId: 42 },
+    ]);
+    expect(byUuid(picked, "srv-web1").status).toBe("created");
+    expect(byUuid(await preview(h, connectionId), "srv-web1")).toMatchObject({
+      status: "linked",
+      mode: "termix",
+      credentialId: 42,
+    });
+  });
+
+  it("a failed key copy clears once a later copy succeeds", async () => {
+    const fake = syncCoolify();
+    const { harness: h, connectionId } = await start({ fake });
+    fake.set("GET /security/keys/key-uuid", {
+      status: 403,
+      json: { message: "Forbidden." },
+    });
+    await apply(h, connectionId, only("srv-web1"));
+    fake.set("GET /security/keys/key-uuid", { json: deployKey() });
+    // Including the server with no credential picked tries the copy again.
+    const res = await h.request("POST", `/connections/${connectionId}/sync`, {
+      choices: only("srv-web1"),
+    });
+    expect(byUuid(res.body, "srv-web1").status).toBe("created");
+    expect(byUuid(await preview(h, connectionId), "srv-web1")).toMatchObject({
+      status: "linked",
+      mode: "coolify",
+    });
+  });
+
+  it("a copied credential deleted in Termix is copied again, and the new id is saved", async () => {
+    const { harness: h, connectionId } = await start();
+    await apply(h, connectionId, only("srv-web1"));
+    expect(h.mock.createdSshKeys).toHaveLength(1);
+    const oldId = h.mock.createdSshKeys[0].id;
+
+    // The user deleted that credential: it is no longer among their keys.
+    const listKeys = h.mock.ctx.credentials.listSshKeys.bind(
+      h.mock.ctx.credentials,
+    );
+    vi.spyOn(h.mock.ctx.credentials, "listSshKeys").mockImplementation(
+      async () => (await listKeys()).filter((k) => k.id !== oldId),
+    );
+    const again = await apply(h, connectionId, only("srv-web1"));
+    expect(byUuid(again, "srv-web1").status).toBe("updated");
+    expect(h.mock.createdSshKeys).toHaveLength(2);
+    const newId = h.mock.createdSshKeys[1].id;
+    expect(newId).not.toBe(oldId);
+    const [row] = serverRows(h).filter((r) => r.server_uuid === "srv-web1");
+    expect(row.credential_id).toBe(newId);
+    const [host] = await h.mock.ctx.hosts.listOwned();
+    expect(host.credentialId).toBe(newId);
+  });
+
+  it("a copied credential that can't be checked is refused, not reused", async () => {
+    const { harness: h, connectionId } = await start();
+    await apply(h, connectionId, only("srv-web1"));
+    vi.spyOn(h.mock.ctx.credentials, "listSshKeys").mockRejectedValue(
+      new Error("no credentials.view"),
+    );
+    const again = await apply(h, connectionId, only("srv-web1"));
+    expect(byUuid(again, "srv-web1")).toMatchObject({
+      status: "blocked",
+      cause: "credential-check-failed",
+    });
+    expect(h.mock.createdSshKeys).toHaveLength(1);
   });
 
   it("a picked credential that isn't one of the actor's own is refused and nothing is stored", async () => {
@@ -331,18 +418,6 @@ describe("host sync", () => {
     });
     expect(res.status).toBe(400);
     expect(await h.mock.ctx.hosts.listOwned()).toHaveLength(0);
-  });
-
-  it("a tunnelled server is refused with the tunnel cause", async () => {
-    const { harness: h, connectionId } = await start();
-    const create = vi.spyOn(h.mock.ctx.hosts, "create");
-    const results = await apply(h, connectionId, only("srv-vps1", "srv-web1"));
-    expect(byUuid(results, "srv-vps1")).toMatchObject({
-      status: "blocked",
-      cause: "needs-tunnel-support",
-    });
-    expect(create).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(create.mock.calls)).not.toContain("ssh-terminal");
   });
 
   it("apply updates an existing linked host in place", async () => {
@@ -635,5 +710,156 @@ describe("host sync routes", () => {
       );
       expect(res.status, JSON.stringify(body)).toBe(400);
     }
+  });
+});
+
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+describe("host sync under concurrency", () => {
+  it("two overlapping syncs of one connection create one host and one link row", async () => {
+    const { harness: h, connectionId } = await start();
+    // Each host create waits until a second one arrives (or 150 ms pass), so
+    // two syncs that both read "no host yet" would both create one.
+    const create = h.mock.ctx.hosts.create.bind(h.mock.ctx.hosts);
+    let arrived = 0;
+    let release: () => void = () => {};
+    const both = new Promise<void>((resolve) => (release = resolve));
+    vi.spyOn(h.mock.ctx.hosts, "create").mockImplementation(async (input) => {
+      arrived += 1;
+      if (arrived >= 2) release();
+      await Promise.race([both, sleep(150)]);
+      return create(input);
+    });
+    const [first, second] = await Promise.all([
+      apply(h, connectionId, only("srv-web1")),
+      apply(h, connectionId, only("srv-web1")),
+    ]);
+    const statuses = [first, second]
+      .map((results) => byUuid(results, "srv-web1").status)
+      .sort();
+    expect(statuses).toEqual(["created", "updated"]);
+    const hosts = await h.mock.ctx.hosts.listOwned();
+    expect(hosts).toHaveLength(1);
+    const rows = serverRows(h).filter((r) => r.server_uuid === "srv-web1");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].host_id).toBe(hosts[0].id);
+    expect(lockProvider(h).lockedHosts()).toEqual([hosts[0].id]);
+  });
+
+  it("an unlink that overlaps a sync waits for it and releases the host", async () => {
+    const { harness: h, connectionId } = await start();
+    await apply(h, connectionId, only("srv-web1"));
+    // The re-sync pauses in its host update; the unlink is sent meanwhile.
+    const update = h.mock.ctx.hosts.update.bind(h.mock.ctx.hosts);
+    let paused: () => void = () => {};
+    const inUpdate = new Promise<void>((resolve) => (paused = resolve));
+    let unlinkDone: () => void = () => {};
+    const unlinked$ = new Promise<void>((resolve) => (unlinkDone = resolve));
+    const spy = vi
+      .spyOn(h.mock.ctx.hosts, "update")
+      .mockImplementationOnce(async (id, input) => {
+        paused();
+        await Promise.race([unlinked$, sleep(150)]);
+        return update(id, input);
+      });
+    const resync = apply(h, connectionId, only("srv-web1"));
+    await inUpdate;
+    spy.mockImplementation(update);
+    const unlinking = h
+      .request("POST", `/connections/${connectionId}/servers/srv-web1/unlink`, {
+        removeHost: false,
+      })
+      .finally(unlinkDone);
+    await resync;
+    const unlinked = await unlinking;
+    expect(unlinked.status).toBe(200);
+    expect(lockProvider(h).lockedHosts()).toEqual([]);
+    const [row] = serverRows(h).filter((r) => r.server_uuid === "srv-web1");
+    expect(row.host_id).toBeNull();
+  });
+
+  it("a sync queued behind a connection's removal leaves no host, row or lock", async () => {
+    const { harness: h, connectionId } = await start();
+    await apply(h, connectionId, only("srv-web1"));
+
+    // The removal pauses while releasing the Linked host, and again before
+    // deleting the rows, so a sync sent meanwhile is queued behind it.
+    const deleteHost = h.mock.ctx.hosts.delete.bind(h.mock.ctx.hosts);
+    let releasing: () => void = () => {};
+    const inRelease = new Promise<void>((resolve) => (releasing = resolve));
+    vi.spyOn(h.mock.ctx.hosts, "delete").mockImplementation(async (id) => {
+      releasing();
+      await sleep(20);
+      return deleteHost(id);
+    });
+    const batch = h.mock.ctx.db.batch.bind(h.mock.ctx.db);
+    vi.spyOn(h.mock.ctx.db, "batch").mockImplementation(async (queries) => {
+      await sleep(100);
+      return batch(queries);
+    });
+
+    const removal = h.request(
+      "DELETE",
+      `/connections/${connectionId}?removeHosts=true`,
+    );
+    await inRelease;
+    const sync = h.request("POST", `/connections/${connectionId}/sync`, {
+      choices: only("srv-web1", "srv-web2"),
+    });
+    expect((await removal).status).toBe(200);
+    expect((await sync).status).toBe(404);
+
+    expect(await h.mock.ctx.hosts.listOwned()).toHaveLength(0);
+    expect(serverRows(h)).toHaveLength(0);
+    expect(lockProvider(h).lockedHosts()).toEqual([]);
+  });
+
+  it("an apply whose connection was removed before its first host write creates nothing", async () => {
+    const { harness: h, connectionId } = await start();
+    // The connection disappears between the start of the sync and its first
+    // host write (here: while Coolify lists the servers).
+    const ensure = vi.spyOn(h.mock.ctx.hosts.folders, "ensure");
+    const before = h.mock.ctx.fetch;
+    vi.spyOn(h.mock.ctx, "fetch").mockImplementation(async (url, init) => {
+      const res = await before(url, init);
+      if (String(url).endsWith("/servers")) {
+        h.db.sqlite
+          .prepare("DELETE FROM p_coolify_connections WHERE id = ?")
+          .run(connectionId);
+      }
+      return res;
+    });
+    const res = await h.request("POST", `/connections/${connectionId}/sync`, {
+      choices: only("srv-web1"),
+    });
+    expect(res.status).toBe(404);
+    expect(ensure).not.toHaveBeenCalled();
+    expect(await h.mock.ctx.hosts.listOwned()).toHaveLength(0);
+    expect(lockProvider(h).lockedHosts()).toEqual([]);
+  });
+
+  it("a link row that can't be saved removes the host it just created", async () => {
+    const { harness: h, connectionId } = await start();
+    const create = h.mock.ctx.hosts.create.bind(h.mock.ctx.hosts);
+    // Another writer takes the (connection, server) row after the host is
+    // made, so saving this sync's link row fails on the unique constraint.
+    vi.spyOn(h.mock.ctx.hosts, "create").mockImplementation(async (input) => {
+      const host = await create(input);
+      h.db.sqlite
+        .prepare(
+          "INSERT INTO p_coolify_servers (connection_id, server_uuid) VALUES (?, ?)",
+        )
+        .run(connectionId, "srv-web1");
+      return host;
+    });
+    const results = await apply(h, connectionId, only("srv-web1"));
+    expect(byUuid(results, "srv-web1")).toMatchObject({
+      status: "failed",
+      cause: "host-write-failed",
+      hostId: null,
+    });
+    expect(await h.mock.ctx.hosts.listOwned()).toHaveLength(0);
+    expect(lockProvider(h).lockedHosts()).toEqual([]);
   });
 });

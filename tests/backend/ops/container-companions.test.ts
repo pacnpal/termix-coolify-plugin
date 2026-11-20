@@ -129,16 +129,14 @@ describe("container companion operations", () => {
     expect(docker.commands).toEqual([]);
   });
 
-  it("files-paths needs coolify.operate", async () => {
-    const { runs, id } = await start({
-      permissions: ["coolify.view", "coolify.configure"],
-    });
+  it("files-paths needs coolify.view", async () => {
+    const { runs, id } = await start({ permissions: ["coolify.configure"] });
     await expect(
       runs.run("coolify.companion-read", {
         connectionId: id,
         kind: "files-paths",
         params: JSON.stringify({ uuid: "app-web-uuid" }),
       }),
-    ).rejects.toThrow(/operate/i);
+    ).rejects.toThrow(/view/i);
   });
 });

@@ -29,7 +29,12 @@ export function registerResourceOperations(
         counts.running + counts.degraded + counts.stopped + counts.deploying;
       return {
         summary: `${total} resource${total === 1 ? "" : "s"}: ${counts.running} running, ${counts.degraded} degraded, ${counts.stopped} stopped, ${counts.deploying} deploying`,
-        data: { rows, counts },
+        // options fill pickers that name coolify.list-resources-all in optionsFrom.
+        data: {
+          options: rows.map((r) => ({ value: r.uuid, label: r.name })),
+          rows,
+          counts,
+        },
       };
     },
   });

@@ -1,4 +1,11 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { FileCode, FolderOpen, Globe, Network } from "lucide-react";
 import {
   invokeAction,
@@ -27,6 +34,25 @@ import {
 import { useCompanions } from "../companions";
 
 type T = (key: string, options?: Record<string, unknown>) => string;
+
+/**
+ * Request generations: `begin()` starts a request and answers a check that
+ * is true only while that request is the newest one and the view is still
+ * mounted, so a late answer never lands on another target.
+ */
+function useLatest(): () => () => boolean {
+  const generation = useRef(0);
+  useEffect(
+    () => () => {
+      generation.current += 1;
+    },
+    [],
+  );
+  return useCallback(() => {
+    const mine = ++generation.current;
+    return () => mine === generation.current;
+  }, []);
+}
 
 /** The route's resource and Part for a resource row: a Part goes by its service. */
 export function targetOf(r: Resource): { uuid: string; part?: string } {
@@ -57,6 +83,8 @@ const KNOWN_CAUSES: Record<string, string> = {
   "proxy-not-configured": "containerCompanions.errors.proxyNotConfigured",
   "companion-missing": "containerCompanions.errors.companionMissing",
   "bad-container-ip": "containerCompanions.errors.badContainerIp",
+  "too-many-tunnels": "containerCompanions.errors.tooManyTunnels",
+  "tunnel-in-use": "containerCompanions.errors.tunnelInUse",
 };
 
 function describe(t: T, err: unknown): string {
@@ -142,10 +170,12 @@ export function ForwardControl({
   const [open, setOpen] = useState<TunnelAnswer | null>(null);
   const [choices, setChoices] = useState<ContainerChoice[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const begin = useLatest();
 
   async function forward(container?: string) {
     const value = readPort(port);
     if (value === null) return;
+    const current = begin();
     setBusy(true);
     setError(null);
     try {
@@ -154,6 +184,7 @@ export function ForwardControl({
         ...(target.part ? { part: target.part } : {}),
         ...(container ? { container } : {}),
       });
+      if (!current()) return;
       if (answer.kind === "choices") {
         setChoices(answer.choices);
       } else {
@@ -161,14 +192,16 @@ export function ForwardControl({
         setOpen(answer);
       }
     } catch (err) {
-      setError(describe(t, err));
+      if (current()) setError(describe(t, err));
     } finally {
-      setBusy(false);
+      if (current()) setBusy(false);
     }
   }
 
   async function stop() {
+    // `open` belongs to this view's own target: the view is keyed by it.
     if (!open) return;
+    const current = begin();
     setBusy(true);
     setError(null);
     try {
@@ -178,11 +211,11 @@ export function ForwardControl({
         open.targetPort,
         target.part,
       );
-      setOpen(null);
+      if (current()) setOpen(null);
     } catch (err) {
-      setError(describe(t, err));
+      if (current()) setError(describe(t, err));
     } finally {
-      setBusy(false);
+      if (current()) setBusy(false);
     }
   }
 
@@ -242,10 +275,12 @@ function WebUiControl({
   const [url, setUrl] = useState<string | null>(null);
   const [choices, setChoices] = useState<ContainerChoice[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const begin = useLatest();
 
   async function open(container?: string) {
     const value = readPort(port);
     if (value === null) return;
+    const current = begin();
     setBusy(true);
     setError(null);
     setUrl(null);
@@ -256,6 +291,7 @@ function WebUiControl({
         ...(target.part ? { part: target.part } : {}),
         ...(container ? { container } : {}),
       });
+      if (!current()) return;
       if (answer.kind === "choices") {
         setChoices(answer.choices);
       } else {
@@ -263,9 +299,9 @@ function WebUiControl({
         setUrl(answer.url);
       }
     } catch (err) {
-      setError(describe(t, err));
+      if (current()) setError(describe(t, err));
     } finally {
-      setBusy(false);
+      if (current()) setBusy(false);
     }
   }
 
@@ -327,18 +363,16 @@ function FilesControl({
   const target = targetOf(resource);
   const [paths, setPaths] = useState<ResourcePaths | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const begin = useLatest();
 
   useEffect(() => {
-    let live = true;
+    const current = begin();
     setPaths(null);
     api
       .resourcePaths(connectionId, target.uuid, target.part)
-      .then((p) => live && setPaths(p))
-      .catch((err) => live && setError(describe(t, err)));
-    return () => {
-      live = false;
-    };
-  }, [api, connectionId, target.uuid, target.part, t]);
+      .then((p) => current() && setPaths(p))
+      .catch((err) => current() && setError(describe(t, err)));
+  }, [api, begin, connectionId, target.uuid, target.part, t]);
 
   // Host ids may be strings in the shell, so they are compared as text.
   const host = paths
@@ -407,19 +441,30 @@ function FilesControl({
   );
 }
 
-/**
- * File Manager, Tunnels and Reverse Proxy actions on a resource's
- * container. Each shows only while its plugin runs, and only with
- * coolify.operate: these reach the server over SSH, and the backend also
- * checks the person's own access to the Linked host.
- */
-export function ContainerCompanions({
-  connectionId,
-  resource,
-}: {
+interface ContainerCompanionsProps {
   connectionId: number;
   resource: Resource;
-}) {
+  /** The connection's revision: a changed target starts the view anew. */
+  revision: string | null;
+}
+
+/**
+ * File Manager, Tunnels and Reverse Proxy actions on a resource's
+ * container. Each shows only while its plugin runs. Browse files needs
+ * coolify.view; Reach from here and Open web UI reach the server over SSH,
+ * so they need coolify.operate, and the backend also checks the person's
+ * own access to the Linked host. Keyed by connection, uuid and revision, so
+ * no answer, open forward or link carries over to another target.
+ */
+export function ContainerCompanions(props: ContainerCompanionsProps) {
+  const target = `${props.connectionId}:${props.resource.uuid}:${props.revision ?? ""}`;
+  return <ContainerCompanionsFor key={target} {...props} />;
+}
+
+function ContainerCompanionsFor({
+  connectionId,
+  resource,
+}: ContainerCompanionsProps) {
   const { t } = useTranslation();
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
@@ -428,8 +473,10 @@ export function ContainerCompanions({
   const [panel, setPanel] = useState<"tunnel" | "web" | null>(null);
 
   // A service row has its own containers through its Parts.
-  if (!canOperate || !map || resource.kind === "service") return null;
-  if (!map.files && !map.tunnels && !map.reverseProxy) return null;
+  if (!map || resource.kind === "service") return null;
+  const tunnels = canOperate && map.tunnels;
+  const web = canOperate && map.reverseProxy;
+  if (!map.files && !tunnels && !web) return null;
 
   return (
     <div className="flex flex-col gap-3 p-3" data-companions="container">
@@ -441,9 +488,9 @@ export function ContainerCompanions({
           resource={resource}
         />
       )}
-      {(map.tunnels || map.reverseProxy) && (
+      {(tunnels || web) && (
         <div className="flex flex-wrap gap-2">
-          {map.tunnels && (
+          {tunnels && (
             <Button
               size="sm"
               variant="outline"
@@ -453,7 +500,7 @@ export function ContainerCompanions({
               {t("containerCompanions.reach")}
             </Button>
           )}
-          {map.reverseProxy && (
+          {web && (
             <Button
               size="sm"
               variant="outline"
@@ -465,7 +512,7 @@ export function ContainerCompanions({
           )}
         </div>
       )}
-      {panel === "tunnel" && map.tunnels && (
+      {panel === "tunnel" && tunnels && (
         <div className="flex flex-col gap-2">
           <ForwardControl
             api={api}
@@ -475,7 +522,7 @@ export function ContainerCompanions({
           <NoticePanel title={t("containerCompanions.localNote")} />
         </div>
       )}
-      {panel === "web" && map.reverseProxy && (
+      {panel === "web" && web && (
         <WebUiControl
           api={api}
           connectionId={connectionId}

@@ -356,7 +356,7 @@ describe("container companion routes", () => {
     expect(calls.open).toEqual([]);
   });
 
-  it("without coolify.operate 403", async () => {
+  it("tunnels and web UI need coolify.operate; paths need only coolify.view", async () => {
     const {
       harness: h,
       connectionId,
@@ -365,8 +365,12 @@ describe("container companion routes", () => {
       permissions: ["coolify.view", "coolify.configure"],
     });
     const docker = fakeDockerHost(h, { ps: [WEB_RUNNING] });
+    const paths = await h.request(
+      "GET",
+      `${base(connectionId, "app-web-uuid")}/paths`,
+    );
+    expect(paths.status).toBe(200);
     for (const [method, path, body] of [
-      ["GET", "paths", undefined],
       ["POST", "tunnel", { port: 3000 }],
       ["DELETE", "tunnel/3000", undefined],
       ["POST", "web-ui", { port: 80 }],

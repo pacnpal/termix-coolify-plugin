@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Box, Database, SquareTerminal } from "lucide-react";
-import { usePermission, useTranslation } from "@termix-ssh/plugin-sdk/frontend";
+import { useTabs, useTranslation } from "@termix-ssh/plugin-sdk/frontend";
 import {
   Button,
   EmptyState,
@@ -15,8 +15,18 @@ import {
   type InfoItem,
 } from "@termix-ssh/plugin-sdk/ui";
 import type { Resource } from "../api";
-import { ContainerCompanions } from "./ContainerCompanions";
 import { resourceHealth } from "../../shared/resource-health";
+import { CompanionActions } from "./CompanionActions";
+import { ContainerCompanions } from "./ContainerCompanions";
+import { LogsView } from "./LogsView";
+import { StatsTab } from "./StatsTab";
+import { TrafficTab } from "./TrafficTab";
+import {
+  PartRestart,
+  ResourceActions,
+  useLifecycle,
+  type LifecycleRunner,
+} from "./ResourceActions";
 import {
   formatTime,
   HEALTH_TONE,
@@ -28,11 +38,40 @@ import {
 type T = (key: string, options?: Record<string, unknown>) => string;
 
 /**
- * The detail views. Later releases add Shell, Logs, Stats and Traffic here:
- * one id, one locale key under detail.tabs and one case in DetailBody.
+ * The detail views: one id, one locale key under detail.tabs and one case in
+ * the body switch.
  */
-export const DETAIL_TABS = ["overview"] as const;
+export const DETAIL_TABS = [
+  "overview",
+  "shell",
+  "logs",
+  "stats",
+  "traffic",
+] as const;
 export type DetailTab = (typeof DETAIL_TABS)[number];
+
+/**
+ * Views that need canOperate: logs carry secrets, and stats and traffic read
+ * over SSH, so they need coolify.operate and the owner or an operate grant,
+ * as the backend does.
+ */
+const OPERATE_TABS: ReadonlySet<DetailTab> = new Set([
+  "logs",
+  "stats",
+  "traffic",
+]);
+
+/** The tabs a resource shows: Traffic is for applications. */
+export function detailTabs(
+  resource: Resource | null,
+  canOperate: boolean,
+): DetailTab[] {
+  return DETAIL_TABS.filter(
+    (id) =>
+      (canOperate || !OPERATE_TABS.has(id)) &&
+      (id !== "traffic" || resource?.kind === "application"),
+  );
+}
 
 function overviewItems(
   t: T,
@@ -80,26 +119,29 @@ function OverviewTab({
   resource,
   rows,
   onOpen,
+  lifecycle,
   connectionId,
+  revision,
 }: {
   t: T;
+  connectionId: number;
+  revision: string | null;
   resource: Resource;
   rows: readonly Resource[];
   onOpen: (uuid: string) => void;
-  connectionId?: number;
+  /** Null without the right to operate: no Part buttons. */
+  lifecycle: LifecycleRunner | null;
 }) {
   const service = resource.parentUuid
     ? (rows.find((r) => r.uuid === resource.parentUuid) ?? null)
     : null;
   const parts = rows.filter((r) => r.parentUuid === resource.uuid);
+  const tabs = useTabs();
   return (
     <TileStack>
       <div className="p-3">
         <InfoGrid items={overviewItems(t, resource, service)} />
       </div>
-      {connectionId !== undefined && (
-        <ContainerCompanions connectionId={connectionId} resource={resource} />
-      )}
       {parts.length > 0 && (
         <div>
           <GroupHeading
@@ -122,12 +164,30 @@ function OverviewTab({
                   </StatusBadge>
                 }
                 aria-label={p.name}
+                trailing={
+                  lifecycle ? (
+                    <PartRestart part={p} lifecycle={lifecycle} />
+                  ) : undefined
+                }
                 onClick={() => onOpen(p.uuid)}
               />
             ))}
           </PanelList>
         </div>
       )}
+      <ContainerCompanions
+        connectionId={connectionId}
+        resource={resource}
+        revision={revision}
+      />
+      <div className="p-3">
+        <CompanionActions
+          connectionId={connectionId}
+          resource={resource}
+          revision={revision}
+          shell={tabs}
+        />
+      </div>
     </TileStack>
   );
 }
@@ -138,31 +198,91 @@ export function hasConsole(r: Resource): boolean {
 }
 
 /**
+ * Opens a container shell, or a database's console, in a coolify-shell tab.
+ * The backend checks the rest: the Linked host and the actor's access to it.
+ */
+function ShellPanel({
+  t,
+  resource,
+  onShell,
+}: {
+  t: T;
+  resource: Resource;
+  /** Null without the right to operate the connection. */
+  onShell: ((resource: Resource, console: "shell" | "db") => void) | null;
+}) {
+  if (!onShell) {
+    return (
+      <EmptyState icon={SquareTerminal} title={t("detail.shell.noAccess")} />
+    );
+  }
+  return (
+    <div className="flex flex-col gap-3 p-3">
+      <p className="text-sm text-muted-foreground">{t("detail.shell.hint")}</p>
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => onShell(resource, "shell")}
+        >
+          <SquareTerminal className="size-3.5" />
+          {t("detail.actions.shell")}
+        </Button>
+        {hasConsole(resource) && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onShell(resource, "db")}
+          >
+            <Database className="size-3.5" />
+            {t("detail.actions.console")}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
  * One resource or Part, opened in place over the list. The header names it
- * and its status; lifecycle buttons arrive with the lifecycle actions.
+ * and its status, with Deploy, Force rebuild, Restart and Start or Stop for
+ * people who may operate the connection; a service's Parts restart one by one.
  */
 export function ResourceDetail({
   resource,
   rows,
   onOpen,
   onClose,
-  onShell,
   connectionId,
+  canOperate,
+  onChanged,
+  onShell,
+  revision,
+  isVisible = true,
 }: {
   /** Null when the resource is gone from the list. */
   resource: Resource | null;
   rows: readonly Resource[];
   onOpen: (uuid: string) => void;
   onClose: () => void;
+  connectionId: number;
+  /** coolify.operate and the owner or an operate grant on the connection. */
+  canOperate: boolean;
+  /** After a lifecycle action, so the list fetches fresh statuses. */
+  onChanged: () => void;
   /** Opens a coolify-shell tab for the resource. */
   onShell?: (resource: Resource, console: "shell" | "db") => void;
-  /** The connection the resource belongs to, for the companion actions. */
-  connectionId?: number;
+  /** The connection's target hash, which keys the companion and log views. */
+  revision?: string | null;
+  /** Whether the tab is shown; a live log follow stops while it isn't. */
+  isVisible?: boolean;
 }) {
   const { t } = useTranslation();
-  // Shells run over SSH: coolify.operate, plus host access the backend checks.
-  const canShell = usePermission("operate");
-  const [tab, setTab] = useState<DetailTab>("overview");
+  const runner = useLifecycle(connectionId, onChanged);
+  const lifecycle = canOperate ? runner : null;
+  const tabs = detailTabs(resource, canOperate);
+  const [chosen, setTab] = useState<DetailTab>("overview");
+  const tab = tabs.includes(chosen) ? chosen : "overview";
   let body: ReactNode;
   if (!resource) {
     body = <EmptyState icon={Box} title={t("detail.missing")} />;
@@ -175,7 +295,50 @@ export function ResourceDetail({
             resource={resource}
             rows={rows}
             onOpen={onOpen}
+            lifecycle={lifecycle}
             connectionId={connectionId}
+            revision={revision ?? null}
+          />
+        );
+        break;
+      case "shell":
+        body = (
+          <ShellPanel
+            t={t}
+            resource={resource}
+            onShell={canOperate && onShell ? onShell : null}
+          />
+        );
+        break;
+      case "logs":
+        // Keyed by connection, resource and target: any change starts empty
+        // and closes the old follow.
+        body = (
+          <LogsView
+            key={`${connectionId}:${resource.uuid}:${revision ?? ""}`}
+            connectionId={connectionId}
+            resource={resource}
+            isVisible={isVisible}
+          />
+        );
+        break;
+      case "stats":
+        // Keyed like logs: a changed target starts empty and closes the socket.
+        body = (
+          <StatsTab
+            key={`${connectionId}:${resource.uuid}:${revision ?? ""}`}
+            connectionId={connectionId}
+            resource={resource}
+            isVisible={isVisible}
+          />
+        );
+        break;
+      case "traffic":
+        body = (
+          <TrafficTab
+            key={`${connectionId}:${resource.uuid}:${revision ?? ""}`}
+            connectionId={connectionId}
+            resource={resource}
           />
         );
         break;
@@ -196,39 +359,20 @@ export function ResourceDetail({
           </StatusBadge>
         ) : undefined
       }
+      actions={
+        resource && lifecycle ? (
+          <ResourceActions resource={resource} lifecycle={lifecycle} />
+        ) : undefined
+      }
       toolbar={
         <TabStrip
-          tabs={DETAIL_TABS.map((id) => ({
+          tabs={tabs.map((id) => ({
             id,
             label: t(`detail.tabs.${id}`),
           }))}
           activeTab={tab}
           onTabChange={(id) => setTab(id as DetailTab)}
         />
-      }
-      actions={
-        resource && onShell && canShell ? (
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => onShell(resource, "shell")}
-            >
-              <SquareTerminal className="size-3.5" />
-              {t("detail.actions.shell")}
-            </Button>
-            {hasConsole(resource) && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => onShell(resource, "db")}
-              >
-                <Database className="size-3.5" />
-                {t("detail.actions.console")}
-              </Button>
-            )}
-          </div>
-        ) : undefined
       }
       bare
     >
