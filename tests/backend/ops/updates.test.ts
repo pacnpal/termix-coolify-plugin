@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OperationAction } from "@termix-ssh/plugin-sdk/operations";
 import { manifest, type PluginHarness } from "../helpers/plugin.js";
 import { withRunHistory } from "../helpers/run-history.js";
+import { newestSecurity } from "../../../src/backend/ops/signals.js";
 import {
   fakePackageManager,
   fakeSsh,
@@ -69,7 +70,9 @@ describe("server update operations", () => {
   });
 
   it("lists exactly the Package Manager actions it invokes", () => {
-    expect(manifest.contributes?.operations?.invokes).toEqual([
+    const invokes = manifest.contributes?.operations?.invokes ?? [];
+    // The other companions' ids are checked in companions/detect.test.ts.
+    expect(invokes.filter((id) => id.startsWith("package-manager."))).toEqual([
       "package-manager.list-updates",
       "package-manager.upgrade-all",
     ]);
@@ -157,5 +160,119 @@ describe("server update operations", () => {
         serverUuid: "srv-web2",
       }),
     ).rejects.toMatchObject({ code: "not-linked", status: 409 });
+  });
+});
+
+describe("the security updates signal", () => {
+  /** The kept check's cache row, as the updates service wrote it. */
+  function keptRow(h: PluginHarness, connectionId: number) {
+    const row = h.db.sqlite
+      .prepare(
+        "SELECT json FROM p_coolify_cache WHERE connection_id = ? AND kind = 'updates:srv-web1'",
+      )
+      .get(connectionId) as { json: string };
+    return JSON.parse(row.json) as Record<string, unknown>;
+  }
+
+  function setKept(
+    h: PluginHarness,
+    connectionId: number,
+    value: Record<string, unknown>,
+  ) {
+    h.db.sqlite
+      .prepare(
+        "UPDATE p_coolify_cache SET json = ? WHERE connection_id = ? AND kind = 'updates:srv-web1'",
+      )
+      .run(JSON.stringify(value), connectionId);
+  }
+
+  async function checkedOverSsh() {
+    const started = await start();
+    const { exec } = fakeSsh(started.h);
+    await started.runs.run("coolify.server-updates-check", {
+      connectionId: started.id,
+      serverUuid: "srv-web1",
+    });
+    exec.mockClear();
+    return { ...started, exec };
+  }
+
+  it("shows the plugin's own newer check, read from cache: no SSH, no Coolify call", async () => {
+    const { h, hostId, exec, fake } = await checkedOverSsh();
+    const invoke = vi.spyOn(h.mock.ctx.operations, "invoke");
+    const read = () =>
+      h.mock.ctx.operations.run("coolify.signal-updates", { hostId });
+    expect((await read()).data).toMatchObject({
+      value: 1,
+      label: "1 security update (checked over SSH)",
+    });
+    const before = fake.calls.length;
+    expect((await read()).data).toMatchObject({
+      label: "1 security update (checked over SSH)",
+    });
+    expect(fake.calls.length).toBe(before);
+    expect(exec).not.toHaveBeenCalled();
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("never serves a kept check from another revision or an older generation", async () => {
+    const { h, hostId, connectionId } = await checkedOverSsh();
+    const kept = keptRow(h, connectionId);
+    expect(kept.revision).toEqual(expect.any(String));
+    const read = async () =>
+      (await h.mock.ctx.operations.run("coolify.signal-updates", { hostId }))
+        .data;
+    setKept(h, connectionId, { ...kept, revision: "another-target" });
+    expect(await read()).toMatchObject({
+      status: "unknown",
+    });
+    setKept(h, connectionId, { ...kept, generation: "older:0" });
+    expect(await read()).toMatchObject({
+      status: "unknown",
+    });
+    setKept(h, connectionId, kept);
+    expect(await read()).toMatchObject({
+      label: "1 security update (checked over SSH)",
+    });
+  });
+
+  it("another user's connection reads as unknown, without reading Coolify", async () => {
+    const { h, hostId, fake } = await checkedOverSsh();
+    const before = fake.calls.length;
+    h.mock.setActor("someone-else");
+    const read = await h.mock.ctx.operations.run("coolify.signal-updates", {
+      hostId,
+    });
+    expect(read.data).toMatchObject({ status: "unknown" });
+    expect(fake.calls.length).toBe(before);
+  });
+
+  it("takes the newer check by parsed time; an unparsable time counts as older", () => {
+    const coolify = (checkedAt: string | null) => ({ security: 2, checkedAt });
+    const own = (checkedAt: string | null) => ({
+      security: 5,
+      checkedAt,
+      via: "ssh" as const,
+    });
+    // Parsed, not compared as text: 09:00+02:00 is before 08:00Z.
+    expect(
+      newestSecurity(
+        coolify("2026-11-18T08:00:00Z"),
+        own("2026-11-18T09:00:00+02:00"),
+      ),
+    ).toEqual({ security: 2, source: "coolify" });
+    expect(
+      newestSecurity(coolify("2026-11-18T08:00:00Z"), own("not a date")),
+    ).toEqual({ security: 2, source: "coolify" });
+    expect(
+      newestSecurity(coolify("garbage"), own("2026-11-18T08:00:00Z")),
+    ).toEqual({ security: 5, source: "ssh" });
+    expect(newestSecurity(null, own(null))).toEqual({
+      security: 5,
+      source: "ssh",
+    });
+    expect(newestSecurity({ security: null, checkedAt: null }, null)).toBe(
+      null,
+    );
   });
 });

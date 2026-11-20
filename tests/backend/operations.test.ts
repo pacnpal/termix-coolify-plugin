@@ -19,6 +19,7 @@ import {
   type PluginHarness,
 } from "./helpers/plugin.js";
 import { resourceLists } from "./helpers/resources.js";
+import { redact } from "../../src/backend/redact.js";
 
 let harness: PluginHarness | null = null;
 
@@ -176,7 +177,7 @@ describe("lifecycle, resource and signal operations", () => {
       expect.objectContaining({
         uuid: "app-api-uuid",
         name: "api",
-        status: "exited:unhealthy",
+        status: "running:unhealthy",
         fqdn: "https://api.x",
       }),
     ]);
@@ -229,6 +230,44 @@ describe("lifecycle, resource and signal operations", () => {
     expect(harness.mock.operationEvents.map((e) => e.eventId)).toEqual([
       "coolify.deployment-failed",
     ]);
+  });
+
+  it("deploy events carry only their declared non-secret fields, never Coolify's text", async () => {
+    const { harness, id } = await start({
+      overrides: {
+        "GET /deployments/dep-uuid": {
+          json: {
+            deployment_uuid: "dep-uuid",
+            status: "failed",
+            logs: `build log with ${LIFECYCLE_TOKEN}`,
+          },
+        },
+      },
+    });
+    link(harness, id, "srv-vps1-uuid", 7);
+    await expect(
+      harness.mock.ctx.operations.run("coolify.deploy", {
+        hostId: 7,
+        resourceKey: "app-web-uuid",
+        input: { wait: true },
+      }),
+    ).rejects.toMatchObject({ code: "deployment-failed" });
+    const [event] = harness.mock.operationEvents;
+    const declared = manifest
+      .contributes!.operations!.events!.find((e) => e.id === event.eventId)!
+      .payload!.map((f) => f.key);
+    expect(Object.keys(event.payload ?? {}).sort()).toEqual(
+      [...declared].sort(),
+    );
+    expect(event.payload).toMatchObject({
+      uuid: "app-web-uuid",
+      status: "failed",
+    });
+    expect(event.hostId).toBe(7);
+    expect(redact(event.payload)).toEqual(event.payload);
+    const text = JSON.stringify(event);
+    expect(text).not.toContain(LIFECYCLE_TOKEN);
+    expect(text).not.toContain("build log");
   });
 
   it("deploy honours signal: an aborted signal throws", async () => {
@@ -413,8 +452,10 @@ describe("lifecycle, resource and signal operations", () => {
       );
       values.push(outcome.data);
     }
+    // vps1: worker is running:unhealthy (degraded); cache is exited, which
+    // is stopped, not degraded. edge: api is running:unhealthy.
     expect(values).toEqual([
-      expect.objectContaining({ value: 2, status: "warn" }),
+      expect.objectContaining({ value: 1, status: "warn" }),
       expect.objectContaining({ value: 1, status: "warn" }),
       expect.objectContaining({ value: 0, status: "ok" }),
     ]);
@@ -425,6 +466,37 @@ describe("lifecycle, resource and signal operations", () => {
       });
     }
     expect(fake.calls.filter((c) => c.path === "/servers")).toHaveLength(1);
+  });
+
+  it("the degraded signal counts bare unhealthy, never exited with any health suffix", async () => {
+    const on = { server: { uuid: "srv-vps1-uuid", name: "vps1" } };
+    const app = (id: number, status: string) => ({
+      id,
+      uuid: `app-${id}-uuid`,
+      name: `app-${id}`,
+      status,
+      destination: on,
+    });
+    const { harness, id } = await start({
+      overrides: {
+        "GET /applications": {
+          json: [
+            app(31, "exited:unhealthy"),
+            app(32, "exited:healthy"),
+            app(33, "exited"),
+            app(34, "unhealthy"),
+          ],
+        },
+        "GET /services": { json: [] },
+        "GET /databases": { json: [] },
+      },
+    });
+    link(harness, id, "srv-vps1-uuid", 7);
+    const outcome = await harness.mock.ctx.operations.run(
+      "coolify.signal-degraded",
+      { hostId: 7 },
+    );
+    expect(outcome.data).toMatchObject({ value: 1, status: "warn" });
   });
 
   it("the server signal reads reachability and an unlinked host is unknown", async () => {
@@ -479,36 +551,6 @@ describe("lifecycle, resource and signal operations", () => {
 });
 
 describe("Operations Center acceptance", () => {
-  /** Seeds the plugin's own last update check, as updates/check stores it. */
-  function ownCheck(
-    h: PluginHarness,
-    connectionId: number,
-    serverUuid: string,
-    status: { security: number | null; checkedAt: string },
-    via = "ssh",
-  ): void {
-    h.db.sqlite
-      .prepare(
-        "INSERT INTO p_coolify_cache (connection_id, kind, json, fetched_at) VALUES (?, ?, ?, ?)",
-      )
-      .run(
-        connectionId,
-        `updates:${serverUuid}`,
-        JSON.stringify({
-          status: {
-            updates: status.security ?? 0,
-            security: status.security,
-            rebootRequired: false,
-            checkedAt: status.checkedAt,
-            error: null,
-            items: [],
-          },
-          via,
-        }),
-        status.checkedAt,
-      );
-  }
-
   /** Coolify's servers answer, with its own patch check on vps1 and edge. */
   const patchedServers = {
     "GET /servers": {
@@ -583,41 +625,28 @@ describe("Operations Center acceptance", () => {
     expect(exec).not.toHaveBeenCalled();
   });
 
-  it("the updates signal reads the updates service's own check when it is newer, never over SSH", async () => {
-    const { harness, id } = await start({ overrides: patchedServers });
+  it("signals check access per host: another user's connection is never read, even cached", async () => {
+    const { harness, fake, id } = await start({ overrides: patchedServers });
     link(harness, id, "srv-vps1-uuid", 7);
-    link(harness, id, "srv-edge-uuid", 8);
-    // vps1 was checked after Coolify's own check; edge before it.
-    ownCheck(harness, id, "srv-vps1-uuid", {
-      security: 5,
-      checkedAt: "2026-11-19T09:00:00Z",
-    });
-    ownCheck(harness, id, "srv-edge-uuid", {
-      security: 0,
-      checkedAt: "2026-11-17T09:00:00Z",
-    });
-    const exec = vi.spyOn(harness.mock.ctx.ssh, "exec");
-    const invoke = vi.spyOn(harness.mock.ctx.operations, "invoke");
-    const vps1 = await harness.mock.ctx.operations.run(
-      "coolify.signal-updates",
-      { hostId: 7 },
+    // The owner's reads warm the caches.
+    for (const signal of HOST_SIGNALS) {
+      await harness.mock.ctx.operations.run(signal, { hostId: 7 });
+    }
+    const before = fake.calls.length;
+    harness.mock.setActor(OTHER);
+    for (const signal of HOST_SIGNALS) {
+      const read = await harness.mock.ctx.operations.run(signal, {
+        hostId: 7,
+      });
+      expect(read.data, signal).toMatchObject({ status: "unknown" });
+      expect(JSON.stringify(read.data), signal).not.toContain("vps1");
+    }
+    const deploying = await harness.mock.ctx.operations.run(
+      "coolify.signal-deploying",
+      {},
     );
-    expect(vps1.data).toMatchObject({
-      value: 5,
-      status: "warn",
-      label: "5 security updates (checked over SSH)",
-    });
-    const edge = await harness.mock.ctx.operations.run(
-      "coolify.signal-updates",
-      { hostId: 8 },
-    );
-    expect(edge.data).toMatchObject({
-      value: 1,
-      status: "warn",
-      label: "1 security update (Coolify's check)",
-    });
-    expect(exec).not.toHaveBeenCalled();
-    expect(invoke).not.toHaveBeenCalled();
+    expect(deploying.data).toMatchObject({ value: 0 });
+    expect(fake.calls.length).toBe(before);
   });
 
   it("deploy with wait emits deployment-finished or deployment-failed with hostId when linked", async () => {

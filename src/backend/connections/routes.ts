@@ -39,7 +39,7 @@ export function safe(ctx: PluginContext, fn: Handler): Handler {
 /** A connection id from the path; a malformed one reads as missing. */
 export function idParam(req: Request): number {
   const raw = String(req.params.id ?? "");
-  const id = /^\d{1,15}$/.test(raw) ? Number(raw) : NaN;
+  const id = /^\d{1,15}$/.test(raw) ? Number(raw) : Number.NaN;
   if (!Number.isSafeInteger(id) || id <= 0) {
     throw new ConnectionError("not-found", "Coolify connection not found");
   }
@@ -166,7 +166,7 @@ export function registerConnectionRoutes(
    *       400:
    *         description: Missing or invalid fields
    *       403:
-   *         description: Missing coolify.configure
+   *         description: Missing coolify.view or coolify.configure
    *       409:
    *         description: Coolify is older than 4.4
    */
@@ -222,6 +222,8 @@ export function registerConnectionRoutes(
    *       Owner only. An empty or absent token or Cloudflare Access value keeps
    *       the stored one; null for both Cloudflare Access values clears them.
    *       Changing the address, token or TLS settings runs the probe again.
+   *       execEnabled turns running commands in this connection's containers
+   *       (coolify.exec) on or off; a grantee at any level is refused with 403.
    *     tags:
    *       - Coolify
    *     parameters:
@@ -259,13 +261,20 @@ export function registerConnectionRoutes(
    *                 nullable: true
    *               autoSync:
    *                 type: boolean
+   *               execEnabled:
+   *                 type: boolean
+   *                 description: >-
+   *                   Allow running commands in containers through the API and
+   *                   MCP. Also needs the admin setting allowExec.
    *     responses:
    *       200:
    *         description: The changed connection, without any token
    *       400:
-   *         description: Invalid fields
+   *         description: >-
+   *           Invalid fields, or the change needs a stored token or Cloudflare
+   *           Access value that can't be read and wasn't sent again
    *       403:
-   *         description: Missing coolify.configure, or not the owner
+   *         description: Missing coolify.view or coolify.configure, or not the owner
    *       404:
    *         description: No such connection, or another user's
    *       409:
@@ -277,7 +286,26 @@ export function registerConnectionRoutes(
     configure,
     safe(ctx, async (req, res) => {
       const id = idParam(req);
-      res.json(await connections.update(id, readBody(req.body, true)));
+      const patch = readBody(req.body, true);
+      const raw = (req.body as Record<string, unknown>).execEnabled;
+      const exec = typeof raw === "boolean" ? raw : undefined;
+      if (raw !== undefined && exec === undefined) {
+        throw new ConnectionError(
+          "invalid-input",
+          "execEnabled must be true or false",
+        );
+      }
+      // execEnabled is its own owner-only, audited change (as the
+      // coolify.connection-set-exec action); the rest is an ordinary update.
+      if (exec !== undefined && Object.keys(patch).length === 0) {
+        res.json(await connections.setExec(id, exec));
+        return;
+      }
+      // The rest first: a rejected update leaves execEnabled as it was.
+      const updated = await connections.update(id, patch);
+      res.json(
+        exec === undefined ? updated : await connections.setExec(id, exec),
+      );
     }),
   );
 
@@ -306,7 +334,7 @@ export function registerConnectionRoutes(
    *       200:
    *         description: The removed connection
    *       403:
-   *         description: Missing coolify.configure, or not the owner
+   *         description: Missing coolify.view or coolify.configure, or not the owner
    *       404:
    *         description: No such connection, or another user's
    */

@@ -1,25 +1,30 @@
-import { and, eq } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 import type {
   PluginContext,
   PluginHostAccess,
   PluginOperationOutcome,
+  PluginSshExecResult,
 } from "@termix-ssh/plugin-sdk/backend";
 import {
   PLATFORM_PROBE_COMMAND,
-  buildListUpgradableCommand,
   buildPackageActionCommand,
   parsePlatformProbe,
   parseUpgradable,
   type PackageManager,
 } from "@termix-ssh/plugin-sdk/host-commands";
 import { shellQuote } from "@termix-ssh/plugin-sdk/host-scripts";
-import type { PatchItem, PatchStatus } from "../coolify/dto.js";
+import { createCache } from "../cache.js";
+import type { PatchItem, PatchStatus, ServerDto } from "../coolify/dto.js";
 import {
   ConnectionError,
   type AccessLevel,
   type Connections,
 } from "../connections/service.js";
-import { dbClient, type Tables } from "../db.js";
+import type { Tables } from "../db.js";
+import type { ServerStatuses } from "../ops/signals.js";
+import { COMPANION_PLUGINS, activePlugins } from "../plugins.js";
+import type { Resources } from "../resources/service.js";
+import { isHostKeyError, sshRunner, type SshRunner } from "../ssh.js";
 import type { Sync } from "../sync/service.js";
 
 /** Which path read or changed a server's packages. */
@@ -57,9 +62,52 @@ export interface RebootResult {
 }
 
 type Grant = Exclude<AccessLevel, "owner">;
+
+export type UpdateErrorCode =
+  | "not-linked"
+  | "confirm-required"
+  | "name-mismatch"
+  | "host-forbidden"
+  | "needs-sudo"
+  | "unsupported-os"
+  | "host-key"
+  | "ssh-failed"
+  | "check-failed"
+  | "companion-failed"
+  | "companions-unknown";
+
+const UPDATE_STATUS: Record<UpdateErrorCode, 400 | 403 | 409 | 502> = {
+  "not-linked": 409,
+  "confirm-required": 400,
+  "name-mismatch": 400,
+  "host-forbidden": 403,
+  "needs-sudo": 409,
+  "unsupported-os": 409,
+  "host-key": 409,
+  "ssh-failed": 502,
+  "check-failed": 502,
+  "companion-failed": 502,
+  "companions-unknown": 409,
+};
+
+/**
+ * A refusal on the way to a server's packages, with its own statuses (409
+ * for not-linked, as ContainerError has). Its message is fixed text.
+ */
+export class UpdateError extends Error {
+  readonly code: UpdateErrorCode;
+  readonly status: 400 | 403 | 409 | 502;
+
+  constructor(code: UpdateErrorCode, message: string) {
+    super(message);
+    this.name = "UpdateError";
+    this.code = code;
+    this.status = UPDATE_STATUS[code];
+  }
+}
 type HostLevel = "connect" | "edit";
 
-export const PACKAGE_MANAGER = "package-manager";
+export const PACKAGE_MANAGER = COMPANION_PLUGINS.packageManager;
 export const PM_LIST = "package-manager.list-updates";
 export const PM_UPGRADE = "package-manager.upgrade-all";
 
@@ -201,6 +249,29 @@ function asRoot(command: string): string {
 
 const LIST_MARK = "__COOLIFY_LIST__";
 const REBOOT_MARK = "__COOLIFY_REBOOT__";
+const REFRESH_STATUS = "__COOLIFY_REFRESH_STATUS__=";
+const LIST_STATUS = "__COOLIFY_LIST_STATUS__=";
+/**
+ * The listing alone, so its own exit status is what the marker reads (the
+ * SDK's listing hides failures behind a pipe or `|| true`). dnf and yum
+ * check-update exit 100 when updates are pending. pacman has no safe
+ * refresh (`pacman -Sy` alone risks a partial upgrade), so it lists with
+ * pacman-contrib's `checkupdates`, which syncs a temporary copy of the
+ * database: 0 with updates, 2 with none, anything else (or not installed,
+ * 127) fails the check.
+ */
+const LISTING: Record<NonNullable<PackageManager>, string> = {
+  apt: "apt list --upgradable 2>/dev/null",
+  dnf: "dnf -q check-update 2>/dev/null",
+  yum: "yum -q check-update 2>/dev/null",
+  pacman: "checkupdates 2>&1",
+};
+const LIST_OK: Record<NonNullable<PackageManager>, number[]> = {
+  apt: [0],
+  dnf: [0, 100],
+  yum: [0, 100],
+  pacman: [0, 2],
+};
 const REFRESH: Partial<Record<NonNullable<PackageManager>, string>> = {
   apt: "apt-get update -qq",
   dnf: "dnf -q makecache",
@@ -222,8 +293,10 @@ export function checkCommand(pkg: NonNullable<PackageManager>): string {
   const refresh = REFRESH[pkg];
   return [
     refresh ? `${asRoot(refresh)} >/dev/null 2>&1` : "true",
+    `echo ${REFRESH_STATUS}$?`,
     `echo ${LIST_MARK}`,
-    `LANG=C ${buildListUpgradableCommand(pkg)}`,
+    `LANG=C ${LISTING[pkg]}`,
+    `echo ${LIST_STATUS}$?`,
     `echo ${REBOOT_MARK}`,
     REBOOT_CHECK,
   ].join("; ");
@@ -249,7 +322,17 @@ function aptSecurity(listing: string): Set<string> {
   return names;
 }
 
-/** Parses the output of checkCommand into a PatchStatus. */
+/** A step's exit status from its marker line, or null when it never ran. */
+function statusOf(output: string, marker: string): number | null {
+  const m = output.match(new RegExp(`^${marker}(\\d+)$`, "m"));
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * Parses the output of checkCommand into a PatchStatus. A refresh or listing
+ * that failed, or never reported, is `error: "check-failed"` with nothing
+ * counted: never up to date.
+ */
 export function parseCheck(
   pkg: NonNullable<PackageManager>,
   output: string,
@@ -265,8 +348,25 @@ export function parseCheck(
           rebootStart === -1 ? undefined : rebootStart,
         );
   const rebootText = rebootStart === -1 ? "" : output.slice(rebootStart);
+  const listed = statusOf(output, LIST_STATUS);
+  if (
+    statusOf(output, REFRESH_STATUS) !== 0 ||
+    listed === null ||
+    !LIST_OK[pkg].includes(listed) ||
+    (pkg === "pacman" && /^(error:|==> ERROR)/im.test(listing))
+  ) {
+    return {
+      updates: null,
+      security: null,
+      rebootRequired: null,
+      checkedAt,
+      error: "check-failed",
+      items: [],
+    };
+  }
   const security = pkg === "apt" ? aptSecurity(listing) : null;
-  const items: PatchItem[] = parseUpgradable(pkg, listing).map((u) => ({
+  const rows = listing.slice(0, listing.indexOf(LIST_STATUS));
+  const items: PatchItem[] = parseUpgradable(pkg, rows).map((u) => ({
     package: u.name,
     newVersion: u.newVersion ?? "",
     currentVersion: u.currentVersion ?? "",
@@ -352,16 +452,47 @@ const outcomePending = (o: PluginOperationOutcome) =>
  * runs, and otherwise over SSH on the Linked host with fixed commands.
  *
  * Who may act: the Termix permission (operate, or administer to reboot), the
- * connection (owner, or a grant at operate, configure to reboot), and host
- * access on the Linked host (connect to check, edit to install or reboot).
- * Anything that can't be read refuses.
+ * connection (owner, or a grant at operate, configure to reboot), a server
+ * uuid that the connection's own Coolify has, and host access on its Linked
+ * host (connect to check, edit to install or reboot). Anything that can't be
+ * read refuses. Each action reads the connection once (`snapshot`) and checks
+ * its revision again right before every SSH command, Package Manager call
+ * and kept check, so a target change ends it with target-changed.
  */
 export function createUpdates(
   ctx: PluginContext,
-  deps: { tables: Tables; connections: Connections; sync: Sync },
+  deps: {
+    tables: Tables;
+    connections: Connections;
+    resources: Pick<Resources, "invalidate">;
+    servers: Pick<ServerStatuses, "invalidate">;
+    sync: Pick<Sync, "linkedHostFor">;
+    /** SSH on a Linked host; ctx.ssh.exec unless a test gives another. */
+    run?: SshRunner;
+  },
 ) {
-  const t = deps.tables;
-  const { connections, sync } = deps;
+  const { connections, resources, sync } = deps;
+  const cache = createCache(ctx, deps.tables);
+  const run = deps.run ?? sshRunner(ctx);
+  // Advanced by invalidate(); a kept check is written and served only under
+  // the generation its check began in. Unique to each instance, as in
+  // resources, so a row an old instance wrote never matches.
+  const epoch = randomUUID();
+  const generations = new Map<number, number>();
+  const generationOf = (connectionId: number) =>
+    `${epoch}:${generations.get(connectionId) ?? 0}`;
+  // Checks running now, by connection, server, revision and generation.
+  const checks = new Map<string, Promise<CheckResult>>();
+
+  type Snapshot = Awaited<ReturnType<Connections["snapshot"]>>;
+
+  /** The plugin's own last check, and the revision it was read under. */
+  interface KeptCheck {
+    revision: string;
+    generation: string;
+    status: PatchStatus;
+    via: UpdatesVia;
+  }
 
   function serverUuid(raw: unknown): string {
     if (typeof raw !== "string" || !UUID.test(raw)) {
@@ -385,12 +516,8 @@ export function createUpdates(
     }
   }
 
-  async function connectionAt(id: number, need: Grant): Promise<void> {
-    const access = await connections.access(id);
-    if (!access) {
-      throw new ConnectionError("not-found", "Coolify connection not found");
-    }
-    if (GRANT_RANK[access] < GRANT_RANK[need]) {
+  function grantAt(snap: Snapshot, need: Grant): void {
+    if (GRANT_RANK[snap.view.access] < GRANT_RANK[need]) {
       throw new ConnectionError(
         "forbidden",
         "Your access to this connection doesn't allow this",
@@ -398,13 +525,22 @@ export function createUpdates(
     }
   }
 
+  /** Fails closed unless the connection still points at the snapshot's target. */
+  async function holds(connectionId: number, snap: Snapshot): Promise<void> {
+    if ((await connections.revision(connectionId)) !== snap.view.revision) {
+      throw new ConnectionError(
+        "target-changed",
+        "The connection's address, token or Access settings changed. Try again.",
+      );
+    }
+  }
+
   async function linkedHost(id: number, uuid: string): Promise<number> {
     const hostId = await sync.linkedHostFor(id, uuid);
     if (!hostId) {
-      throw new ConnectionError(
+      throw new UpdateError(
         "not-linked",
         "This Coolify server has no Linked host. Sync it first.",
-        409,
       );
     }
     return hostId;
@@ -422,94 +558,93 @@ export function createUpdates(
       (access.isOwner === true ||
         HOST_LEVELS[level].has(String(access.permissionLevel)));
     if (!ok) {
-      throw new ConnectionError(
+      throw new UpdateError(
         "host-forbidden",
         `You need ${level} access to this server's Linked host`,
-        403,
       );
     }
   }
 
+  /**
+   * Whether Package Manager runs. SSH is used only when the list was read
+   * and shows it isn't: an unreadable list refuses, so its read only setting
+   * is never bypassed.
+   */
   async function packageManagerRuns(): Promise<boolean> {
-    try {
-      const plugins = await ctx.plugins.list();
-      return plugins.some(
-        (p) => p.id === PACKAGE_MANAGER && p.state === "active",
+    const active = await activePlugins(ctx);
+    if (!active) {
+      throw new UpdateError(
+        "companions-unknown",
+        "Termix's plugin list could not be read, so nothing ran. Try again.",
       );
-    } catch {
-      return false;
     }
+    return active.has(PACKAGE_MANAGER);
   }
 
-  async function exec(hostId: number, command: string, timeoutMs: number) {
-    let result;
+  /** One fixed command on the Linked host, after the snapshot is checked. */
+  async function exec(
+    target: Target,
+    command: string,
+    timeoutMs: number,
+  ): Promise<PluginSshExecResult> {
+    await holds(target.connectionId, target.snap);
+    let result: PluginSshExecResult;
     try {
-      result = await ctx.ssh.exec(hostId, command, {
-        purpose: "coolify-updates",
-        timeoutMs,
-      });
+      result = await run(target.hostId, command, { timeoutMs });
     } catch (err) {
-      const code = (err as { code?: unknown })?.code;
       ctx.log.warn(`coolify updates ssh failed: ${errorName(err)}`);
-      // Core's host key refusals tell the user what to do; show them as they are.
-      if (code === "HOST_KEY_UNVERIFIED" || code === "HOST_KEY_CHANGED") {
-        throw new ConnectionError(
-          "ssh-failed",
-          String((err as Error).message),
-          409,
+      // Only fixed messages: core's and the host's text could hold anything.
+      if (isHostKeyError(err)) {
+        throw new UpdateError(
+          "host-key",
+          "Open a server terminal once to trust this host's key.",
         );
       }
-      throw new ConnectionError(
-        "ssh-failed",
-        "SSH to the Linked host failed",
-        502,
-      );
+      throw new UpdateError("ssh-failed", "SSH to the Linked host failed");
     }
     if (result.timedOut) {
-      throw new ConnectionError(
+      throw new UpdateError(
         "ssh-failed",
         "The command on the Linked host ran out of time",
-        502,
       );
     }
     return result;
   }
 
   async function platform(
-    hostId: number,
+    target: Target,
   ): Promise<NonNullable<PackageManager>> {
-    const probe = await exec(hostId, PLATFORM_PROBE_COMMAND, 30_000);
+    const probe = await exec(target, PLATFORM_PROBE_COMMAND, 30_000);
     const pkg = parsePlatformProbe(probe.stdout).pkg;
     if (!pkg) {
-      throw new ConnectionError(
+      throw new UpdateError(
         "unsupported-os",
         "No apt, dnf, yum or pacman on this server",
-        409,
       );
     }
     return pkg;
   }
 
   async function invoke(
+    target: Target,
     actionId: string,
-    hostId: number,
     failure: string,
   ): Promise<PluginOperationOutcome> {
+    await holds(target.connectionId, target.snap);
     let outcome: PluginOperationOutcome;
     try {
       outcome = await ctx.operations.invoke(actionId, {
-        hostId,
+        hostId: target.hostId,
         confirmed: true,
       });
     } catch (err) {
       ctx.log.warn(`coolify package-manager call failed: ${errorName(err)}`);
-      throw new ConnectionError("companion-failed", failure, 502);
+      throw new UpdateError("companion-failed", failure);
     }
     if (outcomeFailed(outcome)) {
-      throw new ConnectionError(
+      throw new UpdateError(
         "companion-failed",
         outcome.error ? `${failure}: ${outcome.error}` : failure,
-        502,
       );
     }
     return outcome;
@@ -517,49 +652,43 @@ export function createUpdates(
 
   const kindOf = (uuid: string) => `updates:${uuid}`;
 
+  /** The kept check, only when it was read under the snapshot's revision. */
   async function readFresh(
     connectionId: number,
     uuid: string,
+    revision: string,
   ): Promise<{ fresh: PatchStatus | null; via: UpdatesVia | null }> {
-    const db = await dbClient(ctx);
-    const [row] = (await db
-      .select()
-      .from(t.cache)
-      .where(
-        and(
-          eq(t.cache.connectionId, connectionId),
-          eq(t.cache.kind, kindOf(uuid)),
-        ),
-      )
-      .limit(1)) as { json: unknown }[];
-    const stored = (
-      typeof row?.json === "string" ? JSON.parse(row.json) : row?.json
-    ) as { status?: PatchStatus; via?: UpdatesVia } | undefined;
-    if (!stored?.status) return { fresh: null, via: null };
-    return { fresh: stored.status, via: stored.via ?? null };
+    const kept = (
+      await cache.read<Partial<KeptCheck>>(connectionId, kindOf(uuid))
+    )?.value;
+    if (
+      kept?.revision !== revision ||
+      kept.generation !== generationOf(connectionId) ||
+      !kept.status
+    ) {
+      return { fresh: null, via: null };
+    }
+    return { fresh: kept.status, via: kept.via ?? null };
   }
 
-  async function writeFresh(
-    connectionId: number,
-    uuid: string,
-    value: { status: PatchStatus; via: UpdatesVia } | null,
-  ): Promise<void> {
-    const db = await dbClient(ctx);
-    const where = and(
-      eq(t.cache.connectionId, connectionId),
-      eq(t.cache.kind, kindOf(uuid)),
-    );
-    await db.delete(t.cache).where(where);
-    if (value) {
-      await db.insert(t.cache).values({
-        connectionId,
-        kind: kindOf(uuid),
-        // json() columns take text here, as connections.abilities does.
-        json: JSON.stringify(value),
-        fetchedAt: new Date().toISOString(),
-      });
-    }
-    await ctx.db.persist({ lazy: true });
+  /**
+   * After an install or a reboot (or one that failed part way): the kept
+   * check, the server statuses signals cache and the resource list no
+   * longer match the server.
+   */
+  async function invalidate(connectionId: number, uuid: string) {
+    generations.set(connectionId, (generations.get(connectionId) ?? 0) + 1);
+    await cache.drop(connectionId, kindOf(uuid));
+    await deps.servers.invalidate(connectionId);
+    await resources.invalidate(connectionId);
+  }
+
+  interface Target {
+    connectionId: number;
+    uuid: string;
+    hostId: number;
+    snap: Snapshot;
+    server: ServerDto;
   }
 
   /** Everything an action needs, checked in order; the first refusal wins. */
@@ -568,14 +697,67 @@ export function createUpdates(
     rawUuid: unknown,
     rules: { permission: string; grant: Grant; host: HostLevel },
     precheck?: () => void,
-  ): Promise<{ uuid: string; hostId: number }> {
+  ): Promise<Target> {
     await allowed(rules.permission);
     const uuid = serverUuid(rawUuid);
-    await connectionAt(connectionId, rules.grant);
+    // Read once: every later step is checked against this target.
+    const snap = await connections.snapshot(connectionId);
+    grantAt(snap, rules.grant);
     precheck?.();
+    // The connection's own Coolify, with its own token: a uuid it doesn't
+    // have is a 404 from Coolify, whatever link row is left.
+    const server = await snap.api.server(uuid);
     const hostId = await linkedHost(connectionId, uuid);
     await hostAt(hostId, rules.host);
-    return { uuid, hostId };
+    const target = { connectionId, uuid, hostId, snap, server };
+    await holds(connectionId, snap);
+    return target;
+  }
+
+  /** One check of a server, kept while its revision and generation hold. */
+  async function runCheck(target: Target): Promise<CheckResult> {
+    const checkedAt = new Date().toISOString();
+    const generation = generationOf(target.connectionId);
+    let result: CheckResult;
+    if (await packageManagerRuns()) {
+      const outcome = await invoke(
+        target,
+        PM_LIST,
+        "Package Manager could not list updates",
+      );
+      result = {
+        via: "package-manager",
+        fresh: fromPackageManager(outcome.data, checkedAt),
+      };
+    } else {
+      const pkg = await platform(target);
+      const out = await exec(target, checkCommand(pkg), 180_000);
+      const fresh = parseCheck(pkg, out.stdout, checkedAt);
+      if (fresh.error) {
+        throw new UpdateError(
+          "check-failed",
+          "The package lists could not be read on the server",
+        );
+      }
+      result = { via: "ssh", fresh };
+    }
+    // Kept under the revision and generation it was read with, and only
+    // while both hold: an install or reboot meanwhile makes it stale.
+    await holds(target.connectionId, target.snap);
+    if (generationOf(target.connectionId) !== generation) return result;
+    const kept: KeptCheck = {
+      revision: target.snap.view.revision,
+      generation,
+      status: result.fresh,
+      via: result.via,
+    };
+    await cache.write(
+      target.connectionId,
+      kindOf(target.uuid),
+      kept,
+      Date.now(),
+    );
+    return result;
   }
 
   return {
@@ -583,11 +765,14 @@ export function createUpdates(
     async status(connectionId: number, rawUuid: unknown): Promise<UpdatesView> {
       await allowed("view");
       const uuid = serverUuid(rawUuid);
-      await connectionAt(connectionId, "view");
-      const api = await connections.api(connectionId);
-      const server = await api.server(uuid);
+      const snap = await connections.snapshot(connectionId);
+      const server = await snap.api.server(uuid);
       const hostId = await sync.linkedHostFor(connectionId, uuid);
-      const { fresh, via } = await readFresh(connectionId, uuid);
+      const { fresh, via } = await readFresh(
+        connectionId,
+        uuid,
+        snap.view.revision,
+      );
       return {
         server: { uuid, name: server.name },
         hostId,
@@ -599,47 +784,46 @@ export function createUpdates(
 
     /**
      * The plugin's own last check, from its cache: no Coolify call and never
-     * SSH, so the coolify.updates signal can read it for every host. Needs
-     * view access to the connection.
+     * SSH, so the coolify.updates signal can read it for every host. Kept
+     * rows count only under the connection's current revision and
+     * generation, as in status.
      */
     async lastCheck(
       connectionId: number,
       rawUuid: unknown,
     ): Promise<{ fresh: PatchStatus | null; via: UpdatesVia | null }> {
+      await allowed("view");
       const uuid = serverUuid(rawUuid);
-      await connectionAt(connectionId, "view");
-      return readFresh(connectionId, uuid);
+      const revision = await connections.revision(connectionId);
+      if (!revision) return { fresh: null, via: null };
+      return readFresh(connectionId, uuid, revision);
     },
 
-    /** Re-reads pending updates and keeps the result. */
+    /**
+     * Re-reads pending updates and keeps the result. Every caller is checked
+     * on its own; callers of one server under the same revision and
+     * generation share one run, so an older run can never finish last and
+     * overwrite a newer one.
+     */
     async check(connectionId: number, rawUuid: unknown): Promise<CheckResult> {
-      const { uuid, hostId } = await prepare(connectionId, rawUuid, {
+      const target = await prepare(connectionId, rawUuid, {
         permission: "operate",
         grant: "operate",
         host: "connect",
       });
-      const checkedAt = new Date().toISOString();
-      let result: CheckResult;
-      if (await packageManagerRuns()) {
-        const outcome = await invoke(
-          PM_LIST,
-          hostId,
-          "Package Manager could not list updates",
-        );
-        result = {
-          via: "package-manager",
-          fresh: fromPackageManager(outcome.data, checkedAt),
-        };
-      } else {
-        const pkg = await platform(hostId);
-        const out = await exec(hostId, checkCommand(pkg), 180_000);
-        result = { via: "ssh", fresh: parseCheck(pkg, out.stdout, checkedAt) };
-      }
-      await writeFresh(connectionId, uuid, {
-        status: result.fresh,
-        via: result.via,
+      const key = [
+        connectionId,
+        target.uuid,
+        target.snap.view.revision,
+        generationOf(connectionId),
+      ].join(":");
+      const pending = checks.get(key);
+      if (pending) return pending;
+      const started = runCheck(target).finally(() => {
+        if (checks.get(key) === started) checks.delete(key);
       });
-      return result;
+      checks.set(key, started);
+      return started;
     },
 
     /** Upgrades every package. Needs confirm === true. */
@@ -648,62 +832,66 @@ export function createUpdates(
       rawUuid: unknown,
       body: { confirm?: unknown },
     ): Promise<InstallResult> {
-      const { uuid, hostId } = await prepare(
+      const target = await prepare(
         connectionId,
         rawUuid,
         { permission: "operate", grant: "operate", host: "edit" },
         () => {
           if (body.confirm !== true) {
-            throw new ConnectionError(
+            throw new UpdateError(
               "confirm-required",
               "Installing updates needs confirm: true",
-              400,
             );
           }
         },
       );
       let result: InstallResult;
-      if (await packageManagerRuns()) {
-        const outcome = await invoke(
-          PM_UPGRADE,
-          hostId,
-          "Package Manager could not install updates",
-        );
-        const pending = outcomePending(outcome);
-        result = {
-          via: "package-manager",
-          summary: outcome.summary ?? "Upgraded all packages",
-          changed: !pending && outcome.changed !== false,
-          pending,
-          output: tail((outcome.data as { output?: unknown })?.output),
-        };
-      } else {
-        const pkg = await platform(hostId);
-        const out = await exec(hostId, installCommand(pkg), 600_000);
-        if (out.code !== 0 && sudoRefused(out.stderr)) {
-          throw new ConnectionError(
-            "needs-sudo",
-            "The SSH login is not root and sudo asks for a password. Use root or passwordless sudo, as Coolify does.",
-            409,
+      let asked = false;
+      try {
+        if (await packageManagerRuns()) {
+          asked = true;
+          const outcome = await invoke(
+            target,
+            PM_UPGRADE,
+            "Package Manager could not install updates",
           );
+          const pending = outcomePending(outcome);
+          result = {
+            via: "package-manager",
+            summary: outcome.summary ?? "Upgraded all packages",
+            changed: !pending && outcome.changed !== false,
+            pending,
+            output: tail((outcome.data as { output?: unknown })?.output),
+          };
+        } else {
+          const pkg = await platform(target);
+          asked = true;
+          const out = await exec(target, installCommand(pkg), 600_000);
+          if (out.code !== 0 && sudoRefused(out.stderr)) {
+            throw new UpdateError(
+              "needs-sudo",
+              "The SSH login is not root and sudo asks for a password. Use root or passwordless sudo, as Coolify does.",
+            );
+          }
+          if (out.code !== 0) {
+            throw new UpdateError(
+              "ssh-failed",
+              "The upgrade failed on the server",
+            );
+          }
+          result = {
+            via: "ssh",
+            summary: "Upgraded all packages",
+            changed: true,
+            pending: false,
+            output: tail(out.stdout),
+          };
         }
-        if (out.code !== 0) {
-          throw new ConnectionError(
-            "ssh-failed",
-            "The upgrade failed on the server",
-            502,
-          );
-        }
-        result = {
-          via: "ssh",
-          summary: "Upgraded all packages",
-          changed: true,
-          pending: false,
-          output: tail(out.stdout),
-        };
+      } finally {
+        // A refused or timed out upgrade may still have changed packages, and
+        // Docker updates restart every container.
+        if (asked) await invalidate(connectionId, target.uuid);
       }
-      // The kept check no longer matches the server.
-      if (result.changed) await writeFresh(connectionId, uuid, null);
       ctx.log.info(`coolify updates installed via ${result.via}`);
       return result;
     },
@@ -714,40 +902,40 @@ export function createUpdates(
       rawUuid: unknown,
       body: { confirmName?: unknown },
     ): Promise<RebootResult> {
-      const { uuid, hostId } = await prepare(connectionId, rawUuid, {
+      const target = await prepare(connectionId, rawUuid, {
         permission: "administer",
         grant: "configure",
         host: "edit",
       });
-      const api = await connections.api(connectionId);
-      const server = await api.server(uuid);
+      const { server, hostId, uuid } = target;
       if (
         typeof body.confirmName !== "string" ||
         !server.name ||
         body.confirmName !== server.name
       ) {
-        throw new ConnectionError(
+        throw new UpdateError(
           "name-mismatch",
           "Type the server's exact name to reboot it",
-          400,
         );
       }
-      const out = await exec(hostId, rebootCommand(), 30_000);
+      let out: PluginSshExecResult;
+      try {
+        out = await exec(target, rebootCommand(), 30_000);
+      } finally {
+        await invalidate(connectionId, uuid);
+      }
       if (out.code !== 0 && sudoRefused(out.stderr)) {
-        throw new ConnectionError(
+        throw new UpdateError(
           "needs-sudo",
           "The SSH login is not root and sudo asks for a password. Use root or passwordless sudo, as Coolify does.",
-          409,
         );
       }
       if (out.code !== 0) {
-        throw new ConnectionError(
+        throw new UpdateError(
           "ssh-failed",
           "The reboot was refused on the server",
-          502,
         );
       }
-      await writeFresh(connectionId, uuid, null);
       await ctx.audit.record({
         action: "coolify_server_reboot",
         resourceType: "host",

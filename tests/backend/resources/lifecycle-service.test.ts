@@ -1,10 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { createMockCtx } from "@termix-ssh/plugin-sdk/testing";
+import type { PluginManifest } from "@termix-ssh/plugin-sdk/manifest";
+import manifestJson from "../../../manifest.json";
 import { createCoolifyApi } from "../../../src/backend/coolify/api.js";
 import {
   CoolifyError,
   createCoolifyHttp,
 } from "../../../src/backend/coolify/http.js";
-import { lifecycle } from "../../../src/backend/resources/lifecycle.js";
+import type { Connections } from "../../../src/backend/connections/service.js";
+import type { ResourceDto } from "../../../src/backend/coolify/dto.js";
+import {
+  createLifecycle,
+  lifecycle,
+} from "../../../src/backend/resources/lifecycle.js";
+import type { Resources } from "../../../src/backend/resources/service.js";
 import { fakeCoolify, type FakeAnswer } from "../helpers/fake-coolify.js";
 import { resourceLists } from "../helpers/resources.js";
 
@@ -116,5 +125,90 @@ describe("lifecycle()", () => {
     expect(err).toBeInstanceOf(CoolifyError);
     expect(err.cause).toBe("forbidden-ability");
     expect(err.status).toBe(403);
+  });
+});
+
+describe("createLifecycle run", () => {
+  const web = {
+    uuid: "app-web-uuid",
+    name: "web",
+    kind: "application",
+    parentUuid: null,
+    serverUuid: "srv-vps1-uuid",
+  } as ResourceDto;
+
+  /** A lifecycle over a fake Coolify that records each resources.invalidate. */
+  function runner(routes: Record<string, FakeAnswer>) {
+    const { api, fake } = apiWith(routes);
+    const order: string[] = [];
+    fake.calls.push = new Proxy(fake.calls.push, {
+      apply(target, self, args) {
+        order.push(`coolify ${args[0].method} ${args[0].path}`);
+        return Reflect.apply(target, self, args);
+      },
+    });
+    const invalidate = vi.fn(async (id: number) => {
+      order.push(`invalidate ${id}`);
+    });
+    const { ctx } = createMockCtx({
+      pluginId: "coolify",
+      manifest: manifestJson as unknown as PluginManifest,
+      capabilities: (manifestJson as unknown as PluginManifest).capabilities,
+    });
+    const life = createLifecycle(ctx, {
+      connections: { api: async () => api } as unknown as Connections,
+      resources: { invalidate } as unknown as Resources,
+      sync: { linkOfHost: async () => null, linkedHostFor: async () => null },
+      sleep: async () => {},
+    });
+    return { life, invalidate, order };
+  }
+
+  it("drops the resource list after each action, also when Coolify refuses it", async () => {
+    const { life, invalidate, order } = runner({
+      "POST /applications/app-web-uuid/stop": {
+        json: { message: "Request queued." },
+      },
+      "POST /applications/app-web-uuid/restart": {
+        status: 403,
+        json: { message: "You are not allowed to do this." },
+      },
+    });
+    await life.run(1, web, "stop");
+    expect(order).toEqual([
+      "coolify POST /applications/app-web-uuid/stop",
+      "invalidate 1",
+    ]);
+    await expect(life.run(1, web, "restart")).rejects.toMatchObject({
+      cause: "forbidden-ability",
+    });
+    expect(order.slice(2)).toEqual([
+      "coolify POST /applications/app-web-uuid/restart",
+      "invalidate 1",
+    ]);
+    expect(invalidate).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops the resource list again when a waited deploy ends", async () => {
+    const { life, order } = runner({
+      "POST /deploy": {
+        json: {
+          deployments: [
+            { resource_uuid: "app-web-uuid", deployment_uuid: "dep-uuid" },
+          ],
+        },
+      },
+      "GET /deployments/dep-uuid": {
+        json: { deployment_uuid: "dep-uuid", status: "finished" },
+      },
+    });
+    const outcome = await life.run(1, web, "deploy", { wait: true });
+    expect(outcome).toEqual({ deploymentUuid: "dep-uuid", status: "finished" });
+    expect(order).toEqual([
+      "coolify POST /deploy",
+      "invalidate 1",
+      "coolify GET /deployments/dep-uuid",
+      "invalidate 1",
+    ]);
   });
 });

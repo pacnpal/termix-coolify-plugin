@@ -108,7 +108,7 @@ export function fakeSsh(
       }
       if (command.includes("apt list --upgradable")) {
         return result(
-          `__COOLIFY_LIST__\n${APT_LIST}\n__COOLIFY_REBOOT__\nREBOOT=yes\n`,
+          `__COOLIFY_REFRESH_STATUS__=0\n__COOLIFY_LIST__\n${APT_LIST}\n__COOLIFY_LIST_STATUS__=0\n__COOLIFY_REBOOT__\nREBOOT=yes\n`,
         );
       }
       if (command.includes("apt-get -y upgrade")) {
@@ -187,10 +187,22 @@ export async function startLinked(
   });
   const started = await startWithConnection({
     fake,
-    plugins: options.plugins,
     permissions: options.permissions,
   });
   const h = started.harness;
+  // Other plugins running besides this one, such as package-manager.
+  if (options.plugins?.length) {
+    const running = await h.mock.ctx.plugins.list();
+    vi.spyOn(h.mock.ctx.plugins, "list").mockResolvedValue([
+      ...running,
+      ...options.plugins.map((id) => ({
+        id,
+        version: "1.0.0",
+        source: "user" as const,
+        state: "active",
+      })),
+    ]);
+  }
   const synced = await h.request(
     "POST",
     `/connections/${started.connectionId}/sync`,

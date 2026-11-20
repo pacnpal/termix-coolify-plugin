@@ -1,5 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Boxes, LayoutDashboard, Plug, Rocket } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  Boxes,
+  Braces,
+  LayoutDashboard,
+  Plug,
+  Rocket,
+  Server,
+} from "lucide-react";
 import type { TabProps } from "@termix-ssh/plugin-sdk/frontend";
 import {
   usePermission,
@@ -9,33 +23,42 @@ import {
 import {
   EmptyState,
   LoadingState,
+  NoticePanel,
   PanelFrame,
+  PanelShell,
   SideNav,
   ToolbarSelect,
   type SideNavEntry,
 } from "@termix-ssh/plugin-sdk/ui";
-import { createApi, type Connection, type Resource } from "../api";
+import { createApi, type Api, type Connection, type Resource } from "../api";
 import type { ResourceHealth } from "../../shared/resource-health";
-import { ConnectionsView, type SyncTarget } from "./ConnectionsView";
+import { ApiConsoleView } from "./ApiConsoleView";
+import { ConnectionsView, syncable } from "./ConnectionsView";
 import { OverviewView } from "./OverviewView";
 import { ResourceDetail } from "./ResourceDetail";
 import { ResourcesView } from "./ResourcesView";
+import { SyncView } from "./SyncView";
 import type { HealthFilter } from "./resource-model";
 import { useResources } from "./useResources";
 
-/** The sections, in SideNav order. Servers (host sync) adds its own here. */
-export type Section = "overview" | "resources" | "connections";
+/**
+ * The sections, in SideNav order. Servers is host sync for one connection;
+ * the API console picks its own connection.
+ */
+export type Section =
+  "overview" | "resources" | "servers" | "connections" | "api";
 
-/** Access levels that may start, stop, restart and deploy. */
-const OPERATE_ACCESS: ReadonlySet<string> = new Set([
-  "owner",
-  "operate",
-  "configure",
-]);
+const SECTIONS: readonly string[] = [
+  "overview",
+  "resources",
+  "servers",
+  "connections",
+  "api",
+];
 
 /** What a pick in the Resources list does, when the palette asked. */
 interface PickIntent {
-  /** "shell": the picked resource opens in a coolify-shell tab. */
+  /** "shell": the next picked resource opens in a coolify-shell tab. */
   open: "shell" | null;
   /** The resource view to open on, like "logs"; unknown ones fall back. */
   detailTab: string | null;
@@ -44,90 +67,163 @@ interface PickIntent {
 const NO_INTENT: PickIntent = { open: null, detailTab: null };
 
 /** What the tab was opened for, from its data. */
-interface TabTarget extends PickIntent {
-  section: Section | null;
+interface OpenRequest extends PickIntent {
+  section: Section;
+  /** A connection id, or null for the first syncable one (the import menu). */
   connectionId: number | null;
-  syncTarget: SyncTarget;
 }
 
 /**
- * Reads the tab's data: `{ section: "sync", connectionId? }` opens the sync
- * preview of one connection, or of the only one there is ("any", from the
- * import menu); `{ section: "resources", connectionId? }` opens that
- * connection's Resources, where `open: "shell"` makes the next pick open a
- * shell and `tab` names the view the next picked resource opens on.
+ * Reads the tab's data. "sync" (from a Linked host, the import menu or the
+ * palette) opens the Servers section, where host sync lives. On Resources,
+ * `open: "shell"` makes the next pick open a shell and `tab` names the view
+ * the next picked resource opens on (the palette's Open shell and Logs).
  */
-function targetOf(props: TabProps): TabTarget {
-  const data = props.tab?.data ?? {};
-  const id = Number(data.connectionId);
-  const connectionId = Number.isSafeInteger(id) && id > 0 ? id : null;
-  if (data.section === "sync") {
-    return {
-      section: "connections",
-      connectionId,
-      syncTarget: connectionId ?? "any",
-      ...NO_INTENT,
-    };
-  }
-  if (data.section === "resources") {
-    return {
-      section: "resources",
-      connectionId,
-      syncTarget: null,
-      open: data.open === "shell" ? "shell" : null,
-      detailTab: typeof data.tab === "string" ? data.tab : null,
-    };
-  }
+function requestOf(
+  data: Record<string, unknown> | undefined,
+): OpenRequest | null {
+  const raw = data?.section === "sync" ? "servers" : data?.section;
+  if (typeof raw !== "string" || !SECTIONS.includes(raw)) return null;
+  const id = Number(data?.connectionId);
   return {
-    section: null,
-    connectionId: null,
-    syncTarget: null,
-    ...NO_INTENT,
+    section: raw as Section,
+    connectionId: Number.isSafeInteger(id) && id > 0 ? id : null,
+    open: raw === "resources" && data?.open === "shell" ? "shell" : null,
+    detailTab:
+      raw === "resources" && typeof data?.tab === "string" ? data.tab : null,
   };
 }
+
+/**
+ * The Servers section: host sync for the selected connection. Only the
+ * connection's owner can sync it, and a scoped token can't read servers.
+ */
+function ServersSection({
+  api,
+  connection,
+  canConfigure,
+  picker,
+}: {
+  api: Api;
+  connection: Connection;
+  canConfigure: boolean;
+  picker: ReactNode;
+}) {
+  const { t } = useTranslation();
+  if (canConfigure && syncable(connection)) {
+    // Keyed so a different connection starts with fresh choices.
+    return (
+      <SyncView
+        key={connection.id}
+        api={api}
+        connection={connection}
+        actions={picker}
+      />
+    );
+  }
+  let reason = t("sync.notOwner");
+  if (!canConfigure) reason = t("sync.needsConfigure");
+  else if (connection.scoped) reason = t("sync.scopedToken");
+  return (
+    <PanelShell
+      icon={<Server className="size-4" />}
+      title={t("nav.servers")}
+      actions={picker}
+    >
+      <NoticePanel title={reason} />
+    </PanelShell>
+  );
+}
+
+/** Access levels that may start, stop, restart and deploy. */
+export const OPERATE_ACCESS: ReadonlySet<string> = new Set([
+  "owner",
+  "operate",
+  "configure",
+]);
 
 /**
  * The Coolify tab: a SideNav of sections over one selected connection. With
  * no connection yet it opens on Connections. On a phone the SideNav becomes a
  * select above the section.
  */
-export function CoolifyTab(props: TabProps) {
+export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
   const { t } = useTranslation();
   const client = usePluginApi();
+  const canConfigure = usePermission("configure");
+  const canOperate = usePermission("operate");
   const api = useMemo(() => createApi(client), [client]);
-  const target = targetOf(props);
   const [connections, setConnections] = useState<Connection[] | null>(null);
-  const [section, setSection] = useState<Section | null>(target.section);
-  const [selectedId, setSelectedId] = useState<number | null>(
-    target.connectionId,
-  );
+  const [section, setSection] = useState<Section | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [health, setHealth] = useState<HealthFilter>("all");
   const [openUuid, setOpenUuid] = useState<string | null>(null);
-  const [intent, setIntent] = useState<PickIntent>({
-    open: target.open,
-    detailTab: target.detailTab,
-  });
-  const canOperate = usePermission("operate");
+  const [intent, setIntent] = useState<PickIntent>(NO_INTENT);
 
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  /** A failed reload keeps the list it had and says so; an empty answer is kept. */
   const loadConnections = useCallback(async () => {
-    let list: Connection[] = [];
     try {
       const answer = await api.listConnections();
-      list = Array.isArray(answer) ? answer : [];
+      const list = Array.isArray(answer) ? answer : [];
+      setConnections(list);
+      setLoadFailed(false);
+      setSection((prev) => prev ?? (list.length ? "overview" : "connections"));
     } catch {
-      // The Connections section shows the failure; other sections stay empty.
+      setLoadFailed(true);
+      setSection((prev) => prev ?? "connections");
     }
-    setConnections(list);
-    setSection((prev) => prev ?? (list.length ? "overview" : "connections"));
   }, [api]);
 
   useEffect(() => {
     void loadConnections();
   }, [loadConnections]);
 
+  // A Linked host or the import menu asks for a section and a connection.
+  // Each opening hands the tab a new data object, so the request is tracked
+  // by that object: the same action again, after the user moved on, applies
+  // again even with the same section and connection.
+  const data = tab?.data;
+  // A request naming no connection (the import menu) waits for the list.
+  const pickFirst = useRef(false);
+  useEffect(() => {
+    const asked = requestOf(data);
+    if (!asked) return;
+    setSection(asked.section);
+    setOpenUuid(null);
+    setIntent({ open: asked.open, detailTab: asked.detailTab });
+    if (asked.connectionId !== null) setSelectedId(asked.connectionId);
+    pickFirst.current =
+      asked.section === "servers" && asked.connectionId === null;
+  }, [data]);
+
+  // "Import from Coolify" names no connection: take the first syncable one,
+  // once per request, so a later pick in the header sticks.
+  useEffect(() => {
+    if (!pickFirst.current || !connections) return;
+    pickFirst.current = false;
+    const first = connections.find(syncable);
+    if (first) setSelectedId(first.id);
+  }, [data, connections]);
+
   const connection =
     connections?.find((c) => c.id === selectedId) ?? connections?.[0] ?? null;
-  const resources = useResources(api, connection?.id ?? null);
+  // Keyed by the revision too, so a changed address or token reloads.
+  const resources = useResources(
+    api,
+    connection?.id ?? null,
+    connection?.revision ?? null,
+  );
+
+  /** A saved connection replaces its row; a new target reloads resources. */
+  const saved = useCallback((next: Connection) => {
+    setConnections((prev) =>
+      prev?.some((c) => c.id === next.id)
+        ? prev.map((c) => (c.id === next.id ? next : c))
+        : [...(prev ?? []), next],
+    );
+  }, []);
 
   function select(next: string) {
     setSection(next as Section);
@@ -137,10 +233,26 @@ export function CoolifyTab(props: TabProps) {
     if (next !== "connections") void loadConnections();
   }
 
+  /** Sync servers on a connection's row opens Servers on that connection. */
+  const syncFrom = useCallback(
+    (c: Connection) => {
+      setSelectedId(c.id);
+      setOpenUuid(null);
+      setSection("servers");
+      void loadConnections();
+    },
+    [loadConnections],
+  );
+
+  // Host sync writes hosts, so only configure sees the Servers section.
   const entries: SideNavEntry[] = [
     { id: "overview", label: t("nav.overview"), icon: LayoutDashboard },
     { id: "resources", label: t("nav.resources"), icon: Boxes },
+    ...(canConfigure
+      ? [{ id: "servers", label: t("nav.servers"), icon: Server }]
+      : []),
     { id: "connections", label: t("nav.connections"), icon: Plug },
+    { id: "api", label: t("apiConsole.title"), icon: Braces },
   ];
 
   const picker =
@@ -160,10 +272,13 @@ export function CoolifyTab(props: TabProps) {
     ) : null;
 
   const rows = resources.list?.rows ?? [];
+  // The same rule as the detail view's Shell button.
+  const mayOperate =
+    canOperate && !!connection && OPERATE_ACCESS.has(connection.access);
 
   function openShell(resource: Resource, console: "shell" | "db") {
     if (!connection) return;
-    props.shell.openTab(null, "coolify-shell", {
+    shell.openTab(null, "coolify-shell", {
       label:
         console === "db"
           ? t("shellTab.consoleLabel", { name: resource.name })
@@ -176,7 +291,7 @@ export function CoolifyTab(props: TabProps) {
   /** A pick in the Resources list: a shell once when asked, else the detail. */
   function pick(uuid: string) {
     const resource = rows.find((r) => r.uuid === uuid);
-    if (intent.open === "shell" && canOperate && resource) {
+    if (intent.open === "shell" && mayOperate && resource) {
       setIntent({ ...intent, open: null });
       openShell(resource, "shell");
       return;
@@ -185,16 +300,36 @@ export function CoolifyTab(props: TabProps) {
   }
 
   let body;
-  if (section === "connections") {
-    body = <ConnectionsView syncTarget={target.syncTarget} />;
-  } else if (section === null || connections === null) {
+  if (section === null) {
     body = <LoadingState label={t("connections.loading")} />;
+  } else if (section === "connections") {
+    body = (
+      <ConnectionsView
+        onSaved={saved}
+        onSync={canConfigure ? syncFrom : undefined}
+      />
+    );
+  } else if (section === "api") {
+    body = <ApiConsoleView />;
   } else if (!connection) {
     body = (
       <EmptyState
         icon={Rocket}
         title={t("tab.noConnection.title")}
-        hint={t("tab.noConnection.hint")}
+        hint={
+          section === "servers"
+            ? t("sync.noConnections")
+            : t("tab.noConnection.hint")
+        }
+      />
+    );
+  } else if (section === "servers") {
+    body = (
+      <ServersSection
+        api={api}
+        connection={connection}
+        canConfigure={canConfigure}
+        picker={picker}
       />
     );
   } else if (section === "overview") {
@@ -231,7 +366,15 @@ export function CoolifyTab(props: TabProps) {
             label={t("nav.label")}
           />
         )}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">{body}</div>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {loadFailed && section !== "connections" && (
+            <NoticePanel
+              tone="destructive"
+              title={t("connections.loadFailed")}
+            />
+          )}
+          {body}
+        </div>
       </div>
       {openUuid !== null && section === "resources" && connection && (
         <ResourceDetail
@@ -243,8 +386,10 @@ export function CoolifyTab(props: TabProps) {
             setIntent(NO_INTENT);
           }}
           connectionId={connection.id}
+          revision={connection.revision ?? null}
           canOperate={canOperate && OPERATE_ACCESS.has(connection.access)}
           onChanged={() => void resources.reload(true)}
+          isVisible={isVisible}
           onShell={openShell}
           initialTab={intent.detailTab}
         />

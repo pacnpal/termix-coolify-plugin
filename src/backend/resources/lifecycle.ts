@@ -232,7 +232,10 @@ export function createLifecycle(ctx: PluginContext, deps: LifecycleDeps) {
      * Runs one action on an authorized resource. A deploy with `wait`
      * follows the deployment until it ends and emits deployment-finished or
      * deployment-failed (then throws DeploymentFailedError). The cached
-     * resource list is dropped so the next read shows the change.
+     * resource list, and any fetch still running for it, is dropped once
+     * Coolify was asked, even when it refused (a timeout may still have
+     * changed something), and again when a waited deploy ends, so the next
+     * read shows the change.
      */
     async run(
       connectionId: number,
@@ -247,15 +250,24 @@ export function createLifecycle(ctx: PluginContext, deps: LifecycleDeps) {
     ): Promise<LifecycleOutcome> {
       opts.signal?.throwIfAborted();
       const api = await connections.api(connectionId);
-      const result = await lifecycle(api, resource.uuid, verb, {
-        force: opts.force,
-        resource,
-      });
-      await resources.invalidate(connectionId);
+      let result: { deploymentUuid: string | null };
+      try {
+        result = await lifecycle(api, resource.uuid, verb, {
+          force: opts.force,
+          resource,
+        });
+      } finally {
+        await resources.invalidate(connectionId);
+      }
       if (verb !== "deploy" || !opts.wait || !result.deploymentUuid) {
         return result;
       }
-      const status = await waitFor(api, result.deploymentUuid, opts.signal);
+      let status: string;
+      try {
+        status = await waitFor(api, result.deploymentUuid, opts.signal);
+      } finally {
+        await resources.invalidate(connectionId);
+      }
       const failed = FAILED.has(status);
       if (failed || FINISHED.has(status)) {
         await ctx.operations.emit(

@@ -2,29 +2,53 @@ import type {
   PluginContext,
   PluginOperationHandler,
 } from "@termix-ssh/plugin-sdk/backend";
+import type { Companions } from "./companions/service.js";
+import type { ContainerCompanions } from "./companions/container-service.js";
+import type { Containers } from "./containers/service.js";
+import type { Exec } from "./containers/exec.js";
+import type { Logs } from "./containers/logs.js";
 import type { Connections } from "./connections/service.js";
 import type { Tables } from "./db.js";
 import type { Lifecycle } from "./resources/lifecycle.js";
+import type { Metrics } from "./metrics/service.js";
 import type { Resources } from "./resources/service.js";
-import type { Containers } from "./containers/service.js";
+import { registerCompanionOperations } from "./ops/companions.js";
+import type { StatusPages } from "./status/service.js";
 import { registerConnectionOperations } from "./ops/connections.js";
+import {
+  registerGenericApiOperations,
+  type GenericApi,
+} from "./ops/api-generic.js";
 import { registerContainerOperations } from "./ops/containers.js";
 import { registerLifecycleOperations } from "./ops/lifecycle.js";
+import { registerMetricsOperations } from "./ops/metrics.js";
 import { registerResourceOperations } from "./ops/resources.js";
-import { registerSignalOperations } from "./ops/signals.js";
+import {
+  registerSignalOperations,
+  type ServerStatuses,
+} from "./ops/signals.js";
 import { registerSyncOperations } from "./ops/sync.js";
 import { registerUpdateOperations } from "./ops/updates.js";
 import type { Sync } from "./sync/service.js";
 import type { Updates } from "./updates/service.js";
+import { registerStatusPageOperations } from "./ops/status-pages.js";
 
 export interface Services {
   tables: Tables;
   connections: Connections;
-  sync: Sync;
   resources: Resources;
+  sync: Sync;
   lifecycle: Lifecycle;
-  updates: Updates;
   containers: Containers;
+  logs: Logs;
+  exec: Exec;
+  servers: ServerStatuses;
+  updates: Updates;
+  companions: Companions;
+  containerCompanions: ContainerCompanions;
+  statusPages: StatusPages;
+  genericApi: GenericApi;
+  metrics: Metrics;
 }
 
 /**
@@ -74,10 +98,23 @@ export function registerOperations(
 ): void {
   const ctx = withAbortableHandlers(base);
   registerConnectionOperations(ctx, services.connections);
-  registerSyncOperations(ctx, services.sync);
   registerResourceOperations(ctx, services.resources);
+  registerSyncOperations(ctx, services.sync);
   registerLifecycleOperations(ctx, services);
   registerSignalOperations(ctx, services);
+  registerContainerOperations(
+    ctx,
+    services.containers,
+    services.logs,
+    services.exec,
+  );
   registerUpdateOperations(ctx, services.updates);
-  registerContainerOperations(ctx, services.containers);
+  registerCompanionOperations(
+    ctx,
+    services.companions,
+    services.containerCompanions,
+  );
+  registerStatusPageOperations(ctx, services.statusPages);
+  registerGenericApiOperations(ctx, services.genericApi);
+  registerMetricsOperations(ctx, services.metrics);
 }

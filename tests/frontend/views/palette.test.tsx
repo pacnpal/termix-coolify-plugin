@@ -1,18 +1,27 @@
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import type { TabProps } from "@termix-ssh/plugin-sdk/frontend";
 import {
   renderWithApp,
   type RenderedPluginApp,
 } from "@termix-ssh/plugin-sdk/testing";
 import type { PluginManifest } from "@termix-ssh/plugin-sdk/manifest";
 import * as plugin from "../../../src/frontend/index";
+import { CoolifyTab } from "../../../src/frontend/views/CoolifyTab";
 import {
   DETAIL_TABS,
   detailTabOf,
 } from "../../../src/frontend/views/ResourceDetail";
 import manifestJson from "../../../manifest.json";
 import locales from "../../../locales/en.json";
-import { stubApi } from "../fixtures";
+import { connection, stubApi } from "../fixtures";
 
 const manifest = manifestJson as unknown as PluginManifest;
 const OPERATE = ["coolify.view", "coolify.operate"];
@@ -26,11 +35,15 @@ afterEach(async () => {
 });
 
 /** The Coolify tab, opened with the data a palette entry gives it. */
-async function openWith(data: Record<string, unknown>, permissions = OPERATE) {
+async function openWith(
+  data: Record<string, unknown>,
+  permissions = OPERATE,
+  api = stubApi(),
+) {
   rendered = await renderWithApp(plugin, {
     manifest,
     locales,
-    api: stubApi(),
+    api,
     permissions,
   });
   const tab = rendered.renderTab("coolify", {
@@ -97,18 +110,95 @@ describe("command palette", () => {
     expect(r.shellCalls.some((c) => c.method === "openTab")).toBe(false);
   });
 
-  it("Logs of… opens the picked resource, on Overview while there is no Logs view", async () => {
-    const { tab } = await openWith({ section: "resources", tab: "logs" });
+  it("with only a view grant on the connection, Open shell in… opens the resource instead", async () => {
+    const api = stubApi({ connections: [{ ...connection, access: "view" }] });
+    const { r, tab } = await openWith(
+      { section: "resources", open: "shell" },
+      OPERATE,
+      api,
+    );
     pick(tab, "web");
+    await screen.findByText(locales.detail.fields.coolifyStatus);
+    expect(r.shellCalls.some((c) => c.method === "openTab")).toBe(false);
+  });
+
+  it("Logs of… opens the picked resource on its Logs view", async () => {
+    const api = stubApi();
+    const { tab } = await openWith(
+      { section: "resources", tab: "logs" },
+      OPERATE,
+      api,
+    );
+    pick(tab, "web");
+    await waitFor(() =>
+      expect(api.get).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /^\/connections\/1\/resources\/app-web-uuid\/logs/,
+        ),
+      ),
+    );
+  });
+
+  it("without coolify.operate, Logs of… opens the resource on Overview", async () => {
+    const api = stubApi();
+    const { tab } = await openWith(
+      { section: "resources", tab: "logs" },
+      ["coolify.view"],
+      api,
+    );
+    pick(tab, "web");
+    await screen.findByText(locales.detail.fields.coolifyStatus);
     expect(
-      await screen.findByText(locales.detail.fields.coolifyStatus),
-    ).toBeTruthy();
+      api.get.mock.calls.some(([url]) => String(url).includes("/logs")),
+    ).toBe(false);
+  });
+
+  it("a palette entry run while the tab is open applies to that tab", async () => {
+    // A test-only tab type that wraps the real tab, so its data can change.
+    const contributes = manifest.contributes ?? {};
+    const withProbe = {
+      ...manifest,
+      contributes: {
+        ...contributes,
+        tabs: [
+          ...(contributes.tabs ?? []),
+          { id: "coolify-reopen", titleKey: "tab.title", icon: "Rocket" },
+        ],
+      },
+    } as PluginManifest;
+    rendered = await renderWithApp(plugin, {
+      manifest: withProbe,
+      locales,
+      api: stubApi(),
+      permissions: OPERATE,
+    });
+    // Stands in for the shell: openSingletonTab hands the open tab new data.
+    let reopen: (data: Record<string, unknown>) => void = () => {};
+    function Shell(props: TabProps) {
+      const [data, setData] = useState<Record<string, unknown>>({
+        section: "overview",
+      });
+      reopen = setData;
+      return <CoolifyTab {...props} tab={{ ...props.tab, data }} />;
+    }
+    rendered.app.registerTab("coolify-reopen", Shell, {
+      titleKey: "tab.title",
+    });
+    const r = rendered;
+    const tab = r.renderTab("coolify-reopen", {
+      tab: { id: "t1", type: "coolify-reopen", label: "Coolify" },
+    });
+    await within(tab).findAllByText(locales.nav.overview);
+
+    act(() => reopen({ section: "resources", open: "shell" }));
+    await within(tab).findByText("web");
+    pick(tab, "web");
+    expect(r.shellCalls.filter((c) => c.method === "openTab")).toHaveLength(1);
   });
 });
 
 describe("ResourceDetail's requested tab", () => {
   it("falls back to its default tab when it doesn't know a requested tab", () => {
-    expect(detailTabOf("logs")).toBe("overview");
     expect(detailTabOf("no-such-tab")).toBe("overview");
     expect(detailTabOf(undefined)).toBe("overview");
     expect(detailTabOf(42)).toBe("overview");

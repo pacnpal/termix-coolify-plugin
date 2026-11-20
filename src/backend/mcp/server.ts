@@ -3,12 +3,16 @@ import type {
   PluginOperationInvokeOptions,
   PluginOperationOutcome,
 } from "@termix-ssh/plugin-sdk/backend";
-import type {
-  OperationAction,
-  OperationField,
+import {
+  redactFields,
+  type OperationAction,
+  type OperationField,
 } from "@termix-ssh/plugin-sdk/operations";
 import en from "../../../locales/en.json";
 import { redact } from "../redact.js";
+import { handoffIdOf, takeOnceUrl } from "../status/service.js";
+import { takeExecOutput, takeLogText } from "../ops/containers.js";
+import { takeWebUiUrl } from "../ops/container-companions.js";
 
 /** The MCP protocol version this endpoint speaks when a client asks for another. */
 export const MCP_PROTOCOL_VERSION = "2025-06-18";
@@ -31,6 +35,37 @@ export const MCP_CHANGES_EXEMPT: readonly string[] = [
   "coolify.resource-deploy",
   "coolify.resource-restart",
 ];
+
+/**
+ * Actions MCP refuses without `confirmed: true`, before core is asked:
+ * coolify.exec runs any command in a container; coolify.enable-metrics
+ * changes a server's Sentinel settings.
+ */
+export const MCP_CONFIRM_REQUIRED: readonly string[] = [
+  "coolify.exec",
+  "coolify.enable-metrics",
+];
+
+/**
+ * Kinds of an action that MCP refuses without `confirmed: true`, like
+ * MCP_CONFIRM_REQUIRED: tunnel-open reaches a container port from the Termix
+ * server, web-ui hands out a signed-in link to a container.
+ */
+export const MCP_CONFIRM_REQUIRED_KINDS: Readonly<
+  Record<string, readonly string[]>
+> = {
+  "coolify.companion": ["tunnel-open", "web-ui"],
+};
+
+/** Whether MCP needs `confirmed: true` for this action and its kind. */
+export function mcpConfirmRequired(
+  actionId: string,
+  args: Record<string, unknown>,
+): boolean {
+  if (MCP_CONFIRM_REQUIRED.includes(actionId)) return true;
+  const kinds = MCP_CONFIRM_REQUIRED_KINDS[actionId];
+  return !!kinds && typeof args.kind === "string" && kinds.includes(args.kind);
+}
 
 export interface JsonRpcMessage {
   jsonrpc: "2.0";
@@ -158,6 +193,16 @@ function inputSchema(action: OperationAction): Record<string, unknown> {
     properties.confirmed = {
       type: "boolean",
       description: "Set true to confirm this destructive action.",
+    };
+  } else if (MCP_CONFIRM_REQUIRED.includes(action.id)) {
+    properties.confirmed = {
+      type: "boolean",
+      description: "Required: set true to confirm this action.",
+    };
+  } else if (MCP_CONFIRM_REQUIRED_KINDS[action.id]) {
+    properties.confirmed = {
+      type: "boolean",
+      description: `Required for the kinds ${MCP_CONFIRM_REQUIRED_KINDS[action.id]!.join(", ")}: set true to confirm.`,
     };
   }
   return {
@@ -315,8 +360,8 @@ export const EXTRA_TOOLS: McpExtraTool[] = [
     },
   },
   {
-    // Resources are not built yet: this answers an empty list and says so,
-    // without calling Coolify.
+    // Runs coolify.list-resources-all, so its permission, history and
+    // stripped DTOs apply.
     name: "list_resources",
     description:
       "List the applications, services and databases of a Coolify connection.",
@@ -328,19 +373,131 @@ export const EXTRA_TOOLS: McpExtraTool[] = [
           description: `One of your Coolify connections. Values come from ${toolName("coolify.list-connections")}.`,
         },
       },
+      required: ["connectionId"],
       additionalProperties: false,
     },
     annotations: annotationsFor("read", "List Coolify resources"),
-    async call() {
-      return toolResult({
-        runId: null,
-        status: "success",
-        summary: "Listing resources is not available yet",
-        data: { rows: [] },
-      });
+    async call(ctx, args) {
+      return toolResult(
+        await ctx.operations.run("coolify.list-resources-all", {
+          input: { connectionId: args.connectionId },
+          dryRun: false,
+          via: "mcp",
+        }),
+      );
+    },
+  },
+  {
+    name: "take_status_page_url",
+    description:
+      "Take, once, the URL of a status page you published or gave a new link with an action whose answer had a handoffId (after an approval, or through Termix's operations API). Only you can take it, only once, and only within 5 minutes; it is never stored.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        handoffId: {
+          type: "string",
+          description:
+            "The handoffId from coolify.status-page-create or coolify.status-page-rotate (the run id).",
+        },
+      },
+      required: ["handoffId"],
+      additionalProperties: false,
+    },
+    annotations: {
+      title: "Take a status page URL",
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    },
+    async call(ctx, args) {
+      const handoffId = handoffIdOf(args.handoffId);
+      const userId = ctx.currentActor() ?? "";
+      const allowed = userId ? await ctx.rbac.has("configure") : false;
+      const url = handoffId && allowed ? takeOnceUrl(userId, handoffId) : null;
+      if (!url) {
+        return textResult(
+          {
+            status: "not-found",
+            error:
+              "Nothing to hand over: the URL was taken already, expired after 5 minutes, or belongs to another run or user. Give the page a new link to get one.",
+            errorCode: "not-found",
+          },
+          true,
+        );
+      }
+      return {
+        content: [{ type: "text", text: shownOnce(url) }],
+        isError: false,
+      };
     },
   },
 ];
+
+/** The text that carries a status page URL in one MCP answer, never stored. */
+function shownOnce(url: string): string {
+  return `Status page URL (shown once, not stored): ${url}`;
+}
+
+/** Actions whose run hands a status page URL over once (Task 18's handoff). */
+const URL_HANDOFF_ACTIONS = new Set([
+  "coolify.status-page-create",
+  "coolify.status-page-rotate",
+]);
+
+/**
+ * An action's result: sensitive outputs replaced, as core does before a run
+ * is stored or shown, and for a status page create or rotate that finished
+ * here, its URL added once as a second item.
+ */
+function actionResult(
+  ctx: PluginContext,
+  action: OperationAction,
+  outcome: PluginOperationOutcome,
+): McpToolResult {
+  let data = redactFields(action.outputs, outcome.data);
+  if (action.id === "coolify.logs-tail" && data && typeof data === "object") {
+    // The text was redacted by redactLog and dropped from run history; the
+    // caller who ran it gets it here, once.
+    const text = takeLogText(
+      ctx.currentActor() ?? "",
+      (outcome.data as { handoffId?: unknown }).handoffId,
+    );
+    if (text !== null) data = { ...(data as object), text };
+  }
+  if (action.id === "coolify.exec" && data && typeof data === "object") {
+    // stdout and stderr were redacted and dropped from run history; the
+    // caller who ran it gets them here, once.
+    const output = takeExecOutput(
+      ctx.currentActor() ?? "",
+      (outcome.data as { handoffId?: unknown }).handoffId,
+    );
+    if (output !== null) data = { ...(data as object), ...output };
+  }
+  if (action.id === "coolify.companion" && data && typeof data === "object") {
+    // A web-ui run's one-time URL was dropped from run history; the caller
+    // who ran it gets it here, once.
+    const url = takeWebUiUrl(
+      ctx.currentActor() ?? "",
+      (outcome.data as { handoffId?: unknown }).handoffId,
+    );
+    if (url !== null) data = { ...(data as object), url };
+  }
+  const result = toolResult(
+    outcome.data === undefined ? outcome : { ...outcome, data },
+  );
+  if (result.isError || !URL_HANDOFF_ACTIONS.has(action.id)) return result;
+  const handoffId = handoffIdOf(
+    (outcome.data as { handoffId?: unknown } | undefined)?.handoffId,
+  );
+  const url = handoffId
+    ? takeOnceUrl(ctx.currentActor() ?? "", handoffId)
+    : null;
+  if (!url) return result;
+  return {
+    ...result,
+    content: [...result.content, { type: "text", text: shownOnce(url) }],
+  };
+}
 
 const RESERVED = new Set(["hostId", "resourceKey", "dryRun", "confirmed"]);
 
@@ -357,6 +514,16 @@ async function callAction(
         error:
           'Changes over MCP are turned off. An admin can turn on "Allow changes over MCP" in the Coolify plugin settings.',
         errorCode: "mcp-changes-off",
+      },
+      true,
+    );
+  }
+  if (mcpConfirmRequired(action.id, args) && args.confirmed !== true) {
+    return textResult(
+      {
+        status: "refused",
+        error: "This action needs confirmed: true.",
+        errorCode: "confirm-required",
       },
       true,
     );
@@ -382,7 +549,11 @@ async function callAction(
   }
   options.via = "mcp";
   try {
-    return toolResult(await ctx.operations.run(action.id, options));
+    return actionResult(
+      ctx,
+      action,
+      await ctx.operations.run(action.id, options),
+    );
   } catch (err) {
     return errorResult(err);
   }

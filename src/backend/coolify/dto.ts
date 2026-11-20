@@ -12,7 +12,8 @@ export interface PatchItem {
 }
 
 export interface PatchStatus {
-  updates: number;
+  /** Null when unknown: the check failed (`error`), so nothing is counted. */
+  updates: number | null;
   security: number | null;
   rebootRequired: boolean | null;
   checkedAt: string | null;
@@ -64,7 +65,8 @@ export interface ResourceDto {
 
 export interface DeploymentDto {
   uuid: string;
-  resourceUuid: string;
+  /** The application's uuid, or null when the answer doesn't name it. */
+  resourceUuid: string | null;
   status: string;
   commit: string | null;
   createdAt: string;
@@ -182,6 +184,18 @@ export function toPatch(
   // An explicit null means Coolify can't tell (pacman, apk), so the per-item
   // false flags don't make it zero. Only a result without the field counts.
   const securityKnown = raw !== null && "security_updates" in raw;
+  // A check that failed counts nothing, whatever result is left from before:
+  // unknown, never zero updates.
+  if (errorText) {
+    return {
+      updates: null,
+      security: null,
+      rebootRequired: null,
+      checkedAt: strOrNull(checkedAt),
+      error: errorText,
+      items: [],
+    };
+  }
   return {
     updates: num(raw?.total_updates) ?? items.length,
     security: securityKnown
@@ -193,6 +207,29 @@ export function toPatch(
     checkedAt: strOrNull(checkedAt),
     error: errorText,
     items,
+  };
+}
+
+export type TrafficIpMode = "full" | "anonymized" | "off";
+
+/** A server's Sentinel settings without the token, push URL or GeoIP key. */
+export interface SentinelSettingsDto {
+  sentinelEnabled: boolean;
+  metricsEnabled: boolean;
+  historyDays: number | null;
+  /** How Sentinel keeps client IPs; null when unknown (treated as hidden). */
+  trafficIpMode: TrafficIpMode | null;
+}
+
+export function toSentinelSettings(input: unknown): SentinelSettingsDto {
+  const raw = obj(input);
+  const mode = raw.traffic_ip_mode;
+  return {
+    sentinelEnabled: bool(raw.is_sentinel_enabled),
+    metricsEnabled: bool(raw.is_metrics_enabled),
+    historyDays: num(raw.sentinel_metrics_history_days),
+    trafficIpMode:
+      mode === "full" || mode === "anonymized" || mode === "off" ? mode : null,
   };
 }
 
@@ -259,25 +296,48 @@ function placeOf(raw: Raw): {
   };
 }
 
+/** Fields a stripper sets from outside the raw object, or reads differently. */
+type ResourceExtra = Partial<
+  Pick<
+    ResourceDto,
+    | "serverUuid"
+    | "serverName"
+    | "projectName"
+    | "environmentName"
+    | "fqdns"
+    | "parentUuid"
+    | "engine"
+    | "lastDeployAt"
+  >
+>;
+
+/** Picks each field by name; nothing from `raw` or `extra` is spread. */
 function resource(
   raw: Raw,
   kind: ResourceKind,
-  extra: Partial<ResourceDto> = {},
+  extra: ResourceExtra = {},
 ): ResourceDto {
+  const place = placeOf(raw);
   return {
     uuid: str(raw.uuid),
     id: num(raw.id),
     name: str(raw.name),
     kind,
     status: str(raw.status, "unknown"),
-    serverUuid: serverUuidOf(raw),
-    serverName: serverNameOf(raw),
-    ...placeOf(raw),
-    fqdns: [],
-    parentUuid: null,
-    engine: null,
-    lastDeployAt: null,
-    ...extra,
+    serverUuid:
+      extra.serverUuid !== undefined ? extra.serverUuid : serverUuidOf(raw),
+    serverName:
+      extra.serverName !== undefined ? extra.serverName : serverNameOf(raw),
+    projectName:
+      extra.projectName !== undefined ? extra.projectName : place.projectName,
+    environmentName:
+      extra.environmentName !== undefined
+        ? extra.environmentName
+        : place.environmentName,
+    fqdns: extra.fqdns ?? [],
+    parentUuid: extra.parentUuid ?? null,
+    engine: extra.engine ?? null,
+    lastDeployAt: extra.lastDeployAt ?? null,
   };
 }
 
@@ -300,26 +360,30 @@ export function toDatabase(input: unknown): ResourceDto {
 export function toService(input: unknown): ResourceDto[] {
   const raw = obj(input);
   const service = resource(raw, "service");
-  const inherit = {
+  const inherit = (more: ResourceExtra): ResourceExtra => ({
     parentUuid: service.uuid,
     serverUuid: service.serverUuid,
     serverName: service.serverName,
     projectName: service.projectName,
     environmentName: service.environmentName,
-  };
+    fqdns: more.fqdns,
+    engine: more.engine,
+  });
   const apps = list(raw.applications).map((part) => {
     const p = obj(part);
-    return resource(p, "service-application", {
-      ...inherit,
-      fqdns: fqdns(p.fqdn),
-    });
+    return resource(
+      p,
+      "service-application",
+      inherit({ fqdns: fqdns(p.fqdn) }),
+    );
   });
   const dbs = list(raw.databases).map((part) => {
     const p = obj(part);
-    return resource(p, "service-database", {
-      ...inherit,
-      engine: strOrNull(p.image),
-    });
+    return resource(
+      p,
+      "service-database",
+      inherit({ engine: strOrNull(p.image) }),
+    );
   });
   return [service, ...apps, ...dbs];
 }
@@ -336,11 +400,15 @@ export function toPart(
     : resource(raw, kind, { parentUuid, engine: strOrNull(raw.image) });
 }
 
-export function toDeployment(input: unknown): DeploymentDto {
+/**
+ * One deployment. `appUuid` is the application it was listed for, when known;
+ * `application_id` is a database id, never a uuid, so it is not used.
+ */
+export function toDeployment(input: unknown, appUuid?: string): DeploymentDto {
   const raw = obj(input);
   return {
     uuid: str(raw.deployment_uuid ?? raw.uuid),
-    resourceUuid: str(raw.application_uuid ?? raw.application_id),
+    resourceUuid: strOrNull(raw.application_uuid) ?? appUuid ?? null,
     status: str(raw.status, "unknown"),
     commit: strOrNull(raw.commit),
     createdAt: str(raw.created_at),
@@ -373,4 +441,43 @@ export function toKey(input: unknown): KeyDto {
     fingerprint: strOrNull(raw.fingerprint),
     privateKeyReadable: typeof material === "string" && material.trim() !== "",
   };
+}
+
+/**
+ * A resource's storage as Coolify's storages list gives it: a Docker volume
+ * (persistent storage) or a file or folder mounted from the server. Never a
+ * file storage's content.
+ */
+export interface StorageDto {
+  kind: "volume" | "file";
+  /** The Docker volume's name, for a volume. */
+  name: string | null;
+  /** Where it is mounted inside the container. */
+  mountPath: string | null;
+  /** Where it is on the server, when Coolify says (a bind mount or a file). */
+  hostPath: string | null;
+}
+
+/** `{ persistent_storages, file_storages }` as StorageDtos. */
+export function toStorages(input: unknown): StorageDto[] {
+  const raw = obj(input);
+  const volumes = list(raw.persistent_storages).map((entry): StorageDto => {
+    const item = obj(entry);
+    return {
+      kind: "volume",
+      name: strOrNull(item.name),
+      mountPath: strOrNull(item.mount_path),
+      hostPath: strOrNull(item.host_path),
+    };
+  });
+  const files = list(raw.file_storages).map((entry): StorageDto => {
+    const item = obj(entry);
+    return {
+      kind: "file",
+      name: null,
+      mountPath: strOrNull(item.mount_path),
+      hostPath: strOrNull(item.fs_path),
+    };
+  });
+  return [...volumes, ...files];
 }

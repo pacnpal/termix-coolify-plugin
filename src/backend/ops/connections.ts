@@ -25,7 +25,7 @@ export function connectionIdInput(input: Record<string, unknown>): number {
       ? raw
       : typeof raw === "string" && /^\d{1,15}$/.test(raw)
         ? Number(raw)
-        : NaN;
+        : Number.NaN;
   if (!Number.isSafeInteger(id) || id <= 0) {
     throw new ConnectionError("not-found", "Coolify connection not found");
   }
@@ -96,6 +96,20 @@ export function registerConnectionOperations(
       );
       return {
         summary: `Updated ${updated.name}`,
+        changed: true,
+        data: updated,
+      };
+    },
+  });
+
+  ctx.operations.register("coolify.connection-set-exec", {
+    run: async (input) => {
+      const updated = await connections.setExec(
+        connectionIdInput(input),
+        input.execEnabled as boolean,
+      );
+      return {
+        summary: `${updated.execEnabled ? "Allowed" : "Stopped"} running commands in ${updated.name}'s containers`,
         changed: true,
         data: updated,
       };

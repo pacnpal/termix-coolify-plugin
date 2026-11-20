@@ -1,5 +1,6 @@
 import { OPERATIONS } from "./generated/operations.js";
 import { CoolifyError, type CoolifyHttp } from "./http.js";
+import { fillPath, pathRules } from "./path.js";
 import {
   toApplication,
   toDatabase,
@@ -7,15 +8,19 @@ import {
   toKey,
   toPart,
   toProject,
+  toSentinelSettings,
   toServer,
   toService,
+  toStorages,
   toTeam,
   type DeploymentDto,
   type KeyDto,
   type ProjectDto,
   type ResourceDto,
   type ResourceKind,
+  type SentinelSettingsDto,
   type ServerDto,
+  type StorageDto,
   type TeamDto,
 } from "./dto.js";
 
@@ -48,13 +53,12 @@ function op(
 ): { method: string; path: string } {
   const found = BY_ID.get(id);
   if (!found) throw new Error(`Unknown Coolify operation ${id}`);
-  const path = found.path.replace(/\{(\w+)\}/g, (_, key: string) => {
-    const value = params[key];
-    if (value === undefined || value === "") {
-      throw new CoolifyError("validation", 0, `Missing ${key}`);
-    }
-    return encodeURIComponent(value);
-  });
+  const path = fillPath(
+    found.path,
+    params,
+    pathRules(id),
+    (message) => new CoolifyError("validation", 0, message),
+  );
   return { method: found.method, path };
 }
 
@@ -111,7 +115,13 @@ function logsOp(kind: ResourceKind, uuid: string, parentUuid?: string) {
     case "database":
       return op("get-database-logs-by-uuid", { uuid });
     case "service":
-      return op("get-service-logs-by-uuid", { uuid });
+      // Coolify needs a sub_service_name here and answers 400 without one;
+      // the per-Part endpoints below take the Part's uuid instead.
+      throw new CoolifyError(
+        "validation",
+        0,
+        "A service's logs are read through one of its parts",
+      );
     case "service-application":
       return op("get-service-application-logs-by-service-and-app-uuid", {
         uuid: parentUuid,
@@ -254,14 +264,39 @@ export function createCoolifyApi(http: CoolifyHttp) {
       }
     },
 
-    /** Container logs through Coolify. Needs read:sensitive on the token. */
+    /** An application's, service's or database's storages, without content. */
+    async storages(
+      kind: "application" | "service" | "database",
+      uuid: string,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<StorageDto[]> {
+      return toStorages(
+        await call(op(`list-storages-by-${kind}-uuid`, { uuid }), {
+          beforeFetch: opts.beforeFetch,
+        }),
+      );
+    },
+
+    /**
+     * Container logs through Coolify. Needs read:sensitive on the token.
+     * Coolify's Part log endpoints have no timestamps flag and ignore it.
+     */
     async logs(
       kind: ResourceKind,
       uuid: string,
-      opts: { lines: number; parentUuid?: string },
+      opts: {
+        lines: number;
+        parentUuid?: string;
+        timestamps?: boolean;
+        beforeFetch?: () => Promise<void>;
+      },
     ): Promise<string> {
       const body = await call<unknown>(logsOp(kind, uuid, opts.parentUuid), {
-        query: { lines: opts.lines },
+        query: {
+          lines: opts.lines,
+          show_timestamps: opts.timestamps ? true : undefined,
+        },
+        beforeFetch: opts.beforeFetch,
       });
       if (typeof body === "string") return body;
       const logs = (body as { logs?: unknown } | null)?.logs;
@@ -299,7 +334,7 @@ export function createCoolifyApi(http: CoolifyHttp) {
         op("list-deployments-by-app-uuid", { uuid: appUuid }),
         { query: { skip: opts.skip, take: opts.take } },
       );
-      return rows(body, "deployments").map(toDeployment);
+      return rows(body, "deployments").map((d) => toDeployment(d, appUuid));
     },
 
     async deployment(uuid: string): Promise<DeploymentDto> {
@@ -313,13 +348,21 @@ export function createCoolifyApi(http: CoolifyHttp) {
       await call(op("update-server-sentinel", { uuid: serverUuid }), { body });
     },
 
+    /** Sentinel settings, stripped of the token, push URL and GeoIP key. */
+    async sentinelSettings(serverUuid: string): Promise<SentinelSettingsDto> {
+      return toSentinelSettings(
+        await call(op("get-server-sentinel", { uuid: serverUuid })),
+      );
+    },
+
     /**
-     * True when the token may read instance settings, which only root can.
-     * The settings themselves are dropped unread.
+     * Resolves when the token may read instance settings. Coolify allows that
+     * to any token of a root-team admin or owner, whatever its abilities, so
+     * it says nothing about `root` or `read:sensitive`. The settings
+     * themselves are dropped unread.
      */
-    async rootCheck(): Promise<true> {
+    async instanceSettingsCheck(): Promise<void> {
       await call(op("get-instance-email-settings"));
-      return true;
     },
   };
 }

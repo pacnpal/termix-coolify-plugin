@@ -3,6 +3,12 @@ import { describe, expect, it } from "vitest";
 import { manifest } from "./helpers/plugin.js";
 import { EXTRA_TOOLS, toolName } from "../../src/backend/mcp/server.js";
 
+/**
+ * Actions with no plugin route: they run only through Termix's operations
+ * (and MCP), so core's confirm, approvals and history always apply.
+ */
+const NO_ROUTE = new Set(["coolify.exec"]);
+
 const doc = readFileSync(new URL("../../docs/api.md", import.meta.url), "utf8");
 
 /** Rows of the operations table, by operation id, as their cells. */
@@ -32,9 +38,13 @@ describe("docs/api.md", () => {
     const table = rows();
     for (const action of manifest.contributes!.operations!.actions!) {
       const [, route, runPath, scope, tool, curl] = table.get(action.id)!;
-      expect(route, action.id).toMatch(
-        /`(GET|POST|PATCH|PUT|DELETE) \/plugin-api\/coolify\/[^`]*`/,
-      );
+      if (NO_ROUTE.has(action.id)) {
+        expect(route, action.id).toBe("none");
+      } else {
+        expect(route, action.id).toMatch(
+          /`(GET|POST|PATCH|PUT|DELETE) \/plugin-api\/coolify\/[^`]*`/,
+        );
+      }
       expect(runPath, action.id).toBe(`\`/operations/${action.id}/run\``);
       expect(scope, action.id).toContain(
         action.risk === "read" ? "`operations:read`" : "`operations:run`",
