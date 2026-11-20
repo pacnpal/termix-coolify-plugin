@@ -777,6 +777,8 @@
       "unsupported-os": "This server has no apt, dnf, yum or pacman.",
       "ssh-failed": "SSH to the host failed.",
       "companion-failed": "The Package Manager plugin could not do this.",
+      "host-key": "Open a server terminal once to trust this host's key.",
+      "target-changed": "The connection's address, token or Cloudflare Access settings changed, so nothing ran. Try again.",
       "forbidden": "You don't have permission to do this.",
       "failed": "That didn't work."
     }

@@ -33,7 +33,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
   const resources = createResources(ctx, { tables, connections });
   const lifecycle = createLifecycle(ctx, { connections, resources, sync });
   const containers = createContainers(ctx, { connections, lifecycle, sync });
-  const updates = createUpdates(ctx, { tables, connections, sync });
+  const updates = createUpdates(ctx, { tables, connections, resources, sync });
   const router = ctx.http.router<Router>();
   registerConnectionRoutes(router, ctx, connections);
   registerResourceRoutes(router, ctx, resources);

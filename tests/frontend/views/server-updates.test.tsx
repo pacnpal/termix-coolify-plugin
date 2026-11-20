@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -266,6 +267,25 @@ describe("server updates in the host section", () => {
         { confirmName: "web-1" },
       ),
     );
+  });
+
+  it("says why a check stopped: a changed connection or an untrusted host key", async () => {
+    const errors = U.errors as Record<string, string>;
+    for (const cause of ["target-changed", "host-key"]) {
+      const api = stubApi();
+      api.post.mockRejectedValueOnce({
+        response: { status: 409, data: { error: "x", cause } },
+      });
+      const card = await renderSection(api);
+      fireEvent.click(
+        await within(card).findByRole("button", { name: U.check }),
+      );
+      expect(errors[cause], cause).toBeTruthy();
+      await waitFor(() => expect(card.textContent).toContain(errors[cause]));
+      await rendered?.deactivate();
+      rendered = null;
+      cleanup();
+    }
   });
 
   it("hides install without operate and reboot without administer", async () => {

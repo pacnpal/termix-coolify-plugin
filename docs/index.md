@@ -300,7 +300,11 @@ Who may do what:
 - **Reboot** needs **Administer Coolify** and edit access to the Linked host.
 
 Check, install and reboot need a Linked host; a server without one answers `409` with cause `not-linked`
-(sync it first). When the plugin can't tell whether you may open the host, it refuses.
+(sync it first). When the plugin can't tell whether you may open the host, it refuses. A server the
+connection's Coolify no longer has answers `404`. If the connection's address, token or Cloudflare Access
+settings change while an action runs, it stops before the next command with `409` and cause
+`target-changed`, and a check kept from before the change is no longer shown. Installing and rebooting
+refresh the resource list and the status tiles.
 
 They are also actions: `coolify.server-updates` (offered to the assistant and MCP),
 `coolify.server-updates-check`, `coolify.server-updates-install` (input `confirm` must be on) and

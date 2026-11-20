@@ -34,6 +34,8 @@ const KNOWN_ERRORS = new Set([
   "unsupported-os",
   "ssh-failed",
   "companion-failed",
+  "host-key",
+  "target-changed",
   "forbidden",
 ]);
 
