@@ -10,6 +10,70 @@ import {
   redactLog,
 } from "../../../src/backend/containers/logs.js";
 
+/** A deterministic secret of `n` characters from `alphabet`, no 6-gram repeating much. */
+function secretOf(
+  n: number,
+  alphabet = "abcdefghijklmnopqrstuvwxyz0123456789",
+) {
+  let seed = 12345;
+  let out = "";
+  for (let i = 0; i < n; i += 1) {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    out += alphabet[seed % alphabet.length];
+  }
+  return out;
+}
+
+/** Streams `text` through a follow's splitter in 4 KiB chunks. */
+function streamed(text: string): string[] {
+  const sent: string[] = [];
+  const split = lineSplitter([], (lines) => sent.push(...lines));
+  for (let i = 0; i < text.length; i += 4096) {
+    split.data(Buffer.from(text.slice(i, i + 4096)));
+  }
+  split.end();
+  return sent;
+}
+
+/** Any 6-character slice of `secret` in any piece. */
+function leakedSlice(pieces: string[], secret: string): string | null {
+  const grams = new Set<string>();
+  for (let i = 0; i + 6 <= secret.length; i += 1)
+    grams.add(secret.slice(i, i + 6));
+  for (const piece of pieces) {
+    for (let i = 0; i + 6 <= piece.length; i += 1) {
+      const gram = piece.slice(i, i + 6);
+      if (grams.has(gram)) return gram;
+    }
+  }
+  return null;
+}
+
+describe("long-line cuts with an open secret", () => {
+  it("Codex's repro: a URL password longer than the window", () => {
+    const sent = streamed("postgres://app:" + "x".repeat(20000) + "@db/app");
+    expect(sent.join("")).not.toContain("xxxxxx");
+    expect(sent.join("")).toContain("[redacted]");
+  });
+
+  const filler = (n: number) =>
+    "lorem ipsum ".repeat(Math.ceil(n / 12)).slice(0, n);
+  const secret = secretOf(6000);
+  for (const [name, line] of [
+    ["a quoted password value", `{"password": "${secret}"} `],
+    ["a token= value", `token=${secret} `],
+    ["an Authorization: Basic credential", `Authorization: Basic ${secret} `],
+    ["a URL with a password", `postgres://app:${secret}@db/app `],
+  ] as const) {
+    it(`masks ${name} longer than 4 KiB across the cut`, () => {
+      const sent = streamed(filler(14000) + line + filler(30000));
+      expect(leakedSlice(sent, secret), name).toBeNull();
+      for (const piece of sent)
+        expect(piece.length).toBeLessThanOrEqual(MAX_LINE);
+    });
+  }
+});
+
 describe("redactLog", () => {
   const masked = (text: string) => redactLog(text, []);
 

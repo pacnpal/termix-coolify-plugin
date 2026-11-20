@@ -292,6 +292,92 @@ function pieces(text: string): string[] {
  * checked, so each try costs the same however long the line is. Tries
  * `from`, then earlier whitespace. 0 when none works.
  */
+/** A secret field's head, without its value. */
+const SECRET_HEAD = new RegExp(String.raw`${NAME}\s{0,8}[:=][ \t]{0,8}`, "gi");
+/** A YAML secret line's head: its value is the rest of the line. */
+const YAML_HEAD = new RegExp(
+  String.raw`^[ \t]*(?:-[ \t]+)?["']?[\w.-]{0,64}${NAME}[ \t]{0,8}:`,
+  "im",
+);
+/** An auth credential's head, either kind. */
+const AUTH_HEAD =
+  /\b(?:(?:proxy-)?authorization["']?\s{0,8}[:=]\s{0,8}["']?(?:(?:bearer|basic|token|digest)\s+)?|(?:bearer|basic|token)\s+)/gi;
+/** Where an unquoted secret value ends. */
+const VALUE_END = /[\s&]/g;
+/** Where an auth credential ends. */
+const CREDENTIAL_END = /[^A-Za-z0-9._~+/=|-]/g;
+/** Where a URL's userinfo ends: its `@`, or what can't be in it. */
+const USERINFO_END = /[\s/?#@]/;
+
+/** The index of `text[from]`'s closing quote, honouring backslashes, or -1. */
+function closingQuote(text: string, from: number): number {
+  const quote = text[from];
+  for (let i = from + 1; i < text.length; i += 1) {
+    if (text[i] === "\\") i += 1;
+    else if (text[i] === quote) return i;
+  }
+  return -1;
+}
+
+/**
+ * Where a secret that is still open at the end of `text` starts, or -1:
+ * a URL's `scheme://` whose userinfo hasn't ended, a quoted secret value
+ * without its closing quote, an unquoted secret value or a YAML secret line
+ * running to the end, or an Authorization credential running to the end.
+ * `text` starts where nothing was open (a line's start or an earlier clean
+ * cut), and every scan moves forward, so this is linear in `text`.
+ * Conservative: anything that might still be a secret counts as open.
+ */
+export function openSecretStart(text: string): number {
+  let open = -1;
+  const note = (at: number) => {
+    if (open < 0 || at < open) open = at;
+  };
+  const url = text.lastIndexOf("://");
+  if (url >= 0 && !USERINFO_END.test(text.slice(url + 3))) {
+    let start = url;
+    while (
+      start > 0 &&
+      url - start < 64 &&
+      /[a-z0-9+.-]/i.test(text[start - 1])
+    ) {
+      start -= 1;
+    }
+    note(start);
+  }
+  const yaml = YAML_HEAD.exec(text);
+  if (yaml) note(yaml.index);
+  SECRET_HEAD.lastIndex = 0;
+  for (let m = SECRET_HEAD.exec(text); m; m = SECRET_HEAD.exec(text)) {
+    const value = m.index + m[0].length;
+    const quote = text[value];
+    if (quote === '"' || quote === "'") {
+      const close = closingQuote(text, value);
+      if (close < 0) {
+        note(m.index);
+        break;
+      }
+      SECRET_HEAD.lastIndex = close + 1;
+      continue;
+    }
+    VALUE_END.lastIndex = value;
+    const end = VALUE_END.exec(text);
+    if (!end) {
+      note(m.index);
+      break;
+    }
+    SECRET_HEAD.lastIndex = Math.max(end.index, value);
+  }
+  AUTH_HEAD.lastIndex = 0;
+  let last: RegExpExecArray | null = null;
+  for (let m = AUTH_HEAD.exec(text); m; m = AUTH_HEAD.exec(text)) last = m;
+  if (last) {
+    CREDENTIAL_END.lastIndex = last.index + last[0].length;
+    if (!CREDENTIAL_END.exec(text)) note(last.index);
+  }
+  return open;
+}
+
 function safeCut(text: string, secrets: readonly string[], from: number) {
   let p = from;
   for (let tries = 0; tries < CUT_TRIES && p > 0; tries += 1) {
@@ -347,6 +433,20 @@ export function lineSplitter(
           break;
         }
         const prefix = carry.slice(0, cut);
+        const openAt = openSecretStart(prefix);
+        if (openAt >= 0) {
+          // A secret is open at the cut: mask from its start (from the word
+          // before it, so nothing bounded straddles) to the end of the line.
+          const space = prefix.lastIndexOf(" ", openAt - 1);
+          const clean =
+            space >= 0 && openAt - space < CUT_WINDOW ? space + 1 : 0;
+          if (clean > 0)
+            out.push(...pieces(redactLog(prefix.slice(0, clean), secrets)));
+          out.push(REDACTED_VALUE);
+          carry = "";
+          skipping = true;
+          break;
+        }
         const sent = redactLog(prefix, secrets);
         out.push(...pieces(sent));
         if (sent.endsWith(REDACTED_VALUE) && !prefix.endsWith(REDACTED_VALUE)) {
