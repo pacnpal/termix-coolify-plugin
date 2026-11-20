@@ -44,7 +44,7 @@ const ROUTES: Record<string, FakeAnswer> = {
     status: 201,
     json: { uuid: "env-1", key: "API_SECRET", value: ENV_VALUE },
   },
-  "GET /servers": { json: [{ uuid: "srv-1", name: "one" }] },
+  "GET /projects": { json: [{ uuid: "proj-1", name: "one" }] },
   "GET /projects/proj-uuid/production": { json: { name: "production" } },
   "GET /applications/app-web-uuid/secret-manager": { json: {} },
   "GET /applications/app-web-uuid/previews/42": { json: { id: 42 } },
@@ -57,6 +57,17 @@ const ROUTES: Record<string, FakeAnswer> = {
     },
   },
   "GET /servers/import/check": { json: { missing: [] } },
+  "GET /servers/srv-1/proxy": {
+    json: {
+      type: "TRAEFIK",
+      configuration: `services:\n  traefik:\n    environment:\n      - CF_DNS_API_TOKEN=${DB_PASSWORD}`,
+    },
+  },
+  "PUT /servers/srv-1/proxy/configuration": {
+    json: {
+      configuration: `services:\n  traefik:\n    environment:\n      - CF_DNS_API_TOKEN=${DB_PASSWORD}`,
+    },
+  },
 };
 
 let harness: PluginHarness | null = null;
@@ -332,7 +343,7 @@ describe("generic Coolify API operations", () => {
       method: "tools/call",
       params: {
         name: "coolify__api_call",
-        arguments: { connectionId: "1", operationId: "list-servers" },
+        arguments: { connectionId: "1", operationId: "list-projects" },
       },
     });
     expect(seen[0]).toMatchObject({ id: "coolify.api-call" });
@@ -461,8 +472,8 @@ describe("generic Coolify API operations", () => {
       apiRead("get-application-logs-by-uuid", { uuid: "app-web-uuid" }),
     ).rejects.toMatchObject({ code: "forbidden" });
     expect(fake.calls).toEqual([]);
-    const read = await apiRead("list-servers");
-    expect(read.data).toMatchObject({ operationId: "list-servers" });
+    const read = await apiRead("list-projects");
+    expect(read.data).toMatchObject({ operationId: "list-projects" });
   });
 
   it("transfer status carries the migration log, so it needs operate; starting a transfer is administer", async () => {
@@ -655,14 +666,14 @@ describe("generic Coolify API operations", () => {
 
   it("api-read records method, operation, path and the redacted request", async () => {
     await start();
-    const read = await apiRead("list-servers");
-    expect(read.summary).toContain("list-servers");
-    expect(read.summary).toContain("GET /servers");
+    const read = await apiRead("list-projects");
+    expect(read.summary).toContain("list-projects");
+    expect(read.summary).toContain("GET /projects");
     expect(read.data).toMatchObject({
       method: "GET",
-      operationId: "list-servers",
-      path: "/servers",
-      data: [{ uuid: "srv-1" }],
+      operationId: "list-projects",
+      path: "/projects",
+      data: [{ uuid: "proj-1" }],
     });
   });
 
@@ -739,16 +750,16 @@ describe("generic Coolify API operations", () => {
 
   it("refuses unknown parameters and missing path parameters before calling Coolify", async () => {
     const { runs, fake, connectionId } = await start();
-    await expect(apiRead("get-server-by-uuid")).rejects.toMatchObject({
+    await expect(apiRead("get-project-by-uuid")).rejects.toMatchObject({
       code: "invalid-input",
     });
-    await expect(apiRead("list-servers", { nope: 1 })).rejects.toMatchObject({
+    await expect(apiRead("list-projects", { nope: 1 })).rejects.toMatchObject({
       code: "invalid-input",
     });
     await expect(
       runs.run("coolify.api-read", {
         connectionId,
-        operationId: "list-servers",
+        operationId: "list-projects",
         params: "{not json",
       }),
     ).rejects.toMatchObject({ code: "invalid-input" });
@@ -758,7 +769,7 @@ describe("generic Coolify API operations", () => {
   it("another user's connection reads as missing", async () => {
     const { harness: h, fake, connectionId } = await start();
     h.mock.setActor(OTHER);
-    await expect(apiRead("list-servers")).rejects.toMatchObject({
+    await expect(apiRead("list-projects")).rejects.toMatchObject({
       code: "not-found",
     });
     expect(
@@ -772,7 +783,8 @@ describe("generic Coolify API operations", () => {
 describe("generic API answers and requests", () => {
   it("a database GET answers its connection URLs with the password masked", async () => {
     await start();
-    const read = await apiRead("get-database-by-uuid", { uuid: "db-1" });
+    // Its answer carries validation_logs, so it runs only through api-call.
+    const read = await apiCall("get-database-by-uuid", { uuid: "db-1" });
     expect(JSON.stringify(read.data)).not.toContain(DB_PASSWORD);
     expect(read.data).toMatchObject({
       data: {
@@ -783,6 +795,22 @@ describe("generic API answers and requests", () => {
         postgres_password: "[redacted]",
       },
     });
+  });
+
+  it("a proxy's raw Compose configuration is masked, in the answer and in the recorded request", async () => {
+    await start();
+    const compose = `services:\n  traefik:\n    environment:\n      - CF_DNS_API_TOKEN=${DB_PASSWORD}`;
+    const read = await apiRead("get-server-proxy", { uuid: "srv-1" });
+    expect(JSON.stringify(read.data)).not.toContain(DB_PASSWORD);
+    expect(read.data).toMatchObject({
+      data: { type: "TRAEFIK", configuration: "[redacted]" },
+    });
+    const saved = await apiCall(
+      "save-server-proxy-configuration",
+      { uuid: "srv-1" },
+      { configuration: compose },
+    );
+    expect(JSON.stringify(saved.data)).not.toContain(DB_PASSWORD);
   });
 
   it("version and healthcheck answer text/html and still succeed", async () => {
@@ -883,7 +911,7 @@ describe("generic API over MCP", () => {
       method: "tools/call",
       params: {
         name: "coolify__api_read",
-        arguments: { connectionId, operationId: "list-servers" },
+        arguments: { connectionId, operationId: "list-projects" },
       },
     });
     const readResult = read?.result as {
@@ -891,7 +919,7 @@ describe("generic API over MCP", () => {
       content: { text: string }[];
     };
     expect(readResult.isError).toBe(false);
-    expect(readResult.content[0].text).toContain("srv-1");
+    expect(readResult.content[0].text).toContain("proj-1");
     const tools = (await handleMcp(h.mock.ctx, {
       jsonrpc: "2.0",
       id: 3,

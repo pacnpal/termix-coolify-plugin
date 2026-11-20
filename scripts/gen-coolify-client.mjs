@@ -183,6 +183,19 @@ function typeOf(spec, schema) {
   return "string";
 }
 
+function nullable(spec, schema) {
+  const resolved = resolve(spec, schema);
+  return (
+    resolved.nullable === true ||
+    (Array.isArray(resolved.type) && resolved.type.includes("null"))
+  );
+}
+
+/** `{ nullable: true }` when the spec allows null, so a form can send it. */
+function nullableOf(spec, schema) {
+  return nullable(spec, schema) ? { nullable: true } : {};
+}
+
 function withDescription(out, text) {
   const description = short(text);
   return description ? { ...out, description } : out;
@@ -201,6 +214,7 @@ function schemaOf({ spec, operation }) {
           in: param.in,
           required: param.in === "path" || param.required === true,
           type: typeOf(spec, param.schema ?? {}),
+          ...nullableOf(spec, param.schema ?? {}),
           ...(typeOf(spec, param.schema ?? {}) === "array"
             ? { items: typeOf(spec, resolve(spec, param.schema).items ?? {}) }
             : {}),
@@ -219,7 +233,12 @@ function schemaOf({ spec, operation }) {
     const required = new Set(schema.required ?? []);
     body = Object.entries(schema.properties ?? {}).map(([name, prop]) =>
       withDescription(
-        { name, type: typeOf(spec, prop), required: required.has(name) },
+        {
+          name,
+          type: typeOf(spec, prop),
+          ...nullableOf(spec, prop),
+          required: required.has(name),
+        },
         resolve(spec, prop).description,
       ),
     );
@@ -268,6 +287,78 @@ function collectSecrets(spec, node, seen = new Set()) {
 for (const spec of specs.values()) collectSecrets(spec, spec);
 const secretFields = [...secretFieldSet].sort();
 
+// String fields any vendored spec describes as raw config, Compose, a script,
+// a Dockerfile, labels or env text: they can carry any credential, so answers
+// mask them whole and only the audited reveal shows one.
+const RAW_DESCRIPTION =
+  /\byaml\b|\.ya?ml file|dockerfile content|\bscript\b|nginx configuration|custom labels|env(ironment)? (file|text)|\.env\b/i;
+const rawFieldSet = new Set();
+function collectRaw(node, seen = new Set()) {
+  if (!node || typeof node !== "object" || seen.has(node)) return;
+  seen.add(node);
+  for (const [name, prop] of Object.entries(node.properties ?? {})) {
+    const types = [].concat(prop?.type ?? []);
+    if (
+      types.includes("string") &&
+      RAW_DESCRIPTION.test(prop?.description ?? "")
+    ) {
+      rawFieldSet.add(name);
+    }
+  }
+  for (const value of Object.values(node)) collectRaw(value, seen);
+}
+for (const spec of specs.values()) collectRaw(spec);
+const rawFields = [...rawFieldSet].sort();
+
+// Operations whose success answer, in any vendored spec, carries logs or
+// command output: a property named logs, log, output, *_logs or *_output that
+// isn't a flag or a count, or one described as output. They need a confirm.
+const LOG_NAME = /^(logs?|output)$|_(logs|output)$/i;
+function carriesLogs(spec, node, seen = new Set()) {
+  const resolved = resolve(spec, node);
+  if (!resolved || typeof resolved !== "object" || seen.has(resolved)) {
+    return false;
+  }
+  seen.add(resolved);
+  for (const [name, raw] of Object.entries(resolved.properties ?? {})) {
+    const prop = resolve(spec, raw);
+    const types = [].concat(prop.type ?? []);
+    const scalarFlag =
+      types.length > 0 &&
+      types.every((t) => t === "boolean" || t === "integer" || t === "null");
+    if (!scalarFlag && LOG_NAME.test(name)) return true;
+    if (
+      types.includes("string") &&
+      /\boutput\b/i.test(prop.description ?? "")
+    ) {
+      return true;
+    }
+    if (carriesLogs(spec, raw, seen)) return true;
+  }
+  const nested = [
+    resolved.items,
+    ...(resolved.allOf ?? []),
+    ...(resolved.oneOf ?? []),
+    ...(resolved.anyOf ?? []),
+  ];
+  return nested.some((n) => n && carriesLogs(spec, n, seen));
+}
+function answersLogs(spec, raw) {
+  return Object.entries(raw.responses ?? {})
+    .filter(([code]) => /^2/.test(code))
+    .flatMap(([, response]) =>
+      Object.values(resolve(spec, response).content ?? {}),
+    )
+    .some((content) => content.schema && carriesLogs(spec, content.schema));
+}
+const logAnswerSet = new Set();
+for (const { file } of SOURCES) {
+  for (const { id, operation } of readOperations(file).values()) {
+    if (answersLogs(specs.get(file), operation)) logAnswerSet.add(id);
+  }
+}
+const logAnswers = [...logAnswerSet].sort();
+
 // The data goes in a JSON file, so the TypeScript stays a few lines of types.
 const schemasTs = `${header}
 import data from "./schemas.json";
@@ -278,6 +369,8 @@ export interface OperationParam {
   required: boolean;
   /** The JSON type, like "string" or "integer"; "a|b" when it can be either. */
   type: string;
+  /** The spec allows null (sent as JSON null, apart from leaving it out). */
+  nullable?: boolean;
   /** For an array: its items' JSON type. Sent as one name=value per item. */
   items?: string;
   /** The only values the spec allows, when it lists them. */
@@ -288,6 +381,8 @@ export interface OperationParam {
 export interface OperationBodyField {
   name: string;
   type: string;
+  /** The spec allows null (sent as JSON null, apart from leaving it out). */
+  nullable?: boolean;
   required: boolean;
   description?: string;
 }
@@ -306,6 +401,8 @@ interface Packed {
   operations: Record<string, [string, number[], number[] | null]>;
   textAnswers: string[];
   secretFields: string[];
+  rawFields: string[];
+  logAnswers: string[];
 }
 
 // JSON imports type tuples as arrays, so the shape is asserted here; the
@@ -330,6 +427,12 @@ export const TEXT_ANSWERS: ReadonlySet<string> = new Set(packed.textAnswers);
 
 /** Field names a vendored spec describes as a password or secret. */
 export const SECRET_FIELDS: ReadonlySet<string> = new Set(packed.secretFields);
+
+/** Fields a vendored spec describes as raw config, Compose, a script or env text. */
+export const RAW_FIELDS: ReadonlySet<string> = new Set(packed.rawFields);
+
+/** Operations whose answer carries logs or command output, by response schema. */
+export const LOG_ANSWERS: ReadonlySet<string> = new Set(packed.logAnswers);
 `;
 
 async function write(name, text) {
@@ -378,6 +481,8 @@ const packed = {
   ),
   textAnswers,
   secretFields,
+  rawFields,
+  logAnswers,
 };
 await write("schemas.json", JSON.stringify(packed));
 await write("schemas.ts", schemasTs);

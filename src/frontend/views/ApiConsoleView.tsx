@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Braces, Eye, EyeOff } from "lucide-react";
 import {
   usePermission,
@@ -20,6 +20,7 @@ import {
   PanelSearch,
   PanelShell,
   RefreshButton,
+  SwitchRow,
   TextField,
   ToolbarSelect,
   useConfirm,
@@ -120,8 +121,14 @@ function MaskedValues({
     null,
   );
   const [error, setError] = useState<string | null>(null);
+  // Every reveal and hide starts a new generation; only the current
+  // reveal's answer is shown, so a late one never shows a secret.
+  const generation = useRef(0);
 
-  useEffect(() => setShown(null), [answer]);
+  useEffect(() => {
+    generation.current++;
+    setShown(null);
+  }, [answer]);
 
   if (!answer.masked.length) return null;
   return (
@@ -151,6 +158,7 @@ function MaskedValues({
                 size="sm"
                 variant="outline"
                 onClick={() => {
+                  const mine = ++generation.current;
                   if (open) {
                     setShown(null);
                     return;
@@ -158,8 +166,14 @@ function MaskedValues({
                   setError(null);
                   setShown(null);
                   onReveal(pointer)
-                    .then((value) => setShown({ key, value }))
-                    .catch(() => setError(t("apiConsole.revealFailed")));
+                    .then((value) => {
+                      if (generation.current === mine) setShown({ key, value });
+                    })
+                    .catch(() => {
+                      if (generation.current === mine) {
+                        setError(t("apiConsole.revealFailed"));
+                      }
+                    });
                 }}
               >
                 {open ? (
@@ -193,6 +207,8 @@ function OperationRunner({
   const confirm = useConfirm();
   const held = useHeld();
   const [values, setValues] = useState<Record<string, string>>({});
+  // Nullable fields set to send JSON null (apart from leaving them out).
+  const [nulls, setNulls] = useState<Record<string, boolean>>({});
   const [typed, setTyped] = useState("");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -221,23 +237,17 @@ function OperationRunner({
   function build(): { params: Record<string, unknown>; body?: unknown } {
     const params: Record<string, unknown> = {};
     for (const param of op.params) {
-      const value = convert(
-        values[`p:${param.name}`] ?? "",
-        param.type,
-        param.name,
-        t,
-      );
+      const value = nulls[`p:${param.name}`]
+        ? null
+        : convert(values[`p:${param.name}`] ?? "", param.type, param.name, t);
       if (value !== undefined) params[param.name] = value;
     }
     if (!op.body) return { params };
     const body: Record<string, unknown> = {};
     for (const field of op.body) {
-      const value = convert(
-        values[`b:${field.name}`] ?? "",
-        field.type,
-        field.name,
-        t,
-      );
+      const value = nulls[`b:${field.name}`]
+        ? null
+        : convert(values[`b:${field.name}`] ?? "", field.type, field.name, t);
       if (value !== undefined) body[field.name] = value;
     }
     return Object.keys(body).length ? { params, body } : { params };
@@ -341,15 +351,26 @@ function OperationRunner({
           </p>
         ) : (
           fields.map((field) => (
-            <TextField
-              key={field.key}
-              label={`${field.name} (${field.where}, ${field.type}${field.required ? `, ${t("apiConsole.required")}` : ""})`}
-              placeholder={field.name}
-              hint={field.description}
-              value={values[field.key] ?? ""}
-              onChange={(value) => set(field.key, value)}
-              mono
-            />
+            <div key={field.key} className="flex flex-col gap-1">
+              <TextField
+                label={`${field.name} (${field.where}, ${field.type}${field.required ? `, ${t("apiConsole.required")}` : ""})`}
+                placeholder={field.name}
+                hint={field.description}
+                value={values[field.key] ?? ""}
+                onChange={(value) => set(field.key, value)}
+                disabled={nulls[field.key] === true}
+                mono
+              />
+              {field.nullable && (
+                <SwitchRow
+                  label={t("apiConsole.sendNull", { field: field.name })}
+                  checked={nulls[field.key] === true}
+                  onChange={(on) =>
+                    setNulls((prev) => ({ ...prev, [field.key]: on }))
+                  }
+                />
+              )}
+            </div>
           ))
         )}
         {isDelete && allowed && (
@@ -409,37 +430,52 @@ export function ApiConsoleView() {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState<ApiOperation | null>(null);
 
-  useEffect(() => {
-    let live = true;
-    api
-      .listConnections()
-      .then((list) => {
-        if (!live) return;
-        const rows = Array.isArray(list) ? list : [];
-        setConnections(rows);
-        setConnectionId((current) => current ?? rows[0]?.id ?? null);
-      })
-      .catch(() => {
-        if (!live) return;
-        setConnections([]);
-        setError(t("apiConsole.loadFailed"));
-      });
-    return () => {
-      live = false;
-    };
+  // Only the newest load of each list may change state: an answer for a
+  // connection the user switched away from, or an older refresh, is dropped.
+  const connectionsRequest = useRef(0);
+  const opsRequest = useRef(0);
+
+  const loadConnections = useCallback(async () => {
+    const mine = ++connectionsRequest.current;
+    setLoading(true);
+    try {
+      const list = await api.listConnections();
+      if (connectionsRequest.current !== mine) return;
+      const rows = Array.isArray(list) ? list : [];
+      setConnections(rows);
+      setError(null);
+      setConnectionId((current) => current ?? rows[0]?.id ?? null);
+    } catch {
+      if (connectionsRequest.current !== mine) return;
+      setConnections([]);
+      setError(t("apiConsole.loadFailed"));
+    } finally {
+      if (connectionsRequest.current === mine) setLoading(false);
+    }
   }, [api, t]);
+
+  useEffect(() => {
+    void loadConnections();
+    return () => {
+      connectionsRequest.current++;
+    };
+  }, [loadConnections]);
 
   const loadOps = useCallback(async () => {
     if (connectionId === null) return;
+    const mine = ++opsRequest.current;
     setLoading(true);
     try {
-      setOps(await api.listApiOperations(connectionId));
+      const list = await api.listApiOperations(connectionId);
+      if (opsRequest.current !== mine) return;
+      setOps(list);
       setError(null);
     } catch (err) {
+      if (opsRequest.current !== mine) return;
       setOps([]);
       setError(describe(t, err));
     } finally {
-      setLoading(false);
+      if (opsRequest.current === mine) setLoading(false);
     }
   }, [api, connectionId, t]);
 
@@ -447,6 +483,9 @@ export function ApiConsoleView() {
     setOps(null);
     setOpen(null);
     void loadOps();
+    return () => {
+      opsRequest.current++;
+    };
   }, [loadOps]);
 
   const connection = connections?.find((c) => c.id === connectionId) ?? null;
@@ -465,7 +504,10 @@ export function ApiConsoleView() {
       title={t("apiConsole.title")}
       actions={
         <RefreshButton
-          onClick={() => void loadOps()}
+          onClick={() =>
+            // Without a connection (the list failed), load the list again.
+            void (connectionId === null ? loadConnections() : loadOps())
+          }
           loading={loading}
           label={t("connections.refresh")}
         />

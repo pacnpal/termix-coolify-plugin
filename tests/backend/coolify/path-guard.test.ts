@@ -71,6 +71,45 @@ describe("secret scrub", () => {
   });
 });
 
+describe("beforeFetch", () => {
+  it("runs after the request budget's wait, right before each fetch", async () => {
+    const order: string[] = [];
+    const fake = recording({});
+    const fetch = async (url: string) => {
+      order.push("fetch");
+      return fake.fetch(url);
+    };
+    let clock = 0;
+    const http = createCoolifyHttp(fetch, target, {
+      perMinute: 1,
+      now: () => clock,
+      sleep: async (ms) => {
+        order.push("wait");
+        clock += ms;
+      },
+    });
+    const beforeFetch = async () => {
+      order.push("check");
+    };
+    await http.request("GET", "/servers", { beforeFetch });
+    await http.request("GET", "/servers", { beforeFetch });
+    expect(order).toEqual(["check", "fetch", "wait", "check", "fetch"]);
+  });
+
+  it("a failing guard sends nothing", async () => {
+    const fake = recording({});
+    const http = createCoolifyHttp(fake.fetch, target, noSleep);
+    await expect(
+      http.request("POST", "/deploy", {
+        beforeFetch: async () => {
+          throw new Error("target changed");
+        },
+      }),
+    ).rejects.toThrow("target changed");
+    expect(fake.calls).toEqual([]);
+  });
+});
+
 describe("path normalisation guard", () => {
   it.each([
     "/projects/../deployments",

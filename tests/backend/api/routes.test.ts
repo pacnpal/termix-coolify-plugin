@@ -12,7 +12,7 @@ const ROUTES: Record<string, FakeAnswer> = {
       { uuid: "env-1", key: "API_SECRET", value: ENV_VALUE, is_preview: false },
     ],
   },
-  "GET /servers": { json: [{ uuid: "srv-1", name: "one" }] },
+  "GET /projects": { json: [{ uuid: "proj-1", name: "one" }] },
   "POST /deploy": { json: { deployments: [] } },
   "DELETE /applications/app-web-uuid": { json: { message: "deleted" } },
 };
@@ -86,7 +86,7 @@ describe("API console routes", () => {
       expect(
         (
           await h.request("POST", `/connections/${id}/api/call`, {
-            operationId: "list-servers",
+            operationId: "list-projects",
           })
         ).status,
       ).toBe(403);
@@ -109,7 +109,7 @@ describe("API console routes", () => {
         await h.request(
           "POST",
           `/connections/${id}/api/call`,
-          { operationId: "list-servers" },
+          { operationId: "list-projects" },
           OTHER,
         )
       ).status,
@@ -119,7 +119,7 @@ describe("API console routes", () => {
   it("a plain GET runs without confirm", async () => {
     const { h, id, fake } = await start();
     const answer = await h.request("POST", `/connections/${id}/api/call`, {
-      operationId: "list-servers",
+      operationId: "list-projects",
     });
     expect(answer.status).toBe(200);
     expect(fake.calls).toHaveLength(1);

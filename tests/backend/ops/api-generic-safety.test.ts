@@ -6,6 +6,10 @@ import type {
 } from "../../../src/backend/connections/service.js";
 import { OPERATIONS } from "../../../src/backend/coolify/generated/operations.js";
 import {
+  LOG_ANSWERS,
+  OPERATION_SCHEMAS,
+} from "../../../src/backend/coolify/generated/schemas.js";
+import {
   createGenericApi,
   isSensitive,
   type GenericApiDeps,
@@ -42,17 +46,42 @@ function view(over: Partial<ConnectionView> = {}): ConnectionView {
 }
 
 /** A generic API over stub services; `answer` is what Coolify sends back. */
-function setup(opts: { revisionNow?: string; answer?: unknown } = {}) {
-  const request = vi.fn(async () => opts.answer ?? { ok: true });
+function setup(
+  opts: {
+    revisionNow?: string;
+    /** Revisions answered in turn; the last one repeats. */
+    revisions?: string[];
+    answer?: unknown;
+    abilities?: Partial<ConnectionView["abilities"]>;
+  } = {},
+) {
+  const fetched = vi.fn();
+  // Like the request layer: beforeFetch runs right before the fetch.
+  const request = vi.fn(
+    async (
+      _method: string,
+      _path: string,
+      sent?: { beforeFetch?: () => Promise<void> },
+    ) => {
+      await sent?.beforeFetch?.();
+      fetched();
+      return opts.answer ?? { ok: true };
+    },
+  );
+  const base = view();
   const snapshot = vi.fn(async () => ({
-    view: view(),
+    view: { ...base, abilities: { ...base.abilities, ...opts.abilities } },
     api: {},
     http: { request },
     cfAccess: async () => null,
   }));
+  let turn = 0;
   const connections = {
     snapshot,
-    revision: vi.fn(async () => opts.revisionNow ?? "rev-1"),
+    revision: vi.fn(async () => {
+      const list = opts.revisions ?? [opts.revisionNow ?? "rev-1"];
+      return list[Math.min(turn++, list.length - 1)];
+    }),
     get: vi.fn(async () => view()),
     list: vi.fn(async () => [view()]),
   } as unknown as Connections;
@@ -66,6 +95,7 @@ function setup(opts: { revisionNow?: string; answer?: unknown } = {}) {
   return {
     api: createGenericApi(ctx, deps),
     request,
+    fetched,
     snapshot,
     resources,
     servers,
@@ -89,12 +119,13 @@ describe("generic API: sensitive operations", () => {
     expect(isSensitive(id)).toBe(true);
   });
 
-  it.each(["list-servers", "get-application-by-uuid", "deploy-by-tag-or-uuid"])(
-    "%s is not sensitive",
-    (id) => {
-      expect(isSensitive(id)).toBe(false);
-    },
-  );
+  it.each([
+    "list-projects",
+    "get-application-by-uuid",
+    "deploy-by-tag-or-uuid",
+  ])("%s is not sensitive", (id) => {
+    expect(isSensitive(id)).toBe(false);
+  });
 
   it("every DELETE is sensitive", () => {
     for (const op of OPERATIONS.filter((o) => o.method === "DELETE")) {
@@ -135,28 +166,28 @@ describe("generic API: sensitive operations", () => {
   it("the read pickers leave sensitive reads out, and the list marks them", async () => {
     const { api } = setup();
     const reads = (await api.list(1, { readsOnly: true })).map((o) => o.id);
-    expect(reads).toContain("list-servers");
+    expect(reads).toContain("list-projects");
     expect(reads).not.toContain("list-envs-by-application-uuid");
     expect(reads).not.toContain("get-private-key-by-uuid");
     const all = await api.list(1);
     expect(
       all.find((o) => o.id === "list-envs-by-application-uuid")?.sensitive,
     ).toBe(true);
-    expect(all.find((o) => o.id === "list-servers")?.sensitive).toBe(false);
+    expect(all.find((o) => o.id === "list-projects")?.sensitive).toBe(false);
   });
 });
 
 describe("generic API: one snapshot per call", () => {
   it("reads the connection once, through its snapshot", async () => {
     const { api, snapshot } = setup();
-    await api.dispatch({ connectionId: 1, operationId: "list-servers" });
+    await api.dispatch({ connectionId: 1, operationId: "list-projects" });
     expect(snapshot).toHaveBeenCalledTimes(1);
   });
 
   it("ends with target-changed when the connection changed before the call", async () => {
     const { api, request } = setup({ revisionNow: "rev-2" });
     await expect(
-      api.dispatch({ connectionId: 1, operationId: "list-servers" }),
+      api.dispatch({ connectionId: 1, operationId: "list-projects" }),
     ).rejects.toMatchObject({ code: "target-changed", status: 409 });
     expect(request).not.toHaveBeenCalled();
   });
@@ -205,7 +236,7 @@ describe("generic API: request shape", () => {
     const { api, request } = setup({ answer: { token: TOKEN } });
     const result = await api.dispatch({
       connectionId: 1,
-      operationId: "list-servers",
+      operationId: "list-projects",
     });
     const [, , sentOpts] = request.mock.calls[0] as unknown as [
       string,
@@ -234,7 +265,7 @@ describe("generic API: caches", () => {
 
   it("a failed write drops them too; a read drops nothing", async () => {
     const { api, request, resources, servers } = setup();
-    await api.dispatch({ connectionId: 1, operationId: "list-servers" });
+    await api.dispatch({ connectionId: 1, operationId: "list-projects" });
     expect(resources.invalidate).not.toHaveBeenCalled();
     expect(servers.invalidate).not.toHaveBeenCalled();
     request.mockRejectedValueOnce(new Error("boom"));
@@ -250,5 +281,85 @@ describe("generic API: caches", () => {
     ).rejects.toThrow();
     expect(resources.invalidate).toHaveBeenCalledWith(1);
     expect(servers.invalidate).toHaveBeenCalledWith(1);
+  });
+});
+
+describe("generic API: answers with logs or command output", () => {
+  it.each([
+    "get-deployment-by-uuid",
+    "list-deployments",
+    "list-deployments-by-app-uuid",
+    "get-database-import",
+    "list-scheduled-task-executions-by-application-uuid",
+    "list-servers",
+  ])(
+    "%s answers logs or output (from its response schema), so it is sensitive",
+    (id) => {
+      expect(LOG_ANSWERS.has(id), id).toBe(true);
+      expect(isSensitive(id), id).toBe(true);
+    },
+  );
+
+  it("a deployment read needs a confirm and is left out of the read pickers", async () => {
+    const { api, request } = setup();
+    await expect(
+      api.dispatch(
+        {
+          connectionId: 1,
+          operationId: "get-deployment-by-uuid",
+          params: { uuid: "d1" },
+        },
+        { readOnly: true },
+      ),
+    ).rejects.toMatchObject({ code: "confirm-required" });
+    expect(request).not.toHaveBeenCalled();
+    const reads = (await api.list(1, { readsOnly: true })).map((o) => o.id);
+    expect(reads).not.toContain("list-deployments");
+    expect(reads).not.toContain("get-deployment-by-uuid");
+  });
+});
+
+describe("generic API: the known token ability", () => {
+  it("a token that can't read is refused before Coolify is asked", async () => {
+    const { api, request } = setup({ abilities: { read: false } });
+    await expect(
+      api.dispatch({ connectionId: 1, operationId: "list-projects" }),
+    ).rejects.toMatchObject({ code: "token-ability", status: 409 });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("a logs read needs read:sensitive", async () => {
+    const { api, request } = setup({ abilities: { sensitive: false } });
+    await expect(
+      api.dispatch(
+        {
+          connectionId: 1,
+          operationId: "get-application-logs-by-uuid",
+          params: { uuid: "a1" },
+        },
+        { confirmed: true },
+      ),
+    ).rejects.toMatchObject({ code: "token-ability" });
+    expect(request).not.toHaveBeenCalled();
+  });
+});
+
+describe("generic API: the revision right before the fetch", () => {
+  it("passes a guard the request layer runs right before the fetch", async () => {
+    // The first check passes; the target changes while the request waits.
+    const { api, fetched } = setup({ revisions: ["rev-1", "rev-2"] });
+    await expect(
+      api.dispatch({ connectionId: 1, operationId: "list-projects" }),
+    ).rejects.toMatchObject({ code: "target-changed" });
+    expect(fetched).not.toHaveBeenCalled();
+  });
+});
+
+describe("generated schemas keep nullability", () => {
+  it("update-server-proxy's redirect_url is a nullable string", () => {
+    const field = OPERATION_SCHEMAS["update-server-proxy"].body!.find(
+      (f) => f.name === "redirect_url",
+    );
+    expect(field).toMatchObject({ type: "string", nullable: true });
   });
 });

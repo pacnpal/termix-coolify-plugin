@@ -153,6 +153,18 @@ describe("redact: credentials inside values", () => {
     expect(redact({ [key]: PW })).toEqual({ [key]: REDACTED_VALUE });
   });
 
+  it.each([
+    "configuration",
+    "custom_nginx_configuration",
+    "cloud_init_script",
+    "script",
+    "docker_compose",
+    "dockerfile",
+  ])("masks the raw config, Compose or script field %s whole", (key) => {
+    const raw = `services:\n  traefik:\n    environment:\n      - CF_DNS_API_TOKEN=${PW}`;
+    expect(redact({ [key]: raw })).toEqual({ [key]: REDACTED_VALUE });
+  });
+
   it("leaves plain values and an env var's name alone", () => {
     expect(
       redact({ key: "DB_URL", fqdn: "https://app.test/a?page=2", port: 5432 }),

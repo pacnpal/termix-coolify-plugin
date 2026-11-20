@@ -117,12 +117,16 @@ export interface ApiParam {
   in: "path" | "query";
   required: boolean;
   type: string;
+  /** The spec allows null. */
+  nullable?: boolean;
   description?: string;
 }
 
 export interface ApiBodyField {
   name: string;
   type: string;
+  /** The spec allows null. */
+  nullable?: boolean;
   required: boolean;
   description?: string;
 }

@@ -87,6 +87,11 @@ export interface CoolifyRequestOptions {
    * secret, for answers passed on as they came (the generic API).
    */
   scrubSecrets?: boolean;
+  /**
+   * Runs right before each fetch, after the request budget's wait and any
+   * retry's backoff. A throw sends nothing.
+   */
+  beforeFetch?: () => Promise<void>;
 }
 
 /** `value` with every string that contains one of `secrets` masked. */
@@ -377,6 +382,7 @@ export function createCoolifyHttp(
       const canRetry = verb === "GET" && options.retry !== false;
       for (let attempt = 0; ; attempt++) {
         await takeSlot();
+        await options.beforeFetch?.();
         let response: Response;
         try {
           response = await fetch(url, init(verb, options.body));

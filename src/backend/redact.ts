@@ -1,5 +1,5 @@
 import { REDACTED_VALUE } from "@termix-ssh/plugin-sdk/operations";
-import { SECRET_FIELDS } from "./coolify/generated/schemas.js";
+import { RAW_FIELDS, SECRET_FIELDS } from "./coolify/generated/schemas.js";
 
 /** Keys whose value is a secret, at any depth (the design's "Redaction"). */
 const SECRET_KEY =
@@ -24,7 +24,13 @@ const SECRET_QUERY =
   /([?&;][\w.-]*(?:password|passwd|pwd|token|secret|key|signature|sig|auth)=)[^&#\s]+/gi;
 
 function masked(key: string): boolean {
-  return SECRET_KEY.test(key) || BLOB_KEY.test(key) || SECRET_FIELDS.has(key);
+  return (
+    SECRET_KEY.test(key) ||
+    BLOB_KEY.test(key) ||
+    SECRET_FIELDS.has(key) ||
+    // Raw config, Compose, scripts and env text, by the specs' descriptions.
+    RAW_FIELDS.has(key)
+  );
 }
 
 /**

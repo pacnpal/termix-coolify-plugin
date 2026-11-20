@@ -142,6 +142,14 @@ aren't obvious from the code, and anything that has bitten you before.
   The generator also writes `TEXT_ANSWERS` (operations whose 2xx answer lists no JSON type; sent with
   `{ text: true }`), `SECRET_FIELDS` (string fields any spec describes as a password or secret) and each
   array query parameter's `items`; arrays go out as one `name=value` per item (form, exploded).
+  It also writes `RAW_FIELDS` (string fields described as YAML, Compose, a script, a Dockerfile, Nginx
+  config, labels or env text; masked whole), `LOG_ANSWERS` (operations whose 2xx schema, in any spec,
+  has a non-flag `logs`/`log`/`output`/`*_logs`/`*_output` property or one described as output; they
+  are sensitive, so `list-servers`, `get-server-by-uuid` and the database reads need a confirm because
+  of `validation_logs`) and `nullable` on params and body fields (the console's "Send null").
+  `authorize` also applies `tokenAllows` (`token-ability`, 409), and `send` passes `beforeFetch` so the
+  request layer checks the revision again after its budget and retry waits, right before each fetch.
+  The console drops late answers with request generations (reveal, operation list, connections).
 - Redaction: `src/backend/redact.ts` is the one redactor for the generic API, the console and every MCP
   tool result. It masks secret keys (`SECRET_KEY`, including `*_key` and `*_db_url`, plus
   `SECRET_FIELDS`) and, in every other string at any depth, a URL's userinfo password and credential

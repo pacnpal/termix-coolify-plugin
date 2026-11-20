@@ -79,7 +79,31 @@ const OPERATIONS = [
     params: [{ name: "uuid", in: "path", required: true, type: "string" }],
     body: null,
   },
+  {
+    id: "update-server-proxy",
+    method: "PATCH",
+    path: "/servers/{uuid}/proxy",
+    minVersion: "4.4.0",
+    permission: "coolify.configure",
+    sensitive: false,
+    summary: "Update proxy",
+    params: [{ name: "uuid", in: "path", required: true, type: "string" }],
+    body: [
+      { name: "redirect_url", type: "string", nullable: true, required: false },
+    ],
+  },
 ];
+
+/** A promise and the function that settles it, for ordering answers. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (err: unknown) => void;
+  const promise = new Promise<T>((ok, fail) => {
+    resolve = ok;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
 
 function stubApi(sensitive = true) {
   const mocks = {
@@ -293,5 +317,122 @@ describe("API console", () => {
     await runEnvs();
     expect(screen.queryByRole("button", { name: L.reveal })).toBeNull();
     expect(screen.getByText(reason)).toBeTruthy();
+  });
+
+  it("an earlier reveal that finishes after a later reveal and hide shows nothing", async () => {
+    const api = await openConsole(CONFIGURE);
+    await runEnvs();
+    const first = deferred<{ data: { value: string } }>();
+    const base = api.post.getMockImplementation()!;
+    let reveals = 0;
+    api.post.mockImplementation(async (url: string, body: never) => {
+      if (url === "/connections/1/api/reveal") {
+        reveals++;
+        return reveals === 1 ? first.promise : { data: { value: "value-B" } };
+      }
+      return base(url, body);
+    });
+    fireEvent.click(screen.getByRole("button", { name: L.reveal }));
+    await waitFor(() => expect(reveals).toBe(1));
+    fireEvent.click(screen.getByRole("button", { name: L.reveal }));
+    expect(await screen.findByText("value-B")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: L.hide }));
+    first.resolve({ data: { value: "value-A" } });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByText("value-A")).toBeNull();
+    expect(screen.queryByText("value-B")).toBeNull();
+  });
+
+  it("a connection's operation list that answers after switching away is dropped", async () => {
+    const api = stubApi();
+    const base = api.get.getMockImplementation()!;
+    const stale = deferred<{ data: { operations: unknown[] } }>();
+    (api.get as ReturnType<typeof vi.fn>).mockImplementation(
+      async (url: string) => {
+        if (url === "/connections") {
+          return {
+            data: [connection(true), { ...connection(true), id: 2, name: "B" }],
+          };
+        }
+        if (url === "/connections/1/api/operations") return stale.promise;
+        if (url === "/connections/2/api/operations") {
+          return { data: { operations: OPERATIONS } };
+        }
+        return base(url);
+      },
+    );
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions: VIEW,
+    });
+    rendered.renderTab("coolify", { isVisible: true });
+    fireEvent.click(
+      (await screen.findAllByRole("button", { name: L.title }))[0],
+    );
+    const picker = await screen.findByRole("combobox", { name: L.connection });
+    await waitFor(() =>
+      expect(api.get).toHaveBeenCalledWith("/connections/1/api/operations"),
+    );
+    // A Radix select: open it from the keyboard and pick B. jsdom has no
+    // scrollIntoView, which the open list calls.
+    Element.prototype.scrollIntoView = () => {};
+    fireEvent.keyDown(picker, { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("option", { name: "B" }));
+    expect(await screen.findByText("list-servers")).toBeTruthy();
+    stale.resolve({
+      data: { operations: [{ ...OPERATIONS[0], id: "stale-operation" }] },
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByText("stale-operation")).toBeNull();
+    expect(screen.getByText("list-servers")).toBeTruthy();
+  });
+
+  it("Refresh loads the connections again after they failed to load", async () => {
+    const api = stubApi();
+    const base = api.get.getMockImplementation()!;
+    let offline = false;
+    api.get.mockImplementation(async (url: string) => {
+      if (url === "/connections" && offline) throw new Error("offline");
+      return base(url);
+    });
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions: VIEW,
+    });
+    rendered.renderTab("coolify", { isVisible: true });
+    const nav = (await screen.findAllByRole("button", { name: L.title }))[0];
+    offline = true;
+    fireEvent.click(nav);
+    expect(await screen.findByText(L.loadFailed)).toBeTruthy();
+    offline = false;
+    fireEvent.click(screen.getByRole("button", { name: /refresh/i }));
+    expect(await screen.findByText("list-servers")).toBeTruthy();
+  });
+
+  it("a nullable field can send null, apart from leaving it out", async () => {
+    const api = await openConsole(CONFIGURE);
+    await openOperation("update-server-proxy");
+    fillUuid();
+    fireEvent.click(
+      screen.getByRole("switch", {
+        name: L.sendNull.replace("{{field}}", "redirect_url"),
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: L.run }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: L.confirmLabel }),
+    );
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith("/connections/1/api/call", {
+        operationId: "update-server-proxy",
+        params: { uuid: "app-web-uuid" },
+        body: { redirect_url: null },
+        confirmed: true,
+      }),
+    );
   });
 });

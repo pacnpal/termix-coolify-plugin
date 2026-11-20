@@ -606,7 +606,8 @@
     "invalid-input": "Some values are missing or not valid.",
     "confirm-required": "This needs a confirm first.",
     "not-masked": "That value is not a masked one.",
-    "secrets-unreadable": "The token can't read secrets."
+    "secrets-unreadable": "The token can't read secrets.",
+    "token-ability": "This connection's token can't run this operation."
   },
   "fixes": {
     "unreachable": "Check the URL. If Coolify is on your local network, turn on \"On my local network\" under Advanced.",
@@ -1043,6 +1044,7 @@
     "bodyFields": "Body",
     "noInputs": "This operation takes no input.",
     "required": "required",
+    "sendNull": "Send null for {{field}}",
     "run": "Run",
     "running": "Running",
     "result": "Answer",

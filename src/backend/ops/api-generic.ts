@@ -14,6 +14,7 @@ import {
 } from "../coolify/generated/operations.js";
 import {
   OPERATION_SCHEMAS,
+  LOG_ANSWERS,
   TEXT_ANSWERS,
   type OperationSchema,
 } from "../coolify/generated/schemas.js";
@@ -57,7 +58,8 @@ export type ApiCallErrorCode =
   | "invalid-input"
   | "confirm-required"
   | "not-masked"
-  | "secrets-unreadable";
+  | "secrets-unreadable"
+  | "token-ability";
 
 const ERROR_STATUS: Record<ApiCallErrorCode, 400 | 403 | 404 | 409> = {
   excluded: 403,
@@ -70,6 +72,7 @@ const ERROR_STATUS: Record<ApiCallErrorCode, 400 | 403 | 404 | 409> = {
   "not-masked": 400,
   // The token's ability, not the user's access: like Coolify refusing it.
   "secrets-unreadable": 409,
+  "token-ability": 409,
 };
 
 /** A refusal by the plugin itself, before asking Coolify. */
@@ -199,7 +202,12 @@ const SECRET_PATH =
   /\/envs(\/|$)|^\/security\/|^\/cloud-tokens(\/|$)|\/secret-manager(\/|$)|\/logs$|^\/notifications\/|^\/settings\/email$|^\/s3-storages(\/|$)|\/registries(\/|$)|^\/(github|gitlab)-apps(\/|$)/;
 
 function sensitiveOp(op: CoolifyOperation): boolean {
-  return op.method === "DELETE" || SECRET_PATH.test(op.path);
+  return (
+    op.method === "DELETE" ||
+    SECRET_PATH.test(op.path) ||
+    // Its answer carries logs or command output, by its response schema.
+    LOG_ANSWERS.has(op.id)
+  );
 }
 
 /**
@@ -466,6 +474,12 @@ export function createGenericApi(ctx: PluginContext, deps: GenericApiDeps) {
     if (!meetsMinVersion(versionOf(snap.view), op.minVersion)) {
       throw new CoolifyError("unsupported-by-instance", 0);
     }
+    if (!tokenAllows(op, snap.view.abilities)) {
+      throw new ApiCallError(
+        "token-ability",
+        `This connection's token can't run ${operationId} (it needs read, and read:sensitive for logs)`,
+      );
+    }
     return { op, snap };
   }
 
@@ -494,6 +508,9 @@ export function createGenericApi(ctx: PluginContext, deps: GenericApiDeps) {
         // The spec lists only a text type for these (Coolify's /version and
         // /health answer text/html).
         text: TEXT_ANSWERS.has(op.id),
+        // Again right before each fetch, after the budget's and retries'
+        // waits, so a target changed meanwhile is never reached.
+        beforeFetch: () => assertSnapshotHolds(snap),
         ...(body !== undefined ? { body } : {}),
       });
     } catch (err) {

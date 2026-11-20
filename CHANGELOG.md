@@ -146,6 +146,11 @@
   URLs keep their shape with the password masked), credential query parameters, and every field a Coolify
   spec describes as a password or secret. `version` and `healthcheck` answer their text, and array query
   parameters such as `check-server-import`'s app lists are sent
+- Raw config, Compose files, scripts and env text in answers are masked whole, and reads whose answer
+  carries logs or command output (deployments, executions, imports, server and database validation logs)
+  ask first, both found from Coolify's own API description. The API console keeps only the newest answer
+  when you switch connections or reveal twice, retries loading connections on Refresh, and can send null
+  to clear a nullable field
 - The API console in the Coolify tab: a form for every Coolify operation. Plain reads run at once, reads of
   secrets or logs and changes ask
   first and a delete asks you to type the operation id. Masked values can be revealed one at a time with

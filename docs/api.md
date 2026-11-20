@@ -154,7 +154,15 @@ Each operation needs what the same action needs in the app, whatever key or tool
   `*_password`, `*_secret`, `*_key`, `*_token`, `*_db_url` and `dsn`, and, in any string at any depth, the
   password in a URL (`postgres://user:[redacted]@host`) and query parameters such as `password=`, `token=`
   or `key=`. A database's `internal_db_url` and `external_db_url` come back as URLs with the password
-  masked. Only **Reveal** in the console shows a masked value.
+  masked. Fields a spec describes as raw config, Compose, a script, a Dockerfile, Nginx config, labels or
+  env text (a proxy's `configuration`, `docker_compose_raw`, `cloud_init_script` and the like) are masked
+  whole. Only **Reveal** in the console shows a masked value.
+- Operations whose answer carries logs or command output, by their response schema (deployments, task and
+  backup executions, imports, `/logs`, and servers and databases, whose answers carry `validation_logs`),
+  are sensitive too: they need `coolify.api-call` or a confirm in the console.
+- A token that can't read, or a logs read without `read:sensitive`, is refused before Coolify is asked
+  (`token-ability`, 409). The connection is checked again right before each request is sent, after any
+  wait for the request budget or a retry.
 - Array query parameters (such as `system_github_apps[]` of `check-server-import`) take a JSON list and are
   sent as one `name=value` per item. Operations whose answer is text (`version`, `healthcheck`) answer the
   text. Errors carry fixed messages and a `cause`, never Coolify's own text.

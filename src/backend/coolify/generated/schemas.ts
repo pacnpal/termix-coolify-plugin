@@ -9,6 +9,8 @@ export interface OperationParam {
   required: boolean;
   /** The JSON type, like "string" or "integer"; "a|b" when it can be either. */
   type: string;
+  /** The spec allows null (sent as JSON null, apart from leaving it out). */
+  nullable?: boolean;
   /** For an array: its items' JSON type. Sent as one name=value per item. */
   items?: string;
   /** The only values the spec allows, when it lists them. */
@@ -19,6 +21,8 @@ export interface OperationParam {
 export interface OperationBodyField {
   name: string;
   type: string;
+  /** The spec allows null (sent as JSON null, apart from leaving it out). */
+  nullable?: boolean;
   required: boolean;
   description?: string;
 }
@@ -37,6 +41,8 @@ interface Packed {
   operations: Record<string, [string, number[], number[] | null]>;
   textAnswers: string[];
   secretFields: string[];
+  rawFields: string[];
+  logAnswers: string[];
 }
 
 // JSON imports type tuples as arrays, so the shape is asserted here; the
@@ -61,3 +67,9 @@ export const TEXT_ANSWERS: ReadonlySet<string> = new Set(packed.textAnswers);
 
 /** Field names a vendored spec describes as a password or secret. */
 export const SECRET_FIELDS: ReadonlySet<string> = new Set(packed.secretFields);
+
+/** Fields a vendored spec describes as raw config, Compose, a script or env text. */
+export const RAW_FIELDS: ReadonlySet<string> = new Set(packed.rawFields);
+
+/** Operations whose answer carries logs or command output, by response schema. */
+export const LOG_ANSWERS: ReadonlySet<string> = new Set(packed.logAnswers);
