@@ -380,7 +380,9 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   the newest answer (a request generation, as in `useResources`). It opens the socket through
   `src/frontend/socket.ts` (`keepSocketTarget(app)` in activate keeps `app.wsUrl`; tests swap it with
   `setWsUrl`). The follow effect depends on `isVisible`, so hiding the tab closes it; a Part is asked for
-  by its service's uuid plus `part`.
+  by its service's uuid plus `part`. A follow socket that closes on its own is `lost`: retried after
+  `RECONNECT_DELAYS_MS` (3, growing), then Reconnect; a 1008 close is `failed` with its reason (no
+  retry). Once the effect cleans up (`stopped`), nothing the old socket sends reaches the view.
 - Server updates: `src/backend/updates/` (`service.ts` `createUpdates`, `routes.ts`) and
   `src/backend/ops/updates.ts`; the UI is `src/frontend/views/ServerUpdates.tsx` inside the host card.
   `ServerUpdates` remounts its card on `connectionId:serverUuid:revision` (the revision from

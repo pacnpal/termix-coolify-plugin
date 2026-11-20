@@ -48,7 +48,7 @@ class FakeWebSocket {
   closed = false;
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event?: { code: number; reason: string }) => void) | null = null;
   onerror: (() => void) | null = null;
   constructor(
     public url: string,
@@ -71,6 +71,12 @@ class FakeWebSocket {
   }
   receive(message: unknown) {
     this.onmessage?.({ data: JSON.stringify(message) });
+  }
+  /** The server or the network ends the socket, with a close code. */
+  drop(code = 1006, reason = "") {
+    this.readyState = 3;
+    this.onerror?.();
+    this.onclose?.({ code, reason });
   }
 }
 
@@ -326,6 +332,74 @@ describe("Logs view", () => {
       }),
     );
     await waitFor(() => expect(ws.closed).toBe(true));
+  });
+});
+
+describe("Logs follow connection", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function startFollow() {
+    await openLogs({ source: "coolify", text: "old\n" });
+    await screen.findByText("old");
+    fireEvent.click(screen.getByRole("button", { name: G.follow }));
+    await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+    const ws = FakeWebSocket.all[0];
+    act(() => {
+      ws.open();
+      ws.receive({ type: "started", source: "ssh", container: "web-abc" });
+    });
+    expect(await screen.findByText(G.following)).toBeTruthy();
+    return ws;
+  }
+
+  it("a 1008 close shows its cause, never retries on its own, and offers Reconnect", async () => {
+    const ws = await startFollow();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    act(() => ws.drop(1008, "target-changed"));
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    vi.useRealTimers();
+    expect(await screen.findByText(G.errors["target-changed"])).toBeTruthy();
+    expect(screen.queryByText(G.followEnded)).toBeNull();
+    expect(FakeWebSocket.all).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: G.reconnect }));
+    await waitFor(() => expect(FakeWebSocket.all).toHaveLength(2));
+  });
+
+  it("ignores lines from a socket it has let go", async () => {
+    const ws = await startFollow();
+    fireEvent.click(screen.getByRole("button", { name: G.follow }));
+    await waitFor(() => expect(ws.closed).toBe(true));
+    act(() => ws.receive({ type: "lines", lines: ["ghost line"] }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByText("ghost line")).toBeNull();
+  });
+
+  it("retries a lost follow at most 3 times, with growing waits, then waits for Reconnect", async () => {
+    await startFollow();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const waits: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const before = FakeWebSocket.all.length;
+      const current = FakeWebSocket.all[before - 1];
+      act(() => current.drop(1006));
+      let waited = 0;
+      while (FakeWebSocket.all.length === before && waited < 60_000) {
+        await act(() => vi.advanceTimersByTimeAsync(250));
+        waited += 250;
+      }
+      if (FakeWebSocket.all.length === before) break;
+      waits.push(waited);
+      act(() => FakeWebSocket.all[FakeWebSocket.all.length - 1].open());
+    }
+    vi.useRealTimers();
+    expect(waits).toHaveLength(3);
+    expect(waits[0]).toBeLessThan(waits[1]);
+    expect(waits[1]).toBeLessThan(waits[2]);
+    expect(await screen.findByText(G.followLost)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: G.reconnect }));
+    await waitFor(() => expect(FakeWebSocket.all).toHaveLength(5));
   });
 });
 
