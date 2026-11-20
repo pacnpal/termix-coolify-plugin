@@ -139,6 +139,16 @@ aren't obvious from the code, and anything that has bitten you before.
   spec's top-level fields. Answers go through `scrubSecrets` in `http.ts` (masks strings holding the
   token or Access secret) and `redact`. Every non-GET invalidates the resources and server-status caches
   in a `finally`. `secrets-unreadable` is 409: it is the token's ability, not the user's access.
+  The generator also writes `TEXT_ANSWERS` (operations whose 2xx answer lists no JSON type; sent with
+  `{ text: true }`), `SECRET_FIELDS` (string fields any spec describes as a password or secret) and each
+  array query parameter's `items`; arrays go out as one `name=value` per item (form, exploded).
+- Redaction: `src/backend/redact.ts` is the one redactor for the generic API, the console and every MCP
+  tool result. It masks secret keys (`SECRET_KEY`, including `*_key` and `*_db_url`, plus
+  `SECRET_FIELDS`) and, in every other string at any depth, a URL's userinfo password and credential
+  query parameters (`maskCredentials`). A secret `*_url` that parses as a URL keeps its shape with the
+  password masked. `isMasked` (a string holding `[redacted]`) is what `maskedPaths` and reveal use, so
+  reveal (configure, a sensitive token, audited) is the only way an unmasked value comes back. DTOs
+  carry no URLs or passwords.
 - Tables: `src/backend/tables.ts`, migrations in `migrations/`. Table names are snake_case
   (`p_coolify_status_pages`); the SDK refuses camelCase. `servers.hostId` is a plain nullable integer, not
   `refHost`: a cascade would delete the row and its `addressOverride` when the host goes. The `host.deleted`

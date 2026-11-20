@@ -150,7 +150,14 @@ Each operation needs what the same action needs in the app, whatever key or tool
 - Each call reads the connection once and checks, right before asking Coolify, that its address, token,
   Access token and TLS settings are still the same; otherwise it ends with `target-changed` (409).
 - Any string in an answer that holds the connection's token or Access secret is masked, as well as the
-  usual secret fields. Errors carry fixed messages and a `cause`, never Coolify's own text.
+  usual secret fields, every field a Coolify spec describes as a password or secret, fields named
+  `*_password`, `*_secret`, `*_key`, `*_token`, `*_db_url` and `dsn`, and, in any string at any depth, the
+  password in a URL (`postgres://user:[redacted]@host`) and query parameters such as `password=`, `token=`
+  or `key=`. A database's `internal_db_url` and `external_db_url` come back as URLs with the password
+  masked. Only **Reveal** in the console shows a masked value.
+- Array query parameters (such as `system_github_apps[]` of `check-server-import`) take a JSON list and are
+  sent as one `name=value` per item. Operations whose answer is text (`version`, `healthcheck`) answer the
+  text. Errors carry fixed messages and a `cause`, never Coolify's own text.
 - Every call that isn't a GET drops the plugin's cached resource list and server statuses, whether it
   worked or not, so the Coolify tab and status tiles read Coolify again.
 

@@ -71,7 +71,9 @@ export const CAUSE_MESSAGES: Record<CoolifyCause, string> = {
   "unsupported-version": "This plugin needs Coolify 4.4 or newer",
 };
 
-type QueryValue = string | number | boolean | undefined;
+type QueryScalar = string | number | boolean;
+/** An array is sent as one name=value per item (OpenAPI form, exploded). */
+type QueryValue = QueryScalar | QueryScalar[] | undefined;
 
 export interface CoolifyRequestOptions {
   query?: Record<string, QueryValue>;
@@ -160,7 +162,9 @@ function buildUrl(
   }
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query ?? {})) {
-    if (value !== undefined) params.append(key, String(value));
+    for (const item of value === undefined ? [] : [value].flat()) {
+      params.append(key, String(item));
+    }
   }
   const qs = params.toString();
   return qs ? `${url}?${qs}` : url;

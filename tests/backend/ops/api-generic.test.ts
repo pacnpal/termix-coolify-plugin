@@ -24,6 +24,7 @@ const TOKEN = "fake-token-api-generic";
 const PRIVATE_KEY =
   "-----BEGIN FAKE PRIVATE KEY-----\nfake-key-material-api-test\n-----END FAKE PRIVATE KEY-----";
 const ENV_VALUE = "fake-env-value-api-test";
+const DB_PASSWORD = "fake-db-password-api-test";
 const ALL = ["view", "operate", "configure", "administer", "mcp"];
 
 /** Coolify answers the tests need, besides the probe's. */
@@ -47,6 +48,15 @@ const ROUTES: Record<string, FakeAnswer> = {
   "GET /projects/proj-uuid/production": { json: { name: "production" } },
   "GET /applications/app-web-uuid/secret-manager": { json: {} },
   "GET /applications/app-web-uuid/previews/42": { json: { id: 42 } },
+  "GET /databases/db-1": {
+    json: {
+      uuid: "db-1",
+      internal_db_url: `postgres://postgres:${DB_PASSWORD}@db-1:5432/postgres`,
+      external_db_url: `postgres://postgres:${DB_PASSWORD}@203.0.113.5:5433/postgres`,
+      postgres_password: DB_PASSWORD,
+    },
+  },
+  "GET /servers/import/check": { json: { missing: [] } },
 };
 
 let harness: PluginHarness | null = null;
@@ -755,6 +765,59 @@ describe("generic Coolify API operations", () => {
       await listed(h, "coolify.list-api-operations", connectionId),
     ).toEqual([]);
     h.mock.setActor(OWNER);
+    expect(fake.calls).toEqual([]);
+  });
+});
+
+describe("generic API answers and requests", () => {
+  it("a database GET answers its connection URLs with the password masked", async () => {
+    await start();
+    const read = await apiRead("get-database-by-uuid", { uuid: "db-1" });
+    expect(JSON.stringify(read.data)).not.toContain(DB_PASSWORD);
+    expect(read.data).toMatchObject({
+      data: {
+        uuid: "db-1",
+        internal_db_url: "postgres://postgres:[redacted]@db-1:5432/postgres",
+        external_db_url:
+          "postgres://postgres:[redacted]@203.0.113.5:5433/postgres",
+        postgres_password: "[redacted]",
+      },
+    });
+  });
+
+  it("version and healthcheck answer text/html and still succeed", async () => {
+    await start();
+    expect((await apiRead("version")).data).toMatchObject({ data: "v4.7.5" });
+    expect((await apiRead("healthcheck")).data).toMatchObject({ data: "OK" });
+  });
+
+  it("check-server-import sends both array query parameters, one pair per item", async () => {
+    const { fake } = await start();
+    await apiRead("check-server-import", {
+      server_uuid: "srv-1",
+      ip: "203.0.113.9",
+      "system_github_apps[]": ["gh-1", "gh-2"],
+      "system_gitlab_apps[]": ["gl-1"],
+    });
+    const [call] = sent(fake, "GET", "/servers/import/check");
+    const query = new URL(call.url).searchParams;
+    expect(query.getAll("system_github_apps[]")).toEqual(["gh-1", "gh-2"]);
+    expect(query.getAll("system_gitlab_apps[]")).toEqual(["gl-1"]);
+    expect(query.get("server_uuid")).toBe("srv-1");
+  });
+
+  it("an array query parameter takes only a list of scalars", async () => {
+    const { fake } = await start();
+    for (const bad of [{ a: 1 }, [["x"]], [{ a: 1 }]]) {
+      await expect(
+        apiRead("check-server-import", {
+          server_uuid: "srv-1",
+          ip: "203.0.113.9",
+          "system_github_apps[]": bad,
+        }),
+        JSON.stringify(bad),
+      ).rejects.toMatchObject({ code: "invalid-input" });
+    }
     expect(fake.calls).toEqual([]);
   });
 });

@@ -142,6 +142,10 @@
   API check that the connection still points at the same Coolify before they run, send only the body fields
   the operation declares, mask the connection's own token wherever an answer repeats it, and refresh the
   resource list and status tiles after a change
+- Answers through the full API, the console and MCP mask passwords inside URLs (a database's connection
+  URLs keep their shape with the password masked), credential query parameters, and every field a Coolify
+  spec describes as a password or secret. `version` and `healthcheck` answer their text, and array query
+  parameters such as `check-server-import`'s app lists are sent
 - The API console in the Coolify tab: a form for every Coolify operation. Plain reads run at once, reads of
   secrets or logs and changes ask
   first and a delete asks you to type the operation id. Masked values can be revealed one at a time with

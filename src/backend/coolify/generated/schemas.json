@@ -48,6 +48,7 @@
       "in": "query",
       "required": false,
       "type": "array",
+      "items": "string",
       "description": "UUIDs of system-wide GitHub Apps that the server uses. The response lists the ones this instance does not have."
     },
     {
@@ -55,6 +56,7 @@
       "in": "query",
       "required": false,
       "type": "array",
+      "items": "string",
       "description": "UUIDs of system-wide GitLab Apps that the server uses. The response lists the ones this instance does not have."
     },
     {
@@ -4678,5 +4680,33 @@
     "validate-s3-storage-by-uuid": ["Validate S3 Storage", [80], null],
     "validate-server-by-uuid": ["Validate", [10], [542]],
     "version": ["Version", [], null]
-  }
+  },
+  "textAnswers": ["healthcheck", "version"],
+  "secretFields": [
+    "clickhouse_admin_password",
+    "client_secret",
+    "dragonfly_password",
+    "external_db_url",
+    "git_https_password",
+    "http_basic_auth_password",
+    "influxdb_admin_password",
+    "internal_db_url",
+    "keydb_password",
+    "manual_webhook_secret_bitbucket",
+    "manual_webhook_secret_gitea",
+    "manual_webhook_secret_github",
+    "manual_webhook_secret_gitlab",
+    "mariadb_password",
+    "mariadb_root_password",
+    "mongo_initdb_root_password",
+    "mysql_password",
+    "mysql_root_password",
+    "password",
+    "postgres_password",
+    "redis_password",
+    "secret",
+    "token",
+    "webhook_secret",
+    "webhook_token"
+  ]
 }

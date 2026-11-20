@@ -201,6 +201,9 @@ function schemaOf({ spec, operation }) {
           in: param.in,
           required: param.in === "path" || param.required === true,
           type: typeOf(spec, param.schema ?? {}),
+          ...(typeOf(spec, param.schema ?? {}) === "array"
+            ? { items: typeOf(spec, resolve(spec, param.schema).items ?? {}) }
+            : {}),
           ...(Array.isArray(values) && values.length
             ? { enum: values.map(String) }
             : {}),
@@ -228,6 +231,43 @@ const schemas = Object.fromEntries(
   operations.map(({ id }) => [id, schemaOf(described.get(id))]),
 );
 
+/**
+ * Whether the operation's success answer is text, not JSON: it lists a
+ * content type and none of them is JSON (Coolify's /version and /health
+ * answer text/html).
+ */
+function answersText({ spec, operation }) {
+  const types = Object.entries(operation.responses ?? {})
+    .filter(([code]) => /^2/.test(code))
+    .flatMap(([, raw]) => Object.keys(resolve(spec, raw).content ?? {}));
+  return types.length > 0 && !types.some((type) => /json/i.test(type));
+}
+const textAnswers = operations
+  .filter(({ id }) => answersText(described.get(id)))
+  .map(({ id }) => id);
+
+// Fields any vendored spec describes as a password or secret, so answers mask
+// them by name. Only strings: flags and costs about passwords are not secret.
+const NOT_SECRET_NAME = /(_username|_algorithm|_uuid)$/;
+const secretFieldSet = new Set();
+function collectSecrets(spec, node, seen = new Set()) {
+  if (!node || typeof node !== "object" || seen.has(node)) return;
+  seen.add(node);
+  for (const [name, prop] of Object.entries(node.properties ?? {})) {
+    const types = [].concat(prop?.type ?? []);
+    if (
+      types.includes("string") &&
+      /password|secret/i.test(prop?.description ?? "") &&
+      !NOT_SECRET_NAME.test(name)
+    ) {
+      secretFieldSet.add(name);
+    }
+  }
+  for (const value of Object.values(node)) collectSecrets(spec, value, seen);
+}
+for (const spec of specs.values()) collectSecrets(spec, spec);
+const secretFields = [...secretFieldSet].sort();
+
 // The data goes in a JSON file, so the TypeScript stays a few lines of types.
 const schemasTs = `${header}
 import data from "./schemas.json";
@@ -238,6 +278,8 @@ export interface OperationParam {
   required: boolean;
   /** The JSON type, like "string" or "integer"; "a|b" when it can be either. */
   type: string;
+  /** For an array: its items' JSON type. Sent as one name=value per item. */
+  items?: string;
   /** The only values the spec allows, when it lists them. */
   enum?: string[];
   description?: string;
@@ -262,6 +304,8 @@ interface Packed {
   fields: OperationBodyField[];
   /** [summary, param indexes, body field indexes or null], by operation id. */
   operations: Record<string, [string, number[], number[] | null]>;
+  textAnswers: string[];
+  secretFields: string[];
 }
 
 // JSON imports type tuples as arrays, so the shape is asserted here; the
@@ -280,6 +324,12 @@ export const OPERATION_SCHEMAS: Readonly<Record<string, OperationSchema>> =
       },
     ]),
   );
+
+/** Operations whose success answer is text (the spec lists no JSON type). */
+export const TEXT_ANSWERS: ReadonlySet<string> = new Set(packed.textAnswers);
+
+/** Field names a vendored spec describes as a password or secret. */
+export const SECRET_FIELDS: ReadonlySet<string> = new Set(packed.secretFields);
 `;
 
 async function write(name, text) {
@@ -326,6 +376,8 @@ const packed = {
       ],
     ]),
   ),
+  textAnswers,
+  secretFields,
 };
 await write("schemas.json", JSON.stringify(packed));
 await write("schemas.ts", schemasTs);

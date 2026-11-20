@@ -1,5 +1,4 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
-import { REDACTED_VALUE } from "@termix-ssh/plugin-sdk/operations";
 import type { Abilities } from "../connections/probe.js";
 import { MIN_COOLIFY_VERSION } from "../connections/probe.js";
 import {
@@ -15,12 +14,13 @@ import {
 } from "../coolify/generated/operations.js";
 import {
   OPERATION_SCHEMAS,
+  TEXT_ANSWERS,
   type OperationSchema,
 } from "../coolify/generated/schemas.js";
 import { CoolifyError } from "../coolify/http.js";
 import { fillPath, pathRules } from "../coolify/path.js";
 import { meetsMinVersion } from "../coolify/version.js";
-import { redact } from "../redact.js";
+import { isMasked, redact } from "../redact.js";
 import type { Resources } from "../resources/service.js";
 import type { ServerStatuses } from "./signals.js";
 import { connectionIdInput } from "./connections.js";
@@ -306,11 +306,17 @@ function scalar(value: unknown, name: string): Scalar {
   throw invalid(`${name} must be a string, number or boolean`);
 }
 
+/** An array query parameter: a list of scalars (or one scalar). */
+function listOf(value: unknown, name: string): Scalar[] {
+  const items = Array.isArray(value) ? value : [value];
+  return items.map((item) => scalar(item, `${name} items`));
+}
+
 /** The filled-in path and the query, from the operation's own parameters. */
 function buildRequest(
   op: CoolifyOperation,
   params: Record<string, unknown>,
-): { path: string; query: Record<string, Scalar> } {
+): { path: string; query: Record<string, Scalar | Scalar[]> } {
   const declared = OPERATION_SCHEMAS[op.id]?.params ?? [];
   const pathNames = new Set(
     declared.filter((p) => p.in === "path").map((p) => p.name),
@@ -326,11 +332,19 @@ function buildRequest(
   // Each value must stay one segment, or the request would reach another
   // operation than the one whose access was checked.
   const path = fillPath(op.path, params, pathRules(op.id), invalid);
-  const query: Record<string, Scalar> = {};
+  const query: Record<string, Scalar | Scalar[]> = {};
+  const arrays = new Set(
+    declared
+      .filter((p) => p.in === "query" && p.type === "array")
+      .map((p) => p.name),
+  );
   for (const name of queryNames) {
     const value = params[name];
     if (value !== undefined && value !== null && value !== "") {
-      query[name] = scalar(value, name);
+      // The spec's arrays are form style, exploded: one name=value per item.
+      query[name] = arrays.has(name)
+        ? listOf(value, name)
+        : scalar(value, name);
     }
   }
   for (const param of declared) {
@@ -380,7 +394,7 @@ export function maskedPaths(
   prefix: (string | number)[] = [],
   out: (string | number)[][] = [],
 ): (string | number)[][] {
-  if (value === REDACTED_VALUE) {
+  if (isMasked(value)) {
     out.push(prefix);
   } else if (Array.isArray(value)) {
     value.forEach((item, i) => maskedPaths(item, [...prefix, i], out));
@@ -477,6 +491,9 @@ export function createGenericApi(ctx: PluginContext, deps: GenericApiDeps) {
       return await snap.http.request<unknown>(op.method, path, {
         query,
         scrubSecrets: true,
+        // The spec lists only a text type for these (Coolify's /version and
+        // /health answer text/html).
+        text: TEXT_ANSWERS.has(op.id),
         ...(body !== undefined ? { body } : {}),
       });
     } catch (err) {
@@ -658,7 +675,7 @@ export function createGenericApi(ctx: PluginContext, deps: GenericApiDeps) {
       if (
         value === undefined ||
         value === null ||
-        at(redact(answer), input.pointer) !== REDACTED_VALUE
+        !isMasked(at(redact(answer), input.pointer))
       ) {
         throw new ApiCallError("not-masked", "That value is not a masked one");
       }

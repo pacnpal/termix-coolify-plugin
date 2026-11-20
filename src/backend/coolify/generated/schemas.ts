@@ -9,6 +9,8 @@ export interface OperationParam {
   required: boolean;
   /** The JSON type, like "string" or "integer"; "a|b" when it can be either. */
   type: string;
+  /** For an array: its items' JSON type. Sent as one name=value per item. */
+  items?: string;
   /** The only values the spec allows, when it lists them. */
   enum?: string[];
   description?: string;
@@ -33,6 +35,8 @@ interface Packed {
   fields: OperationBodyField[];
   /** [summary, param indexes, body field indexes or null], by operation id. */
   operations: Record<string, [string, number[], number[] | null]>;
+  textAnswers: string[];
+  secretFields: string[];
 }
 
 // JSON imports type tuples as arrays, so the shape is asserted here; the
@@ -51,3 +55,9 @@ export const OPERATION_SCHEMAS: Readonly<Record<string, OperationSchema>> =
       },
     ]),
   );
+
+/** Operations whose success answer is text (the spec lists no JSON type). */
+export const TEXT_ANSWERS: ReadonlySet<string> = new Set(packed.textAnswers);
+
+/** Field names a vendored spec describes as a password or secret. */
+export const SECRET_FIELDS: ReadonlySet<string> = new Set(packed.secretFields);
