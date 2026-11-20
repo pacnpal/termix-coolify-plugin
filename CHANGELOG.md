@@ -123,6 +123,9 @@
   no scripts, refresh every 30 seconds, and say "Status may be out of date" when the status is over 5
   minutes old. While a page is published the plugin checks Coolify every minute, backing off after errors
 - Turning off "Allow public status pages" refuses new pages, and existing pages answer "not found"
+- A page answers "not found" once its connection is gone or its owner loses View Coolify, and the
+  background check stops for it. After a connection's address or token changes, a page shows nothing from
+  the old target, and only its chosen resources from the new one
 - Actions to list, publish, rotate and revoke status pages (`coolify.status-page-list`,
   `coolify.status-page-create`, `coolify.status-page-rotate`, `coolify.status-page-revoke`). Run history
   never holds a page's link: create and rotate answer a handoff id, and the link is taken once over MCP,

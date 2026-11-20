@@ -380,7 +380,7 @@ resources and choose **Publish**.
   at once. **Revoke** takes the page down.
 - **What it shows:** each chosen resource's name, its status (running, degraded, stopped or deploying) and
   when it was last deployed, and "Updated" with the time of the last check. Never uuids, servers, domains,
-  logs or anything secret. Uptime appears only when the Uptime plugin is installed.
+  logs or anything secret.
 - **How fresh it is:** a page view never calls Coolify. While a page is published the plugin checks Coolify
   every minute in the background, with the connection's own token; after errors it waits 1, 2, 5, then 15
   minutes. When the status is more than 5 minutes old the page says "Status may be out of date". The page

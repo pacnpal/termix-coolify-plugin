@@ -231,6 +231,10 @@ export function createStatusPages(ctx: PluginContext, deps: StatusPagesDeps) {
   // Per connection: failures in a row and when the next refresh may run.
   const backoff = new Map<number, { failures: number; nextAt: number }>();
   let awake: boolean | null = null;
+  // In-flight public reads, keyed by token hash and page generation, so
+  // views that arrive together share one read and a change starts a new one.
+  const views = new Map<string, Promise<PublicStatus | null>>();
+  let pageGeneration = 0;
 
   async function allowed(): Promise<boolean> {
     return (await ctx.settings.get("allowStatusPages")) !== false;
@@ -272,7 +276,7 @@ export function createStatusPages(ctx: PluginContext, deps: StatusPagesDeps) {
 
   /** Only the connection's owner manages its pages; anyone else gets a 404. */
   async function ownConnection(connectionId: number): Promise<void> {
-    const access = await deps.connections.access(connectionId);
+    const access = (await deps.connections.get(connectionId))?.access;
     if (!access) {
       throw new ConnectionError("not-found", "Coolify connection not found");
     }
@@ -288,7 +292,7 @@ export function createStatusPages(ctx: PluginContext, deps: StatusPagesDeps) {
     const found = await pageRow(id);
     if (
       !found ||
-      (await deps.connections.access(found.connectionId)) !== "owner"
+      (await deps.connections.get(found.connectionId))?.access !== "owner"
     ) {
       throw pageNotFound();
     }
@@ -311,13 +315,86 @@ export function createStatusPages(ctx: PluginContext, deps: StatusPagesDeps) {
     return { token, tokenHash: hashToken(token) };
   }
 
+  /**
+   * The connection's unattended snapshot while its owner still holds
+   * coolify.view, else null. Status pages have no actor, so this is their one
+   * access check.
+   */
+  async function reachable(connectionId: number) {
+    const snap = await deps.connections.unattendedSnapshot(connectionId);
+    if (!snap || !(await ctx.rbac.hasFor(snap.userId, "view"))) return null;
+    return snap;
+  }
+
+  /** One public read of a page, shared by the views that ask together. */
+  async function readView(token: string): Promise<PublicStatus | null> {
+    const db = await dbClient(ctx);
+    const [found] = (await db
+      .select()
+      .from(t)
+      .where(eq(t.tokenHash, hashToken(token)))
+      .limit(1)) as StatusPageRow[];
+    if (!found || found.revokedAt || !tokenMatches(found.tokenHash, token)) {
+      return null;
+    }
+    const chosen = uuidList(found.resources);
+    // A gone connection, or an owner who lost access, shows nothing: the
+    // same 404 as an unknown token.
+    const snap = await reachable(found.connectionId);
+    if (!snap) return null;
+    const cached = await deps.resources.peekCached(
+      found.connectionId,
+      snap.revision,
+    );
+    const now = Date.now();
+    const byUuid = new Map((cached?.rows ?? []).map((r) => [r.uuid, r]));
+    const rows = chosen
+      .map((uuid) => byUuid.get(uuid))
+      .filter((r): r is NonNullable<typeof r> => Boolean(r));
+    const uptime = deps.uptime
+      ? await deps
+          .uptime(
+            found.connectionId,
+            rows.map((r) => r.uuid),
+          )
+          .catch(() => ({}) as Record<string, number>)
+      : {};
+    ctx.log.info(`status page ${found.id} viewed`);
+    return {
+      title: found.title,
+      generatedAt: new Date(now).toISOString(),
+      updatedAt: cached ? new Date(cached.fetchedAt).toISOString() : null,
+      stale: !cached || now - cached.fetchedAt > STALE_AFTER_MS,
+      items: rows.map((r) => ({
+        name: r.name,
+        status: resourceHealth(r.status),
+        lastDeployAt: r.lastDeployAt,
+        // The resource list doesn't carry the last deploy's result yet.
+        lastDeployOk: null,
+        ...(typeof uptime[r.uuid] === "number"
+          ? { uptime: uptime[r.uuid] }
+          : {}),
+      })),
+    };
+  }
+
+  /**
+   * Marks a change to a page's token or state. Called before and after the
+   * write, so no view that starts once it begins joins a read from before.
+   */
+  function pagesChanged(): void {
+    pageGeneration += 1;
+    views.clear();
+  }
+
   async function refreshOne(connectionId: number, now: number): Promise<void> {
     const state = backoff.get(connectionId);
     if (state && now < state.nextAt) return;
-    const snap = await deps.connections.unattendedSnapshot(connectionId);
-    const cached = snap
-      ? await deps.resources.peekCached(connectionId, snap.revision)
-      : null;
+    // A gone connection, or an owner who lost access, gets no refresh: the
+    // job never uses a token its owner could no longer use themselves.
+    const snap = await reachable(connectionId);
+    if (!snap) return;
+    const cached = await deps.resources.peekCached(connectionId, snap.revision);
     if (!state && cached && now - cached.fetchedAt < FRESH_ENOUGH_MS) return;
     try {
       await deps.resources.refreshUnattended(connectionId);
@@ -363,7 +440,7 @@ export function createStatusPages(ctx: PluginContext, deps: StatusPagesDeps) {
     /** The actor's live pages, for one connection or all they own. */
     async list(connectionId?: number): Promise<StatusPageView[]> {
       if (connectionId !== undefined) {
-        if (!(await deps.connections.access(connectionId))) {
+        if (!(await deps.connections.get(connectionId))) {
           throw new ConnectionError(
             "not-found",
             "Coolify connection not found",
@@ -425,11 +502,13 @@ export function createStatusPages(ctx: PluginContext, deps: StatusPagesDeps) {
       const found = await ownPage(id);
       const { token, tokenHash } = issueToken();
       const db = await dbClient(ctx);
+      pagesChanged();
       await db
         .update(t)
         .set({ tokenHash })
         .where(and(eq(t.id, found.id), isNull(t.revokedAt)));
       await ctx.db.persist();
+      pagesChanged();
       return {
         page: toView(found),
         url: await pageUrl(token, userId, opts.base),
@@ -439,11 +518,13 @@ export function createStatusPages(ctx: PluginContext, deps: StatusPagesDeps) {
     async revoke(id: number): Promise<StatusPageView> {
       const found = await ownPage(id);
       const db = await dbClient(ctx);
+      pagesChanged();
       await db
         .update(t)
         .set({ revokedAt: new Date().toISOString() })
         .where(eq(t.id, found.id));
       await ctx.db.persist();
+      pagesChanged();
       await syncAwake();
       return toView(found);
     },
@@ -456,52 +537,14 @@ export function createStatusPages(ctx: PluginContext, deps: StatusPagesDeps) {
     async publicView(token: string): Promise<PublicStatus | null> {
       if (!TOKEN.test(token)) return null;
       if (!(await allowed())) return null;
-      const db = await dbClient(ctx);
-      const [found] = (await db
-        .select()
-        .from(t)
-        .where(eq(t.tokenHash, hashToken(token)))
-        .limit(1)) as StatusPageRow[];
-      if (!found || found.revokedAt || !tokenMatches(found.tokenHash, token)) {
-        return null;
-      }
-      const chosen = uuidList(found.resources);
-      const snap = await deps.connections.unattendedSnapshot(
-        found.connectionId,
-      );
-      const cached = snap
-        ? await deps.resources.peekCached(found.connectionId, snap.revision)
-        : null;
-      const now = Date.now();
-      const byUuid = new Map((cached?.rows ?? []).map((r) => [r.uuid, r]));
-      const rows = chosen
-        .map((uuid) => byUuid.get(uuid))
-        .filter((r): r is NonNullable<typeof r> => Boolean(r));
-      const uptime = deps.uptime
-        ? await deps
-            .uptime(
-              found.connectionId,
-              rows.map((r) => r.uuid),
-            )
-            .catch(() => ({}) as Record<string, number>)
-        : {};
-      ctx.log.info(`status page ${found.id} viewed`);
-      return {
-        title: found.title,
-        generatedAt: new Date(now).toISOString(),
-        updatedAt: cached ? new Date(cached.fetchedAt).toISOString() : null,
-        stale: !cached || now - cached.fetchedAt > STALE_AFTER_MS,
-        items: rows.map((r) => ({
-          name: r.name,
-          status: resourceHealth(r.status),
-          lastDeployAt: r.lastDeployAt,
-          // The resource list doesn't carry the last deploy's result yet.
-          lastDeployOk: null,
-          ...(typeof uptime[r.uuid] === "number"
-            ? { uptime: uptime[r.uuid] }
-            : {}),
-        })),
-      };
+      const key = `${hashToken(token)}:${pageGeneration}`;
+      const pending = views.get(key);
+      if (pending) return pending;
+      const started = readView(token).finally(() => {
+        if (views.get(key) === started) views.delete(key);
+      });
+      views.set(key, started);
+      return started;
     },
 
     refreshTick,

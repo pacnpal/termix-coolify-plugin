@@ -4,6 +4,7 @@ import { healthyCoolify } from "../helpers/fake-coolify.js";
 import {
   ANON,
   OTHER,
+  OWNER,
   startPlugin,
   type PluginHarness,
 } from "../helpers/plugin.js";
@@ -457,5 +458,154 @@ describe("status page routes", () => {
     expect(publicPaths.sort()).toEqual(
       ["/status/:token", "/status/:token.json"].sort(),
     );
+    // Core's public rate limit (120 a minute per address) stays in force.
+    expect(
+      harness.mock.httpRouters.some((o) => o?.publicRateLimit !== undefined),
+    ).toBe(false);
+  });
+});
+
+describe("status page connection checks", () => {
+  /** The 404 an unknown token gets, to compare other refusals with. */
+  async function unknownAnswer(h: PluginHarness) {
+    const unknown = crypto.randomBytes(32).toString("base64url");
+    const page = await h.raw("GET", `/status/${unknown}.json`, ANON);
+    return { status: page.status, text: page.text };
+  }
+
+  it("a page whose connection is gone answers the same 404 as an unknown token", async () => {
+    const { harness, id } = await start();
+    await warm(harness, id);
+    const page = await publish(harness, id);
+    harness.db.sqlite
+      .prepare("DELETE FROM p_coolify_connections WHERE id = ?")
+      .run(id);
+    const gone = await harness.raw("GET", `${publicPath(page.url)}.json`, ANON);
+    expect({ status: gone.status, text: gone.text }).toEqual(
+      await unknownAnswer(harness),
+    );
+    expect((await harness.raw("GET", publicPath(page.url), ANON)).status).toBe(
+      404,
+    );
+  });
+
+  it("a page whose owner lost coolify.view answers 404, and the refresh stops using their token", async () => {
+    const { harness, fake, id } = await start();
+    await warm(harness, id);
+    const page = await publish(harness, id);
+    const hasFor = vi
+      .spyOn(harness.mock.ctx.rbac, "hasFor")
+      .mockImplementation(
+        async (userId, permission) =>
+          !(userId === OWNER && permission === "view"),
+      );
+    const lost = await harness.raw("GET", `${publicPath(page.url)}.json`, ANON);
+    expect({ status: lost.status, text: lost.text }).toEqual(
+      await unknownAnswer(harness),
+    );
+    expect(hasFor).toHaveBeenCalledWith(OWNER, "view");
+    const before = fake.calls.length;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 61_000);
+    harness.mock.setActor(undefined);
+    await harness.mock.runScheduled();
+    expect(fake.calls.length).toBe(before);
+  });
+
+  it("after the connection is repointed, old rows aren't shown and only the chosen uuids come from the new target", async () => {
+    const { harness, fake, id } = await start();
+    await warm(harness, id);
+    const page = await publish(harness, id);
+    const items = async () =>
+      JSON.parse(
+        (await harness.raw("GET", `${publicPath(page.url)}.json`, ANON)).text,
+      ).items.map((i: { name: string }) => i.name);
+    expect(await items()).toEqual(["web", "api"]);
+    const moved = await harness.request("PATCH", `/connections/${id}`, {
+      baseUrl: "https://other-coolify.example.test",
+    });
+    expect(moved.status).toBe(200);
+    // The rows cached for the old target are never shown for the new one.
+    expect(await items()).toEqual([]);
+    const lists = resourceLists();
+    const apps = (lists["GET /applications"] as { json: any[] }).json;
+    fake.set("GET /applications", {
+      json: apps.map((a) => ({
+        ...a,
+        uuid: `other-${a.uuid}`,
+        name: `other-${a.name}`,
+      })),
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 61_000);
+    harness.mock.setActor(undefined);
+    await harness.mock.runScheduled();
+    expect(await items()).toEqual([]);
+  });
+});
+
+describe("status page load", () => {
+  it("concurrent views of one page share one read", async () => {
+    const { harness, id } = await start();
+    await warm(harness, id);
+    const page = await publish(harness, id);
+    // The first read is held at its access check until every view arrived.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const real = harness.mock.ctx.rbac.hasFor;
+    const hasFor = vi
+      .spyOn(harness.mock.ctx.rbac, "hasFor")
+      .mockImplementation(async (userId, permission) => {
+        await held;
+        return real(userId, permission);
+      });
+    const settings = vi.spyOn(harness.mock.ctx.settings, "get");
+    const views = Promise.all(
+      Array.from({ length: 5 }, (_, i) =>
+        harness.raw(
+          "GET",
+          `${publicPath(page.url)}${i % 2 ? ".json" : ""}`,
+          ANON,
+        ),
+      ),
+    );
+    await vi.waitFor(() =>
+      expect(
+        settings.mock.calls.filter(([key]) => key === "allowStatusPages"),
+      ).toHaveLength(5),
+    );
+    release();
+    expect((await views).map((v) => v.status)).toEqual([
+      200, 200, 200, 200, 200,
+    ]);
+    expect(hasFor).toHaveBeenCalledTimes(1);
+  });
+
+  it("a view that starts after a rotate never joins a read from before it", async () => {
+    const { harness, id } = await start();
+    await warm(harness, id);
+    const page = await publish(harness, id);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const real = harness.mock.ctx.rbac.hasFor;
+    const hasFor = vi
+      .spyOn(harness.mock.ctx.rbac, "hasFor")
+      .mockImplementationOnce(async (userId, permission) => {
+        await held;
+        return real(userId, permission);
+      });
+    const before = harness.raw("GET", `${publicPath(page.url)}.json`, ANON);
+    // The first read is held at its access check while the rotate lands.
+    await vi.waitFor(() => expect(hasFor).toHaveBeenCalled());
+    const rotated = await harness.request(
+      "POST",
+      `/status-pages/${page.id}/rotate`,
+    );
+    expect(rotated.status).toBe(200);
+    const after = harness.raw("GET", `${publicPath(page.url)}.json`, ANON);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    release();
+    await before;
+    expect((await after).status).toBe(404);
   });
 });
