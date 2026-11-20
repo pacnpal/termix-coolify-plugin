@@ -256,15 +256,17 @@ console }`, calls the shell route and draws `PluginComponent id="terminal.view"`
   `target-changed`). `UpdateError` has its own statuses (409 for `not-linked`, `host-key` with a fixed
   message, never core's text). The plugin's own last check is kept in `cache` as kind
   `updates:<serverUuid>` with the revision it was read under, and served only while that is current.
-  Install and reboot, once they reached the server (even when they failed), drop that row, the signals'
-  `servers` kind and the resources cache (`resources.invalidate`). The mock ctx's `hosts.checkAccess`
+  Install and reboot, once they reached the server (even when they failed), drop that row, then call
+  `servers.invalidate` and `resources.invalidate`. The mock ctx's `hosts.checkAccess`
   only knows hosts given up front, so tests spy on it, on `ssh.exec`, on `operations.invoke` and on
   `plugins.list` (`tests/backend/updates/fixtures.ts`).
 - MCP may deploy and restart without `allowMcpChanges` (`MCP_CHANGES_EXEMPT` in `mcp/server.ts`).
 - Signals (`src/backend/ops/signals.ts`) read resources from the resources cache and server statuses from a
-  `servers` cache kind (a minute, no addresses or keys kept). That cache works like the resources cache:
-  rows carry `connections.revision(id)` and a hit needs the current one, in-flight fetches are keyed by
-  id and revision, and a fetch is cached only if the revision didn't change while it ran. The degraded
+  `servers` cache kind (a minute, no addresses or keys kept) through `createServerStatuses`, made in
+  `index.ts`. That cache works like the resources cache: rows carry `connections.revision(id)` and a
+  per-instance generation (`<epoch>:<n>`) that `invalidate` advances, a hit needs both to be current,
+  in-flight fetches are keyed by id, revision and generation (invalidate drops them), and a fetch is
+  cached only if neither changed while it ran. The degraded
   count is `countResources`, so exited (with any health suffix) is stopped and never counts; bare
   `unhealthy` does. Updates come from Coolify's own patch check (`ServerDto.patch.security`), not the
   updates service's own checks. The deployment events are emitted only by a deploy run with `wait`;

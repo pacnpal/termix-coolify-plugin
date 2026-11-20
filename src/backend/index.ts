@@ -15,6 +15,7 @@ import { registerContainerRoutes } from "./containers/routes.js";
 import { registerOperations } from "./operations.js";
 import { createSync, type Sync } from "./sync/service.js";
 import { registerSyncRoutes } from "./sync/routes.js";
+import { createServerStatuses } from "./ops/signals.js";
 import { createUpdates } from "./updates/service.js";
 import { registerUpdateRoutes } from "./updates/routes.js";
 
@@ -33,7 +34,14 @@ export async function activate(ctx: PluginContext): Promise<void> {
   const resources = createResources(ctx, { tables, connections });
   const lifecycle = createLifecycle(ctx, { connections, resources, sync });
   const containers = createContainers(ctx, { connections, lifecycle, sync });
-  const updates = createUpdates(ctx, { tables, connections, resources, sync });
+  const servers = createServerStatuses(ctx, { tables, connections });
+  const updates = createUpdates(ctx, {
+    tables,
+    connections,
+    resources,
+    servers,
+    sync,
+  });
   const router = ctx.http.router<Router>();
   registerConnectionRoutes(router, ctx, connections);
   registerResourceRoutes(router, ctx, resources);
@@ -49,6 +57,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
     resources,
     lifecycle,
     containers,
+    servers,
     updates,
   });
 }

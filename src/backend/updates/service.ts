@@ -21,7 +21,7 @@ import {
   type Connections,
 } from "../connections/service.js";
 import type { Tables } from "../db.js";
-import { SERVERS_CACHE_KIND } from "../ops/signals.js";
+import type { ServerStatuses } from "../ops/signals.js";
 import type { Resources } from "../resources/service.js";
 import { isHostKeyError, sshRunner, type SshRunner } from "../ssh.js";
 import type { Sync } from "../sync/service.js";
@@ -408,6 +408,7 @@ export function createUpdates(
     tables: Tables;
     connections: Connections;
     resources: Pick<Resources, "invalidate">;
+    servers: Pick<ServerStatuses, "invalidate">;
     sync: Pick<Sync, "linkedHostFor">;
     /** SSH on a Linked host; ctx.ssh.exec unless a test gives another. */
     run?: SshRunner;
@@ -601,7 +602,7 @@ export function createUpdates(
    */
   async function invalidate(connectionId: number, uuid: string) {
     await cache.drop(connectionId, kindOf(uuid));
-    await cache.drop(connectionId, SERVERS_CACHE_KIND);
+    await deps.servers.invalidate(connectionId);
     await resources.invalidate(connectionId);
   }
 

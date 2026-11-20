@@ -179,4 +179,42 @@ describe("server updates fail closed", () => {
     expect(res.body.cause).toBe("host-key");
     expect(JSON.stringify(res.body)).not.toContain("details-from-core");
   });
+
+  it("a server status fetch still running when install ends is not cached", async () => {
+    const { h, web1, fake, hostId } = await start();
+    fakeSsh(h);
+    const listed = () =>
+      fake.calls.filter((c) => c.method === "GET" && c.path === "/servers")
+        .length;
+    const answer = () =>
+      new Response(JSON.stringify([WEB1_PATCHED]), {
+        headers: { "content-type": "application/json" },
+      });
+    let reached = () => {};
+    let release = () => {};
+    const atFetch = new Promise<void>((resolve) => (reached = resolve));
+    const released = new Promise<void>((resolve) => (release = resolve));
+    // A slow Coolify: this /servers answer waits until released.
+    fake.set("GET /servers", (async () => {
+      reached();
+      await released;
+      return answer();
+    }) as unknown as () => Response);
+    const signal = () =>
+      h.mock.ctx.operations.run("coolify.signal-updates", { hostId });
+
+    const before = signal();
+    await atFetch;
+    const installed = await h.request("POST", `${web1}/updates/install`, {
+      confirm: true,
+    });
+    expect(installed.status).toBe(200);
+    fake.set("GET /servers", answer);
+    release();
+    await before;
+
+    const calls = listed();
+    await signal();
+    expect(listed()).toBe(calls + 1);
+  });
 });
