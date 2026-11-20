@@ -278,7 +278,9 @@ starts every container on the server. Kernel and core system packages are labell
 
 The numbers come from Coolify's own patch check, which runs on Coolify's schedule. **Check now** re-reads
 them at once; the card then says which check it shows ("Checked over SSH", "Checked through Package
-Manager" or "Coolify's check") and keeps Coolify's own record beside it until Coolify catches up.
+Manager" or "Coolify's check") and keeps Coolify's own record beside it until Coolify catches up. When a check failed, the card
+says so with the error instead of a count or "Up to date", offers no Install, and the security updates tile
+is unknown.
 
 Coolify has no API to check, install or reboot, so the plugin does it on the Linked host:
 

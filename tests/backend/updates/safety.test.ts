@@ -218,6 +218,34 @@ describe("server updates fail closed", () => {
     expect(listed()).toBe(calls + 1);
   });
 
+  it("a failed Coolify check is unknown to the updates signal and the read, not zero", async () => {
+    const { h, web1, fake, hostId, connectionId } = await start();
+    const failed = {
+      ...WEB1_PATCHED,
+      settings: {
+        ...(WEB1_PATCHED.settings as Record<string, unknown>),
+        patch_check_result: {
+          total_updates: 0,
+          security_updates: 0,
+          updates: [],
+        },
+        patch_check_error: "apt-get update failed",
+      },
+    };
+    fake.set("GET /servers", { json: [failed] });
+    fake.set("GET /servers/srv-web1", { json: failed });
+    const signal = await h.mock.ctx.operations.run("coolify.signal-updates", {
+      hostId,
+    });
+    expect((signal.data as { status: string }).status).toBe("unknown");
+    const read = await h.mock.ctx.operations.run("coolify.server-updates", {
+      input: { connectionId: String(connectionId), serverUuid: "srv-web1" },
+    });
+    expect(read.summary).not.toContain("0 updates");
+    const status = await h.request("GET", `${web1}/updates`);
+    expect(status.body.coolify).toMatchObject({ updates: null });
+  });
+
   it("a plugin list that can't be read refuses instead of falling back to SSH", async () => {
     const { h, web1 } = await start({ plugins: ["package-manager"] });
     const invoke = fakePackageManager(h);

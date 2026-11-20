@@ -726,6 +726,7 @@
     "loadFailed": "The updates could not be read.",
     "none": "No check yet.",
     "upToDate": "Up to date",
+    "checkFailed": "The last check failed, so the updates are unknown",
     "summary": "{{count}} updates, {{security}} security",
     "summaryUnknownSecurity": "{{count}} updates",
     "rebootRequired": "Reboot required",

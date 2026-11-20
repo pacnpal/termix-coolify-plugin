@@ -269,6 +269,26 @@ describe("server updates in the host section", () => {
     );
   });
 
+  it("a failed Coolify check never shows Up to date, a count or Install", async () => {
+    const failed = {
+      ...coolifyPatch,
+      updates: 0,
+      security: 0,
+      rebootRequired: null,
+      items: [],
+      error: "apt-get update failed",
+    };
+    const card = await renderSection(stubApi(status({ coolify: failed })));
+    await waitFor(() =>
+      expect(card.textContent).toContain("apt-get update failed"),
+    );
+    expect(card.textContent).not.toContain(U.upToDate);
+    expect(card.textContent).not.toContain(
+      U.summary.replace("{{count}}", "0").replace("{{security}}", "0"),
+    );
+    expect(within(card).queryByRole("button", { name: U.install })).toBeNull();
+  });
+
   it("shows Coolify's check when it is newer than the plugin's own, and offers Install", async () => {
     const older = {
       ...coolifyPatch,

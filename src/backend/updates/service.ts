@@ -352,7 +352,7 @@ export function parseCheck(
     (pkg === "pacman" && /^error:/m.test(listing))
   ) {
     return {
-      updates: 0,
+      updates: null,
       security: null,
       rebootRequired: null,
       checkedAt,

@@ -168,7 +168,8 @@ export interface PatchItem {
 
 /** A server's pending package updates, from Coolify or the plugin's own check. */
 export interface PatchStatus {
-  updates: number;
+  /** Null when unknown: the check failed (`error`). */
+  updates: number | null;
   security: number | null;
   rebootRequired: boolean | null;
   checkedAt: string | null;

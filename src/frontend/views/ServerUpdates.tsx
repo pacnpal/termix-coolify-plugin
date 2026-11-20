@@ -63,6 +63,7 @@ function timeOf(iso: string | null | undefined): number {
 }
 
 function summaryOf(t: T, status: PatchStatus): string {
+  if (status.error || status.updates === null) return t("updates.checkFailed");
   return status.security === null
     ? t("updates.summaryUnknownSecurity", { count: status.updates })
     : t("updates.summary", {
@@ -269,6 +270,8 @@ export function ServerUpdates({ link }: { link: HostLink }) {
     : data?.coolify
       ? "coolify"
       : null;
+  // A failed check is unknown: no count, no Up to date and no Install.
+  const failed = Boolean(latest && (latest.error || latest.updates === null));
   const dockerCount = items(latest).filter((i) => i.risk === "docker").length;
 
   async function check() {
@@ -337,9 +340,11 @@ export function ServerUpdates({ link }: { link: HostLink }) {
         <div className="flex flex-col gap-1 text-xs">
           <p className="flex flex-wrap items-center gap-2">
             <span>
-              {latest.updates === 0
-                ? t("updates.upToDate")
-                : summaryOf(t, latest)}
+              {failed
+                ? t("updates.checkFailed")
+                : latest.updates === 0
+                  ? t("updates.upToDate")
+                  : summaryOf(t, latest)}
             </span>
             {latest.rebootRequired && (
               <StatusBadge tone="warn">
@@ -404,7 +409,7 @@ export function ServerUpdates({ link }: { link: HostLink }) {
               {busy === "check" ? t("updates.checking") : t("updates.check")}
             </Button>
           )}
-          {canOperate && latest && latest.updates > 0 && (
+          {canOperate && latest && !failed && (latest.updates ?? 0) > 0 && (
             <Button
               size="sm"
               variant="outline"

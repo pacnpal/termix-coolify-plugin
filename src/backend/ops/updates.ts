@@ -5,6 +5,7 @@ import { connectionIdInput } from "./connections.js";
 
 function counts(status: PatchStatus | null): string {
   if (!status) return "no check yet";
+  if (status.error || status.updates === null) return "the last check failed";
   const security =
     status.security === null ? "" : `, ${status.security} security`;
   const reboot = status.rebootRequired ? ", reboot required" : "";

@@ -243,7 +243,8 @@ console }`, calls the shell route and draws `PluginComponent id="terminal.view"`
 - Server updates: `src/backend/updates/` (`service.ts` `createUpdates`, `routes.ts`) and
   `src/backend/ops/updates.ts`; the UI is `src/frontend/views/ServerUpdates.tsx` inside the host card.
   Coolify's `patch_check_result` is mapped by `toPatch` in `dto.ts` (an explicit `security_updates: null`
-  stays unknown). Check and install go through `ctx.operations.invoke` of `package-manager.list-updates` /
+  stays unknown; a `patch_check_error` makes `updates` and `security` null with no items, whatever
+  result is left, so the card, Install, the updates signal and the actions never read it as zero). Check and install go through `ctx.operations.invoke` of `package-manager.list-updates` /
   `upgrade-all` when that plugin is active, else SSH (`sshRunner` from `ssh.ts`) with fixed commands built
   from `host-commands` (no request value ever reaches a command; root or `sudo -n`). Reboot is always SSH.
   The plugin list decides the path; when it can't be read, check and install refuse (409
