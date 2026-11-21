@@ -35,18 +35,34 @@ export function linkOf(
 }
 
 const MAX_AGE_MS = 5 * 60_000;
-const previews = new Map<number, { at: number; rows: Promise<SyncRow[]> }>();
+const previews = new Map<
+  number,
+  { at: number; revision: string | null; rows: Promise<SyncRow[]> }
+>();
 
 /**
  * A connection's sync preview, shared by every Linked host of that
  * connection and kept for five minutes, so host rows cost one request per
- * connection rather than one per host. A failed read answers no rows.
+ * connection rather than one per host. A failed read answers no rows. A
+ * caller that knows the connection's revision gets only a preview of that
+ * target: a changed address, token or TLS setting reads it again. Without
+ * one (a host row's dot), the newest preview is used.
  */
-export function cachedPreview(api: Api, connectionId: number) {
+export function cachedPreview(
+  api: Api,
+  connectionId: number,
+  revision: string | null = null,
+) {
   const hit = previews.get(connectionId);
-  if (hit && Date.now() - hit.at < MAX_AGE_MS) return hit.rows;
+  if (
+    hit &&
+    Date.now() - hit.at < MAX_AGE_MS &&
+    (revision === null || hit.revision === revision)
+  ) {
+    return hit.rows;
+  }
   const rows = api.syncPreview(connectionId).catch(() => [] as SyncRow[]);
-  previews.set(connectionId, { at: Date.now(), rows });
+  previews.set(connectionId, { at: Date.now(), revision, rows });
   return rows;
 }
 
@@ -55,20 +71,26 @@ export function forgetPreview(connectionId: number): void {
   previews.delete(connectionId);
 }
 
-/** The sync row of a Linked host's server, or null while unknown. */
-export function useLinkedRow(link: HostLink | null): SyncRow | null {
+/**
+ * The sync row of a Linked host's server, or null while unknown. Keyed by
+ * the connection's revision when the caller has it: a new revision clears
+ * the row, and an answer for an older key is dropped.
+ */
+export function useLinkedRow(
+  link: HostLink | null,
+  revision: string | null = null,
+): SyncRow | null {
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
   const [row, setRow] = useState<SyncRow | null>(null);
   const connectionId = link?.connectionId ?? 0;
   const serverUuid = link?.serverUuid ?? "";
   useEffect(() => {
-    if (!connectionId || !serverUuid) {
-      setRow(null);
-      return;
-    }
+    setRow(null);
+    if (!connectionId || !serverUuid) return;
+    // This request's generation: over once the key changes or on unmount.
     let live = true;
-    void cachedPreview(api, connectionId).then((rows) => {
+    void cachedPreview(api, connectionId, revision).then((rows) => {
       if (live) {
         setRow(rows.find((r) => r.server.uuid === serverUuid) ?? null);
       }
@@ -76,6 +98,6 @@ export function useLinkedRow(link: HostLink | null): SyncRow | null {
     return () => {
       live = false;
     };
-  }, [api, connectionId, serverUuid]);
+  }, [api, connectionId, serverUuid, revision]);
   return row;
 }

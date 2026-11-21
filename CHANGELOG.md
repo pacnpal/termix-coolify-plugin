@@ -78,6 +78,8 @@
 - Linked hosts are read only while Coolify manages them, with a Coolify badge, a status dot, a Coolify card
   on the host page, and Resources, Sync and Unlink in their menu. Unlink makes a host ordinary again;
   deleting a Linked host keeps its address and credential choice for the next sync
+- Changing a connection's address, token or TLS settings reloads the Servers preview and the Linked host
+  card's server status, so neither shows the old target's servers
 - "Import from Coolify" in the hosts import menu, and a Sync servers button on each connection, both
   opening the Servers section, also when the tab is already open on another section
 - Actions `coolify.sync-preview`, `coolify.sync-apply` and `coolify.unlink`; only the preview is offered to
@@ -100,7 +102,8 @@
 - Open shell and Open database console in a resource's or part's Shell view: a Coolify shell tab with SSH
   Terminal's terminal on the Linked host, in the container found by Coolify's labels (uuid first, then the
   labels from before Coolify 4.4, and for parts their own uuid, then their compose service name). `bash` or
-  `sh`, and `sudo` when the SSH user needs it. A picker when several containers match
+  `sh`, and `sudo` when the SSH user needs it. A picker when several containers match, and Change container
+  after a failed pick (a stopped one, say) to pick another
 - Database consoles with psql, mysql or mariadb, mongosh, redis-cli, keydb-cli, clickhouse-client and
   sqlite3. Credentials are read inside the container from its own environment; no password is in the
   command, the browser, a log or the client's process arguments

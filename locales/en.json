@@ -24,6 +24,7 @@
     "copied": "Copied",
     "trust": "Open server terminal",
     "retry": "Try again",
+    "changeContainer": "Change container",
     "fingerprints": "Coolify's fingerprint for this host's key:",
     "noConsole": "There is no database console for this engine, so this is a shell in the container.",
     "noTerminal": {

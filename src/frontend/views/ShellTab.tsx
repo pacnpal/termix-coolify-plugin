@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Copy, KeyRound, SquareTerminal, TriangleAlert } from "lucide-react";
 import type { TabProps } from "@termix-ssh/plugin-sdk/frontend";
 import type { PluginHostRecord } from "@termix-ssh/plugin-sdk/frontend";
@@ -33,6 +33,8 @@ export interface ShellTabData {
   part?: string;
   container?: string;
   console: "shell" | "db";
+  /** The connection's target hash when opened; a new one starts the tab anew. */
+  revision?: string;
 }
 
 const UUID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -57,7 +59,22 @@ export function shellTabData(
   if (typeof data?.container === "string" && NAME.test(data.container)) {
     out.container = data.container;
   }
+  if (typeof data?.revision === "string" && UUID.test(data.revision)) {
+    out.revision = data.revision;
+  }
   return out;
+}
+
+/** One key per resource and target: the picked container belongs to it. */
+function keyOf(opened: ShellTabData): string {
+  return [
+    opened.connectionId,
+    opened.uuid,
+    opened.part ?? "",
+    opened.console,
+    opened.container ?? "",
+    opened.revision ?? "",
+  ].join(":");
 }
 
 /**
@@ -229,10 +246,13 @@ function Failed({
   failure,
   onTrust,
   onRetry,
+  onChangeContainer,
 }: {
   failure: Extract<State, { kind: "failed" }>;
   onTrust: (() => void) | null;
   onRetry: () => void;
+  /** Null when no container was picked, so there is nothing to change. */
+  onChangeContainer: (() => void) | null;
 }) {
   const { t } = useTranslation();
   const known = (KNOWN_CAUSES as readonly string[]).includes(failure.cause);
@@ -248,6 +268,11 @@ function Failed({
             {hostKey && onTrust && (
               <Button size="sm" onClick={onTrust}>
                 {t("shellTab.trust")}
+              </Button>
+            )}
+            {onChangeContainer && (
+              <Button size="sm" variant="outline" onClick={onChangeContainer}>
+                {t("shellTab.changeContainer")}
               </Button>
             )}
             <Button size="sm" variant="outline" onClick={onRetry}>
@@ -274,25 +299,49 @@ function Failed({
 /**
  * The coolify-shell tab: asks the backend for the docker exec command, then
  * embeds SSH Terminal's terminal.view on the Linked host to run it. Without
- * SSH Terminal it shows the command to copy.
+ * SSH Terminal it shows the command to copy. Its state, the picked container
+ * too, belongs to one resource and revision: new tab data starts it anew.
  */
 export function ShellTab(props: TabProps) {
   const { t } = useTranslation();
-  const client = usePluginApi();
-  const api = useMemo(() => createApi(client), [client]);
   const opened = useMemo(
     () => shellTabData(props.tab?.data),
     [props.tab?.data],
   );
+  if (!opened) {
+    return (
+      <PanelFrame>
+        <EmptyState icon={SquareTerminal} title={t("shellTab.empty")} />
+      </PanelFrame>
+    );
+  }
+  return <ShellView key={keyOf(opened)} {...props} opened={opened} />;
+}
+
+function ShellView(props: TabProps & { opened: ShellTabData }) {
+  const { opened } = props;
+  const { t } = useTranslation();
+  const client = usePluginApi();
+  const api = useMemo(() => createApi(client), [client]);
   const [container, setContainer] = useState<string | undefined>(
-    opened?.container,
+    opened.container,
   );
   const [state, setState] = useState<State>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
   const failedHost = useHostById(state.kind === "failed" ? state.hostId : null);
 
+  // Request generation: only the newest load may set the state, so an older
+  // answer (for a container since changed) that ends last is dropped.
+  const generation = useRef(0);
+  useEffect(
+    () => () => {
+      generation.current += 1;
+    },
+    [],
+  );
+
   const load = useCallback(async () => {
-    if (!opened) return;
+    const mine = ++generation.current;
     setState({ kind: "loading" });
     const body = {
       console: opened.console,
@@ -301,6 +350,7 @@ export function ShellTab(props: TabProps) {
     };
     try {
       const result = await api.shell(opened.connectionId, opened.uuid, body);
+      if (mine !== generation.current) return;
       if (result.kind === "choices") {
         setState({ kind: "choices", choices: result.choices });
       } else {
@@ -308,6 +358,7 @@ export function ShellTab(props: TabProps) {
         setState({ kind: "command", answer });
       }
     } catch (err) {
+      if (mine !== generation.current) return;
       setState(readFailure(err));
     }
   }, [api, opened, container]);
@@ -317,9 +368,7 @@ export function ShellTab(props: TabProps) {
   }, [load, attempt]);
 
   let body;
-  if (!opened) {
-    body = <EmptyState icon={SquareTerminal} title={t("shellTab.empty")} />;
-  } else if (state.kind === "loading") {
+  if (state.kind === "loading") {
     body = <LoadingState label={t("shellTab.loading")} />;
   } else if (state.kind === "choices") {
     body = <Picker choices={state.choices} onPick={setContainer} />;
@@ -329,6 +378,8 @@ export function ShellTab(props: TabProps) {
         failure={state}
         onTrust={failedHost ? () => props.shell.connectHost(failedHost) : null}
         onRetry={() => setAttempt((n) => n + 1)}
+        // Clearing the pick asks for the containers again: the picker.
+        onChangeContainer={container ? () => setContainer(undefined) : null}
       />
     );
   } else {
