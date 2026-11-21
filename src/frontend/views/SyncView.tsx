@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshCw, Server } from "lucide-react";
 import {
   listCredentials,
@@ -330,10 +330,18 @@ export function SyncView({
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<SyncResult[] | null>(null);
 
+  // The preview belongs to the connection's target (id and revision): a new
+  // address, token or TLS setting clears it and loads again, and only the
+  // newest request may set it, so a late answer for the old target is dropped.
+  const { id, revision } = connection;
+  const requests = useRef(0);
   const load = useCallback(async () => {
+    const generation = ++requests.current;
+    const latest = () => generation === requests.current;
     setLoading(true);
     try {
-      const next = await api.syncPreview(connection.id);
+      const next = await api.syncPreview(id);
+      if (!latest()) return;
       setRows(next);
       setDrafts((prev) => {
         const out: Record<string, Draft> = {};
@@ -344,16 +352,30 @@ export function SyncView({
       });
       setError(null);
     } catch (err) {
+      if (!latest()) return;
       setError(failureText(t, err, "sync.loadFailed"));
       setRows((prev) => prev ?? []);
     } finally {
-      setLoading(false);
+      if (latest()) setLoading(false);
     }
-  }, [api, connection.id, t]);
+    // revision isn't read here: it keys the preview to the target.
+  }, [api, id, revision, t]);
 
   useEffect(() => {
+    setRows(null);
+    setDrafts({});
+    setResults(null);
+    setError(null);
     void load();
   }, [load]);
+
+  // Nothing that ends after unmount may set state.
+  useEffect(
+    () => () => {
+      requests.current += 1;
+    },
+    [],
+  );
 
   // Credentials are read only when a server needs one picked.
   const pickNeeded = (rows ?? []).some(needsCredential);

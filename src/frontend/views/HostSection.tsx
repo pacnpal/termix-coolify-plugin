@@ -43,9 +43,9 @@ export function HostSection({ host, shell }: HostSectionProps) {
   const confirm = useConfirm();
   const canConfigure = usePermission("configure");
   const link = linkOf(host);
-  const row = useLinkedRow(link);
   const [connectionName, setConnectionName] = useState<string | null>(null);
   const [revision, setRevision] = useState<string | null>(null);
+  const row = useLinkedRow(link, revision);
   const [unlinked, setUnlinked] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

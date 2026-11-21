@@ -1,11 +1,20 @@
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import {
   renderWithApp,
   type RenderedPluginApp,
 } from "@termix-ssh/plugin-sdk/testing";
 import type { PluginManifest } from "@termix-ssh/plugin-sdk/manifest";
+import type { TabProps } from "@termix-ssh/plugin-sdk/frontend";
 import * as plugin from "../../../src/frontend/index";
+import { ShellTab } from "../../../src/frontend/views/ShellTab";
 import manifestJson from "../../../manifest.json";
 import locales from "../../../locales/en.json";
 import { stubApi } from "../fixtures";
@@ -178,6 +187,118 @@ describe("coolify-shell tab", () => {
       "docker exec -it worker-a bash",
     );
   });
+
+  /** A shell answer for `picked`: choices without one, not-running for a stopped one. */
+  function pickerPost(choices: { name: string; running: boolean }[]) {
+    return async (_url: string, body?: unknown) => {
+      const picked = (body as { container?: string }).container;
+      if (!picked) throw failure(300, { choices });
+      if (!choices.find((c) => c.name === picked)?.running) {
+        throw failure(409, { error: "x", cause: "not-running" });
+      }
+      return {
+        data: {
+          ...answer,
+          container: picked,
+          command: `docker exec -it ${picked} bash`,
+        },
+      };
+    };
+  }
+
+  it("after a not-running pick, Change container reopens the picker and a running one opens", async () => {
+    const { api, tab, stub } = await openShell(
+      pickerPost([
+        { name: "web-old", running: false },
+        { name: "web-new", running: true },
+      ]),
+    );
+    expect(await within(tab).findByText(S.pick.title)).toBeTruthy();
+    fireEvent.click(within(tab).getByRole("button", { name: /web-old/ }));
+    expect(await within(tab).findByText(S.errors["not-running"])).toBeTruthy();
+    // Retry stays for a transient failure; Change container picks again.
+    expect(within(tab).getByRole("button", { name: S.retry })).toBeTruthy();
+    fireEvent.click(
+      within(tab).getByRole("button", { name: S.changeContainer }),
+    );
+    expect(await within(tab).findByText(S.pick.title)).toBeTruthy();
+    expect(api.post).toHaveBeenLastCalledWith(
+      "/connections/1/resources/app-web-uuid/shell",
+      { console: "shell" },
+    );
+    fireEvent.click(within(tab).getByRole("button", { name: /web-new/ }));
+    await within(tab).findByTestId("terminal-view");
+    expect(stub.seen.at(-1)!.executeCommand).toBe(
+      "docker exec -it web-new bash",
+    );
+  });
+
+  it("a failure without a picked container offers no Change container", async () => {
+    const { tab } = await openShell(async () => {
+      throw failure(409, { error: "x", cause: "not-running" });
+    });
+    expect(await within(tab).findByText(S.errors["not-running"])).toBeTruthy();
+    expect(
+      within(tab).queryByRole("button", { name: S.changeContainer }),
+    ).toBeNull();
+  });
+
+  it("the picked container belongs to one resource and revision", async () => {
+    const api = stubApi();
+    api.post.mockImplementation(
+      pickerPost([
+        { name: "web-a", running: true },
+        { name: "web-b", running: true },
+      ]) as never,
+    );
+    const stub = terminalStub();
+    const contributes = manifest.contributes ?? {};
+    rendered = await renderWithApp(plugin, {
+      manifest: {
+        ...manifest,
+        contributes: {
+          ...contributes,
+          tabs: [
+            ...(contributes.tabs ?? []),
+            { id: "shell-probe", titleKey: "tab.title", icon: "Rocket" },
+          ],
+        },
+      } as PluginManifest,
+      locales,
+      api,
+      permissions: OPERATE,
+      hosts: [host],
+      others: { components: { "terminal.view": stub.Terminal } },
+    });
+    // Stands in for the shell handing the tab new data.
+    let retab: (data: Record<string, unknown>) => void = () => {};
+    function Probe(props: TabProps) {
+      const [data, setData] = useState<Record<string, unknown>>({
+        connectionId: 1,
+        uuid: "app-web-uuid",
+        revision: "rev-a",
+      });
+      retab = setData;
+      return <ShellTab {...props} tab={{ ...props.tab, data }} />;
+    }
+    rendered.app.registerTab("shell-probe", Probe, { titleKey: "tab.title" });
+    const tab = rendered.renderTab("shell-probe", {
+      tab: { id: "p1", type: "shell-probe", label: "web" },
+      isVisible: true,
+    });
+    fireEvent.click(await within(tab).findByRole("button", { name: /web-a/ }));
+    await within(tab).findByTestId("terminal-view");
+
+    // A new target asks for the containers again rather than reusing web-a.
+    act(() =>
+      retab({ connectionId: 1, uuid: "app-web-uuid", revision: "rev-b" }),
+    );
+    expect(await within(tab).findByText(S.pick.title)).toBeTruthy();
+    expect(api.post).toHaveBeenLastCalledWith(
+      "/connections/1/resources/app-web-uuid/shell",
+      { console: "shell" },
+    );
+  });
 });
 
 describe("open shell from a resource", () => {
@@ -221,6 +342,7 @@ describe("open shell from a resource", () => {
       connectionId: 1,
       uuid: "db-main-uuid",
       console: "db",
+      revision: "rev-before",
     });
   });
 

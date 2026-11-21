@@ -284,7 +284,13 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
           ? t("shellTab.consoleLabel", { name: resource.name })
           : t("shellTab.shellLabel", { name: resource.name }),
       forceNewTab: true,
-      data: { connectionId: connection.id, uuid: resource.uuid, console },
+      data: {
+        connectionId: connection.id,
+        uuid: resource.uuid,
+        console,
+        // The target it was opened for: a new one asks for containers again.
+        ...(connection.revision ? { revision: connection.revision } : {}),
+      },
     });
   }
 
