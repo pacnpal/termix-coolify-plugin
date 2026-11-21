@@ -467,15 +467,60 @@ describe("the MCP endpoint", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
-  it("list_hosts answers an empty list without calling Coolify or hosts", async () => {
-    const { ctx, fake } = await start();
-    const run = vi.fn<Run>();
-    const before = fake.calls.length;
-    const answer = await handleMcp(withRun(ctx, run), call(19, "list_hosts"));
+  it("list_hosts runs sync-preview over mcp and answers only the Linked hosts", async () => {
+    const { ctx } = await start();
+    const run = vi.fn<Run>(async () => ({
+      runId: "run-2",
+      status: "success",
+      summary: "2 Coolify servers, 0 blocked",
+      data: {
+        rows: [
+          {
+            server: { uuid: "srv-a", name: "a", ip: "10.0.0.1" },
+            hostId: 7,
+            status: "linked",
+            tunnel: false,
+          },
+          {
+            server: { uuid: "srv-b", name: "b", ip: "10.0.0.2" },
+            hostId: null,
+            status: "new",
+            tunnel: false,
+          },
+        ],
+      },
+    }));
+    const answer = await handleMcp(
+      withRun(ctx, run),
+      call(19, "list_hosts", { connectionId: "1" }),
+    );
+    expect(run).toHaveBeenCalledWith("coolify.sync-preview", {
+      input: { connectionId: "1" },
+      dryRun: false,
+      via: "mcp",
+    });
     expect(isError(answer)).toBe(false);
-    expect(parsed(answer).data.rows).toEqual([]);
-    expect(run).not.toHaveBeenCalled();
-    expect(fake.calls.length).toBe(before);
+    expect(parsed(answer).data.rows).toEqual([
+      {
+        hostId: 7,
+        serverUuid: "srv-a",
+        name: "a",
+        status: "linked",
+        tunnel: false,
+      },
+    ]);
+  });
+
+  it("list_hosts passes a refused preview on as an error", async () => {
+    const { ctx } = await start();
+    const run = vi.fn<Run>(async () => {
+      throw Object.assign(new Error("Not found"), { code: "not-found" });
+    });
+    const answer = await handleMcp(
+      withRun(ctx, run),
+      call(19, "list_hosts", { connectionId: "9" }),
+    );
+    expect(isError(answer)).toBe(true);
   });
 
   it("list_resources runs the list-resources action over mcp for the connection asked", async () => {

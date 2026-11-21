@@ -23,7 +23,10 @@ export interface Abilities {
    * root-only action is checked on first use.
    */
   root: boolean;
-  /** Coolify's own MCP endpoint answers (set by the MCP client, later). */
+  /**
+   * Never probed, so always false: server metrics try Coolify's own MCP on
+   * every read and fall back to Sentinel on any error (metrics/service.ts).
+   */
   mcp: boolean;
 }
 

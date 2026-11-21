@@ -87,8 +87,8 @@ export interface McpToolAnnotations {
 }
 
 /**
- * A tool that is not one declared action. Later tools (such as
- * `take_status_page_url`) are one more entry in EXTRA_TOOLS.
+ * A tool that is not one declared action (`list_connections`, `list_hosts`,
+ * `list_resources`, `take_status_page_url`): one entry in EXTRA_TOOLS each.
  */
 export interface McpExtraTool {
   name: string;
@@ -317,6 +317,14 @@ function errorResult(err: unknown): McpToolResult {
   );
 }
 
+/** The fields list_hosts reads from a coolify.sync-preview row. */
+interface LinkedRow {
+  server?: { uuid?: string; name?: string };
+  hostId: number | null;
+  status?: string;
+  tunnel?: boolean;
+}
+
 const EMPTY_INPUT = {
   type: "object",
   properties: {},
@@ -344,18 +352,44 @@ export const EXTRA_TOOLS: McpExtraTool[] = [
     },
   },
   {
-    // Host sync (Linked hosts) is not built yet: no host is linked, so this
-    // answers an empty list without reading any host.
+    // Runs coolify.sync-preview, so its permission, history and checks
+    // apply, and answers only the rows that have a Linked host.
     name: "list_hosts",
-    description: "List the Termix hosts linked to Coolify servers.",
-    inputSchema: EMPTY_INPUT,
+    description:
+      "List the Termix hosts linked to the Coolify servers of a connection.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connectionId: {
+          type: "string",
+          description: `One of your Coolify connections. Values come from ${toolName("coolify.list-connections")}.`,
+        },
+      },
+      required: ["connectionId"],
+      additionalProperties: false,
+    },
     annotations: annotationsFor("read", "List Linked hosts"),
-    async call() {
+    async call(ctx, args) {
+      const outcome = await ctx.operations.run("coolify.sync-preview", {
+        input: { connectionId: args.connectionId },
+        dryRun: false,
+        via: "mcp",
+      });
+      const rows = (outcome.data as { rows?: unknown } | undefined)?.rows;
+      if (!Array.isArray(rows)) return toolResult(outcome);
+      const linked = (rows as LinkedRow[])
+        .filter((r) => typeof r.hostId === "number")
+        .map((r) => ({
+          hostId: r.hostId,
+          serverUuid: r.server?.uuid ?? null,
+          name: r.server?.name ?? null,
+          status: r.status,
+          tunnel: r.tunnel === true,
+        }));
       return toolResult({
-        runId: null,
-        status: "success",
-        summary: "0 Linked hosts",
-        data: { rows: [] },
+        ...outcome,
+        summary: `${linked.length} Linked host${linked.length === 1 ? "" : "s"}`,
+        data: { rows: linked },
       });
     },
   },
