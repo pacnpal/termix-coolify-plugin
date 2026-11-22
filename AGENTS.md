@@ -352,7 +352,15 @@ aren't obvious from the code, and anything that has bitten you before.
   outcome back to a status and cause. `sync.linkOfHost(hostId)` is the reverse lookup handlers use. Every
   action that reaches Coolify calls `resources.invalidate(connectionId)` afterwards (success or failure),
   and a waited deploy calls it again when the deployment ends, so the next read refetches and an
-  in-flight fetch from before the action is dropped.
+  in-flight fetch from before the action is dropped. A waited deploy ends on every final status in
+  `src/shared/deployment-status.ts` (`isFinalDeployment`; Coolify's `isFinal()` counts `skipped`). Only
+  `isSuccessfulDeployment` (finished, or the older success) emits deployment-finished; every other final
+  status emits deployment-failed and throws `DeploymentFailedError`, whose code is `skipped` (with its own
+  message in words) for a skipped deployment and `deployment-failed` otherwise. Recent activity is
+  recorded once, at accept, before the wait. That module is the one reading of a deployment status
+  (final, cancellable, succeeded, failed, skipped, Coolify's own spellings);
+  `tests/backend/deployment-status-guard.test.ts` fails on a `status === "<spelling>"` comparison or a
+  `new Set([...])` of spellings anywhere else in `src/`.
 - Shells: `src/backend/ssh.ts` (`SshRunner` over `ctx.ssh.exec`, `isHostKeyError`) and
   `src/backend/containers/` (`commands.ts` name check, `DB_CONSOLES`, `shellCommand`; `resolver.ts` docker ps
   filters; `service.ts` the checks; `routes.ts`) and `src/backend/ops/containers.ts`. Order of checks:

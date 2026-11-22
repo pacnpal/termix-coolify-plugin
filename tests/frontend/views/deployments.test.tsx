@@ -12,7 +12,10 @@ import {
   type RenderedPluginApp,
 } from "@termix-ssh/plugin-sdk/testing";
 import * as plugin from "../../../src/frontend/index";
-import { BuildLogView } from "../../../src/frontend/views/BuildLogView";
+import {
+  BuildLogView,
+  deploymentTone,
+} from "../../../src/frontend/views/BuildLogView";
 import locales from "../../../locales/en.json";
 import { stubApi } from "../fixtures";
 import {
@@ -442,5 +445,21 @@ describe("deployment history", () => {
       api.get.mock.calls.filter(([url]) => DEPLOYMENT.test(String(url))),
     ).toEqual([]);
     expect(screen.getByText("Commit of dep-0")).toBeTruthy();
+  });
+});
+
+describe("deployment status tones", () => {
+  it("reads success and failure from the shared statuses, older spellings too", () => {
+    expect(deploymentTone("finished")).toBe("ok");
+    expect(deploymentTone("success")).toBe("ok");
+    expect(deploymentTone("failed")).toBe("bad");
+    expect(deploymentTone("error")).toBe("bad");
+    // Ended without a new build, but not a failure.
+    expect(deploymentTone("skipped")).toBe("idle");
+    expect(deploymentTone("cancelled-by-user")).toBe("idle");
+    expect(deploymentTone("cancelled")).toBe("idle");
+    expect(deploymentTone("queued")).toBe("warn");
+    expect(deploymentTone("in_progress")).toBe("info");
+    expect(deploymentTone("something-new")).toBe("idle");
   });
 });

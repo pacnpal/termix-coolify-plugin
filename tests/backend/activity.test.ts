@@ -225,6 +225,26 @@ describe("recent activity: deploys", () => {
     ]);
   });
 
+  it("records once Coolify accepts a waited deploy, even if Coolify then skips it", async () => {
+    const { harness: h } = await deploys({
+      overrides: {
+        "GET /deployments/dep-uuid": {
+          json: { deployment_uuid: "dep-uuid", status: "skipped" },
+        },
+      },
+    });
+    await expect(
+      h.mock.ctx.operations.run("coolify.deploy", {
+        hostId: HOST_ID,
+        resourceKey: "app-web-uuid",
+        input: { wait: true },
+      }),
+    ).rejects.toMatchObject({ code: "skipped" });
+    expect(h.mock.activities).toEqual([
+      { hostId: HOST_ID, type: "coolify_deploy", hostName: "Deployed web" },
+    ]);
+  });
+
   it("records nothing for a resource whose server has no Linked host", async () => {
     const { harness: h, fake, id } = await deploys({ linked: false });
     const res = await h.request("POST", deployPath(id, "app-web-uuid"), {});

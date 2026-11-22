@@ -21,6 +21,7 @@ import {
   type PluginHarness,
 } from "./helpers/plugin.js";
 import { resourceLists } from "./helpers/resources.js";
+import { handleMcp } from "../../src/backend/mcp/server.js";
 import { redact } from "../../src/backend/redact.js";
 
 let harness: PluginHarness | null = null;
@@ -209,6 +210,83 @@ describe("lifecycle, resource and signal operations", () => {
     expect(harness.mock.operationEvents.map((e) => e.eventId)).toEqual([
       "coolify.deployment-failed",
     ]);
+  });
+
+  it("a deployment Coolify skips ends either deploy action at once, as a failed run in words", async () => {
+    const { harness, fake, id } = await start({
+      overrides: {
+        "GET /deployments/dep-uuid": {
+          json: { deployment_uuid: "dep-uuid", status: "skipped" },
+        },
+      },
+    });
+    link(harness, id, "srv-vps1-uuid", 7);
+    const runs = [
+      () =>
+        harness.mock.ctx.operations.run("coolify.deploy", {
+          hostId: 7,
+          resourceKey: "app-web-uuid",
+          input: { wait: true },
+        }),
+      () =>
+        harness.mock.ctx.operations.run("coolify.resource-deploy", {
+          input: { connectionId: String(id), uuid: "app-web-uuid", wait: true },
+        }),
+    ];
+    for (const run of runs) {
+      const started = Date.now();
+      await expect(run()).rejects.toMatchObject({
+        code: "skipped",
+        message: "Coolify skipped the deployment of web, so no new build ran",
+      });
+      // Polled once, no 5 second wait between polls.
+      expect(Date.now() - started).toBeLessThan(2_000);
+    }
+    expect(
+      fake.calls.filter((c) => c.path === "/deployments/dep-uuid"),
+    ).toHaveLength(2);
+    expect(
+      harness.mock.operationEvents.map((e) => [
+        e.eventId,
+        (e.payload as { status?: string }).status,
+      ]),
+    ).toEqual([
+      ["coolify.deployment-failed", "skipped"],
+      ["coolify.deployment-failed", "skipped"],
+    ]);
+  });
+
+  it("a skipped waited deploy over MCP is an error result with cause skipped, in words", async () => {
+    const { harness, id } = await start({
+      overrides: {
+        "GET /deployments/dep-uuid": {
+          json: { deployment_uuid: "dep-uuid", status: "skipped" },
+        },
+      },
+    });
+    harness.mock.setActor(OWNER);
+    const answer = await handleMcp(harness.mock.ctx, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "coolify__resource_deploy",
+        arguments: {
+          connectionId: String(id),
+          uuid: "app-web-uuid",
+          wait: true,
+        },
+      },
+    });
+    const result = answer?.result as {
+      isError: boolean;
+      content: { text: string }[];
+    };
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0]!.text)).toMatchObject({
+      errorCode: "skipped",
+      error: "Coolify skipped the deployment of web, so no new build ran",
+    });
   });
 
   it("deploy events carry only their declared non-secret fields, never Coolify's text", async () => {

@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { PluginOperationContext } from "@termix-ssh/plugin-sdk/backend";
 import { handleMcp } from "../../../src/backend/mcp/server.js";
-import { queueAnswers, tagAnswers } from "../helpers/deployments.js";
+import {
+  deploymentRaw,
+  queueAnswers,
+  tagAnswers,
+} from "../helpers/deployments.js";
 import {
   changes,
   grant,
@@ -109,6 +113,31 @@ describe("the connection's deployment queue", () => {
     expect(text).not.toContain("Starting");
     expect(text).not.toContain("foreign build line");
     expect(text).not.toContain(LIFECYCLE_TOKEN);
+  });
+
+  it("counts every failed spelling in the operation's summary, and skipped as not failed", async () => {
+    const started = await startLifecycle({
+      overrides: {
+        ...queueAnswers(),
+        "GET /deployments/applications/app-web-uuid": {
+          json: {
+            count: 3,
+            deployments: [
+              deploymentRaw("dep-error", "error"),
+              deploymentRaw("dep-failed", "failed"),
+              deploymentRaw("dep-skipped", "skipped"),
+            ],
+          },
+        },
+      },
+      serve: false,
+    });
+    harness = started.harness;
+    const op = await harness.mock.ctx.operations.run(
+      "coolify.deployment-queue",
+      { input: { connectionId: String(started.id) } },
+    );
+    expect(op.summary).toMatch(/\(2 failed\)$/);
   });
 
   it("serves the section, the Overview and the operation from one cached read", async () => {

@@ -6,6 +6,7 @@ import { readPaging, type Deployments } from "../deployments/service.js";
 import { handoffIdFor } from "../status/service.js";
 import { connectionIdInput } from "./connections.js";
 import { holdHandoff, takeLogText } from "./containers.js";
+import { isFailedDeployment } from "../../shared/deployment-status.js";
 
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -112,7 +113,9 @@ export function registerDeploymentOperations(
         refresh: refreshFlag(input.refresh),
         signal,
       });
-      const failed = queue.recent.filter((r) => r.status === "failed").length;
+      const failed = queue.recent.filter((r) =>
+        isFailedDeployment(r.status),
+      ).length;
       return {
         summary: `${queue.running.length} queued or running, ${queue.recent.length} recent (${failed} failed)`,
         data: queueBody(queue),

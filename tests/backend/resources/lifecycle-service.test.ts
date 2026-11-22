@@ -11,6 +11,7 @@ import type { Connections } from "../../../src/backend/connections/service.js";
 import type { ResourceDto } from "../../../src/backend/coolify/dto.js";
 import {
   createLifecycle,
+  DeploymentFailedError,
   lifecycle,
 } from "../../../src/backend/resources/lifecycle.js";
 import type { Resources } from "../../../src/backend/resources/service.js";
@@ -138,7 +139,10 @@ describe("createLifecycle run", () => {
   } as ResourceDto;
 
   /** A lifecycle over a fake Coolify that records each resources.invalidate. */
-  function runner(routes: Record<string, FakeAnswer>) {
+  function runner(
+    routes: Record<string, FakeAnswer>,
+    over: Partial<Parameters<typeof createLifecycle>[1]> = {},
+  ) {
     const { api, fake } = apiWith(routes);
     const order: string[] = [];
     fake.calls.push = new Proxy(fake.calls.push, {
@@ -161,8 +165,9 @@ describe("createLifecycle run", () => {
       sync: { linkOfHost: async () => null, linkedHostFor: async () => null },
       deployed: async () => {},
       sleep: async () => {},
+      ...over,
     });
-    return { life, invalidate, order };
+    return { life, invalidate, order, ctx };
   }
 
   it("drops the resource list after each action, also when Coolify refuses it", async () => {
@@ -212,4 +217,85 @@ describe("createLifecycle run", () => {
       "invalidate 1",
     ]);
   });
+
+  it("a waited deploy Coolify skips ends at once as a failed run with cause skipped", async () => {
+    const deployed = vi.fn(async () => {
+      order.push("deployed");
+    });
+    // Any wait between polls fails the test: a skipped deployment is final.
+    const sleep = vi.fn(async () => {
+      throw new Error("waited for a deployment that had already ended");
+    });
+    const { life, order, ctx } = runner(
+      {
+        "POST /deploy": {
+          json: {
+            deployments: [
+              { resource_uuid: "app-web-uuid", deployment_uuid: "dep-uuid" },
+            ],
+          },
+        },
+        "GET /deployments/dep-uuid": {
+          json: { deployment_uuid: "dep-uuid", status: "skipped" },
+        },
+      },
+      { deployed, sleep },
+    );
+    const emit = vi.spyOn(ctx.operations, "emit");
+    const err = await life
+      .run(1, web, "deploy", { wait: true, hostId: 7 })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(DeploymentFailedError);
+    expect(err).toMatchObject({ code: "skipped", status: "skipped" });
+    expect((err as Error).message).toBe(
+      "Coolify skipped the deployment of web, so no new build ran",
+    );
+    expect(sleep).not.toHaveBeenCalled();
+    // Recent activity was recorded once, at accept, before the wait.
+    expect(deployed).toHaveBeenCalledTimes(1);
+    expect(order).toEqual([
+      "coolify POST /deploy",
+      "invalidate 1",
+      "deployed",
+      "coolify GET /deployments/dep-uuid",
+      "invalidate 1",
+    ]);
+    expect(emit).toHaveBeenCalledTimes(1);
+    expect(emit).toHaveBeenCalledWith(
+      "coolify.deployment-failed",
+      {
+        connectionId: 1,
+        uuid: "app-web-uuid",
+        name: "web",
+        deploymentUuid: "dep-uuid",
+        status: "skipped",
+      },
+      { hostId: 7 },
+    );
+  });
+
+  it.each(["failed", "error", "cancelled", "cancelled-by-user"])(
+    "a waited deploy that ends %s stays a deployment-failed run",
+    async (status) => {
+      const { life, ctx } = runner({
+        "POST /deploy": {
+          json: {
+            deployments: [
+              { resource_uuid: "app-web-uuid", deployment_uuid: "dep-uuid" },
+            ],
+          },
+        },
+        "GET /deployments/dep-uuid": {
+          json: { deployment_uuid: "dep-uuid", status },
+        },
+      });
+      const emit = vi.spyOn(ctx.operations, "emit");
+      await expect(
+        life.run(1, web, "deploy", { wait: true }),
+      ).rejects.toMatchObject({ code: "deployment-failed", status });
+      expect(emit.mock.calls.map((c) => c[0])).toEqual([
+        "coolify.deployment-failed",
+      ]);
+    },
+  );
 });

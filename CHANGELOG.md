@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.1
+
+### Fixed
+
+- A waited deploy (`coolify.deploy` or `coolify.resource-deploy` with **wait**, from Operations Center,
+  Automations, the CLI or MCP) ends as soon as its deployment reaches any final status. A deployment
+  Coolify skipped was followed for up to 30 minutes; it now ends the run at once as a failed run with the
+  cause `skipped` ("Coolify skipped the deployment of <app>, so no new build ran") and sends
+  `coolify.deployment-failed`. The recent-activity entry is still recorded once, when Coolify accepts the
+  deploy
+- The deployment queue's summary counts older Coolify spellings of a failed deployment (`error`) as
+  failed, and the build log's status badge colours `success` and `error` like finished and failed
+
 ## 1.1.0
 
 ### Added

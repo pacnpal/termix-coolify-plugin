@@ -6,7 +6,10 @@ import {
 } from "../../../src/backend/deployments/log.js";
 import {
   isCancellableDeployment,
+  isFailedDeployment,
   isFinalDeployment,
+  isSkippedDeployment,
+  isSuccessfulDeployment,
 } from "../../../src/shared/deployment-status.js";
 import { KEY_BODY, keyEntries, logEntry } from "../helpers/deployments.js";
 
@@ -137,6 +140,35 @@ describe("deployment statuses", () => {
     for (const s of ["queued", "in_progress"]) {
       expect(isFinalDeployment(s), s).toBe(false);
       expect(isCancellableDeployment(s), s).toBe(true);
+    }
+  });
+
+  it("knows which final statuses succeeded, failed or were skipped", () => {
+    for (const s of ["finished", "success"]) {
+      expect(isSuccessfulDeployment(s), s).toBe(true);
+      expect(isSkippedDeployment(s), s).toBe(false);
+    }
+    // Skipped and cancelled end a deployment, but no new build ran.
+    for (const s of [
+      "skipped",
+      "failed",
+      "error",
+      "cancelled",
+      "cancelled-by-user",
+      "queued",
+      "in_progress",
+      "",
+    ]) {
+      expect(isSuccessfulDeployment(s), s).toBe(false);
+    }
+    expect(isSkippedDeployment("skipped")).toBe(true);
+    for (const s of ["finished", "failed", "cancelled-by-user", "queued"]) {
+      expect(isSkippedDeployment(s), s).toBe(false);
+    }
+    // Every final status is exactly one of: succeeded, or a failed run.
+    for (const s of ["skipped", "cancelled-by-user"]) {
+      expect(isFinalDeployment(s), s).toBe(true);
+      expect(isFailedDeployment(s), s).toBe(false);
     }
   });
 });
