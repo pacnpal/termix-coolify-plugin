@@ -20,29 +20,44 @@ import {
   type Deployment,
   type DeploymentDetail,
 } from "../api";
-import { isFinalDeployment } from "../../shared/deployment-status";
+import {
+  isCoolifyDeploymentStatus,
+  isFailedDeployment,
+  isFinalDeployment,
+  isSuccessfulDeployment,
+} from "../../shared/deployment-status";
 import { useConfirmFor } from "../confirm";
 import { describeFailure } from "./ConnectionForm";
 
 /** How often a deployment that hasn't ended is read again while shown. */
 export const BUILD_LOG_POLL_MS = 2_000;
 
-const TONES: Record<string, StatusTone> = {
+/** Tones of the statuses before a deployment ends. */
+const RUNNING_TONES: Record<string, StatusTone> = {
   queued: "warn",
   in_progress: "info",
-  finished: "ok",
-  failed: "bad",
-  "cancelled-by-user": "idle",
-  skipped: "idle",
 };
+
+/**
+ * A deployment status's badge tone. Success and failure come from the shared
+ * statuses, so an older spelling (success, error) reads the same; any other
+ * final status (cancelled, skipped) is idle.
+ */
+export function deploymentTone(status: string): StatusTone {
+  if (isSuccessfulDeployment(status)) return "ok";
+  if (isFailedDeployment(status)) return "bad";
+  return RUNNING_TONES[status] ?? "idle";
+}
 
 type T = (key: string, options?: Record<string, unknown>) => string;
 
 /** A deployment's status as a badge, in words where the status is known. */
 export function DeploymentStatus({ t, status }: { t: T; status: string }) {
   return (
-    <StatusBadge tone={TONES[status] ?? "idle"}>
-      {status in TONES ? t(`deployments.status.${status}`) : status}
+    <StatusBadge tone={deploymentTone(status)}>
+      {isCoolifyDeploymentStatus(status)
+        ? t(`deployments.status.${status}`)
+        : status}
     </StatusBadge>
   );
 }

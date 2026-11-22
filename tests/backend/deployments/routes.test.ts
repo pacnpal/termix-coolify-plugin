@@ -5,9 +5,11 @@ import {
   deploymentRaw,
   KEY_BODY,
   keyEntries,
+  keyTailDeployment,
   expectRefusedBeforeCoolify,
   REFUSED_CALLERS,
 } from "../helpers/deployments.js";
+import { expectKeyTailMasked } from "../helpers/key-tail.js";
 import {
   changes,
   grant,
@@ -157,6 +159,17 @@ describe("one deployment with its build log", () => {
     expect(answer.status).toBe(200);
     expect(JSON.stringify(answer.body)).not.toContain(KEY_BODY);
     expect(JSON.stringify(answer.body)).toContain("after the key");
+  });
+
+  it("masks a build log that starts inside a private key", async () => {
+    const { harness, fake, id } = await start();
+    fake.set(...keyTailDeployment());
+    const answer = await harness.request(
+      "GET",
+      `${web(id)}/deployments/dep-done`,
+    );
+    expect(answer.status).toBe(200);
+    expectKeyTailMasked(answer.body);
   });
 
   it("answers log null when the token can't read build logs", async () => {

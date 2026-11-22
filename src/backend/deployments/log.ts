@@ -1,5 +1,9 @@
 import { REDACTED_VALUE } from "@termix-ssh/plugin-sdk/operations";
-import { keyBlockCarry, type KeyBlockCarry } from "../containers/logs.js";
+import {
+  keyBlockCarry,
+  maskKeyTail,
+  type KeyBlockCarry,
+} from "../containers/logs.js";
 
 /** One line of a deployment's build log, as the plugin passes it on. */
 export interface BuildLogLine {
@@ -103,14 +107,24 @@ function redactText(text: string, keys: KeyBlockCarry): string {
  * rest is redactLog's: the connection's own `secrets` anywhere, URL
  * passwords, credential query parameters, secret-named fields and
  * Authorization credentials. Redacting before the cut means a cut that
- * drops a BEGIN can't let its body through.
+ * drops a BEGIN can't let its body through. A log that starts inside a key
+ * (an END that no BEGIN opened) is masked from its start through that END
+ * first (maskKeyTail).
  */
 export function buildLog(raw: unknown, secrets: readonly string[]): BuildLog {
   const keys = keyBlockCarry(secrets);
-  const all = parseBuildLog(raw).map((line) => {
+  const parsed = parseBuildLog(raw);
+  // Every command and output in log order, as the tail rule reads them.
+  const texts = maskKeyTail(
+    parsed.flatMap((line) =>
+      line.command === null ? [line.output] : [line.command, line.output],
+    ),
+  );
+  let next = 0;
+  const all = parsed.map((line) => {
     const command =
-      line.command === null ? null : redactText(line.command, keys);
-    return { ...line, command, output: redactText(line.output, keys) };
+      line.command === null ? null : redactText(texts[next++], keys);
+    return { ...line, command, output: redactText(texts[next++], keys) };
   });
   const kept = all.slice(-MAX_BUILD_LOG_LINES);
   return { truncated: kept.length < all.length, lines: kept };

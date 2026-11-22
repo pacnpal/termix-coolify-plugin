@@ -198,7 +198,7 @@
       },
       "wait": {
         "label": "Wait for the deployment",
-        "description": "Follow the deployment until it finishes or fails, and report which."
+        "description": "Follow the deployment until it ends. A deployment that fails, is cancelled or that Coolify skips fails the run."
       },
       "action": {
         "label": "Action",
@@ -586,7 +586,7 @@
       },
       "deploymentFailed": {
         "title": "Coolify deployment failed",
-        "description": "A deployment failed or was cancelled in Coolify."
+        "description": "A deployment failed, was cancelled or was skipped in Coolify."
       },
       "containerRestarted": {
         "title": "Coolify container restarted",
