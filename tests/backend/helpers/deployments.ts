@@ -202,3 +202,107 @@ export function rollbackAnswers(): Record<string, FakeAnswer> {
     },
   };
 }
+
+const json = (body: unknown) =>
+  new Response(JSON.stringify(body), {
+    headers: { "content-type": "application/json" },
+  });
+
+const at = (minute: number) => ({
+  created_at: `2026-11-19T10:${String(minute).padStart(2, "0")}:00.000000Z`,
+});
+
+/**
+ * Coolify's answers for the connection-wide queue: GET /deployments (the
+ * running ones, with one of an application this connection doesn't have and
+ * one that names no application) and the history pages of web and api, on
+ * top of deploymentAnswers().
+ */
+export function queueAnswers(): Record<string, FakeAnswer> {
+  return {
+    ...deploymentAnswers(),
+    "GET /deployments": {
+      json: [
+        deploymentRaw("dep-run", "in_progress", { extra: at(30) }),
+        deploymentRaw("dep-api-queued", "queued", {
+          appUuid: "app-api-uuid",
+          entries: null,
+          extra: at(31),
+        }),
+        deploymentRaw("dep-elsewhere", "in_progress", {
+          appUuid: "app-not-mine-uuid",
+          entries: [logEntry(1, "a foreign build line")],
+          extra: at(32),
+        }),
+        {
+          ...deploymentRaw("dep-nolink", "in_progress", { extra: at(33) }),
+          deployment_url: null,
+        },
+      ],
+    },
+    "GET /deployments/applications/app-web-uuid": {
+      json: {
+        count: 3,
+        deployments: [
+          deploymentRaw("dep-run", "in_progress", { extra: at(30) }),
+          deploymentRaw("dep-done", "finished", { extra: at(20) }),
+          deploymentRaw("dep-failed", "failed", { extra: at(10) }),
+        ],
+      },
+    },
+    "GET /deployments/applications/app-api-uuid": {
+      json: {
+        count: 2,
+        deployments: [
+          deploymentRaw("dep-api-old", "finished", {
+            appUuid: "app-api-uuid",
+            extra: at(25),
+          }),
+          // A row whose link names an application this connection lacks.
+          deploymentRaw("dep-api-foreign", "finished", {
+            appUuid: "app-not-mine-uuid",
+            extra: at(26),
+          }),
+        ],
+      },
+    },
+  };
+}
+
+/**
+ * Coolify's answers for deploy by tag "prod": web and a foreign application
+ * from GET /applications?tag=prod, the n8n service through its tags, and
+ * POST /deploy's answer for web and n8n. Without a tag, GET /applications
+ * answers `all` (the resource fixtures).
+ */
+export function tagAnswers(all: unknown): Record<string, FakeAnswer> {
+  return {
+    "GET /applications": (url: string) => {
+      const tag = new URL(url).searchParams.get("tag");
+      if (tag === null) return json(all);
+      if (tag !== "prod") return json([]);
+      const rows = (all as { uuid: string }[]).filter(
+        (r) => r.uuid === "app-web-uuid",
+      );
+      return json([
+        ...rows,
+        { uuid: "app-not-mine-uuid", name: "foreign", status: "running" },
+      ]);
+    },
+    "GET /services/svc-n8n-uuid/tags": {
+      json: [{ uuid: "tag-prod-uuid", name: "prod" }],
+    },
+    "POST /deploy": {
+      json: {
+        deployments: [
+          {
+            message: "Application web deployment queued.",
+            resource_uuid: "app-web-uuid",
+            deployment_uuid: "dep-tag-web",
+          },
+          { message: "Service n8n started.", resource_uuid: "svc-n8n-uuid" },
+        ],
+      },
+    },
+  };
+}

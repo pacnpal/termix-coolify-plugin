@@ -40,12 +40,13 @@ export const MCP_CHANGES_EXEMPT: readonly string[] = [
 /**
  * Actions MCP refuses without `confirmed: true`, before core is asked:
  * coolify.exec runs any command in a container; coolify.enable-metrics
- * changes a server's Sentinel settings; a rollback replaces what an
- * application runs.
+ * changes a server's Sentinel settings; coolify.deploy-by-tag deploys every
+ * resource with a tag; a rollback replaces what an application runs.
  */
 export const MCP_CONFIRM_REQUIRED: readonly string[] = [
   "coolify.exec",
   "coolify.enable-metrics",
+  "coolify.deploy-by-tag",
   "coolify.rollback",
   "coolify.resource-rollback",
 ];

@@ -89,6 +89,13 @@
         "openFrom": ["palette"]
       }
     ],
+    "panels": [
+      {
+        "id": "coolify-activity",
+        "titleKey": "activityPanel.title",
+        "icon": "Activity"
+      }
+    ],
     "hostSections": [
       {
         "id": "coolify",
@@ -1084,6 +1091,116 @@
           "check": "coolify.resource-rollback-images",
           "surfaces": {
             "assistant": false,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.deployment-queue",
+          "titleKey": "ops.deploymentQueue.title",
+          "descriptionKey": "ops.deploymentQueue.description",
+          "icon": "ListOrdered",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "refresh",
+              "type": "boolean",
+              "labelKey": "ops.fields.refresh.label",
+              "descriptionKey": "ops.fields.refresh.description"
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.attention",
+          "titleKey": "ops.attention.title",
+          "descriptionKey": "ops.attention.description",
+          "icon": "BellRing",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "refresh",
+              "type": "boolean",
+              "labelKey": "ops.fields.refresh.label",
+              "descriptionKey": "ops.fields.refresh.description"
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.deploy-by-tag",
+          "titleKey": "ops.deployByTag.title",
+          "descriptionKey": "ops.deployByTag.description",
+          "icon": "Tags",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "tag",
+              "type": "string",
+              "labelKey": "ops.fields.tag.label",
+              "descriptionKey": "ops.fields.tag.description",
+              "pattern": "[A-Za-z0-9][A-Za-z0-9 _.:/-]{0,63}",
+              "required": true
+            },
+            {
+              "key": "force",
+              "type": "boolean",
+              "labelKey": "ops.fields.force.label",
+              "descriptionKey": "ops.fields.force.description"
+            },
+            {
+              "key": "pullRequestId",
+              "type": "number",
+              "labelKey": "ops.fields.pullRequestId.label",
+              "descriptionKey": "ops.fields.pullRequestId.description",
+              "min": 1,
+              "max": 2147483647
+            },
+            {
+              "key": "dockerTag",
+              "type": "string",
+              "labelKey": "ops.fields.dockerTag.label",
+              "descriptionKey": "ops.fields.dockerTag.description",
+              "pattern": "[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}"
+            },
+            {
+              "key": "targets",
+              "type": "string",
+              "labelKey": "ops.fields.targets.label",
+              "descriptionKey": "ops.fields.targets.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}(,[A-Za-z0-9_-]{1,64})*"
+            }
+          ],
+          "risk": "change",
+          "permission": "operate",
+          "dryRun": "describe",
+          "surfaces": {
+            "assistant": true,
             "mcp": true
           }
         },

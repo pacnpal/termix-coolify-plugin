@@ -46,7 +46,7 @@ run `npm run gen:coolify` and add the new rows.
 | get-preview-deployment-by-pull-request-id       | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.1 Observe (previews and rollback).                                  |
 | list-application-destinations                   | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.4 Create (create, clone, move, migrate, delete).                    |
 | list-application-rollback-images                | used   | 1.1 `rollbackImages()`: `coolify.rollback-images`, `coolify.resource-rollback-images`, the image list of the Deployments tab Rollback, and a deploy's undo input. |
-| list-applications                               | used   | Task 4 `applications()`, Task 10 (resource list).                                                                                                                 |
+| list-applications                               | used   | Task 4 `applications()`, Task 10 (resource list); 1.1 `applicationsTagged()` (`?tag=`) for `coolify.deploy-by-tag`.                                               |
 | list-envs-by-application-uuid                   | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.3 Configure (environment variables).                                |
 | list-preview-deployments-by-application-uuid    | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.1 Observe (previews and rollback).                                  |
 | list-storages-by-application-uuid               | used   | #19 `files-paths`, 18A `coolify.api-read`, 23A API console; its own UI is planned for 1.3 Configure (storages and backups).                                       |
@@ -162,9 +162,9 @@ run `npm run gen:coolify` and add the new rows.
 | Operation                    | Status | Where or why                                                                                                                                                |
 | ---------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | cancel-deployment-by-uuid    | used   | 1.1 `cancelDeployment()`: `coolify.deployment-cancel` and the resource Deployments tab.                                                                     |
-| deploy-by-tag-or-uuid        | used   | Task 4 `deploy()`, Tasks 11 and 12 (deploy and force rebuild).                                                                                              |
+| deploy-by-tag-or-uuid        | used   | Task 4 `deploy()`, Tasks 11 and 12 (deploy and force rebuild); 1.1 `deployUuids()`: `coolify.deploy-by-tag` (by uuid, with force, PR and Docker tag).       |
 | get-deployment-by-uuid       | used   | Task 4 `deployment()`, Task 12 (deploy with `wait` reports finished or failed); 1.1 `deploymentWithLog()`: `coolify.deployment-get` and the live build log. |
-| list-deployments             | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.1 Observe (Deployments section).                              |
+| list-deployments             | used   | 1.1 `runningDeployments()`: `coolify.deployment-queue`, the Deployments section and the Overview.                                                           |
 | list-deployments-by-app-uuid | used   | 1.1 `deploymentPage()`: `coolify.deployment-list` and the resource Deployments tab history.                                                                 |
 
 ## Destinations
@@ -424,7 +424,7 @@ run `npm run gen:coolify` and add the new rows.
 | list-envs-by-service-uuid              | used    | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.3 Configure (environment variables).                                   |
 | list-services                          | used    | Task 4 `services()`, Task 10 (resource list, services with their parts).                                                                                             |
 | list-storages-by-service-uuid          | used    | #19 `files-paths`, 18A `coolify.api-read`, 23A API console; its own UI is planned for 1.3 Configure (storages and backups).                                          |
-| list-tags-by-service-uuid              | used    | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.3 Configure (tags).                                                    |
+| list-tags-by-service-uuid              | used    | 1.1 `tagsOf()`: which services `coolify.deploy-by-tag` hits; its own UI is planned for 1.3 Configure (tags).                                                         |
 | migrate-service-by-uuid                | used    | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.4 Create (create, clone, move, migrate, delete).                       |
 | move-service-by-uuid                   | used    | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.4 Create (create, clone, move, migrate, delete).                       |
 | restart-service-by-uuid                | used    | Task 4 `lifecycle()`, Tasks 11 and 12 (lifecycle service, operations and routes).                                                                                    |

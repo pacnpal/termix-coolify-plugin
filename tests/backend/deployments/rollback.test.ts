@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PluginOperationContext } from "@termix-ssh/plugin-sdk/backend";
 import { handleMcp, toolName } from "../../../src/backend/mcp/server.js";
 import {
-  deploymentAnswers,
+  queueAnswers,
   rollbackAnswers,
   rollbackImagesRaw,
   expectRefusedBeforeCoolify,
@@ -48,7 +48,7 @@ async function start(
   const started = await startLifecycle({
     permissions: opts.permissions,
     settings: opts.settings,
-    overrides: { ...deploymentAnswers(), ...rollbackAnswers() },
+    overrides: { ...queueAnswers(), ...rollbackAnswers() },
   });
   harness = started.harness;
   return started;
@@ -197,6 +197,22 @@ describe("rollback images", () => {
 });
 
 describe("rolling back", () => {
+  it("drops the cached deployment queue, so the queue shows the rollback", async () => {
+    const { harness, fake, id } = await start();
+    const queueReads = () =>
+      fake.calls.filter((c) => c.method === "GET" && c.path === "/deployments")
+        .length;
+    await harness.request("GET", `/connections/${id}/deployments`);
+    await harness.request("GET", `/connections/${id}/deployments`);
+    expect(queueReads()).toBe(1);
+    const answer = await harness.request("POST", `${web(id)}/rollback`, {
+      image: "0ld3r00",
+    });
+    expect(answer.status).toBe(200);
+    await harness.request("GET", `/connections/${id}/deployments`);
+    expect(queueReads()).toBe(2);
+  });
+
   it("rolls back through the route, as a confirmed coolify.resource-rollback", async () => {
     const { harness, fake, id } = await start();
     const answer = await harness.request("POST", `${web(id)}/rollback`, {

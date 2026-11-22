@@ -19,12 +19,17 @@ afterEach(async () => {
 });
 
 describe(`${manifest.id} activate`, () => {
-  it("registers the coolify tab and rail item", async () => {
+  it("registers the coolify tab, the activity panel and their rail items", async () => {
     rendered = await renderWithApp(plugin, { manifest, locales });
     expect(rendered.registered.tabs()).toContain("coolify");
+    expect(rendered.registered.panels()).toContain("coolify-activity");
     expect(rendered.registered.railItems()).toEqual([
       expect.objectContaining({
         id: "coolify",
+        permission: "coolify.view",
+      }),
+      expect.objectContaining({
+        id: "coolify-activity",
         permission: "coolify.view",
       }),
     ]);

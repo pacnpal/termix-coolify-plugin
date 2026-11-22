@@ -2,6 +2,7 @@ import type {
   PluginContext,
   PluginOperationHandler,
 } from "@termix-ssh/plugin-sdk/backend";
+import type { AttentionService } from "./attention/service.js";
 import type { Companions } from "./companions/service.js";
 import type { ContainerCompanions } from "./companions/container-service.js";
 import type { Containers } from "./containers/service.js";
@@ -13,6 +14,7 @@ import type { Tables } from "./db.js";
 import type { Lifecycle } from "./resources/lifecycle.js";
 import type { Metrics } from "./metrics/service.js";
 import type { Resources } from "./resources/service.js";
+import { registerAttentionOperations } from "./ops/attention.js";
 import { registerCompanionOperations } from "./ops/companions.js";
 import type { StatusPages } from "./status/service.js";
 import { registerConnectionOperations } from "./ops/connections.js";
@@ -53,6 +55,7 @@ export interface Services {
   statusPages: StatusPages;
   genericApi: GenericApi;
   metrics: Metrics;
+  attention: AttentionService;
 }
 
 /**
@@ -123,4 +126,5 @@ export function registerOperations(
   registerStatusPageOperations(ctx, services.statusPages);
   registerGenericApiOperations(ctx, services.genericApi);
   registerMetricsOperations(ctx, services.metrics);
+  registerAttentionOperations(ctx, services.attention);
 }

@@ -1,5 +1,7 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { ConnectionError } from "../connections/service.js";
+import { readTagDeploy } from "../deployments/by-tag.js";
+import { queueBody, refreshFlag } from "../deployments/queue.js";
 import { readPaging, type Deployments } from "../deployments/service.js";
 import { handoffIdFor } from "../status/service.js";
 import { connectionIdInput } from "./connections.js";
@@ -100,6 +102,39 @@ export function registerDeploymentOperations(
           text: logText,
           handoffId,
         },
+      };
+    },
+  });
+
+  ctx.operations.register("coolify.deployment-queue", {
+    run: async (input, { signal }) => {
+      const queue = await deployments.queue(connectionIdInput(input), {
+        refresh: refreshFlag(input.refresh),
+        signal,
+      });
+      const failed = queue.recent.filter((r) => r.status === "failed").length;
+      return {
+        summary: `${queue.running.length} queued or running, ${queue.recent.length} recent (${failed} failed)`,
+        data: queueBody(queue),
+      };
+    },
+  });
+
+  ctx.operations.register("coolify.deploy-by-tag", {
+    describe: (input) =>
+      deployments.describeTagDeploy(connectionIdInput(input), input),
+    run: async (input, { signal }) => {
+      signal.throwIfAborted();
+      const result = await deployments.deployByTag(
+        connectionIdInput(input),
+        readTagDeploy(input),
+        signal,
+      );
+      const queued = result.deployments.filter((d) => d.deploymentUuid);
+      return {
+        summary: `Deployed ${result.targets.length} resource${result.targets.length === 1 ? "" : "s"} tagged ${result.tag}; ${queued.length} deployment${queued.length === 1 ? "" : "s"} queued`,
+        changed: true,
+        data: result,
       };
     },
   });

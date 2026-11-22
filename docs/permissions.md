@@ -53,6 +53,8 @@ whatever the switch says.
   logs can hold secrets.
 - **Server updates:** installing needs `confirm: true`; rebooting needs `confirmName`, the server's name.
 - **Enabling metrics** needs `confirm: true`, and over MCP `confirmed: true` as well.
+- **Deploy by tag** asks first in the UI, listing the resources it will deploy, and over MCP needs
+  `confirmed: true` (and **Allow changes over MCP**).
 - **Rollback** over MCP needs `confirmed: true`: the plugin refuses without it before Termix is asked.
 - **Running commands in containers** also needs the admin setting **Allow running commands in containers
   through the API and MCP** and the connection's own switch, and over MCP `confirmed: true`.

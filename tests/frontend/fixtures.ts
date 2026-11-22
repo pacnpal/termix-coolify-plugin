@@ -107,6 +107,60 @@ export const resourceAnswer = {
   fetchedAt: "2026-11-19T10:00:00.000Z",
 };
 
+/** A deployment of `app` as the queue and the attention read answer it. */
+export function queueRow(
+  uuid: string,
+  status: string,
+  app: { uuid: string; name: string },
+  minute = 0,
+) {
+  return {
+    uuid,
+    resourceUuid: app.uuid,
+    resourceName: app.name,
+    status,
+    commit: "abc1234",
+    commitMessage: `Commit of ${uuid}`,
+    pullRequestId: 0,
+    rollback: false,
+    serverName: "vps1",
+    createdAt: `2026-11-19T10:${String(minute).padStart(2, "0")}:00.000Z`,
+    updatedAt: null,
+    finishedAt: null,
+  };
+}
+
+/** One connection's part of GET /attention, empty unless given. */
+export function attentionConnection(
+  id: number,
+  name: string,
+  extra: Record<string, unknown> = {},
+) {
+  return {
+    id,
+    name,
+    access: "owner",
+    scoped: false,
+    running: [],
+    failed: [],
+    degraded: [],
+    unreachable: [],
+    error: null,
+    ...extra,
+  };
+}
+
+/** api, degraded on edge, as GET /attention lists a degraded resource. */
+export const degradedApi = {
+  uuid: "app-api-uuid",
+  name: "api",
+  kind: "application",
+  status: "running:unhealthy",
+  serverName: "edge",
+  projectName: "Shop",
+  environmentName: "production",
+};
+
 /** A stub of the plugin's own routes, for renderWithApp({ api }). */
 export function stubApi(
   options: { connections?: unknown[]; resources?: unknown } = {},
