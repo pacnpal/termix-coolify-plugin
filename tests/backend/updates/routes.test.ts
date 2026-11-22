@@ -133,7 +133,7 @@ describe("server updates", () => {
   it("redacts the upgrade's output on both paths, as logs are", async () => {
     const leaky = [
       "Setting up app (1.0) ...",
-      "token fake-token-sync-test in a hook",
+      "hook received fake-token-sync-test",
       "DB_PASSWORD=fake-upgrade-pass",
       "-----BEGIN OPENSSH PRIVATE KEY-----",
       "FAKEUPGRADEKEYBODY",

@@ -441,7 +441,7 @@ console, revision? }`, calls the shell route and draws `PluginComponent id="term
   channels and `.stdout`/`.stderr`, Log Search, the generic API's `LOG_FIELDS`, Package Manager's upgrade)
   and what it does with it. An `exit` must call `redactLog` or a helper built on it (`redactLogFields`,
   `keyBlockCarry`, `lineSplitter`, `redactLogStream`, `buildLog`); a new read of log text anywhere else
-  fails until it is listed. Function spans come from prettier's layout. A `pending` entry (an exit known to
+  fails until it is listed. Function spans come from prettier's layout; the innermost function around a read (or a feeder's call) decides, so a nested helper is registered on its own. A `pending` entry (an exit known to
   skip the redactor; none today) fails once it calls one, so it becomes an `exit`. `reveal` is
   deliberately `unredacted`.
 - Log redaction: every snapshot text and every followed line goes through `redactLog`. It first masks
