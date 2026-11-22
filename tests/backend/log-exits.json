@@ -1,0 +1,110 @@
+{
+  "src/backend/containers/logs.ts#snapshot": {
+    "kind": "exit",
+    "what": "container logs snapshot through Coolify"
+  },
+  "src/backend/containers/logs.ts#fromCoolify": {
+    "kind": "feeds",
+    "into": ["snapshot"],
+    "what": "Coolify's container logs, raw"
+  },
+  "src/backend/containers/logs.ts#fromSsh": {
+    "kind": "exit",
+    "what": "container logs snapshot over SSH"
+  },
+  "src/backend/containers/logs.ts#follow": {
+    "kind": "exit",
+    "what": "followed container logs (WS /logs)"
+  },
+  "src/backend/deployments/service.ts#read": {
+    "kind": "feeds",
+    "into": ["get", "cancel"],
+    "what": "a deployment with its raw build log"
+  },
+  "src/backend/deployments/service.ts#get": {
+    "kind": "exit",
+    "what": "a deployment's build log"
+  },
+  "src/backend/deployments/service.ts#cancel": {
+    "kind": "discards",
+    "what": "cancel reads the deployment, not its log"
+  },
+  "src/backend/previews/service.ts#logs": {
+    "kind": "exit",
+    "what": "preview logs"
+  },
+  "src/backend/containers/exec.ts#exec": {
+    "kind": "exit",
+    "what": "exec stdout and stderr"
+  },
+  "src/backend/ops/api-generic.ts#logFieldsOf": {
+    "kind": "feeds",
+    "into": ["dispatch", "reveal"],
+    "what": "an operation's log and output field names"
+  },
+  "src/backend/ops/api-generic.ts#dispatch": {
+    "kind": "exit",
+    "what": "generic API log fields (redactLogFields)"
+  },
+  "src/backend/ops/api-generic.ts#reveal": {
+    "kind": "unredacted",
+    "what": "reveal: the audited way to read one masked value as it is"
+  },
+  "src/backend/companions/adapters.ts#logSearch": {
+    "kind": "exit",
+    "what": "Log Search hits"
+  },
+  "src/backend/updates/service.ts#install": {
+    "kind": "exit",
+    "what": "the upgrade's output"
+  },
+  "src/backend/updates/service.ts#platform": {
+    "kind": "parses",
+    "what": "the platform probe's package manager"
+  },
+  "src/backend/updates/service.ts#runCheck": {
+    "kind": "parses",
+    "what": "the update check's package list"
+  },
+  "src/backend/updates/service.ts#reboot": {
+    "kind": "parses",
+    "what": "only whether sudo refused"
+  },
+  "src/backend/ops/containers.ts#registerContainerOperations": {
+    "kind": "relays",
+    "from": ["src/backend/containers/exec.ts#exec"],
+    "what": "coolify.exec's handoff of exec's redacted output"
+  },
+  "src/backend/connections/probe.ts#runProbe": {
+    "kind": "discards",
+    "what": "one log line, read only to prove the token's ability"
+  },
+  "src/backend/companions/container-service.ts#containerIp": {
+    "kind": "parses",
+    "what": "docker inspect's container IP"
+  },
+  "src/backend/containers/resolver.ts#resolveContainers": {
+    "kind": "parses",
+    "what": "docker ps container names"
+  },
+  "src/backend/containers/service.ts#needsSudo": {
+    "kind": "parses",
+    "what": "the login's uid and groups"
+  },
+  "src/backend/containers/service.ts#hasBash": {
+    "kind": "parses",
+    "what": "whether bash exists"
+  },
+  "src/backend/containers/stats.ts#tick": {
+    "kind": "parses",
+    "what": "docker stats numbers"
+  },
+  "src/backend/metrics/sentinel.ts#dockerNeedsSudo": {
+    "kind": "parses",
+    "what": "the login's uid and groups"
+  },
+  "src/backend/metrics/sentinel.ts#sentinelGet": {
+    "kind": "parses",
+    "what": "Sentinel's JSON, scrubbed"
+  }
+}

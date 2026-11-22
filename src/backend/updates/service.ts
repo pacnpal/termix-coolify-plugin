@@ -14,6 +14,7 @@ import {
 } from "@termix-ssh/plugin-sdk/host-commands";
 import { shellQuote } from "@termix-ssh/plugin-sdk/host-scripts";
 import { createCache } from "../cache.js";
+import { redactLog } from "../containers/logs.js";
 import type { PatchItem, PatchStatus, ServerDto } from "../coolify/dto.js";
 import {
   ConnectionError,
@@ -414,9 +415,9 @@ export function fromPackageManager(
   };
 }
 
-function tail(text: unknown): string {
-  const value = typeof text === "string" ? text : "";
-  return value.length > OUTPUT_TAIL ? value.slice(-OUTPUT_TAIL) : value;
+/** The end of `text`; redact it first, so the cut never splits a secret. */
+function tail(text: string): string {
+  return text.length > OUTPUT_TAIL ? text.slice(-OUTPUT_TAIL) : text;
 }
 
 const SUDO_REFUSED = [
@@ -857,6 +858,8 @@ export function createUpdates(
         },
       );
       target.signal = signal;
+      // The upgrade's output is command output: redacted as logs are.
+      const secrets = await target.snap.secrets();
       let result: InstallResult;
       let asked = false;
       try {
@@ -868,12 +871,15 @@ export function createUpdates(
             "Package Manager could not install updates",
           );
           const pending = outcomePending(outcome);
+          const output = (outcome.data as { output?: unknown })?.output;
           result = {
             via: "package-manager",
             summary: outcome.summary ?? "Upgraded all packages",
             changed: !pending && outcome.changed !== false,
             pending,
-            output: tail((outcome.data as { output?: unknown })?.output),
+            output: tail(
+              redactLog(typeof output === "string" ? output : "", secrets),
+            ),
           };
         } else {
           const pkg = await platform(target);
@@ -896,7 +902,7 @@ export function createUpdates(
             summary: "Upgraded all packages",
             changed: true,
             pending: false,
-            output: tail(out.stdout),
+            output: tail(redactLog(out.stdout, secrets)),
           };
         }
       } finally {

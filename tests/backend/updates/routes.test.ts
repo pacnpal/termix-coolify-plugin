@@ -130,6 +130,61 @@ describe("server updates", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
+  it("redacts the upgrade's output on both paths, as logs are", async () => {
+    const leaky = [
+      "Setting up app (1.0) ...",
+      "token fake-token-sync-test in a hook",
+      "DB_PASSWORD=fake-upgrade-pass",
+      "-----BEGIN OPENSSH PRIVATE KEY-----",
+      "FAKEUPGRADEKEYBODY",
+      "-----END OPENSSH PRIVATE KEY-----",
+    ].join("\n");
+    for (const plugins of [[], ["package-manager"]]) {
+      const { h, web1 } = await start({ plugins });
+      const invoke = fakePackageManager(h);
+      const realInvoke = invoke.getMockImplementation()!;
+      invoke.mockImplementation(async (actionId, options) =>
+        actionId === "package-manager.upgrade-all"
+          ? {
+              runId: "run-upgrade",
+              status: "success",
+              summary: "Upgraded all packages",
+              changed: true,
+              data: { output: leaky },
+            }
+          : realInvoke(actionId, options),
+      );
+      const ssh = fakeSsh(h);
+      const realExec = ssh.exec.getMockImplementation()!;
+      ssh.exec.mockImplementation(async (host, command, execOptions) =>
+        command.includes("apt-get -y upgrade")
+          ? {
+              stdout: leaky,
+              stderr: "",
+              code: 0,
+              truncated: false,
+              timedOut: false,
+            }
+          : realExec(host, command, execOptions),
+      );
+      const installed = await h.request("POST", `${web1}/updates/install`, {
+        confirm: true,
+      });
+      expect(installed.status).toBe(200);
+      const output = (installed.body as { output: string }).output;
+      expect(output).toContain("Setting up app (1.0) ...");
+      for (const leak of [
+        "fake-token-sync-test",
+        "fake-upgrade-pass",
+        "FAKEUPGRADEKEYBODY",
+      ]) {
+        expect(output, `${plugins.join()} ${leak}`).not.toContain(leak);
+      }
+      await harness?.close();
+      harness = null;
+    }
+  });
+
   it("ssh fallback runs fixed commands only", async () => {
     const { h, web1 } = await start({ permissions: ALL });
     const ssh = fakeSsh(h);

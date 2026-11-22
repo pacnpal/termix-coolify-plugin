@@ -435,6 +435,15 @@ console, revision? }`, calls the shell route and draws `PluginComponent id="term
   from SSH choices; a Coolify `forbidden-ability` falls back to SSH. The count is capped at 10,000
   (`MAX_LINES`), never refused. The container name passes `assertContainerName` and is `shellQuote`d, and so
   is the line count; no secret is ever in the command.
+- Log exits: `tests/backend/log-exits.json` (loaded by `tests/backend/log-exits.test.ts`, its shape checked
+  by `parseLogExits` and the source audited by `tests/backend/helpers/log-exits.ts`; JSON because the
+  table as TypeScript failed SonarCloud's duplication gate) lists every backend function that touches log or command text (Coolify log reads, `docker logs`, SSH
+  channels and `.stdout`/`.stderr`, Log Search, the generic API's `LOG_FIELDS`, Package Manager's upgrade)
+  and what it does with it. An `exit` must call `redactLog` or a helper built on it (`redactLogFields`,
+  `keyBlockCarry`, `lineSplitter`, `redactLogStream`, `buildLog`); a new read of log text anywhere else
+  fails until it is listed. Function spans come from prettier's layout. A `pending` entry (an exit known to
+  skip the redactor; none today) fails once it calls one, so it becomes an `exit`. `reveal` is
+  deliberately `unredacted`.
 - Log redaction: every snapshot text and every followed line goes through `redactLog`. It first masks
   every private key block's body (`maskKeyBlocks`: several on a line, escaped `\n` or real newlines, and a
   block without END to the end of the text; linear `indexOf` scans). `lineSplitter` keeps a block opened
@@ -527,7 +536,8 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   `updates:<serverUuid>` with the revision and the per-instance generation (`<epoch>:<n>`, advanced by
   install and reboot) it was read under, and written and served only while both are current.
   Install and reboot, once they reached the server (even when they failed), drop that row, then call
-  `servers.invalidate` and `resources.invalidate`. The mock ctx's `hosts.checkAccess`
+  `servers.invalidate` and `resources.invalidate`. Install's `output` (Package Manager's or SSH's) goes
+  through `redactLog` with the snapshot's secrets before its last 4,000 characters are kept. The mock ctx's `hosts.checkAccess`
   only knows hosts given up front, so tests spy on it, on `ssh.exec`, on `operations.invoke` and on
   `plugins.list` (`tests/backend/updates/fixtures.ts`).
 - Exec: `src/backend/containers/exec.ts` (`readExecRequest`, `createExec`) and `coolify.exec` in
@@ -638,7 +648,12 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   snapshot's revision right before every `ctx.operations.invoke`, and reads check it again before they
   answer, so a target change ends with `target-changed`. A missing companion is a `CompanionError`
   (`companion-missing`, 404, with `plugin`). Log search is `operate` (it shows log output); DNS is
-  `configure`. Every companion call is a documented action from the companions' published references
+  `configure`. `logSearch` (adapters.ts) takes the snapshot's `secrets()` and puts every text field of
+  every hit through `redactLog` before the 2,000-character cut; messages go through one `keyBlockCarry`
+  in the order given, else reversed (Log Search doesn't document its order), and when key markers fit
+  neither order every message is masked. Whether an order reads as a log is `hasLoneKeyEnd` and
+  `openKeyBlock` from logs.ts over the joined messages (every marker, each END paired with a BEGIN of
+  its own kind); keep key-marker scans in logs.ts, not hand-rolled. Every companion call is a documented action from the companions' published references
   (docs.termix.site/plugins/<id>/reference), by its id and input names, through `ctx.operations.invoke`;
   `operations.invokes` lists exactly those ids (and Package Manager's) and `optionalDependencies` pins each
   companion to `~` the version its reference documents. The references list no service methods, so no
