@@ -1,9 +1,19 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { PluginOperationContext } from "@termix-ssh/plugin-sdk/backend";
 import { changes, grant, startLifecycle } from "../helpers/lifecycle.js";
-import { manifest, OTHER, type PluginHarness } from "../helpers/plugin.js";
-import { previewAnswers } from "../helpers/previews.js";
-import { resourceLists } from "../helpers/resources.js";
+import {
+  declaredAction as action,
+  operationContext as context,
+  operationHandler as handler,
+  OTHER,
+  type PluginHarness,
+} from "../helpers/plugin.js";
+import {
+  dropGrant,
+  duringResourceRead,
+  moveTarget,
+  PREVIEW_CHANGES,
+  previewAnswers,
+} from "../helpers/previews.js";
 import { withRunHistory } from "../helpers/run-history.js";
 
 let harness: PluginHarness | null = null;
@@ -14,6 +24,7 @@ afterEach(async () => {
 });
 
 async function start(permissions?: string[]) {
+  await harness?.close();
   const started = await startLifecycle({
     permissions,
     overrides: previewAnswers(),
@@ -21,28 +32,6 @@ async function start(permissions?: string[]) {
   });
   harness = started.harness;
   return started;
-}
-
-function context(
-  over: Partial<PluginOperationContext> = {},
-): PluginOperationContext {
-  return {
-    runId: "run-test",
-    dryRun: false,
-    signal: new AbortController().signal,
-    log: () => {},
-    ...over,
-  };
-}
-
-function handler(h: PluginHarness, id: string) {
-  const found = h.mock.operationHandlers.get(id);
-  if (!found) throw new Error(`${id} has no handler`);
-  return found;
-}
-
-function action(id: string) {
-  return manifest.contributes!.operations!.actions!.find((a) => a.id === id);
 }
 
 describe("preview operations", () => {
@@ -92,104 +81,49 @@ describe("preview operations", () => {
     expect(outcome.summary).toContain("2");
   });
 
+  /** A change's handler input on web. */
+  const inputOf = (id: number, change: (typeof PREVIEW_CHANGES)[number]) => ({
+    connectionId: String(id),
+    uuid: "app-web-uuid",
+    ...change.input,
+  });
+
   it("each mutation is refused without coolify.operate, whatever calls it", async () => {
     const { harness, fake, id } = await start(["coolify.view"]);
-    const base = { connectionId: String(id), uuid: "app-web-uuid" };
-    for (const [actionId, input] of [
-      ["coolify.preview-create", { ...base, pullRequestId: 51 }],
-      ["coolify.preview-delete", { ...base, pullRequestId: 42 }],
-      [
-        "coolify.preview-domains",
-        { ...base, pullRequestId: 42, domains: "https://pr.example.test" },
-      ],
-    ] as const) {
+    for (const change of PREVIEW_CHANGES) {
       await expect(
-        handler(harness, actionId).run(input, context()),
-        actionId,
+        handler(harness, change.actionId).run(inputOf(id, change), context()),
+        change.actionId,
       ).rejects.toMatchObject({ code: "forbidden" });
     }
     expect(changes(fake)).toEqual([]);
   });
 
-  it("each mutation stops before Coolify is asked once its run is cancelled", async () => {
-    const list = (resourceLists()["GET /applications"] as { json: unknown })
-      .json;
-    for (const [actionId, extra] of [
-      ["coolify.preview-create", { pullRequestId: 51 }],
-      ["coolify.preview-delete", { pullRequestId: 42 }],
-      [
-        "coolify.preview-domains",
-        { pullRequestId: 42, domains: "https://pr.example.test" },
-      ],
-    ] as const) {
-      const { harness: h, fake, id } = await start();
-      const controller = new AbortController();
-      // Cancelled while the application is read, before the change is sent.
-      fake.set("GET /applications", () => {
-        controller.abort();
-        return new Response(JSON.stringify(list), {
-          headers: { "content-type": "application/json" },
-        });
-      });
-      await expect(
-        handler(h, actionId).run(
-          { connectionId: String(id), uuid: "app-web-uuid", ...extra },
-          context({ signal: controller.signal }),
-        ),
-        actionId,
-      ).rejects.toBeTruthy();
-      expect(controller.signal.aborted, actionId).toBe(true);
-      expect(changes(fake), actionId).toEqual([]);
-      await h.close();
-      harness = null;
-    }
-  });
-
-  it("each mutation stops when the target changes or the grant drops mid-call", async () => {
-    const list = (resourceLists()["GET /applications"] as { json: unknown })
-      .json;
-    for (const change of ["target", "grant"] as const) {
-      for (const [actionId, extra] of [
-        ["coolify.preview-create", { pullRequestId: 51 }],
-        ["coolify.preview-delete", { pullRequestId: 42 }],
-        [
-          "coolify.preview-domains",
-          { pullRequestId: 42, domains: "https://pr.example.test" },
-        ],
-      ] as const) {
+  it("each mutation stops before Coolify is asked when cancelled, the target changes or the grant drops", async () => {
+    for (const which of ["cancel", "target", "grant"] as const) {
+      for (const change of PREVIEW_CHANGES) {
         const { harness: h, fake, id } = await start();
         grant(h, id, OTHER, "operate");
         h.mock.setActor(OTHER);
-        fake.set("GET /applications", () => {
-          if (change === "target") {
-            h.db.sqlite
-              .prepare(
-                "UPDATE p_coolify_connections SET base_url = ? WHERE id = ?",
-              )
-              .run("https://other.example.test", id);
-          } else {
-            h.db.sqlite
-              .prepare(
-                "UPDATE p_coolify_grants SET level = 'view' WHERE user_id = ?",
-              )
-              .run(OTHER);
-          }
-          return new Response(JSON.stringify(list), {
-            headers: { "content-type": "application/json" },
+        const controller = new AbortController();
+        // While the application is read, before the change is sent.
+        duringResourceRead(fake, () => {
+          if (which === "cancel") controller.abort();
+          else if (which === "target") moveTarget(h, id);
+          else dropGrant(h, OTHER);
+        });
+        const label = `${which} ${change.actionId}`;
+        const run = handler(h, change.actionId).run(
+          inputOf(id, change),
+          context({ signal: controller.signal }),
+        );
+        if (which === "cancel") await expect(run, label).rejects.toBeTruthy();
+        else {
+          await expect(run, label).rejects.toMatchObject({
+            code: which === "target" ? "target-changed" : "forbidden",
           });
-        });
-        await expect(
-          handler(h, actionId).run(
-            { connectionId: String(id), uuid: "app-web-uuid", ...extra },
-            context(),
-          ),
-          `${change} ${actionId}`,
-        ).rejects.toMatchObject({
-          code: change === "target" ? "target-changed" : "forbidden",
-        });
-        expect(changes(fake), `${change} ${actionId}`).toEqual([]);
-        await h.close();
-        harness = null;
+        }
+        expect(changes(fake), label).toEqual([]);
       }
     }
   });

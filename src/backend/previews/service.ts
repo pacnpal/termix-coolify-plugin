@@ -1,5 +1,9 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
-import type { ComposeDomainDto, PreviewDto } from "../coolify/dto.js";
+import {
+  IMAGE_TAG,
+  type ComposeDomainDto,
+  type PreviewDto,
+} from "../coolify/dto.js";
 import { OPERATIONS } from "../coolify/generated/operations.js";
 import { CoolifyError } from "../coolify/http.js";
 import { meetsMinVersion } from "../coolify/version.js";
@@ -143,7 +147,7 @@ export function readPreviewCreate(raw: Record<string, unknown>): PreviewCreate {
     dockerTag: optionalText(
       raw,
       "dockerTag",
-      /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/,
+      IMAGE_TAG,
       "dockerTag must be a Docker image tag",
     ),
     force: raw.force === true,
@@ -293,6 +297,22 @@ export function createPreviews(ctx: PluginContext, deps: PreviewsDeps) {
     return deployments.open(connectionId, level);
   }
 
+  /**
+   * Runs a call that starts or removes deployments, then drops the cached
+   * deployment queue, as cancel, deploy by tag and rollback do, so the
+   * Deployments section, the activity panel and the rail badge read again.
+   */
+  async function changingQueue<T>(
+    connectionId: number,
+    call: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await call();
+    } finally {
+      deployments.invalidateQueue(connectionId);
+    }
+  }
+
   /** A not-found from an instance older than the spec: it lacks previews. */
   async function coolify<T>(snap: Snapshot, call: () => Promise<T>) {
     try {
@@ -425,7 +445,9 @@ export function createPreviews(ctx: PluginContext, deps: PreviewsDeps) {
         "operate",
         signal,
         (s, app, beforeFetch) =>
-          s.api.createPreview(app, body, { beforeFetch }),
+          changingQueue(connectionId, () =>
+            s.api.createPreview(app, body, { beforeFetch }),
+          ),
       );
       return {
         pullRequestId: input.pullRequestId,
@@ -447,7 +469,9 @@ export function createPreviews(ctx: PluginContext, deps: PreviewsDeps) {
         "operate",
         signal,
         (s, app, beforeFetch) =>
-          s.api.deletePreview(app, pullRequestId, { beforeFetch }),
+          changingQueue(connectionId, () =>
+            s.api.deletePreview(app, pullRequestId, { beforeFetch }),
+          ),
       );
       return { pullRequestId };
     },

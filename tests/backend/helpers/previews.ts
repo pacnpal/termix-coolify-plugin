@@ -1,5 +1,65 @@
 import { deploymentRaw } from "./deployments.js";
-import type { FakeAnswer } from "./fake-coolify.js";
+import type { fakeCoolify, FakeAnswer } from "./fake-coolify.js";
+import type { PluginHarness } from "./plugin.js";
+import { resourceLists } from "./resources.js";
+
+/**
+ * Answers Coolify's application list with `before` run first: a change made
+ * while the plugin reads the resource, before any preview request.
+ */
+export function duringResourceRead(
+  fake: ReturnType<typeof fakeCoolify>,
+  before: () => void,
+): void {
+  const list = (resourceLists()["GET /applications"] as { json: unknown }).json;
+  fake.set("GET /applications", () => {
+    before();
+    return new Response(JSON.stringify(list), {
+      headers: { "content-type": "application/json" },
+    });
+  });
+}
+
+/** Points the connection at another address: its revision changes. */
+export function moveTarget(harness: PluginHarness, id: number): void {
+  harness.db.sqlite
+    .prepare("UPDATE p_coolify_connections SET base_url = ? WHERE id = ?")
+    .run("https://other.example.test", id);
+}
+
+/** Lowers a user's grant to view. */
+export function dropGrant(harness: PluginHarness, userId: string): void {
+  harness.db.sqlite
+    .prepare("UPDATE p_coolify_grants SET level = 'view' WHERE user_id = ?")
+    .run(userId);
+}
+
+/** The three preview changes, as routes and as actions. */
+export const PREVIEW_CHANGES = [
+  {
+    actionId: "coolify.preview-create",
+    method: "POST",
+    path: (id: number) => `/connections/${id}/resources/app-web-uuid/previews`,
+    body: { pullRequestId: 51 } as Record<string, unknown> | undefined,
+    input: { pullRequestId: 51 } as Record<string, unknown>,
+  },
+  {
+    actionId: "coolify.preview-domains",
+    method: "PATCH",
+    path: (id: number) =>
+      `/connections/${id}/resources/app-web-uuid/previews/42`,
+    body: { domains: "https://pr-42.example.test" },
+    input: { pullRequestId: 42, domains: "https://pr-42.example.test" },
+  },
+  {
+    actionId: "coolify.preview-delete",
+    method: "DELETE",
+    path: (id: number) =>
+      `/connections/${id}/resources/app-web-uuid/previews/42`,
+    body: undefined,
+    input: { pullRequestId: 42 },
+  },
+] as const;
 
 /** One pull request preview as Coolify lists it. */
 export function previewRaw(

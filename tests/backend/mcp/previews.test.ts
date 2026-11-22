@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type {
-  PluginContext,
-  PluginOperationInvokeOptions,
-  PluginOperationOutcome,
-} from "@termix-ssh/plugin-sdk/backend";
+import type { PluginOperationInvokeOptions } from "@termix-ssh/plugin-sdk/backend";
 import { handleMcp } from "../../../src/backend/mcp/server.js";
 import {
   changes,
@@ -13,11 +9,7 @@ import {
 import { OWNER, type PluginHarness } from "../helpers/plugin.js";
 import { previewAnswers } from "../helpers/previews.js";
 import { withRunHistory } from "../helpers/run-history.js";
-
-type Run = (
-  actionId: string,
-  options?: PluginOperationInvokeOptions,
-) => Promise<PluginOperationOutcome>;
+import { callTool, withRun } from "../helpers/mcp.js";
 
 let harness: PluginHarness | null = null;
 
@@ -25,16 +17,6 @@ afterEach(async () => {
   await harness?.close();
   harness = null;
 });
-
-/** The plugin's ctx with ctx.operations.run answered by `run`, as core's gate would. */
-function withRun(ctx: PluginContext, run: Run): PluginContext {
-  return new Proxy(ctx, {
-    get(target, prop) {
-      if (prop === "operations") return { ...target.operations, run };
-      return Reflect.get(target, prop);
-    },
-  });
-}
 
 async function start() {
   const started = await startLifecycle({
@@ -47,20 +29,6 @@ async function start() {
   return started;
 }
 
-async function call(
-  ctx: PluginContext,
-  name: string,
-  args: Record<string, unknown>,
-) {
-  const answer = await handleMcp(ctx, {
-    jsonrpc: "2.0",
-    id: 1,
-    method: "tools/call",
-    params: { name, arguments: args },
-  });
-  return answer?.result as { isError: boolean; content: { text: string }[] };
-}
-
 describe("previews over MCP", () => {
   it("coolify__preview_logs answers the redacted logs once and the run keeps none of it", async () => {
     const { harness, id } = await start();
@@ -68,7 +36,7 @@ describe("previews over MCP", () => {
     const ctx = withRun(harness.mock.ctx, (actionId, options) =>
       runs.run(actionId, options?.input ?? {}),
     );
-    const result = await call(ctx, "coolify__preview_logs", {
+    const result = await callTool(ctx, "coolify__preview_logs", {
       connectionId: String(id),
       uuid: "app-web-uuid",
       pullRequestId: 42,
@@ -102,14 +70,14 @@ describe("previews over MCP", () => {
         { ...base, pullRequestId: 42, domains: "https://pr-42.example.test" },
       ],
     ] as const) {
-      const refused = await call(ctx, name, args);
+      const refused = await callTool(ctx, name, args);
       expect(refused.isError, name).toBe(true);
       expect(refused.content[0].text, name).toContain("confirm-required");
     }
     expect(asked).toEqual([]);
     expect(changes(fake)).toEqual([]);
 
-    const made = await call(ctx, "coolify__preview_create", {
+    const made = await callTool(ctx, "coolify__preview_create", {
       ...base,
       pullRequestId: 51,
       confirmed: true,
@@ -132,8 +100,11 @@ describe("previews over MCP", () => {
       uuid: "app-web-uuid",
       pullRequestId: 42,
     };
-    await call(ctx, "coolify__preview_delete", base);
-    await call(ctx, "coolify__preview_delete", { ...base, confirmed: true });
+    await callTool(ctx, "coolify__preview_delete", base);
+    await callTool(ctx, "coolify__preview_delete", {
+      ...base,
+      confirmed: true,
+    });
     expect(seen.map((o) => o.confirmed === true)).toEqual([false, true]);
     const listed = await handleMcp(ctx, {
       jsonrpc: "2.0",

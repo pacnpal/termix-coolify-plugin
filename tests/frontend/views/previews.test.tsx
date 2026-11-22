@@ -11,7 +11,6 @@ import {
   renderWithApp,
   type RenderedPluginApp,
 } from "@termix-ssh/plugin-sdk/testing";
-import type { PluginManifest } from "@termix-ssh/plugin-sdk/manifest";
 import * as plugin from "../../../src/frontend/index";
 import type { Resource } from "../../../src/frontend/api";
 import { PreviewsTab } from "../../../src/frontend/views/PreviewsTab";
@@ -19,29 +18,13 @@ import {
   detailTabs,
   DETAIL_TABS,
 } from "../../../src/frontend/views/ResourceDetail";
-import manifestJson from "../../../manifest.json";
 import locales from "../../../locales/en.json";
 import { resourceRows, stubApi } from "../fixtures";
+import { harnessManifest, OPERATE } from "../helpers/deployments";
 
-const real = manifestJson as unknown as PluginManifest;
 /** The plugin's manifest plus a test tab that holds PreviewsTab. */
-const manifest: PluginManifest = {
-  ...real,
-  contributes: {
-    ...real.contributes,
-    tabs: [
-      ...(real.contributes?.tabs ?? []),
-      {
-        id: "previews-harness",
-        titleKey: "tab.title",
-        icon: "GitPullRequest",
-        openFrom: ["palette"],
-      },
-    ],
-  },
-};
+const manifest = harnessManifest("previews-harness", "GitPullRequest");
 const P = locales.previews;
-const OPERATE = ["coolify.view", "coolify.operate"];
 
 const web = resourceRows.find((r) => r.uuid === "app-web-uuid") as Resource;
 const api_ = resourceRows.find((r) => r.uuid === "app-api-uuid") as Resource;
