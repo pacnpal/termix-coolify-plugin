@@ -72,6 +72,51 @@ describe("log exits", () => {
     ]);
   });
 
+  it("fails on a nested helper inside a registered exit that returns command output", () => {
+    const files = sources();
+    const updates = "src/backend/updates/service.ts";
+    const anchor =
+      "      target.signal = signal;\n      // The upgrade's output is command output";
+    expect(files[updates]).toContain(anchor);
+    files[updates] = files[updates].replace(
+      anchor,
+      [
+        "      const leak = async () => {",
+        '        const raw = await exec(target, "docker logs app", 1000);',
+        "        return raw.stdout;",
+        "      };",
+        anchor,
+      ].join("\n"),
+    );
+    const problems = auditLogExits(files, LOG_EXITS);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(
+      /^src\/backend\/updates\/service\.ts:\d+ reads log text outside any registered function: return raw\.stdout;$/,
+    );
+  });
+
+  it("fails on a nested helper inside a fed function that calls the feeder", () => {
+    const files = sources();
+    const logs = "src/backend/containers/logs.ts";
+    const anchor = "      const request = readLogsRequest(raw);\n";
+    expect(files[logs]).toContain(anchor);
+    files[logs] = files[logs].replace(
+      anchor,
+      [
+        anchor.trimEnd(),
+        "      const rawText = async (res: ResourceDto, snap: Snapshot) => {",
+        "        return await fromCoolify(snap, res, request);",
+        "      };",
+        "",
+      ].join("\n"),
+    );
+    const problems = auditLogExits(files, LOG_EXITS);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(
+      /^src\/backend\/containers\/logs\.ts:\d+ calls fromCoolify, whose raw text only snapshot may take$/,
+    );
+  });
+
   it("fails on a planted function that returns command output", () => {
     const files = sources();
     files[SERVICE] +=

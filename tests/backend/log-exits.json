@@ -37,6 +37,10 @@
     "kind": "exit",
     "what": "exec stdout and stderr"
   },
+  "src/backend/containers/exec.ts#groupKill": {
+    "kind": "discards",
+    "what": "exec's process group kill; its channel's output is never read"
+  },
   "src/backend/ops/api-generic.ts#logFieldsOf": {
     "kind": "feeds",
     "into": ["dispatch", "reveal"],

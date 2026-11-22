@@ -201,10 +201,10 @@ export function auditLogExits(
     source.split("\n").forEach((line, at) => {
       if (COMMENT.test(line) || DECLARATION.test(line)) return;
       if (!SOURCES.some((re) => re.test(line))) return;
-      const owner = around(fns, at).find(
-        (fn) => registry[`${path}#${fn.name}`],
-      );
-      if (!owner) {
+      // The innermost function decides: a helper nested in a registered
+      // one is its own place and must be registered itself.
+      const owner = around(fns, at)[0];
+      if (!owner || !registry[`${path}#${owner.name}`]) {
         problems.push(
           `${path}:${at + 1} reads log text outside any registered function: ${line.trim()}`,
         );
@@ -252,8 +252,9 @@ export function auditLogExits(
         found.source.split("\n").forEach((line, at) => {
           if (COMMENT.test(line) || !call.test(line)) return;
           if (at >= found.fn.start && at <= found.fn.end) return;
-          const callers = around(fns, at).map((fn) => fn.name);
-          if (!callers.some((c) => entry.into.includes(c))) {
+          // Only the innermost function counts, as for sources.
+          const caller = around(fns, at)[0]?.name;
+          if (!caller || !entry.into.includes(caller)) {
             problems.push(
               `${path}:${at + 1} calls ${name}, whose raw text only ${entry.into.join(", ")} may take`,
             );
