@@ -422,6 +422,10 @@
       "targets": {
         "label": "Confirmed resources",
         "description": "Comma separated uuids. When set, nothing is deployed unless the tag still hits exactly these."
+      },
+      "image": {
+        "label": "Image",
+        "description": "The image tag to roll back to, one of the application's rollback images (often a commit)."
       }
     },
     "listConnections": {
@@ -676,6 +680,23 @@
     "deploymentCancel": {
       "title": "Cancel a Coolify deployment",
       "description": "Cancels a queued or running deployment. One that already ended can't be cancelled."
+    },
+    "rollbackImages": {
+      "title": "List a Coolify app's rollback images",
+      "description": "The images this application can be rolled back to, with the one it runs now. Applications only."
+    },
+    "rollback": {
+      "title": "Roll back a Coolify app",
+      "description": "Redeploys the application with an earlier image from its rollback images. Applications only.",
+      "dryRun": "Would roll back {{name}} to image {{image}}"
+    },
+    "resourceRollbackImages": {
+      "title": "List a Coolify app's rollback images by uuid",
+      "description": "The images an application can be rolled back to, with the one it runs now. Applications only."
+    },
+    "resourceRollback": {
+      "title": "Roll back a Coolify app by uuid",
+      "description": "Redeploys an application with an earlier image from its rollback images. Applications only."
     },
     "deploymentQueue": {
       "title": "Coolify deployment queue",
@@ -1474,7 +1495,27 @@
     "cancelled": "Deployment cancelled.",
     "cancelPending": "Waiting for approval to cancel the deployment.",
     "cancelFailed": "The deployment could not be cancelled.",
-    "refresh": "Refresh deployments"
+    "refresh": "Refresh deployments",
+    "rollbackOpen": "Roll back",
+    "rollbackImages": {
+      "title": "Roll back to an earlier image",
+      "loading": "Loading rollback images…",
+      "empty": "Coolify has no earlier image of this application.",
+      "failed": "The rollback images could not be read.",
+      "retry": "Try again",
+      "current": "Running now",
+      "registry": "Registry",
+      "local": "On the server",
+      "action": "Roll back to {{tag}}"
+    },
+    "rollbackConfirm": {
+      "title": "Roll back {{name}} to {{tag}}?",
+      "description": "Coolify redeploys {{name}} with the image {{tag}}. The image it runs now is replaced once the rollback deployment finishes.",
+      "confirm": "Roll back to {{tag}}"
+    },
+    "rolledBack": "Rollback to {{tag}} queued.",
+    "rollbackPending": "Waiting for approval to roll back.",
+    "rollbackFailed": "The rollback could not be started."
   },
   "deploymentsSection": {
     "title": "Deployments",

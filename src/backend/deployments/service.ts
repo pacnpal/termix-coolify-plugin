@@ -1,5 +1,10 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
-import type { DeploymentDto, ResourceDto } from "../coolify/dto.js";
+import {
+  IMAGE_TAG,
+  type DeploymentDto,
+  type ResourceDto,
+  type RollbackImagesDto,
+} from "../coolify/dto.js";
 import {
   ConnectionError,
   type AccessLevel,
@@ -60,6 +65,20 @@ export interface DeploymentDetail {
   /** Nothing more will change: polling can stop. */
   final: boolean;
   cancellable: boolean;
+}
+
+/** An application's rollback images, named. */
+export interface RollbackImages extends RollbackImagesDto {
+  uuid: string;
+  name: string;
+}
+
+/** A queued rollback. */
+export interface RollbackOutcome {
+  uuid: string;
+  name: string;
+  image: string;
+  deploymentUuid: string | null;
 }
 
 type Level = "view" | "operate";
@@ -235,6 +254,38 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
   }
 
   /**
+   * One of the connection's own applications, on `serverUuid` when one is
+   * given (a Linked host's own server).
+   */
+  async function applicationOn(
+    connectionId: number,
+    uuid: string,
+    serverUuid: string | undefined,
+  ): Promise<ResourceDto> {
+    const app = await application(connectionId, uuid);
+    if (serverUuid !== undefined && app.serverUuid !== serverUuid) {
+      throw noApplication();
+    }
+    return app;
+  }
+
+  async function images(
+    connectionId: number,
+    snap: Snapshot,
+    level: Level,
+    app: ResourceDto,
+    signal: AbortSignal | undefined,
+  ): Promise<RollbackImagesDto> {
+    await holds(connectionId, snap, level);
+    signal?.throwIfAborted();
+    const answer = await snap.api.rollbackImages(app.uuid, {
+      beforeFetch: () => holds(connectionId, snap, level),
+    });
+    await holds(connectionId, snap, level);
+    return answer;
+  }
+
+  /**
    * The connection's own applications and services that carry `tag`, as
    * Coolify's deploy by tag would pick them: applications through Coolify's
    * tag filter, services through each one's tags. With a pull request,
@@ -326,6 +377,89 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
         await application(connectionId, resourceUuid);
         await holds(connectionId, snap, level);
       }
+    },
+
+    /**
+     * The application a rollback would act on, for its confirm text: the
+     * same checks as a rollback, without asking Coolify anything.
+     */
+    async rollbackTarget(
+      connectionId: number,
+      uuid: string,
+      opts: { serverUuid?: string } = {},
+    ): Promise<ResourceDto> {
+      const snap = await open(connectionId, "operate");
+      const app = await applicationOn(connectionId, uuid, opts.serverUuid);
+      await holds(connectionId, snap, "operate");
+      return app;
+    },
+
+    /**
+     * The images an application can be rolled back to, with the one it
+     * runs now. Only applications have them; anything else is not-found.
+     */
+    async rollbackImages(
+      connectionId: number,
+      uuid: string,
+      opts: { serverUuid?: string; signal?: AbortSignal } = {},
+    ): Promise<RollbackImages> {
+      const snap = await open(connectionId, "view");
+      const app = await applicationOn(connectionId, uuid, opts.serverUuid);
+      const answer = await images(connectionId, snap, "view", app, opts.signal);
+      return { uuid: app.uuid, name: app.name, ...answer };
+    },
+
+    /**
+     * Rolls an application back to one of its listed images. Needs operate.
+     * The image must be in Coolify's list as read now; the connection and
+     * the actor's grant are checked after every await and right before
+     * Coolify is asked, and a cancelled run stops before that.
+     */
+    async rollback(
+      connectionId: number,
+      uuid: string,
+      image: string,
+      opts: { serverUuid?: string; signal?: AbortSignal } = {},
+    ): Promise<RollbackOutcome> {
+      const snap = await open(connectionId, "operate");
+      if (!IMAGE_TAG.test(image)) {
+        throw new ConnectionError("invalid-input", "image is not an image tag");
+      }
+      const app = await applicationOn(connectionId, uuid, opts.serverUuid);
+      const listed = await images(
+        connectionId,
+        snap,
+        "operate",
+        app,
+        opts.signal,
+      );
+      if (!listed.images.some((i) => i.tag === image)) {
+        throw new ConnectionError(
+          "invalid-input",
+          "That image is not one this application can be rolled back to",
+        );
+      }
+      opts.signal?.throwIfAborted();
+      let answer: { deploymentUuid: string | null };
+      try {
+        answer = await snap.api.rollback(app.uuid, image, {
+          beforeFetch: async () => {
+            await holds(connectionId, snap, "operate");
+            opts.signal?.throwIfAborted();
+          },
+        });
+      } finally {
+        // The application redeploys: its status and the queue change.
+        queueCache.invalidate(connectionId);
+        await resources.invalidate(connectionId);
+      }
+      await holds(connectionId, snap, "operate");
+      return {
+        uuid: app.uuid,
+        name: app.name,
+        image,
+        deploymentUuid: answer.deploymentUuid,
+      };
     },
 
     /**

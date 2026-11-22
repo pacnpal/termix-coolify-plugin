@@ -28,6 +28,13 @@
   without the View Coolify permission
 - Action `coolify.attention`, the same list for Operations Center, Automations, the CLI, the Termix API and
   MCP. The panel, the badge and the action share the tab's cached reads, so they add no Coolify requests
+- Roll an application back to an earlier image from its Deployments tab: the images Coolify keeps are
+  listed with the one running now, and the rollback runs after a confirm that names the image tag
+- Actions `coolify.rollback` and `coolify.resource-rollback`, with the image picked from
+  `coolify.rollback-images` or `coolify.resource-rollback-images`, so rollback works from Operations
+  Center, Automations, the CLI, the Termix API and MCP (with `confirmed: true`)
+- Undo for a deploy: deploying an application records the image it ran before, and undoing the run rolls
+  back to it
 
 ## 1.0.0
 

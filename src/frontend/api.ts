@@ -279,6 +279,27 @@ function queueRows(value: unknown): QueueDeployment[] {
     : [];
 }
 
+/** One image an application can be rolled back to. */
+export interface RollbackImage {
+  tag: string;
+  createdAt: string | null;
+  /** The image the application runs now. */
+  current: boolean;
+  source: "local" | "registry" | null;
+}
+
+/** An application's rollback images and the tag it runs now. */
+export interface RollbackImages {
+  current: string | null;
+  images: RollbackImage[];
+}
+
+/** What a rollback answers; pending waits for an approval. */
+export interface RollbackAnswer {
+  deploymentUuid: string | null;
+  pending: boolean;
+}
+
 /** GET /mcp: where the plugin's MCP endpoint is. */
 export interface McpInfo {
   endpoint: string;
@@ -848,6 +869,39 @@ export function createApi(api: PluginApiClient) {
             : null,
         final: data?.final === true,
         cancellable: data?.cancellable === true,
+      };
+    },
+    /** The images an application can be rolled back to. */
+    async listRollbackImages(
+      id: number,
+      uuid: string,
+    ): Promise<RollbackImages> {
+      const data = (
+        await api.get<Partial<RollbackImages>>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/rollback-images`,
+        )
+      ).data;
+      return {
+        current: typeof data?.current === "string" ? data.current : null,
+        images: Array.isArray(data?.images) ? data.images : [],
+      };
+    },
+    /** Rolls an application back to `image`; the backend runs it as an action. */
+    async rollback(
+      id: number,
+      uuid: string,
+      image: string,
+    ): Promise<RollbackAnswer> {
+      const data = (
+        await api.post<{ status?: unknown; deploymentUuid?: unknown }>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/rollback`,
+          { image },
+        )
+      ).data;
+      return {
+        deploymentUuid:
+          typeof data?.deploymentUuid === "string" ? data.deploymentUuid : null,
+        pending: data?.status === "pending",
       };
     },
     /** Cancels a queued or running deployment; the backend runs it as an action. */

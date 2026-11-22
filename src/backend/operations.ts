@@ -27,6 +27,7 @@ import { registerDeploymentOperations } from "./ops/deployments.js";
 import { registerLifecycleOperations } from "./ops/lifecycle.js";
 import { registerMetricsOperations } from "./ops/metrics.js";
 import { registerResourceOperations } from "./ops/resources.js";
+import { registerRollbackOperations } from "./ops/rollback.js";
 import {
   registerSignalOperations,
   type ServerStatuses,
@@ -108,6 +109,7 @@ export function registerOperations(
   registerSyncOperations(ctx, services.sync);
   registerLifecycleOperations(ctx, services);
   registerDeploymentOperations(ctx, services.deployments);
+  registerRollbackOperations(ctx, services);
   registerSignalOperations(ctx, services);
   registerContainerOperations(
     ctx,

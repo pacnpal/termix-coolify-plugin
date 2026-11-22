@@ -41,12 +41,14 @@ export const MCP_CHANGES_EXEMPT: readonly string[] = [
  * Actions MCP refuses without `confirmed: true`, before core is asked:
  * coolify.exec runs any command in a container; coolify.enable-metrics
  * changes a server's Sentinel settings; coolify.deploy-by-tag deploys every
- * resource with a tag.
+ * resource with a tag; a rollback replaces what an application runs.
  */
 export const MCP_CONFIRM_REQUIRED: readonly string[] = [
   "coolify.exec",
   "coolify.enable-metrics",
   "coolify.deploy-by-tag",
+  "coolify.rollback",
+  "coolify.resource-rollback",
 ];
 
 /**
@@ -192,15 +194,15 @@ function inputSchema(action: OperationAction): Record<string, unknown> {
       description: "Describe what would happen without changing anything.",
     };
   }
-  if (action.risk === "destructive") {
-    properties.confirmed = {
-      type: "boolean",
-      description: "Set true to confirm this destructive action.",
-    };
-  } else if (MCP_CONFIRM_REQUIRED.includes(action.id)) {
+  if (MCP_CONFIRM_REQUIRED.includes(action.id)) {
     properties.confirmed = {
       type: "boolean",
       description: "Required: set true to confirm this action.",
+    };
+  } else if (action.risk === "destructive") {
+    properties.confirmed = {
+      type: "boolean",
+      description: "Set true to confirm this destructive action.",
     };
   } else if (MCP_CONFIRM_REQUIRED_KINDS[action.id]) {
     properties.confirmed = {

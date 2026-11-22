@@ -186,6 +186,141 @@ export function registerDeploymentRoutes(
 
   /**
    * @openapi
+   * /plugin-api/coolify/connections/{id}/resources/{uuid}/rollback-images:
+   *   get:
+   *     summary: The images an application can be rolled back to
+   *     description: >-
+   *       Reads Coolify's rollback images for one of the connection's own
+   *       applications (services and databases have none): images on the
+   *       server and, with a registry image set, in the registry. Needs
+   *       coolify.view and any access to the connection.
+   *     tags:
+   *       - Coolify
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *       - in: path
+   *         name: uuid
+   *         required: true
+   *         schema:
+   *           type: string
+   *     responses:
+   *       200:
+   *         description: >-
+   *           { uuid, name, current, images: [{ tag, createdAt, current,
+   *           source }] }; current is the tag running now, or null
+   *       403:
+   *         description: Missing coolify.view
+   *       404:
+   *         description: >-
+   *           No such application on this connection, or another user's
+   *           connection
+   *       409:
+   *         description: target-changed, the connection changed meanwhile
+   *       502:
+   *         description: Coolify failed, with a cause
+   */
+  router.get(
+    "/connections/:id/resources/:uuid/rollback-images",
+    view,
+    safe(ctx, async (req, res) => {
+      const id = idParam(req);
+      const uuid = uuidParam(req);
+      res.json(await deployments.rollbackImages(id, uuid));
+    }),
+  );
+
+  /**
+   * @openapi
+   * /plugin-api/coolify/connections/{id}/resources/{uuid}/rollback:
+   *   post:
+   *     summary: Roll an application back to one of its rollback images
+   *     description: >-
+   *       Needs coolify.operate and the owner or an operate grant. Runs
+   *       coolify.resource-rollback, confirmed (the UI asks first, naming
+   *       the image tag). The image must be in the application's rollback
+   *       images as Coolify lists them now. The connection and the
+   *       caller's grant are checked again after every step and right
+   *       before Coolify is asked.
+   *     tags:
+   *       - Coolify
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *       - in: path
+   *         name: uuid
+   *         required: true
+   *         schema:
+   *           type: string
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - image
+   *             properties:
+   *               image:
+   *                 type: string
+   *                 description: An image tag from the rollback images
+   *     responses:
+   *       200:
+   *         description: "{ uuid, image, deploymentUuid }"
+   *       202:
+   *         description: Waiting for approval, with the run id
+   *       400:
+   *         description: Not an image tag, or not one of the listed images
+   *       403:
+   *         description: Missing coolify.operate, or a view grant
+   *       404:
+   *         description: >-
+   *           No such application on this connection (services and
+   *           databases can't be rolled back), or another user's connection
+   *       409:
+   *         description: target-changed, the connection changed meanwhile
+   *       502:
+   *         description: Coolify failed, with a cause
+   */
+  router.post(
+    "/connections/:id/resources/:uuid/rollback",
+    operate,
+    safe(ctx, async (req, res) => {
+      const id = idParam(req);
+      const uuid = uuidParam(req);
+      const body = (req.body ?? {}) as { image?: unknown };
+      const image = typeof body.image === "string" ? body.image : "";
+      // Refused here, before the action and before any Coolify request, as
+      // cancel is: through core, a refusal thrown inside the action can
+      // come back as a plain error (a 502).
+      await deployments.authorize(id, "operate", uuid);
+      const outcome = await ctx.operations.run("coolify.resource-rollback", {
+        input: { connectionId: String(id), uuid, image },
+        confirmed: true,
+      });
+      const failure = failedOutcome(outcome);
+      if (failure) {
+        res.status(failure.status).json(failure.body);
+        return;
+      }
+      const data = (outcome.data ?? {}) as { deploymentUuid?: unknown };
+      res.json({
+        uuid,
+        image,
+        deploymentUuid:
+          typeof data.deploymentUuid === "string" ? data.deploymentUuid : null,
+      });
+    }),
+  );
+
+  /**
+   * @openapi
    * /plugin-api/coolify/connections/{id}/resources/{uuid}/deployments/{deploymentUuid}/cancel:
    *   post:
    *     summary: Cancel a queued or running deployment of an application

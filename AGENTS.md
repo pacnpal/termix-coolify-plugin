@@ -635,7 +635,7 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   applications; it is cached 10 seconds in memory (`queue.ts`), keyed by revision and an invalidate
   generation like the resources cache, shared by the Deployments section, the Overview, the
   `coolify.deployment-queue` action and anything later (the sidebar panel, rail badge). Rows whose link
-  names no application of the connection are dropped. Cancel and deploy by tag invalidate it. In the
+  names no application of the connection are dropped. Cancel, deploy by tag and rollback invalidate it. In the
   frontend, `useDeploymentQueue` is held by CoolifyTab and polls only while the tab shows Overview or
   Deployments. Deploy by tag finds the tag's targets itself (`/applications?tag=` and each service's tags)
   and deploys them by uuid: Coolify's own `tag` parameter refuses `pr` and `docker_tag`, and deploying by
@@ -653,3 +653,11 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   polling every 15 s while `active`). Panel rows open the tab with data the tab reads in `requestOf`:
   `uuid` on Resources opens that resource's detail, `resourceUuid` + `deploymentUuid` on Deployments
   opens the build log, but only with operate (`shownDeployment` in CoolifyTab).
+- Rollback (1.1): `deployments/service.ts` `rollbackImages` (view) and `rollback` (operate), applications
+  only, through the same `open`/`holds` snapshot re-check as cancel; the image must be in Coolify's list as
+  read in that same call. `ops/rollback.ts` has both scopes; the rollbacks are destructive and in
+  `MCP_CONFIRM_REQUIRED`. `coolify.deploy` / `coolify.resource-deploy` declare them as `undo`: before an
+  application deploy, `imageBefore` in `ops/lifecycle.ts` reads the current image and returns it as
+  `undoInput` only when it is listed; a failed read never blocks the deploy. `PluginOperationOutcome` has
+  no `undoInput`, so tests read it from the handler's own result. `RollbackView` re-checks after the
+  confirm that it is still mounted and on the same application before it posts.
