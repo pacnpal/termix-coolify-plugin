@@ -11,4 +11,34 @@ describe("sandboxed frame", () => {
     expect(problems).toEqual([]);
     expect(registrations.length).toBeGreaterThan(0);
   });
+
+  it("gives the Coolify rail item a badge and opens the activity panel from the rail", async () => {
+    const { problems, registrations } = await checkFrameApp(plugin, {
+      manifest: manifest as unknown as Record<string, unknown>,
+    });
+    expect(problems).toEqual([]);
+    const rail = registrations
+      .filter((r) => r.kind === "railItem")
+      .map((r) => r.data as Record<string, unknown>);
+    expect(rail).toEqual([
+      expect.objectContaining({
+        id: "coolify",
+        kind: "tab",
+        permission: "view",
+        badgeKey: expect.any(String),
+      }),
+      expect.objectContaining({
+        id: "coolify-activity",
+        kind: "panel",
+        permission: "view",
+      }),
+    ]);
+    expect(
+      registrations.some(
+        (r) =>
+          r.kind === "panel" &&
+          (r.data as { id?: string }).id === "coolify-activity",
+      ),
+    ).toBe(true);
+  });
 });

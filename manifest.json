@@ -89,6 +89,13 @@
         "openFrom": ["palette"]
       }
     ],
+    "panels": [
+      {
+        "id": "coolify-activity",
+        "titleKey": "activityPanel.title",
+        "icon": "Activity"
+      }
+    ],
     "hostSections": [
       {
         "id": "coolify",
@@ -986,6 +993,27 @@
               "optionsFrom": "coolify.list-connections",
               "required": true
             },
+            {
+              "key": "refresh",
+              "type": "boolean",
+              "labelKey": "ops.fields.refresh.label",
+              "descriptionKey": "ops.fields.refresh.description"
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.attention",
+          "titleKey": "ops.attention.title",
+          "descriptionKey": "ops.attention.description",
+          "icon": "BellRing",
+          "scope": "server",
+          "inputs": [
             {
               "key": "refresh",
               "type": "boolean",
