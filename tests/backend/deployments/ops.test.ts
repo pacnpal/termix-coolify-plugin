@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { PluginOperationContext } from "@termix-ssh/plugin-sdk/backend";
-import { deploymentAnswers, deploymentRaw } from "../helpers/deployments.js";
+import {
+  deploymentAnswers,
+  deploymentRaw,
+  KEY_BODY,
+  keyEntries,
+} from "../helpers/deployments.js";
 import { changes, startLifecycle } from "../helpers/lifecycle.js";
 import { manifest, type PluginHarness } from "../helpers/plugin.js";
 import { withRunHistory } from "../helpers/run-history.js";
@@ -111,6 +116,27 @@ describe("deployment operations", () => {
     const history = JSON.stringify(runs.history);
     expect(history).not.toContain("Starting deployment");
     expect(history).not.toContain("fake-build-pass");
+  });
+
+  it("coolify.deployment-get masks a private key printed across several entries", async () => {
+    const { harness, fake, id } = await start();
+    fake.set("GET /deployments/dep-done", {
+      json: deploymentRaw("dep-done", "finished", { entries: keyEntries(1) }),
+    });
+    const outcome = await harness.mock.ctx.operations.run(
+      "coolify.deployment-get",
+      {
+        input: {
+          connectionId: String(id),
+          deploymentUuid: "dep-done",
+          showHidden: true,
+          confirm: true,
+        },
+      },
+    );
+    const text = (outcome.data as { text: string }).text;
+    expect(text).toContain("after the key");
+    expect(JSON.stringify(outcome)).not.toContain(KEY_BODY);
   });
 
   it("coolify.deployment-get needs confirm: true, since logs hold secrets", async () => {

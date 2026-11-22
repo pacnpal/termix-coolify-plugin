@@ -232,6 +232,10 @@ export function registerDeploymentRoutes(
       const id = idParam(req);
       const uuid = uuidParam(req);
       const deploymentUuid = deploymentParam(req);
+      // Refused here, before the action and before any Coolify request:
+      // through core, a refusal thrown inside the action can come back as a
+      // plain error (a 502).
+      await deployments.authorize(id, "operate", uuid);
       const outcome = await ctx.operations.run("coolify.deployment-cancel", {
         input: { connectionId: String(id), uuid, deploymentUuid },
         confirmed: true,

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CircleStop, EyeOff, ScrollText, TriangleAlert } from "lucide-react";
 import {
   usePluginApi,
@@ -102,6 +102,17 @@ export function BuildLogView({
   const [attempt, setAttempt] = useState(0);
   const read: Read = state.key === key ? state.read : { kind: "loading" };
   const final = read.kind === "ok" && ended(read.detail);
+  // The deployment shown now, and whether the view is still open: a confirm
+  // answered after either changed acts on nothing.
+  const current = useRef(key);
+  current.current = key;
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!isVisible || final) return;
@@ -137,13 +148,16 @@ export function BuildLogView({
   ]);
 
   async function cancel(deployment: Deployment): Promise<void> {
+    const forKey = key;
     const ok = await confirm({
       title: t("deployments.cancelConfirm.title"),
       description: t("deployments.cancelConfirm.description"),
       confirmLabel: t("deployments.cancelConfirm.confirm"),
       destructive: true,
     });
-    if (!ok) return;
+    // The view moved to another deployment or closed while the confirm was
+    // open: what was confirmed is no longer what is shown, so nothing runs.
+    if (!ok || !mounted.current || current.current !== forKey) return;
     setCancelling(true);
     try {
       const answer = await api.cancelDeployment(
