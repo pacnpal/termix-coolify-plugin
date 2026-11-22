@@ -305,9 +305,25 @@
           "type": "timestamp",
           "notNull": true,
           "defaultNow": true
+        },
+        "serverUuid": {
+          "type": "varchar",
+          "length": 255
+        },
+        "dedupeKey": {
+          "type": "varchar",
+          "length": 255
         }
       },
       "indexes": [
+        {
+          "name": "idx_p_coolify_events_connection_dedupe",
+          "columns": [
+            "connectionId",
+            "dedupeKey"
+          ],
+          "unique": true
+        },
         {
           "name": "idx_p_coolify_events_connection_created",
           "columns": [

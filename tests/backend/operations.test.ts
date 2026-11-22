@@ -130,10 +130,18 @@ describe("lifecycle, resource and signal operations", () => {
       ["coolify.updates", "host", "count"],
     ]);
     expect(ops.events!.map((e) => e.id).sort(byText)).toEqual([
+      "coolify.backup-failed",
+      "coolify.backup-succeeded",
+      "coolify.certificate-problem",
       "coolify.container-restarted",
       "coolify.deployment-failed",
       "coolify.deployment-finished",
+      "coolify.high-disk",
+      "coolify.restart-limit",
       "coolify.server-unreachable",
+      "coolify.task-failed",
+      "coolify.task-succeeded",
+      "coolify.token-expiring",
     ]);
   });
 

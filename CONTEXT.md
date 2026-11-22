@@ -42,3 +42,14 @@ _Avoid_: App (as the general word), workload
 **Part**:
 An application or database that belongs to a service.
 _Avoid_: Service application, service database, sub-resource
+
+### What happens
+
+**Event**:
+One thing that happened in Coolify (a deployment ended, a server became unreachable, a backup failed), kept
+and sent once by the event pipeline, however many times polling or the webhook saw it.
+_Avoid_: Alert (an alert is a notification about an event), notification
+
+**Event log**:
+A connection's stored events, its newest 1,000.
+_Avoid_: History, audit log

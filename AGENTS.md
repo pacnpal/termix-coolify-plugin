@@ -68,7 +68,8 @@ aren't obvious from the code, and anything that has bitten you before.
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
   Where things stand: 1.0.0 is feature complete (connections, resources and lifecycle, host sync, shells,
   logs, exec, metrics, server updates, companions, status pages, the full Coolify API, the MCP endpoint and
-  the `coolify.client` service). The read-only smoke test against a real Coolify is the owner's
+  the `coolify.client` service). 1.2.0 (Alerts) is under way: the event pipeline and event log (#89) are
+  in; the poller, webhook, alerts and event log view build on them. The read-only smoke test against a real Coolify is the owner's
   (`scripts/smoke-readonly.md`). User docs: `docs/index.md`, `tunnels.md`, `permissions.md`,
   `companions.md`, `troubleshooting.md`, `api.md`, `coverage.md`.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
@@ -621,9 +622,42 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   `unhealthy` does. `coolify.updates` takes the newer (`newestSecurity`, parsed timestamps, an unparsable
   one counts as oldest) of Coolify's patch check (`ServerDto.patch`) and the updates service's own last
   check (`updates.lastCheck`: the `updates:<serverUuid>` cache row, served only under the current revision
-  and generation, as in `status`); a signal never runs SSH or calls Coolify beyond the servers cache. The
-  deployment events are emitted only by a deploy run with `wait`; container-restarted and
-  server-unreachable are declared for later polling.
+  and generation, as in `status`); a signal never runs SSH or calls Coolify beyond the servers cache.
+  A deploy run with `wait` still emits its deployment event directly (lifecycle.ts), outside the event
+  pipeline; moving it onto `events.ingest` (source `poll` or a new one) is left to the poller ticket.
+- Event pipeline (1.2.0, #89): `src/backend/events/` (`kinds.ts`, `service.ts` `createEvents`,
+  `routes.ts`) and `src/backend/ops/events.ts`. It is the only writer of the `events` table and the only
+  emitter of the `coolify.<kind>` operations events; the poller (#90) and the webhook (#91) feed it, alerts
+  (#93) and the event log view (#94) read it. The source interface, made in `index.ts` right after
+  `createResources` and passed to whatever feeds it:
+  `events.ingest(connectionId: number, event: SourceEvent, read: { revision: string }): Promise<IngestResult>`.
+  `SourceEvent` is `{ kind, source: "poll" | "webhook", resourceUuid?, serverUuid?, deploymentUuid?,
+name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snapshot's, as the source
+  read Coolify. `IngestResult` is `stored` (with the `EventRecord`), `duplicate`, or `dropped` with
+  `invalid`, `connection-gone`, `target-changed` or `no-access` (owner lost `coolify.view`). It needs no
+  actor (it uses `connections.unattendedSnapshot`, which also gives `secrets()`) and throws only when the
+  database or the emit fails, and then keeps nothing (a stored row whose emit failed is deleted, so a retry
+  isn't a duplicate). Kinds live in `EVENT_KINDS` (kinds.ts) with their subject (`resource`, `server`,
+  `any`, `team`), severity and log title; each is declared in the manifest as `coolify.<kind>` with scope
+  `server` (hostId only when Linked, so no event needs one) and the payload `PAYLOAD_KEYS[subject]`; a
+  test checks both lists and every emitted payload's keys. A new kind adds a row there, a manifest event
+  and its `ops.events.*` locale. Dedupe: `deployment|<deploymentUuid>` when there is one (one event per
+  deployment, whatever its kind), else `<kind>|<resourceUuid or serverUuid>|<minute>`, the minute from
+  the source's `at` unless it is missing, invalid or more than a minute ahead of the clock (then the
+  pipeline's `now`). The key is the `dedupeKey` column with a unique `(connectionId, dedupeKey)` index
+  (migration 0003 hand-adds it: the generator writes no index for an existing table); ingests for one
+  connection run one at a time in memory (single process, like `withLock`), so read, insert and prune
+  never interleave. Pruning keeps the newest `EVENT_LOG_LIMIT` (1000) per connection by id. Removing a
+  connection deletes its events in `removeNow`'s batch; an ingest re-checks the connection's revision
+  after its insert and deletes the row when the connection went or was repointed meanwhile. hostId is
+  `sync.linkedHostFor(connectionId, serverUuid)`, so a resource event needs its server's uuid from the
+  source. Redaction: uuids must match `^[A-Za-z0-9_-]{1,128}$` (else `invalid`); `name` and `status` go
+  through `redactLog` with the connection's own secrets, then keep their first line, capped (255, 64);
+  `fields` keeps at most 20 top-level scalars with plain names, drops log-shaped names (`logs`, `output`,
+  `stdout`, `stderr`, `*_log`...) and nested values, runs `redact()` (secret keys) and then each string
+  as `name`, capped at 500. The read is `events.list(connectionId, { limit, before, kind, uuid })`
+  (coolify.view, any access, another user's 404), answering `{ rows: EventRecord[], nextBefore }` newest
+  first, paged by id.
 - Abort: `registerOperations` hands the ops files a ctx whose `operations.register` wraps every handler in
   `abortable` (operations.ts), so a cancelled run throws its signal's reason before it starts; the wrapper
   only adds that check, so each handler's own permission and confirm checks still run. Long handlers
