@@ -307,6 +307,26 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
     holds,
 
     /**
+     * The checks a call makes before anything else, for a route that hands
+     * the work to an action: the permission, the connection (another user's
+     * is not-found) and the grant, with no Coolify request, then the
+     * application among the connection's own. Through core, a refusal
+     * thrown inside an action can come back as a plain error, so a route
+     * refuses here first.
+     */
+    async authorize(
+      connectionId: number,
+      level: Level,
+      resourceUuid?: string,
+    ): Promise<void> {
+      const snap = await open(connectionId, level);
+      if (resourceUuid !== undefined) {
+        await application(connectionId, resourceUuid);
+        await holds(connectionId, snap, level);
+      }
+    },
+
+    /**
      * The connection's queued and running deployments and recent history,
      * from one cached read shared by the Deployments section, the Overview
      * and every other reader. Only the connection's own applications'

@@ -303,6 +303,34 @@ describe("build log view", () => {
       ),
     );
   });
+
+  it.each([
+    [
+      "the view moved to another deployment",
+      () => controls.setDeployment("dep-b"),
+    ],
+    ["the view was closed", () => controls.setMounted(false)],
+  ])(
+    "cancels nothing when %s while the confirm was open",
+    async (_case, change) => {
+      const api = deploymentApi({
+        "dep-a": async () => detail("dep-a", [line(1, "running a")]),
+        "dep-b": async () => detail("dep-b", [line(1, "running b")]),
+      });
+      await renderHarness(api);
+      await screen.findByText("running a");
+      fireEvent.click(screen.getByRole("button", { name: D.cancel }));
+      const dialog = await screen.findByRole("alertdialog");
+      act(() => change());
+      fireEvent.click(
+        within(dialog).getByRole("button", {
+          name: D.cancelConfirm.confirm,
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 50));
+      expect(api.post).not.toHaveBeenCalled();
+    },
+  );
 });
 
 /** Opens the coolify tab, the web application and its Deployments view. */
