@@ -348,7 +348,7 @@ export function PreviewsTab({
     const forTarget = target;
     const id = preview.pullRequestId;
     const checked = checkDomains(forms.domains);
-    if (!checked.ok) {
+    if ("reason" in checked) {
       setForms({
         domainsError: t(`previews.domains.errors.${checked.reason}`),
       });

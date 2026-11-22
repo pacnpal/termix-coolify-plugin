@@ -17,7 +17,7 @@ describe("checkDomains", () => {
   it("names what is wrong with a bad list", () => {
     const reason = (text: string) => {
       const checked = checkDomains(text);
-      return checked.ok ? "ok" : checked.reason;
+      return "reason" in checked ? checked.reason : "ok";
     };
     expect(reason("")).toBe("empty");
     expect(reason(" , ")).toBe("empty");

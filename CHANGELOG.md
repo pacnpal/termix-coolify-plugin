@@ -13,6 +13,14 @@
 - Actions `coolify.deployment-list`, `coolify.deployment-get` and `coolify.deployment-cancel`, so the
   history, build logs (redacted, needing `confirm: true`) and cancel work from Operations Center,
   Automations, the CLI, the Termix API and MCP
+- A Previews tab on an application: its pull request previews with their status, domains and newest
+  build. Deploy a preview for a pull request, change a preview's domains (checked before they are sent)
+  and delete one, each after a confirm; open a preview's build log and its container logs (redacted)
+- Actions `coolify.preview-list`, `coolify.preview-create`, `coolify.preview-domains`,
+  `coolify.preview-delete` and `coolify.preview-logs`, so previews work from Operations Center,
+  Automations, the CLI, the Termix API and MCP. Over MCP, deploying a preview and changing its domains need
+  `confirmed: true`
+- A Coolify older than 4.7.5 that has no preview API gets a message to update Coolify
 
 ## 1.0.0
 

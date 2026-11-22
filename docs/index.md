@@ -273,6 +273,32 @@ The actions `coolify.deployment-list`, `coolify.deployment-get` (the build log, 
 `coolify.deployment-cancel` do the same from Operations Center, Automations, the CLI, the Termix API and
 MCP. See [the API](api.md).
 
+## Pull request previews
+
+An application's **Previews** view lists its pull request previews: each one's status, domains, pull
+request link and newest build. Services and databases have no Previews view. Anyone who can view the
+connection sees the list; everything else needs **Operate Coolify resources** and a connection you own or a
+Grant at operate or configure.
+
+- **Deploy a preview** opens the preview of a pull request number, or redeploys it, after a confirm, and
+  shows its build log. The Git provider is needed unless the application uses a GitHub or GitLab App
+  source. Coolify needs a token with `write` and `deploy`.
+- **Domains** replaces a preview's domains after a confirm. The list is checked before it is sent: comma
+  separated `http://` or `https://` URLs with a DNS host name, an optional port and path, and no user name,
+  password, query or repeats. A bad list says what is wrong and sends nothing.
+- **Delete** removes a preview (its containers, volumes and networks) after a destructive confirm.
+- **Build log** opens the preview's newest build in the same live view as Deployments; **Logs** shows its
+  container logs, masked as container logs are, with private keys masked across lines.
+- Moving to another application starts empty: a preview of the one you left is never shown, and a confirm
+  answered after you moved on, or closed the view, sends nothing.
+- Coolify documents its preview API from 4.7.5. An older Coolify that lacks it gets a message to update
+  Coolify instead of an error.
+
+The actions `coolify.preview-list`, `coolify.preview-create`, `coolify.preview-domains`,
+`coolify.preview-delete` and `coolify.preview-logs` (with `confirm: true`) do the same from Operations
+Center, Automations, the CLI, the Termix API and MCP. Over MCP, deploying a preview and changing its domains
+need `confirmed: true`. See [the API](api.md).
+
 ## Metrics and traffic
 
 Coolify keeps no metric history itself: Sentinel, its agent on each server, does. The plugin reads it the way

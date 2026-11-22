@@ -427,3 +427,50 @@ describe("a preview's container logs", () => {
     expect(previewCalls(fake)).toEqual([]);
   });
 });
+
+describe("refusals before the action runs", () => {
+  it("refuses another user's connection, a view grant and a bad body before any action or Coolify call", async () => {
+    const { harness, fake, id } = await start();
+    // Through core, a refusal thrown inside an action can come back as a
+    // plain failed outcome: the routes must refuse before they run one.
+    const run = vi
+      .spyOn(harness.mock.ctx.operations, "run")
+      .mockResolvedValue({ runId: "r1", status: "failed", error: "boom" });
+    const before = fake.calls.length;
+    const calls = [
+      ["POST", `${web(id)}/previews`, { pullRequestId: 51 }],
+      [
+        "PATCH",
+        `${web(id)}/previews/42`,
+        { domains: "https://a.example.test" },
+      ],
+      ["DELETE", `${web(id)}/previews/42`, undefined],
+    ] as const;
+    for (const [method, path, body] of calls) {
+      const stranger = await harness.request(method, path, body, OTHER);
+      expect(stranger.status, `${method} stranger`).toBe(404);
+    }
+    grant(harness, id, OTHER, "view");
+    for (const [method, path, body] of calls) {
+      const viewer = await harness.request(method, path, body, OTHER);
+      expect(viewer.status, `${method} viewer`).toBe(403);
+    }
+    const badCreate = await harness.request("POST", `${web(id)}/previews`, {
+      pullRequestId: 0,
+    });
+    expect(badCreate.status).toBe(400);
+    const badDomains = await harness.request(
+      "PATCH",
+      `${web(id)}/previews/42`,
+      { domains: "nope" },
+    );
+    expect(badDomains.status).toBe(400);
+    const service = await harness.request(
+      "DELETE",
+      `/connections/${id}/resources/svc-n8n-uuid/previews/42`,
+    );
+    expect(service.status).toBe(404);
+    expect(run).not.toHaveBeenCalled();
+    expect(previewCalls({ calls: fake.calls.slice(before) })).toEqual([]);
+  });
+});

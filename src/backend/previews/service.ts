@@ -153,7 +153,7 @@ export function readPreviewCreate(raw: Record<string, unknown>): PreviewCreate {
 function domainList(text: unknown, label: string): string {
   if (typeof text !== "string") throw invalid(`${label} must be text`);
   const checked = checkDomains(text);
-  if (!checked.ok)
+  if ("reason" in checked)
     throw invalid(`${label}: ${DOMAIN_PROBLEMS[checked.reason]}`);
   return checked.value;
 }
@@ -339,6 +339,24 @@ export function createPreviews(ctx: PluginContext, deps: PreviewsDeps) {
   }
 
   return {
+    /**
+     * The checks a change makes before anything else, for a route that
+     * hands the work to an action: the permission, the connection (another
+     * user's is not-found) and an operate grant, with no Coolify request,
+     * then the application among the connection's own. Through core, a
+     * refusal thrown inside an action can come back as a plain error, so a
+     * route refuses here first.
+     */
+    async authorize(connectionId: number, uuid: string): Promise<void> {
+      if (!(await ctx.rbac.has("operate"))) {
+        throw new ConnectionError(
+          "forbidden",
+          "Changing previews and reading their logs need the Operate Coolify permission",
+        );
+      }
+      await deployments.authorize(connectionId, "operate", uuid);
+    },
+
     /** The application's previews, each with its newest build. */
     async list(
       connectionId: number,

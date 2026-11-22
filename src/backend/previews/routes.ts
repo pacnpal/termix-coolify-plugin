@@ -3,7 +3,12 @@ import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { idParam, safe } from "../connections/routes.js";
 import { ConnectionError } from "../connections/service.js";
 import { failedOutcome, uuidParam } from "../resources/routes.js";
-import { MAX_PULL_REQUEST_ID, type Previews } from "./service.js";
+import {
+  MAX_PULL_REQUEST_ID,
+  readPreviewCreate,
+  readPreviewDomains,
+  type Previews,
+} from "./service.js";
 
 /** A pull request id from the path; anything else reads as missing. */
 function pullRequestParam(req: Request): number {
@@ -51,14 +56,20 @@ export function registerPreviewRoutes(
 
   /**
    * Runs a preview action confirmed (the UI asked) and answers its data, or
-   * the refusal or the waiting approval it came back with.
+   * the refusal or the waiting approval it came back with. The input is
+   * checked and the caller authorized first, before the action and before
+   * any Coolify request: through core, a refusal thrown inside an action can
+   * come back as a plain error (a 502).
    */
   async function runAction(
     res: Response,
+    target: { id: number; uuid: string; check: () => void },
     actionId: string,
     input: Record<string, unknown>,
     answer: (data: Record<string, unknown>) => unknown,
   ): Promise<void> {
+    target.check();
+    await previews.authorize(target.id, target.uuid);
     const outcome = await ctx.operations.run(actionId, {
       input,
       confirmed: true,
@@ -197,6 +208,7 @@ export function registerPreviewRoutes(
       const uuid = uuidParam(req);
       await runAction(
         res,
+        { id, uuid, check: () => readPreviewCreate(bodyOf(req)) },
         "coolify.preview-create",
         {
           connectionId: String(id),
@@ -297,6 +309,7 @@ export function registerPreviewRoutes(
       const pullRequestId = pullRequestParam(req);
       await runAction(
         res,
+        { id, uuid, check: () => readPreviewDomains(bodyOf(req)) },
         "coolify.preview-domains",
         {
           connectionId: String(id),
@@ -367,6 +380,7 @@ export function registerPreviewRoutes(
       const pullRequestId = pullRequestParam(req);
       await runAction(
         res,
+        { id, uuid, check: () => undefined },
         "coolify.preview-delete",
         { connectionId: String(id), uuid, pullRequestId },
         () => ({ pullRequestId }),
