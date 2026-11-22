@@ -90,12 +90,19 @@ function matchesText(r: Resource, needle: string): boolean {
 
 /**
  * Groups that pass the filters. A group passes when its resource or one of
- * its Parts matches the search and the status; the type is the top-level
- * resource's. A passing service shows all of its Parts.
+ * its Parts matches the search and the status; the type and the server are
+ * the top-level resource's. A passing service shows all of its Parts.
+ * `server` (a Coolify server uuid, from a Linked host) keeps that server's
+ * resources only; null keeps every server's.
  */
 export function filterGroups(
   groups: readonly ResourceGroup[],
-  filters: { search: string; kind: KindFilter; health: HealthFilter },
+  filters: {
+    search: string;
+    kind: KindFilter;
+    health: HealthFilter;
+    server?: string | null;
+  },
 ): ResourceGroup[] {
   const needle = filters.search.trim().toLowerCase();
   const matches = (r: Resource) =>
@@ -104,6 +111,7 @@ export function filterGroups(
   return groups.filter(
     (g) =>
       (filters.kind === "all" || topKind(g.resource) === filters.kind) &&
+      (!filters.server || g.resource.serverUuid === filters.server) &&
       (matches(g.resource) || g.parts.some(matches)),
   );
 }
