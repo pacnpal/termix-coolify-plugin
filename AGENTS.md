@@ -227,8 +227,12 @@ aren't obvious from the code, and anything that has bitten you before.
 - Toolbar status: `src/frontend/toolbar-status.ts` fills the `terminal.toolbarStatus` data slot (row key is
   the tab id). It finds the tab with `useShell().tabs.list`, answers only for `coolify-shell` tabs (parsed
   with `shellTabData`), and reads statuses from `createStatusFeed`: one `listResources` read per connection
-  (the backend's 20 second cache) shared by every tab, polled every `STATUS_POLL_MS` while a tab shows it and
-  dropped when the last one goes. A uuid missing from the list shows "Gone"; a failed read shows nothing.
+  (the backend's 20 second cache) shared by every tab, read again `STATUS_POLL_MS` after each answer (a
+  `setTimeout` chain, so a slow read is never overtaken and dropped) while a tab shows it, and dropped when
+  the last one goes. The label is the container the tab connected to: `ShellView` runs in its own frame, so
+  it sends `{tab id, keyOf(tab data), container}` to the background frame with
+  `invokeAction("coolify.shell-target")` (`SHELL_TARGET_ACTION`), held in `createShellTargets`; an entry
+  counts only for the current tab data's key, and a clear only removes an entry with its own key. A uuid missing from the list shows "Gone"; a failed read shows nothing.
   The hook runs in the background frame, so the feed is made in `activate`, not in a view. Its test mocks
   `useShell` because the SDK's test host has no shell.
 - Status words: `src/shared/resource-health.ts` (`resourceHealth`, `countResources`) is the one reading of a

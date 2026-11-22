@@ -6,7 +6,7 @@
 
 - A Coolify shell tab's terminal toolbar shows the container's name and status (Running, Degraded, Stopped
   or Deploying), from the plugin's cached resource list, and **Gone** once the resource is no longer in
-  Coolify
+  Coolify. The name is the container the shell connected to, and follows a change of container
 - A Coolify panel beside terminals on Linked hosts: the resources on that host's Coolify server, each with
   **Shell** (a new Coolify shell tab), **Logs**, **Restart** and **Deploy**. Restart and Deploy ask first.
   The actions need **Operate Coolify resources** and the connection's owner or an operate or configure

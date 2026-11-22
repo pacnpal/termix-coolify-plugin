@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, waitFor } from "@testing-library/react";
+import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import {
   renderWithApp,
   type RenderedPluginApp,
@@ -36,6 +36,7 @@ const SLOT = "terminal.toolbarStatus";
 const ACTION = "coolify.toolbar-status";
 const H = locales.resources.health;
 const B = locales.toolbarStatus;
+const S = locales.shellTab;
 const CONTEXT = { hostId: 7, isConnected: true, active: true };
 
 let rendered: RenderedPluginApp | null = null;
@@ -202,5 +203,146 @@ describe("status feed", () => {
     expect(feed.rows(1)).toBeNull();
     await vi.advanceTimersByTimeAsync(5_000);
     expect(resourceGets(api)).toHaveLength(4);
+  });
+});
+
+/** What a failed axios call carries. */
+function failure(status: number, data: unknown) {
+  return Object.assign(new Error(`status ${status}`), {
+    response: { status, data },
+  });
+}
+
+function command(container: string) {
+  return {
+    data: {
+      hostId: 7,
+      title: "n8n",
+      container,
+      command: `docker exec -it ${container} sh`,
+      fingerprints: [],
+    },
+  };
+}
+
+describe("terminal.toolbarStatus with the shell's own container", () => {
+  it("labels two shells of one service by the container each opened", async () => {
+    const data = { connectionId: 1, uuid: "svc" };
+    shell.tabs = [shellTab("s1", data), shellTab("s2", data)];
+    const { api, rendered } = await start(rows(["svc", "running:healthy"]));
+    let calls = 0;
+    api.post.mockImplementation((async () =>
+      command(++calls === 1 ? "n8n-web-1" : "n8n-worker-1")) as never);
+    rendered.renderTab("coolify-shell", {
+      tab: { id: "s1", type: "coolify-shell", label: "Shell", data },
+      isVisible: true,
+    });
+    const one = rendered.readDataValues(SLOT, CONTEXT, "s1");
+    await waitFor(() =>
+      expect(one.values()[ACTION]).toEqual(
+        stat("n8n-web-1", H.running, "good"),
+      ),
+    );
+    rendered.renderTab("coolify-shell", {
+      tab: { id: "s2", type: "coolify-shell", label: "Shell", data },
+      isVisible: true,
+    });
+    const two = rendered.readDataValues(SLOT, CONTEXT, "s2");
+    await waitFor(() => {
+      expect(two.values()[ACTION]).toEqual(
+        stat("n8n-worker-1", H.running, "good"),
+      );
+      expect(one.values()[ACTION]).toEqual(
+        stat("n8n-web-1", H.running, "good"),
+      );
+    });
+  });
+
+  it("follows a change of container", async () => {
+    const data = { connectionId: 1, uuid: "svc", container: "n8n-web-1" };
+    shell.tabs = [shellTab("s1", data)];
+    const { api, rendered } = await start(rows(["svc", "running:healthy"]));
+    api.post.mockImplementation((async (_url: string, body: unknown) => {
+      const picked = (body as { container?: string }).container;
+      if (picked === "n8n-web-1") {
+        throw failure(409, { error: "x", cause: "not-running" });
+      }
+      if (!picked) {
+        return {
+          data: {
+            choices: [
+              { name: "n8n-web-1", running: false, part: null },
+              { name: "n8n-worker-1", running: true, part: null },
+            ],
+          },
+        };
+      }
+      return command(picked);
+    }) as never);
+    const tab = rendered.renderTab("coolify-shell", {
+      tab: { id: "s1", type: "coolify-shell", label: "Shell", data },
+      isVisible: true,
+    });
+    const read = rendered.readDataValues(SLOT, CONTEXT, "s1");
+    await waitFor(() =>
+      expect(read.values()[ACTION]).toEqual(
+        stat("n8n-web-1", H.running, "good"),
+      ),
+    );
+    fireEvent.click(
+      await within(tab).findByRole("button", { name: S.changeContainer }),
+    );
+    fireEvent.click(await within(tab).findByLabelText("n8n-worker-1"));
+    await waitFor(() =>
+      expect(read.values()[ACTION]).toEqual(
+        stat("n8n-worker-1", H.running, "good"),
+      ),
+    );
+  });
+});
+
+describe("status feed timing", () => {
+  it("fills the rows when every read takes longer than the poll interval", async () => {
+    vi.useFakeTimers();
+    const api = stubApi();
+    api.get.mockImplementation(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(() => resolve({ data: rows(["a", "running"]) }), 25_000),
+        ) as never,
+    );
+    const feed = createStatusFeed(createApi(api), 20_000);
+    const stop = feed.subscribe(1, () => {});
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(feed.rows(1)).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(feed.rows(1)).not.toBeNull();
+    stop();
+  });
+
+  it("drops an answer read for a feed that has since gone", async () => {
+    vi.useFakeTimers();
+    const api = stubApi();
+    let call = 0;
+    api.get.mockImplementation(() => {
+      const mine = ++call;
+      const status = mine === 1 ? "exited" : "running";
+      const wait = mine === 1 ? 10_000 : 1_000;
+      return new Promise((resolve) =>
+        setTimeout(() => resolve({ data: rows(["a", status]) }), wait),
+      ) as never;
+    });
+    const feed = createStatusFeed(createApi(api), 20_000);
+    feed.subscribe(1, () => {})();
+    const stop = feed.subscribe(1, () => {});
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(feed.rows(1)).toEqual([
+      expect.objectContaining({ status: "running" }),
+    ]);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(feed.rows(1)).toEqual([
+      expect.objectContaining({ status: "running" }),
+    ]);
+    stop();
   });
 });
