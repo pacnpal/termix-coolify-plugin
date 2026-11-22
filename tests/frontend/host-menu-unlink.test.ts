@@ -6,6 +6,7 @@ import type {
 } from "@termix-ssh/plugin-sdk/frontend";
 import { activate } from "../../src/frontend/index";
 import { stubClient } from "./helpers";
+import { eventually } from "../shared/timing.js";
 
 /**
  * The host menu's Unlink runs in the background frame with the link it read
@@ -74,6 +75,9 @@ function setup(listHosts: () => Promise<PluginHostRecord[]>) {
   return { client, answer, unlink, app: known };
 }
 
+// Lets a declined or stale confirm's chain run out before checking that it
+// sent nothing. Load only lets it pass sooner, never fail; what must happen
+// is waited for with `eventually` instead (#105).
 const settle = () => new Promise((r) => setTimeout(r, 20));
 
 describe("host menu Unlink (#86)", () => {
@@ -82,10 +86,11 @@ describe("host menu Unlink (#86)", () => {
     const { client, answer, unlink } = setup(async () => [clicked]);
     unlink.run(clicked, {} as never);
     answer.resolve(true);
-    await settle();
-    expect(client.post).toHaveBeenCalledWith(
-      "/connections/1/servers/srv-web1/unlink",
-      { removeHost: false },
+    await eventually(() =>
+      expect(client.post).toHaveBeenCalledWith(
+        "/connections/1/servers/srv-web1/unlink",
+        { removeHost: false },
+      ),
     );
   });
 

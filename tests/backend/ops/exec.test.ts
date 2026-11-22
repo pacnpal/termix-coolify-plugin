@@ -26,6 +26,7 @@ import {
   readExecRequest,
 } from "../../../src/backend/containers/exec.js";
 import { MAX_LINE } from "../../../src/backend/containers/logs.js";
+import { eventually, HEAVY_TEST_MS } from "../../shared/timing.js";
 
 let harness: PluginHarness | null = null;
 
@@ -674,21 +675,28 @@ describe("coolify.exec hardening", () => {
     expect(docker.dispose).toHaveBeenCalled();
   });
 
-  it("the timeout kills the remote process and closes the session", async () => {
-    const { runs, id, docker } = await start({
-      docker: { exec: () => "hang" },
-    });
-    const outcome = await runs.run("coolify.exec", {
-      connectionId: id,
-      uuid: WEB,
-      command: "sleep 600",
-      timeoutSec: 1,
-    });
-    expect(outcome.data).toMatchObject({ timedOut: true, exitCode: null });
-    expect(docker.channels[0].signals).toContain("KILL");
-    expect(docker.channels[0].closed).toBe(true);
-    expect(docker.dispose).toHaveBeenCalled();
-  });
+  // Fixed work: the exec's own 1 s timeout runs on a real timer, so the test
+  // takes 1 s or more idle; an explicit timeout keeps a busy machine from
+  // failing it on Vitest's 5 s (#105).
+  it(
+    "the timeout kills the remote process and closes the session",
+    async () => {
+      const { runs, id, docker } = await start({
+        docker: { exec: () => "hang" },
+      });
+      const outcome = await runs.run("coolify.exec", {
+        connectionId: id,
+        uuid: WEB,
+        command: "sleep 600",
+        timeoutSec: 1,
+      });
+      expect(outcome.data).toMatchObject({ timedOut: true, exitCode: null });
+      expect(docker.channels[0].signals).toContain("KILL");
+      expect(docker.channels[0].closed).toBe(true);
+      expect(docker.dispose).toHaveBeenCalled();
+    },
+    HEAVY_TEST_MS,
+  );
 
   it("an abort kills the remote process and closes the session", async () => {
     const { h, id, docker } = await start({ docker: { exec: () => "hang" } });
@@ -697,7 +705,7 @@ describe("coolify.exec hardening", () => {
       h,
       abort.signal,
     )({ connectionId: id, uuid: WEB, command: "sleep 600", timeoutSec: 60 });
-    await vi.waitFor(() => expect(docker.channels).toHaveLength(1));
+    await eventually(() => expect(docker.channels).toHaveLength(1));
     abort.abort();
     await expect(running).rejects.toThrow(/cancel/i);
     expect(docker.channels[0].signals).toContain("KILL");
@@ -743,7 +751,7 @@ describe("coolify.exec hardening", () => {
       h,
       abort.signal,
     )({ connectionId: id, uuid: WEB, command: "sleep 600", timeoutSec: 60 });
-    await vi.waitFor(() => expect(docker.channels).toHaveLength(1));
+    await eventually(() => expect(docker.channels).toHaveLength(1));
     await expect(
       h.mock.ctx.operations.run("coolify.exec", {
         input: { connectionId: id, uuid: WEB, command: "ls" },
@@ -875,24 +883,31 @@ function groupKills(docker: ReturnType<typeof fakeDocker>): string[] {
 }
 
 describe("coolify.exec kills the command's own process group", () => {
-  it("a timed-out exec sends the group kill with the marker's pid", async () => {
-    const { runs, id, docker } = await start({
-      docker: { exec: () => "hang", pgid: 777 },
-    });
-    const outcome = await runs.run("coolify.exec", {
-      connectionId: id,
-      uuid: WEB,
-      command: "sleep 600",
-      timeoutSec: 1,
-    });
-    expect(outcome.data).toMatchObject({ timedOut: true });
-    expect(groupKills(docker)).toEqual([
-      "docker exec web-abc sh -c 'kill -KILL -777 2>/dev/null || kill -KILL 777'",
-    ]);
-    // On the same connection, before it is disposed.
-    expect(docker.connect).toHaveBeenCalledTimes(1);
-    expect(docker.dispose).toHaveBeenCalledTimes(1);
-  });
+  // Fixed work: the exec's own 1 s timeout runs on a real timer, so the test
+  // takes 1 s or more idle; an explicit timeout keeps a busy machine from
+  // failing it on Vitest's 5 s (#105).
+  it(
+    "a timed-out exec sends the group kill with the marker's pid",
+    async () => {
+      const { runs, id, docker } = await start({
+        docker: { exec: () => "hang", pgid: 777 },
+      });
+      const outcome = await runs.run("coolify.exec", {
+        connectionId: id,
+        uuid: WEB,
+        command: "sleep 600",
+        timeoutSec: 1,
+      });
+      expect(outcome.data).toMatchObject({ timedOut: true });
+      expect(groupKills(docker)).toEqual([
+        "docker exec web-abc sh -c 'kill -KILL -777 2>/dev/null || kill -KILL 777'",
+      ]);
+      // On the same connection, before it is disposed.
+      expect(docker.connect).toHaveBeenCalledTimes(1);
+      expect(docker.dispose).toHaveBeenCalledTimes(1);
+    },
+    HEAVY_TEST_MS,
+  );
 
   it("an abort sends the group kill too", async () => {
     const { h, id, docker } = await start({
@@ -903,7 +918,7 @@ describe("coolify.exec kills the command's own process group", () => {
       h,
       abort.signal,
     )({ connectionId: id, uuid: WEB, command: "sleep 600", timeoutSec: 60 });
-    await vi.waitFor(() => expect(docker.channels).toHaveLength(1));
+    await eventually(() => expect(docker.channels).toHaveLength(1));
     abort.abort();
     await expect(running).rejects.toThrow(/cancel/i);
     expect(groupKills(docker)).toEqual([
@@ -951,62 +966,83 @@ describe("coolify.exec kills the command's own process group", () => {
     expect(call.script).toContain(`\n${payload}\n`);
   });
 
-  it("a marker forged after the real one isn't trusted", async () => {
-    const { runs, id, docker } = await start({
-      docker: { exec: () => "hang", pgid: 779, forgedPgid: 1 },
-    });
-    await runs.run("coolify.exec", {
-      connectionId: id,
-      uuid: WEB,
-      command: "sleep 600",
-      timeoutSec: 1,
-    });
-    expect(groupKills(docker)).toEqual([
-      "docker exec web-abc sh -c 'kill -KILL -779 2>/dev/null || kill -KILL 779'",
-    ]);
-  });
+  // Fixed work: the exec's own 1 s timeout runs on a real timer, so the test
+  // takes 1 s or more idle; an explicit timeout keeps a busy machine from
+  // failing it on Vitest's 5 s (#105).
+  it(
+    "a marker forged after the real one isn't trusted",
+    async () => {
+      const { runs, id, docker } = await start({
+        docker: { exec: () => "hang", pgid: 779, forgedPgid: 1 },
+      });
+      await runs.run("coolify.exec", {
+        connectionId: id,
+        uuid: WEB,
+        command: "sleep 600",
+        timeoutSec: 1,
+      });
+      expect(groupKills(docker)).toEqual([
+        "docker exec web-abc sh -c 'kill -KILL -779 2>/dev/null || kill -KILL 779'",
+      ]);
+    },
+    HEAVY_TEST_MS,
+  );
 
-  it("a target change after the command started still kills its group", async () => {
-    const { h, runs, id, docker, connectionId } = await start({
-      docker: {
-        exec: () => {
-          // The command is running; now the connection is pointed elsewhere.
-          setBaseUrl(h, connectionId);
-          return "hang";
+  // Fixed work: the exec's own 1 s timeout runs on a real timer, so the test
+  // takes 1 s or more idle; an explicit timeout keeps a busy machine from
+  // failing it on Vitest's 5 s (#105).
+  it(
+    "a target change after the command started still kills its group",
+    async () => {
+      const { h, runs, id, docker, connectionId } = await start({
+        docker: {
+          exec: () => {
+            // The command is running; now the connection is pointed elsewhere.
+            setBaseUrl(h, connectionId);
+            return "hang";
+          },
+          pgid: 781,
         },
-        pgid: 781,
-      },
-    });
-    await runs.run("coolify.exec", {
-      connectionId: id,
-      uuid: WEB,
-      command: "sleep 600",
-      timeoutSec: 1,
-    });
-    expect(groupKills(docker)).toEqual([
-      "docker exec web-abc sh -c 'kill -KILL -781 2>/dev/null || kill -KILL 781'",
-    ]);
-    expect(docker.dispose).toHaveBeenCalledTimes(1);
-  });
+      });
+      await runs.run("coolify.exec", {
+        connectionId: id,
+        uuid: WEB,
+        command: "sleep 600",
+        timeoutSec: 1,
+      });
+      expect(groupKills(docker)).toEqual([
+        "docker exec web-abc sh -c 'kill -KILL -781 2>/dev/null || kill -KILL 781'",
+      ]);
+      expect(docker.dispose).toHaveBeenCalledTimes(1);
+    },
+    HEAVY_TEST_MS,
+  );
 
-  it("a line before the marker isn't trusted, and no kill is guessed", async () => {
-    const { runs, id, docker } = await start({
-      docker: {
-        exec: () => "hang",
-        pgid: 780,
-        beforeMarker: "__COOLIFY_EXEC__ forged 1",
-      },
-    });
-    await runs.run("coolify.exec", {
-      connectionId: id,
-      uuid: WEB,
-      command: "sleep 600",
-      timeoutSec: 1,
-    });
-    // Only the first line on the channel can be the marker.
-    expect(groupKills(docker)).toEqual([]);
-    expect(docker.dispose).toHaveBeenCalled();
-  });
+  // Fixed work: the exec's own 1 s timeout runs on a real timer, so the test
+  // takes 1 s or more idle; an explicit timeout keeps a busy machine from
+  // failing it on Vitest's 5 s (#105).
+  it(
+    "a line before the marker isn't trusted, and no kill is guessed",
+    async () => {
+      const { runs, id, docker } = await start({
+        docker: {
+          exec: () => "hang",
+          pgid: 780,
+          beforeMarker: "__COOLIFY_EXEC__ forged 1",
+        },
+      });
+      await runs.run("coolify.exec", {
+        connectionId: id,
+        uuid: WEB,
+        command: "sleep 600",
+        timeoutSec: 1,
+      });
+      // Only the first line on the channel can be the marker.
+      expect(groupKills(docker)).toEqual([]);
+      expect(docker.dispose).toHaveBeenCalled();
+    },
+    HEAVY_TEST_MS,
+  );
 });
 
 describe("coolify.exec review fixes", () => {
@@ -1029,37 +1065,44 @@ describe("coolify.exec review fixes", () => {
     expect(JSON.stringify(outcome.data)).not.toMatch(/fake-exec-key/);
   });
 
-  it("a channel open that never answers ends at the timeout and frees the slot", async () => {
-    const { h, runs, id, docker } = await start({
-      docker: { exec: () => ran("ok\n"), openHang: true },
-    });
-    const outcome = await runs.run("coolify.exec", {
-      connectionId: id,
-      uuid: WEB,
-      command: "ls",
-      timeoutSec: 1,
-    });
-    expect(outcome.data).toMatchObject({ timedOut: true, exitCode: null });
-    expect(docker.dispose).toHaveBeenCalled();
-    // The channel opens late: it is closed, and nothing is written to it.
-    docker.opens[0]();
-    const late = docker.channels[0];
-    await vi.waitFor(() => expect(late.closed).toBe(true));
-    expect(late.signals).toContain("KILL");
-    expect(
-      (execCalls(docker)[0] as { script?: string }).script,
-    ).toBeUndefined();
-    // The slot was released.
-    void h;
-    await expect(
-      runs.run("coolify.exec", {
+  // Fixed work: the exec's own 1 s timeout runs on a real timer, so the test
+  // takes 1 s or more idle; an explicit timeout keeps a busy machine from
+  // failing it on Vitest's 5 s (#105).
+  it(
+    "a channel open that never answers ends at the timeout and frees the slot",
+    async () => {
+      const { h, runs, id, docker } = await start({
+        docker: { exec: () => ran("ok\n"), openHang: true },
+      });
+      const outcome = await runs.run("coolify.exec", {
         connectionId: id,
         uuid: WEB,
         command: "ls",
         timeoutSec: 1,
-      }),
-    ).resolves.toBeTruthy();
-  });
+      });
+      expect(outcome.data).toMatchObject({ timedOut: true, exitCode: null });
+      expect(docker.dispose).toHaveBeenCalled();
+      // The channel opens late: it is closed, and nothing is written to it.
+      docker.opens[0]();
+      const late = docker.channels[0];
+      await eventually(() => expect(late.closed).toBe(true));
+      expect(late.signals).toContain("KILL");
+      expect(
+        (execCalls(docker)[0] as { script?: string }).script,
+      ).toBeUndefined();
+      // The slot was released.
+      void h;
+      await expect(
+        runs.run("coolify.exec", {
+          connectionId: id,
+          uuid: WEB,
+          command: "ls",
+          timeoutSec: 1,
+        }),
+      ).resolves.toBeTruthy();
+    },
+    HEAVY_TEST_MS,
+  );
 
   it("a channel open that never answers ends at an abort", async () => {
     const { h, id, docker } = await start({
@@ -1070,30 +1113,37 @@ describe("coolify.exec review fixes", () => {
       h,
       abort.signal,
     )({ connectionId: id, uuid: WEB, command: "ls", timeoutSec: 60 });
-    await vi.waitFor(() => expect(docker.opens).toHaveLength(1));
+    await eventually(() => expect(docker.opens).toHaveLength(1));
     abort.abort();
     await expect(running).rejects.toThrow(/cancel/i);
     expect(docker.dispose).toHaveBeenCalled();
   });
 
-  it("a timeout keeps the output received without a newline, still masked", async () => {
-    const { runs, id } = await start({
-      docker: {
-        exec: () => "hang",
-        partial: "starting DB_PASSWORD=fake-partial-secret",
-      },
-    });
-    const outcome = await runs.run("coolify.exec", {
-      connectionId: id,
-      uuid: WEB,
-      command: "printf starting; sleep 10",
-      timeoutSec: 1,
-    });
-    const data = outcome.data as { stdout: string; timedOut: boolean };
-    expect(data.timedOut).toBe(true);
-    expect(data.stdout).toContain("starting");
-    expect(data.stdout).not.toContain("fake-partial-secret");
-  });
+  // Fixed work: the exec's own 1 s timeout runs on a real timer, so the test
+  // takes 1 s or more idle; an explicit timeout keeps a busy machine from
+  // failing it on Vitest's 5 s (#105).
+  it(
+    "a timeout keeps the output received without a newline, still masked",
+    async () => {
+      const { runs, id } = await start({
+        docker: {
+          exec: () => "hang",
+          partial: "starting DB_PASSWORD=fake-partial-secret",
+        },
+      });
+      const outcome = await runs.run("coolify.exec", {
+        connectionId: id,
+        uuid: WEB,
+        command: "printf starting; sleep 10",
+        timeoutSec: 1,
+      });
+      const data = outcome.data as { stdout: string; timedOut: boolean };
+      expect(data.timedOut).toBe(true);
+      expect(data.stdout).toContain("starting");
+      expect(data.stdout).not.toContain("fake-partial-secret");
+    },
+    HEAVY_TEST_MS,
+  );
 
   it("a rejected PATCH leaves execEnabled unchanged", async () => {
     const { h, id, connectionId } = await start({ execEnabled: false });

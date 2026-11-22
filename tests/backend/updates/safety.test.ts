@@ -7,6 +7,7 @@ import {
   fakeSsh,
   startLinked,
 } from "./fixtures.js";
+import { eventually, HEAVY_TEST_MS } from "../../shared/timing.js";
 
 let harness: PluginHarness | null = null;
 
@@ -47,23 +48,30 @@ const ran = (calls: { command: string }[]) =>
   calls.filter((c) => c.command !== PLATFORM_PROBE_COMMAND);
 
 describe("server updates fail closed", () => {
-  it("a target change before any SSH runs nothing", async () => {
-    for (const [path, body] of WRITES) {
-      const { h, web1, access } = await start();
-      const ssh = fakeSsh(h);
-      const allow = access.getMockImplementation()!;
-      access.mockImplementation(async (...args) => {
-        retarget(h);
-        return allow(...args);
-      });
-      const res = await h.request("POST", `${web1}/${path}`, body);
-      expect(res.status, path).toBe(409);
-      expect(res.body.cause, path).toBe("target-changed");
-      expect(ssh.calls, path).toEqual([]);
-      await h.close();
-      harness = null;
-    }
-  });
+  // Fixed work: a fresh plugin for each write route, about 0.5 s idle; an
+  // explicit timeout keeps a busy machine from failing it on Vitest's 5 s
+  // (#105).
+  it(
+    "a target change before any SSH runs nothing",
+    async () => {
+      for (const [path, body] of WRITES) {
+        const { h, web1, access } = await start();
+        const ssh = fakeSsh(h);
+        const allow = access.getMockImplementation()!;
+        access.mockImplementation(async (...args) => {
+          retarget(h);
+          return allow(...args);
+        });
+        const res = await h.request("POST", `${web1}/${path}`, body);
+        expect(res.status, path).toBe(409);
+        expect(res.body.cause, path).toBe("target-changed");
+        expect(ssh.calls, path).toEqual([]);
+        await h.close();
+        harness = null;
+      }
+    },
+    HEAVY_TEST_MS,
+  );
 
   it("a target change after the platform probe never runs the upgrade", async () => {
     const { h, web1 } = await start();
@@ -285,7 +293,7 @@ describe("server updates fail closed", () => {
   });
 
   it("overlapping checks of one server share one run, so an older one can't overwrite a newer", async () => {
-    const { h, web1 } = await start();
+    const { h, web1, access } = await start();
     const ssh = fakeSsh(h);
     const real = ssh.exec.getMockImplementation()!;
     let reached = () => {};
@@ -310,8 +318,14 @@ describe("server updates fail closed", () => {
     });
     const first = h.request("POST", `${web1}/updates/check`, {});
     await atCheck;
+    const checked = access.mock.calls.length;
     const second = h.request("POST", `${web1}/updates/check`, {});
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // The second check is let through once it has passed its host access
+    // check: from there to joining the first run it does no I/O, so one turn
+    // of the event loop is enough. Waited for by that step, not by a fixed
+    // 20 ms that a busy machine could outlast (#105).
+    await eventually(() => expect(access).toHaveBeenCalledTimes(checked + 1));
+    await new Promise((resolve) => setImmediate(resolve));
     release();
     const [a, b] = await Promise.all([first, second]);
     expect(a.status).toBe(200);

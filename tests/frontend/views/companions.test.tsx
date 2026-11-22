@@ -3,7 +3,6 @@ import { useState } from "react";
 import {
   act,
   cleanup,
-  configure,
   fireEvent,
   render,
   screen,
@@ -25,10 +24,7 @@ import { forgetCompanions } from "../../../src/frontend/companions";
 import { CompanionActions } from "../../../src/frontend/views/CompanionActions";
 import manifestJson from "../../../manifest.json";
 import locales from "../../../locales/en.json";
-
-// The companion views render several sections; under a loaded parallel run one
-// step can pass the default 1 s wait (#55, as #50). Nothing here is timing-sensitive.
-configure({ asyncUtilTimeout: 3000 });
+import { acceptConfirm } from "../helpers/confirm";
 
 const manifest = manifestJson as unknown as PluginManifest;
 const ALL = ["coolify.view", "coolify.operate", "coolify.configure"];
@@ -323,16 +319,7 @@ describe("companion UI", () => {
     // Removing deletes the record in DNS, so it asks first.
     vi.spyOn(window, "confirm").mockReturnValue(true);
     fireEvent.click(removes[0]);
-    const dialog = await screen
-      .findByRole("alertdialog", {}, { timeout: 200 })
-      .catch(() => null);
-    if (dialog) {
-      fireEvent.click(
-        within(dialog).getByRole("button", {
-          name: locales.companions.dns.removeConfirm.confirm,
-        }),
-      );
-    }
+    await acceptConfirm(locales.companions.dns.removeConfirm.confirm);
     await waitFor(() =>
       expect(api.delete).toHaveBeenCalledWith(
         "/connections/1/resources/app-web-uuid/dns/4?confirm=true",

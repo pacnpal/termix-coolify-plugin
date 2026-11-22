@@ -17,6 +17,7 @@ import {
   syncRow,
   syncServer,
 } from "../helpers";
+import { acceptConfirm } from "../helpers/confirm";
 
 const manifest = manifestJson as unknown as PluginManifest;
 const L = locales.connections;
@@ -226,14 +227,7 @@ describe("connections view", () => {
     fireEvent.click(
       within(tab).getByRole("button", { name: L.actions.delete }),
     );
-    const card = await screen
-      .findByRole("alertdialog", {}, { timeout: 200 })
-      .catch(() => null);
-    if (card) {
-      fireEvent.click(
-        within(card).getByRole("button", { name: L.delete.confirm }),
-      );
-    }
+    await acceptConfirm(L.delete.confirm);
     await waitFor(() =>
       expect(api.delete).toHaveBeenCalledWith("/connections/1"),
     );
@@ -367,14 +361,7 @@ function deferred<T>() {
 async function confirmDelete(tab: HTMLElement) {
   vi.spyOn(window, "confirm").mockReturnValue(true);
   fireEvent.click(within(tab).getByRole("button", { name: L.actions.delete }));
-  const card = await screen
-    .findByRole("alertdialog", {}, { timeout: 200 })
-    .catch(() => null);
-  if (card) {
-    fireEvent.click(
-      within(card).getByRole("button", { name: L.delete.confirm }),
-    );
-  }
+  await acceptConfirm(L.delete.confirm);
 }
 
 async function fillAddForm(scope: ReturnType<typeof within>) {

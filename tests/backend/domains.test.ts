@@ -5,6 +5,8 @@ import {
   withPortOverride,
   withoutTrailingSlashes,
 } from "../../src/shared/domains.js";
+import { growth, LINEAR_GROWTH } from "../shared/linear-cost.js";
+import { HEAVY_TEST_MS } from "../shared/timing.js";
 
 describe("isHostname", () => {
   it("accepts and refuses the cases DNS records and domains rely on", () => {
@@ -42,29 +44,55 @@ describe("isHostname", () => {
     }
   });
 
-  it("drops trailing slashes from a long path quickly", () => {
-    expect(withoutTrailingSlashes("/api///")).toBe("/api");
-    expect(withoutTrailingSlashes("/")).toBe("");
-    expect(withoutTrailingSlashes("/a/b")).toBe("/a/b");
-    const hostile = `${"/".repeat(100_000)}x`;
-    const started = performance.now();
-    expect(withoutTrailingSlashes(hostile)).toBe(hostile);
-    expect(withoutTrailingSlashes(`/a${"/".repeat(100_000)}`)).toBe("/a");
-    expect(performance.now() - started).toBeLessThan(250);
-  });
+  // Fixed work: growth() samples each size for 25 clock steps, a few tenths
+  // of a second of CPU; an explicit timeout keeps a busy machine from failing
+  // it on Vitest's 5 s (#105).
+  it(
+    "drops trailing slashes from a long path quickly",
+    () => {
+      expect(withoutTrailingSlashes("/api///")).toBe("/api");
+      expect(withoutTrailingSlashes("/")).toBe("");
+      expect(withoutTrailingSlashes("/a/b")).toBe("/a/b");
+      const inputs = (scale: number) => [
+        `${"/".repeat(100_000 * scale)}x`,
+        `/a${"/".repeat(100_000 * scale)}`,
+      ];
+      const [hostile, trailing] = inputs(1);
+      expect(withoutTrailingSlashes(hostile)).toBe(hostile);
+      expect(withoutTrailingSlashes(trailing)).toBe("/a");
+      // Growth, not milliseconds: load can't fail it (#105).
+      const grew = growth((scale) => {
+        const texts = inputs(scale);
+        return () => texts.map((text) => withoutTrailingSlashes(text));
+      });
+      expect(grew).toBeLessThan(LINEAR_GROWTH);
+    },
+    HEAVY_TEST_MS,
+  );
 
-  it("answers hostile input quickly", () => {
-    const hostile = [
-      `a${"-".repeat(100_000)}!`,
-      `${"a".repeat(100_000)}!`,
-      `${"a-".repeat(50_000)}.`,
-      `${"a.".repeat(50_000)}!`,
-      `${`a${"-".repeat(61)}a.`.repeat(4)}${"-".repeat(64)}!`,
-    ];
-    const started = performance.now();
-    for (const text of hostile) expect(isHostname(text)).toBe(false);
-    expect(performance.now() - started).toBeLessThan(250);
-  });
+  // Fixed work: growth() samples each size for 25 clock steps, a few tenths
+  // of a second of CPU; an explicit timeout keeps a busy machine from failing
+  // it on Vitest's 5 s (#105).
+  it(
+    "answers hostile input quickly",
+    () => {
+      const inputs = (scale: number) => [
+        `a${"-".repeat(100_000 * scale)}!`,
+        `${"a".repeat(100_000 * scale)}!`,
+        `${"a-".repeat(50_000 * scale)}.`,
+        `${"a.".repeat(50_000 * scale)}!`,
+        `${`a${"-".repeat(61)}a.`.repeat(4)}${"-".repeat(64)}!`,
+      ];
+      for (const text of inputs(1)) expect(isHostname(text)).toBe(false);
+      // Growth, not milliseconds: load can't fail it (#105).
+      const grew = growth((scale) => {
+        const texts = inputs(scale);
+        return () => texts.map((text) => isHostname(text));
+      });
+      expect(grew).toBeLessThan(LINEAR_GROWTH);
+    },
+    HEAVY_TEST_MS,
+  );
 });
 
 describe("checkDomains", () => {

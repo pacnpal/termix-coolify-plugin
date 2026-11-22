@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { eventually } from "../../shared/timing.js";
 import { startPlugin, type PluginHarness } from "../helpers/plugin.js";
 import {
   LOCAL,
@@ -542,7 +543,7 @@ describe("host sync", () => {
 
     await h.mock.ctx.hosts.delete(host.id);
     h.mock.ctx.events.emit("host.deleted", { hostId: host.id });
-    await vi.waitFor(() => {
+    await eventually(() => {
       expect(serverRows(h)[0].host_id).toBeNull();
     });
     const [after] = serverRows(h);

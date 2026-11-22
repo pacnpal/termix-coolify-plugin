@@ -1,21 +1,33 @@
 import { describe, expect, it } from "vitest";
+import { growth, LINEAR_GROWTH, linearLimit } from "../shared/linear-cost.js";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { storagePaths } from "../../src/backend/companions/container-adapters.js";
 import { hostnamesOf } from "../../src/backend/companions/service.js";
 import type { StorageDto } from "../../src/backend/coolify/dto.js";
 import { isTaskRunPath } from "../../src/backend/ops/api-generic.js";
 import { baseUrlOf } from "../../src/backend/status/base-url.js";
+import { HEAVY_TEST_MS } from "../shared/timing.js";
 
 // Each place that once used a regex that backtracks polynomially (Sonar
-// S8786) answers a long hostile input within a small bound, and still
-// answers the ordinary cases as before.
-const BOUND_MS = 100;
-
-function timed<T>(run: () => T): { value: T; ms: number } {
-  const started = performance.now();
-  const value = run();
-  return { value, ms: performance.now() - started };
+// S8786) answers a long hostile input in linear time, and still answers the
+// ordinary cases as before. Linear by growth, not by milliseconds, so a busy
+// machine can't fail it (#105): `scaled(scale)` is the call at that share of
+// the full hostile input.
+function grows<T>(
+  scaled: (scale: number) => () => T,
+  factor?: number,
+): {
+  value: T;
+  grew: number;
+} {
+  return { value: scaled(1)(), grew: growth(scaled, factor) };
 }
+
+// storagePaths refuses a path over 4096 characters, so its input can't grow.
+// At that size a quadratic trim costs only a few times the linear work, so
+// it is compared against a 32nd of the path, not an 8th, where the quadratic
+// part has all but vanished: a planted one then clears the bound by about 2x.
+const STORAGE_FACTOR = 32;
 
 function ctxAnswering(base: string): PluginContext {
   return { http: { baseUrl: () => base } } as unknown as PluginContext;
@@ -40,12 +52,23 @@ describe("baseUrlOf", () => {
     }
   });
 
-  it("stays linear on a long run of slashes that isn't at the end", () => {
-    const base = `https://termix.example.test/${"/".repeat(50_000)}a`;
-    const { value, ms } = timed(() => baseUrlOf(ctxAnswering(base), {}));
-    expect(value).toBe(base);
-    expect(ms).toBeLessThan(BOUND_MS);
-  });
+  // Fixed work: growth() samples each size for 25 clock steps, a few tenths
+  // of a second of CPU; an explicit timeout keeps a busy machine from failing
+  // it on Vitest's 5 s (#105).
+  it(
+    "stays linear on a long run of slashes that isn't at the end",
+    () => {
+      const hostile = (scale: number) =>
+        `https://termix.example.test/${"/".repeat(50_000 * scale)}a`;
+      const { value, grew } = grows((scale) => {
+        const ctx = ctxAnswering(hostile(scale));
+        return () => baseUrlOf(ctx, {});
+      });
+      expect(value).toBe(hostile(1));
+      expect(grew).toBeLessThan(LINEAR_GROWTH);
+    },
+    HEAVY_TEST_MS,
+  );
 });
 
 describe("hostnamesOf", () => {
@@ -63,12 +86,21 @@ describe("hostnamesOf", () => {
     );
   });
 
-  it("stays linear on a path with a long run of slashes", () => {
-    const fqdn = `https://app.example.test/${"/".repeat(50_000)}a`;
-    const { value, ms } = timed(() => hostnamesOf([fqdn]));
-    expect(value).toEqual(new Set(["app.example.test"]));
-    expect(ms).toBeLessThan(BOUND_MS);
-  });
+  // Fixed work: growth() samples each size for 25 clock steps, a few tenths
+  // of a second of CPU; an explicit timeout keeps a busy machine from failing
+  // it on Vitest's 5 s (#105).
+  it(
+    "stays linear on a path with a long run of slashes",
+    () => {
+      const { value, grew } = grows((scale) => {
+        const fqdn = `https://app.example.test/${"/".repeat(50_000 * scale)}a`;
+        return () => hostnamesOf([fqdn]);
+      });
+      expect(value).toEqual(new Set(["app.example.test"]));
+      expect(grew).toBeLessThan(LINEAR_GROWTH);
+    },
+    HEAVY_TEST_MS,
+  );
 });
 
 describe("storagePaths", () => {
@@ -95,14 +127,22 @@ describe("storagePaths", () => {
     ).toEqual(["/srv/app", "/srv/data"]);
   });
 
-  it("stays linear on the longest path it takes", () => {
-    const hostPath = `/srv${"/".repeat(4_000)}a`;
-    const { value, ms } = timed(() =>
-      storagePaths([volume(hostPath)], "/data/coolify/applications/x"),
-    );
-    expect(value).toEqual(["/srv/a"]);
-    expect(ms).toBeLessThan(BOUND_MS);
-  });
+  // Fixed work: growth() samples each size for 25 clock steps, a few tenths
+  // of a second of CPU; an explicit timeout keeps a busy machine from failing
+  // it on Vitest's 5 s (#105).
+  it(
+    "stays linear on the longest path it takes",
+    () => {
+      const { value, grew } = grows((scale) => {
+        const hostPath = `/srv${"/".repeat(4_088 * scale)}a`;
+        return () =>
+          storagePaths([volume(hostPath)], "/data/coolify/applications/x");
+      }, STORAGE_FACTOR);
+      expect(value).toEqual(["/srv/a"]);
+      expect(grew).toBeLessThan(linearLimit(STORAGE_FACTOR));
+    },
+    HEAVY_TEST_MS,
+  );
 });
 
 describe("isTaskRunPath", () => {
@@ -131,10 +171,19 @@ describe("isTaskRunPath", () => {
     }
   });
 
-  it("stays linear on a long run of unclosed task segments", () => {
-    const path = `${"/scheduled-tasks/{".repeat(20_000)}/execute`;
-    const { value, ms } = timed(() => isTaskRunPath(path));
-    expect(value).toBe(false);
-    expect(ms).toBeLessThan(BOUND_MS);
-  });
+  // Fixed work: growth() samples each size for 25 clock steps, a few tenths
+  // of a second of CPU; an explicit timeout keeps a busy machine from failing
+  // it on Vitest's 5 s (#105).
+  it(
+    "stays linear on a long run of unclosed task segments",
+    () => {
+      const { value, grew } = grows((scale) => {
+        const path = `${"/scheduled-tasks/{".repeat(20_000 * scale)}/execute`;
+        return () => isTaskRunPath(path);
+      });
+      expect(value).toBe(false);
+      expect(grew).toBeLessThan(LINEAR_GROWTH);
+    },
+    HEAVY_TEST_MS,
+  );
 });

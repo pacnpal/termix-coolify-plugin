@@ -17,6 +17,7 @@ import {
   OWNER,
   type PluginHarness,
 } from "../helpers/plugin.js";
+import { HEAVY_TEST_MS } from "../../shared/timing.js";
 
 let harness: PluginHarness | null = null;
 
@@ -441,16 +442,23 @@ describe("deploy's undo", () => {
     expect(service.undoInput).toBeUndefined();
   });
 
-  it("deploys anyway when the image list can't be read", async () => {
-    const { harness, fake, id } = await start();
-    fake.set(IMAGES, { status: 500, json: { message: "boom" } });
-    const outcome = await deploy(harness, "coolify.resource-deploy", {
-      connectionId: String(id),
-      uuid: "app-web-uuid",
-    });
-    expect(outcome.undoInput).toBeUndefined();
-    expect(changes(fake).map((c) => c.path)).toEqual(["/deploy"]);
-  });
+  // Fixed work: GET retries wait out the request layer's real backoff
+  // (0.5 s, then 1.5 s), so it takes 2 s idle; a busy machine stretched
+  // past Vitest's 5 s (#105). An explicit timeout keeps a wide margin.
+  it(
+    "deploys anyway when the image list can't be read",
+    async () => {
+      const { harness, fake, id } = await start();
+      fake.set(IMAGES, { status: 500, json: { message: "boom" } });
+      const outcome = await deploy(harness, "coolify.resource-deploy", {
+        connectionId: String(id),
+        uuid: "app-web-uuid",
+      });
+      expect(outcome.undoInput).toBeUndefined();
+      expect(changes(fake).map((c) => c.path)).toEqual(["/deploy"]);
+    },
+    HEAVY_TEST_MS,
+  );
 });
 
 describe("rollback over MCP", () => {

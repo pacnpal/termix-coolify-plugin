@@ -8,6 +8,7 @@ import {
   grant,
   startCompanions,
 } from "./fixtures.js";
+import { HEAVY_TEST_MS } from "../../shared/timing.js";
 
 let harness: PluginHarness | null = null;
 
@@ -721,26 +722,33 @@ describe("fails closed", () => {
     ).toHaveLength(1);
   });
 
-  it("a stored DNS record is not removed when the resource list can't be read", async () => {
-    const { harness: h, connectionId, companions, fake } = await start();
-    const base = `/connections/${connectionId}/resources/app-web-uuid/dns`;
-    const made = await h.request("POST", base, {
-      fqdn: "a.example.test",
-      type: "A",
-      content: "203.0.113.11",
-    });
-    companions.calls.length = 0;
-    await changeTarget(h, connectionId);
-    fake.set("GET /applications", { status: 500, json: {} });
-    const removed = await h.request("DELETE", `${base}/${made.body.id}`, {
-      confirm: true,
-    });
-    expect(removed.status).toBeGreaterThanOrEqual(400);
-    expect(companions.calls).toEqual([]);
-    expect(
-      h.db.sqlite.prepare("SELECT id FROM p_coolify_dns_records").all(),
-    ).toHaveLength(1);
-  });
+  // Fixed work: GET retries wait out the request layer's real backoff
+  // (0.5 s, then 1.5 s), so it takes 2 s idle; a busy machine stretched
+  // past Vitest's 5 s (#105). An explicit timeout keeps a wide margin.
+  it(
+    "a stored DNS record is not removed when the resource list can't be read",
+    async () => {
+      const { harness: h, connectionId, companions, fake } = await start();
+      const base = `/connections/${connectionId}/resources/app-web-uuid/dns`;
+      const made = await h.request("POST", base, {
+        fqdn: "a.example.test",
+        type: "A",
+        content: "203.0.113.11",
+      });
+      companions.calls.length = 0;
+      await changeTarget(h, connectionId);
+      fake.set("GET /applications", { status: 500, json: {} });
+      const removed = await h.request("DELETE", `${base}/${made.body.id}`, {
+        confirm: true,
+      });
+      expect(removed.status).toBeGreaterThanOrEqual(400);
+      expect(companions.calls).toEqual([]);
+      expect(
+        h.db.sqlite.prepare("SELECT id FROM p_coolify_dns_records").all(),
+      ).toHaveLength(1);
+    },
+    HEAVY_TEST_MS,
+  );
 
   it("reads resources from the shared resource cache, not Coolify every time", async () => {
     const { harness: h, connectionId, fake } = await start();

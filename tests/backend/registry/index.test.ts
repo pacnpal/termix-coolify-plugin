@@ -23,6 +23,7 @@ import {
   unchangedSince,
   verifySignature,
 } from "../../../scripts/registry-lib.mjs";
+import { growth, LINEAR_GROWTH } from "../../shared/linear-cost.js";
 import {
   type Built,
   type KeyPair,
@@ -40,6 +41,7 @@ import {
   verifiesWithCli,
   withTemp,
 } from "./fixtures";
+import { HEAVY_TEST_MS } from "../../shared/timing.js";
 
 const UPDATED_AT = "2026-11-22T12:00:00.000Z";
 const TOOLING = "test-tooling";
@@ -152,18 +154,30 @@ describe("cutAtNul", () => {
     }
   });
 
-  it("stays linear on long hostile input", () => {
-    const hostile = [
-      "a".repeat(2_000_000),
-      "\n".repeat(2_000_000),
-      "a".repeat(1_000_000) + "\0" + "\0b".repeat(500_000),
-      "\0\n".repeat(1_000_000),
-    ];
-    const started = performance.now();
-    for (const value of hostile) cutAtNul(value);
-    expect(performance.now() - started).toBeLessThan(250);
-    for (const value of hostile) expect(cutAtNul(value)).toBe(OLD(value));
-  });
+  // Fixed work: growth() samples each size for 25 clock steps, a few tenths
+  // of a second of CPU; an explicit timeout keeps a busy machine from failing
+  // it on Vitest's 5 s (#105).
+  it(
+    "stays linear on long hostile input",
+    () => {
+      const inputs = (scale: number) => [
+        "a".repeat(2_000_000 * scale),
+        "\n".repeat(2_000_000 * scale),
+        "a".repeat(1_000_000 * scale) + "\0" + "\0b".repeat(500_000 * scale),
+        "\0\n".repeat(1_000_000 * scale),
+      ];
+      for (const value of inputs(1)) expect(cutAtNul(value)).toBe(OLD(value));
+      // Growth, not milliseconds: load can't fail it (#105). Measured from an
+      // eighth of these inputs up: the full ones (6 MB) spill out of the CPU's
+      // caches, where even a plain scan slows down by itself.
+      const grew = growth((scale) => {
+        const values = inputs(scale / 8);
+        return () => values.map((value) => cutAtNul(value));
+      });
+      expect(grew).toBeLessThan(LINEAR_GROWTH);
+    },
+    HEAVY_TEST_MS,
+  );
 });
 
 describe("readTmxplugFile", () => {

@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { eventually } from "../../shared/timing.js";
 import { healthyCoolify } from "../helpers/fake-coolify.js";
 import {
   ANON,
@@ -570,7 +571,7 @@ describe("status page load", () => {
         ),
       ),
     );
-    await vi.waitFor(() =>
+    await eventually(() =>
       expect(
         settings.mock.calls.filter(([key]) => key === "allowStatusPages"),
       ).toHaveLength(5),
@@ -597,7 +598,7 @@ describe("status page load", () => {
       });
     const before = harness.raw("GET", `${publicPath(page.url)}.json`, ANON);
     // The first read is held at its access check while the rotate lands.
-    await vi.waitFor(() => expect(hasFor).toHaveBeenCalled());
+    await eventually(() => expect(hasFor).toHaveBeenCalled());
     const rotated = await harness.request(
       "POST",
       `/status-pages/${page.id}/rotate`,

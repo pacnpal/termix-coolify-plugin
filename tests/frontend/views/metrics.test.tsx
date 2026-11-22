@@ -18,6 +18,8 @@ import * as plugin from "../../../src/frontend/index";
 import manifestJson from "../../../manifest.json";
 import locales from "../../../locales/en.json";
 import { connection, resourceAnswer } from "../fixtures";
+import { HEAVY_TEST_MS } from "../../shared/timing.js";
+import { acceptConfirm } from "../helpers/confirm";
 
 class FakeLive {
   readyState = 1;
@@ -139,16 +141,6 @@ async function openDetail(name: string, tabLabel?: string) {
   return tab;
 }
 
-/** Answers a confirm, whether it shows as a dialog or window.confirm. */
-async function acceptConfirm(label: string) {
-  const dialog = await screen
-    .findByRole("alertdialog", {}, { timeout: 300 })
-    .catch(() => null);
-  if (dialog) {
-    fireEvent.click(within(dialog).getByRole("button", { name: label }));
-  }
-}
-
 const HISTORY = {
   source: "sentinel",
   minutes: 60,
@@ -163,35 +155,42 @@ const HISTORY = {
 };
 
 describe("resource detail tabs", () => {
-  it("offers Stats with coolify.operate, and Traffic only on applications", async () => {
-    await setup(stubApi([]));
-    await openDetail("web");
-    expect(
-      screen.getByRole("button", { name: locales.detail.tabs.stats }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: locales.detail.tabs.traffic }),
-    ).toBeTruthy();
-    await rendered!.deactivate();
-    cleanup();
+  // Fixed work: three full renders of the resource detail, about 0.7 s idle; an
+  // explicit timeout keeps a busy machine from failing it on Vitest's 5 s
+  // (#105).
+  it(
+    "offers Stats with coolify.operate, and Traffic only on applications",
+    async () => {
+      await setup(stubApi([]));
+      await openDetail("web");
+      expect(
+        screen.getByRole("button", { name: locales.detail.tabs.stats }),
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: locales.detail.tabs.traffic }),
+      ).toBeTruthy();
+      await rendered!.deactivate();
+      cleanup();
 
-    await setup(stubApi([]));
-    await openDetail("main-db");
-    expect(
-      screen.getByRole("button", { name: locales.detail.tabs.stats }),
-    ).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: locales.detail.tabs.traffic }),
-    ).toBeNull();
-    await rendered!.deactivate();
-    cleanup();
+      await setup(stubApi([]));
+      await openDetail("main-db");
+      expect(
+        screen.getByRole("button", { name: locales.detail.tabs.stats }),
+      ).toBeTruthy();
+      expect(
+        screen.queryByRole("button", { name: locales.detail.tabs.traffic }),
+      ).toBeNull();
+      await rendered!.deactivate();
+      cleanup();
 
-    await setup(stubApi([]), ["coolify.view"]);
-    await openDetail("web");
-    expect(
-      screen.queryByRole("button", { name: locales.detail.tabs.stats }),
-    ).toBeNull();
-  });
+      await setup(stubApi([]), ["coolify.view"]);
+      await openDetail("web");
+      expect(
+        screen.queryByRole("button", { name: locales.detail.tabs.stats }),
+      ).toBeNull();
+    },
+    HEAVY_TEST_MS,
+  );
 });
 
 describe("Stats tab live connection", () => {

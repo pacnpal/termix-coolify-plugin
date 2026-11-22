@@ -236,15 +236,18 @@ describe("lifecycle, resource and signal operations", () => {
           input: { connectionId: String(id), uuid: "app-web-uuid", wait: true },
         }),
     ];
+    // Polled once, no 5 second wait between polls: no timer for the poll
+    // interval is set. Counted, not timed, so load can't fail it (#105).
+    const timers = vi.spyOn(globalThis, "setTimeout");
     for (const run of runs) {
-      const started = Date.now();
       await expect(run()).rejects.toMatchObject({
         code: "skipped",
         message: "Coolify skipped the deployment of web, so no new build ran",
       });
-      // Polled once, no 5 second wait between polls.
-      expect(Date.now() - started).toBeLessThan(2_000);
     }
+    const delays = timers.mock.calls.map(([, ms]) => ms);
+    timers.mockRestore();
+    expect(delays).not.toContain(5_000);
     expect(
       fake.calls.filter((c) => c.path === "/deployments/dep-uuid"),
     ).toHaveLength(2);
