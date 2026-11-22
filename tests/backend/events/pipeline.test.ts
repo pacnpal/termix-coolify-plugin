@@ -16,8 +16,10 @@ import {
 import { createSync } from "../../../src/backend/sync/service.js";
 import {
   createEvents,
+  createEventStore,
   EVENT_LOG_LIMIT,
   type Events,
+  type EventStore,
   type SourceEvent,
 } from "../../../src/backend/events/service.js";
 import { EVENT_KINDS } from "../../../src/backend/events/kinds.js";
@@ -35,6 +37,7 @@ let db: TestDb;
 let mock: MockPluginContext;
 let connections: Connections;
 let events: Events;
+let store: EventStore;
 let clock: number;
 let own: number;
 let others: number;
@@ -105,11 +108,13 @@ beforeEach(async () => {
   connections = createConnections(mock.ctx, tables);
   const sync = await createSync(mock.ctx, { tables, connections });
   clock = Date.parse("2026-11-19T10:00:30.000Z");
+  store = createEventStore(mock.ctx, tables);
   events = createEvents(mock.ctx, {
     tables,
     connections,
     sync,
     now: () => clock,
+    store,
   });
   own = (
     await connections.create({
@@ -538,5 +543,66 @@ describe("reading the log", () => {
     await expect(events.list(own, {})).rejects.toMatchObject({
       code: "forbidden",
     });
+  });
+});
+
+/** Makes the `nth` call of `target[method]` reject once; the rest pass. */
+function failOnce<T extends object>(target: T, method: keyof T, nth = 1) {
+  const real = (target[method] as (...a: unknown[]) => unknown).bind(target);
+  let calls = 0;
+  return vi.spyOn(target, method as never).mockImplementation((async (
+    ...args: unknown[]
+  ) => {
+    calls += 1;
+    if (calls === nth) throw new Error("injected failure");
+    return real(...args);
+  }) as never);
+}
+
+function dedupeKeys(connectionId: number) {
+  return rows(connectionId).map((r) => r.dedupe_key);
+}
+
+describe("a failure after the insert", () => {
+  it.each([
+    ["the read-back", () => failOnce(store, "byKey", 2)],
+    // The first snapshot read is before the insert, the second after it.
+    [
+      "the second connection check",
+      () => failOnce(connections, "unattendedSnapshot", 2),
+    ],
+    ["the prune", () => failOnce(store, "prune")],
+    ["the persist", () => failOnce(mock.ctx.db, "persist")],
+    ["the emit", () => failOnce(mock.ctx.operations, "emit")],
+  ])("%s leaves nothing that suppresses a retry", async (_, inject) => {
+    inject();
+    await expect(ingest(own, failedDeploy("dep-1"))).rejects.toThrow(
+      "injected failure",
+    );
+    expect(dedupeKeys(own)).toEqual([]);
+    expect((await events.list(own, {})).rows).toEqual([]);
+    expect(await ingest(own, failedDeploy("dep-1"))).toMatchObject({
+      outcome: "stored",
+    });
+    expect(mock.operationEvents.map((e) => e.eventId)).toEqual([
+      "coolify.deployment-failed",
+    ]);
+    expect(dedupeKeys(own)).toEqual(["deployment|dep-1"]);
+  });
+
+  it("a row the cleanup couldn't delete is never listed, never a duplicate, and is swept", async () => {
+    failOnce(mock.ctx.operations, "emit");
+    failOnce(store, "remove");
+    await expect(ingest(own, failedDeploy("dep-1"))).rejects.toThrow(
+      "injected failure",
+    );
+    // Left behind as a pending row: not the event's dedupe key.
+    expect(dedupeKeys(own)).toEqual([expect.stringMatching(/^pending\|/)]);
+    expect((await events.list(own, {})).rows).toEqual([]);
+    expect(await ingest(own, failedDeploy("dep-1"))).toMatchObject({
+      outcome: "stored",
+    });
+    expect(mock.operationEvents).toHaveLength(1);
+    expect(dedupeKeys(own)).toEqual(["deployment|dep-1"]);
   });
 });

@@ -1,4 +1,16 @@
-import { and, desc, eq, lt, or } from "drizzle-orm";
+import { randomBytes } from "node:crypto";
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  like,
+  lt,
+  ne,
+  notLike,
+  or,
+} from "drizzle-orm";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { ConnectionError, type Connections } from "../connections/service.js";
 import { redactLog } from "../containers/logs.js";
@@ -24,6 +36,14 @@ export const EVENT_PAGE_MAX = 200;
 const EVENT_PAGE_DEFAULT = 50;
 
 const MINUTE_MS = 60_000;
+
+/**
+ * The dedupe key prefix of a row written but not yet emitted. The dedupe
+ * lookup and the event log read never match it, and a per-row nonce keeps
+ * it clear of the unique index, so a row left behind by a failed ingest
+ * can't suppress a retry.
+ */
+const PENDING = "pending|";
 /** How far ahead of the clock a source's own time may be and still count. */
 const CLOCK_SKEW_MS = MINUTE_MS;
 
@@ -378,7 +398,109 @@ export interface EventsDeps {
   sync: Sync;
   /** The clock, in epoch milliseconds; tests pass a fake one. */
   now?: () => number;
+  /** The event table's reads and writes; tests pass one with spies. */
+  store?: EventStore;
 }
+
+/**
+ * The event table's reads and writes the pipeline makes, as one object, so
+ * a test can make any of them fail.
+ */
+export function createEventStore(ctx: PluginContext, tables: Tables) {
+  const t = tables.events;
+  return {
+    async byKey(
+      connectionId: number,
+      dedupeKey: string,
+    ): Promise<EventRow | null> {
+      const db = await dbClient(ctx);
+      const [row] = (await db
+        .select()
+        .from(t)
+        .where(
+          and(eq(t.connectionId, connectionId), eq(t.dedupeKey, dedupeKey)),
+        )
+        .limit(1)) as EventRow[];
+      return row ?? null;
+    },
+
+    async insert(values: Record<string, unknown>): Promise<void> {
+      const db = await dbClient(ctx);
+      await db.insert(t).values(values);
+    },
+
+    /**
+     * Deletes the connection's events older than its newest EVENT_LOG_LIMIT,
+     * by id (ids only grow, so the row just written is the newest), and
+     * never `keepId` whatever the order says.
+     */
+    async prune(connectionId: number, keepId: number): Promise<void> {
+      const db = await dbClient(ctx);
+      const [edge] = (await db
+        .select({ id: t.id })
+        .from(t)
+        .where(eq(t.connectionId, connectionId))
+        .orderBy(desc(t.id))
+        .limit(1)
+        .offset(EVENT_LOG_LIMIT - 1)) as { id: number }[];
+      if (!edge) return;
+      await db
+        .delete(t)
+        .where(
+          and(
+            eq(t.connectionId, connectionId),
+            lt(t.id, edge.id),
+            ne(t.id, keepId),
+          ),
+        );
+    },
+
+    /** Gives a pending row its event's dedupe key: it now dedupes. */
+    async commit(
+      connectionId: number,
+      pendingKey: string,
+      dedupeKey: string,
+    ): Promise<void> {
+      const db = await dbClient(ctx);
+      await db
+        .update(t)
+        .set({ dedupeKey })
+        .where(
+          and(eq(t.connectionId, connectionId), eq(t.dedupeKey, pendingKey)),
+        );
+    },
+
+    /** Deletes the connection's rows with these dedupe keys, and persists. */
+    async remove(connectionId: number, keys: string[]): Promise<void> {
+      const db = await dbClient(ctx);
+      await db
+        .delete(t)
+        .where(
+          and(eq(t.connectionId, connectionId), inArray(t.dedupeKey, keys)),
+        );
+      await ctx.db.persist();
+    },
+
+    /**
+     * Deletes the connection's pending rows: ones a failed ingest couldn't
+     * clean up. Called at the start of each ingest, which runs alone for
+     * its connection, so no pending row is still in flight.
+     */
+    async sweep(connectionId: number): Promise<void> {
+      const db = await dbClient(ctx);
+      await db
+        .delete(t)
+        .where(
+          and(
+            eq(t.connectionId, connectionId),
+            like(t.dedupeKey, `${PENDING}%`),
+          ),
+        );
+    },
+  };
+}
+
+export type EventStore = ReturnType<typeof createEventStore>;
 
 /**
  * The one event pipeline (design: "Alerts and live events"). A source hands
@@ -396,6 +518,7 @@ export interface EventsDeps {
 export function createEvents(ctx: PluginContext, deps: EventsDeps) {
   const t = deps.tables.events;
   const { connections, sync } = deps;
+  const store = deps.store ?? createEventStore(ctx, deps.tables);
   const now = deps.now ?? (() => Date.now());
   const queues = new Map<number, Promise<unknown>>();
 
@@ -407,41 +530,6 @@ export function createEvents(ctx: PluginContext, deps: EventsDeps) {
       if (queues.get(key) === tail) queues.delete(key);
     });
     return run;
-  }
-
-  async function byKey(
-    connectionId: number,
-    dedupeKey: string,
-  ): Promise<EventRow | null> {
-    const db = await dbClient(ctx);
-    const [row] = (await db
-      .select()
-      .from(t)
-      .where(and(eq(t.connectionId, connectionId), eq(t.dedupeKey, dedupeKey)))
-      .limit(1)) as EventRow[];
-    return row ?? null;
-  }
-
-  /** Deletes the connection's events older than its newest EVENT_LOG_LIMIT. */
-  async function prune(connectionId: number): Promise<void> {
-    const db = await dbClient(ctx);
-    const [edge] = (await db
-      .select({ id: t.id })
-      .from(t)
-      .where(eq(t.connectionId, connectionId))
-      .orderBy(desc(t.id))
-      .limit(1)
-      .offset(EVENT_LOG_LIMIT - 1)) as { id: number }[];
-    if (!edge) return;
-    await db
-      .delete(t)
-      .where(and(eq(t.connectionId, connectionId), lt(t.id, edge.id)));
-  }
-
-  async function dropRow(id: number): Promise<void> {
-    const db = await dbClient(ctx);
-    await db.delete(t).where(eq(t.id, id));
-    await ctx.db.persist();
   }
 
   /**
@@ -476,10 +564,11 @@ export function createEvents(ctx: PluginContext, deps: EventsDeps) {
     if (!(await ctx.rbac.hasFor(conn.userId, "view"))) {
       return { outcome: "dropped", reason: "no-access" };
     }
+    await store.sweep(connectionId);
     const at = now();
     const clean = cleanEvent(event, await conn.secrets(), at);
     if (!clean) return { outcome: "dropped", reason: "invalid" };
-    if (await byKey(connectionId, clean.dedupeKey)) {
+    if (await store.byKey(connectionId, clean.dedupeKey)) {
       return { outcome: "duplicate" };
     }
     const linked = clean.serverUuid
@@ -490,8 +579,9 @@ export function createEvents(ctx: PluginContext, deps: EventsDeps) {
         ? linked
         : null;
 
-    const db = await dbClient(ctx);
-    await db.insert(t).values({
+    // Written pending, given its dedupe key only once it was emitted.
+    const pendingKey = `${PENDING}${randomBytes(6).toString("base64url")}|${clean.dedupeKey}`;
+    await store.insert({
       connectionId,
       kind: clean.kind,
       resourceUuid: clean.resourceUuid,
@@ -506,34 +596,47 @@ export function createEvents(ctx: PluginContext, deps: EventsDeps) {
         fields: clean.fields,
       }),
       createdAt: new Date(at).toISOString(),
-      dedupeKey: clean.dedupeKey,
+      dedupeKey: pendingKey,
     });
-    // No returning(): read the row back by its unique dedupe key.
-    const row = await byKey(connectionId, clean.dedupeKey);
-    const stored = row ? toRecord(row) : null;
-    if (!stored) throw new Error("The event could not be stored");
-    // A removal or a repoint that landed meanwhile wins: its rows are gone
-    // (or about another target), so this one goes too and nothing is sent.
-    const still = await current(connectionId, revision);
-    if (still.reason) {
-      await dropRow(stored.id);
-      return { outcome: "dropped", reason: still.reason };
-    }
-    await prune(connectionId);
-    await ctx.db.persist();
+    // Every step after the insert shares one cleanup: whatever fails, the
+    // row goes (by its keys, not by an id the read-back may not have
+    // given), and the error is passed on.
     try {
+      // No returning(): read the row back by its unique pending key.
+      const row = await store.byKey(connectionId, pendingKey);
+      const stored = row ? toRecord(row) : null;
+      if (!stored) throw new Error("The event could not be stored");
+      // A removal or a repoint that landed meanwhile wins: its rows are
+      // gone (or about another target), so this one goes and nothing is sent.
+      const still = await current(connectionId, revision);
+      if (still.reason) {
+        await store.remove(connectionId, [pendingKey]);
+        return { outcome: "dropped", reason: still.reason };
+      }
+      await store.prune(connectionId, stored.id);
+      await ctx.db.persist();
       await ctx.operations.emit(
         eventId(stored.kind),
         payloadOf(stored),
         hostId ? { hostId } : undefined,
       );
+      await store.commit(connectionId, pendingKey, clean.dedupeKey);
+      await ctx.db.persist();
+      return { outcome: "stored", event: stored };
     } catch (err) {
-      // Stored and sent together or not at all: a source that retries
-      // isn't then told it's a duplicate of an event nobody received.
-      await dropRow(stored.id);
+      try {
+        // Either key: a failure after the commit (its persist) also goes,
+        // so a retry sends the event again rather than never.
+        await store.remove(connectionId, [pendingKey, clean.dedupeKey]);
+      } catch (cleanup) {
+        // The row stays pending: never listed, never a duplicate, and
+        // swept by the connection's next ingest.
+        ctx.log.warn(
+          `coolify event not cleaned up: ${(cleanup as Error)?.name ?? "error"}`,
+        );
+      }
       throw err;
     }
-    return { outcome: "stored", event: stored };
   }
 
   return {
@@ -543,7 +646,8 @@ export function createEvents(ctx: PluginContext, deps: EventsDeps) {
      * under. It needs no actor (sources run in the background or on a public
      * webhook route) and never throws for a bad event: it answers stored,
      * duplicate or dropped with a reason. It throws only when the database
-     * or the emit fails, and then nothing is kept.
+     * or the emit fails, and then keeps nothing that would make a retry a
+     * duplicate.
      */
     async ingest(
       connectionId: number,
@@ -570,7 +674,11 @@ export function createEvents(ctx: PluginContext, deps: EventsDeps) {
         throw new ConnectionError("not-found", "Coolify connection not found");
       }
       const q = readQuery(query);
-      const conditions = [eq(t.connectionId, connectionId)];
+      const conditions = [
+        eq(t.connectionId, connectionId),
+        // Pending rows were never emitted: not part of the log.
+        or(isNull(t.dedupeKey), notLike(t.dedupeKey, `${PENDING}%`)),
+      ];
       if (q.before !== null) conditions.push(lt(t.id, q.before));
       if (q.kind !== null) conditions.push(eq(t.kind, q.kind));
       if (q.uuid !== null) {

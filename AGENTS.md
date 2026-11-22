@@ -636,8 +636,14 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   read Coolify. `IngestResult` is `stored` (with the `EventRecord`), `duplicate`, or `dropped` with
   `invalid`, `connection-gone`, `target-changed` or `no-access` (owner lost `coolify.view`). It needs no
   actor (it uses `connections.unattendedSnapshot`, which also gives `secrets()`) and throws only when the
-  database or the emit fails, and then keeps nothing (a stored row whose emit failed is deleted, so a retry
-  isn't a duplicate). Kinds live in `EVENT_KINDS` (kinds.ts) with their subject (`resource`, `server`,
+  database or the emit fails, and then keeps nothing that makes a retry a duplicate. A row is inserted
+  with a pending key (`pending|<nonce>|<key>`, which neither the dedupe lookup nor the log read matches
+  and the nonce keeps off the unique index) and gets its real `dedupeKey` (`store.commit`) only after the
+  emit. Every step after the insert (read-back, the second connection check, prune, persist, emit, commit,
+  persist) shares one catch that deletes by `(connectionId, [pendingKey, dedupeKey])` and rethrows. If
+  that delete fails too, the pending row stays, unlisted and ignored, and the next ingest for the
+  connection sweeps it (`store.sweep`): fail closed, a retry may send again but is never suppressed. The
+  table steps are `createEventStore` (deps.store), so tests make each fail once. Kinds live in `EVENT_KINDS` (kinds.ts) with their subject (`resource`, `server`,
   `any`, `team`), severity and log title; each is declared in the manifest as `coolify.<kind>` with scope
   `server` (hostId only when Linked, so no event needs one) and the payload `PAYLOAD_KEYS[subject]`; a
   test checks both lists and every emitted payload's keys. A new kind adds a row there, a manifest event
@@ -647,7 +653,8 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   pipeline's `now`). The key is the `dedupeKey` column with a unique `(connectionId, dedupeKey)` index
   (migration 0003 hand-adds it: the generator writes no index for an existing table); ingests for one
   connection run one at a time in memory (single process, like `withLock`), so read, insert and prune
-  never interleave. Pruning keeps the newest `EVENT_LOG_LIMIT` (1000) per connection by id. Removing a
+  never interleave. Pruning keeps the newest `EVENT_LOG_LIMIT` (1000) per connection by id, never createdAt (ids
+  only grow, so the row just written is never pruned; `prune` also excludes its id). Removing a
   connection deletes its events in `removeNow`'s batch; an ingest re-checks the connection's revision
   after its insert and deletes the row when the connection went or was repointed meanwhile. hostId is
   `sync.linkedHostFor(connectionId, serverUuid)`, so a resource event needs its server's uuid from the
