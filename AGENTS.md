@@ -224,6 +224,13 @@ aren't obvious from the code, and anything that has bitten you before.
   `redactFields(action.outputs)` to every action's data, as core does. Uptime is a `deps.uptime` hook,
   not wired to the Uptime companion yet, so pages show no uptime. The resource list has no deploy result yet, so
   `lastDeployOk` is null.
+- Toolbar status: `src/frontend/toolbar-status.ts` fills the `terminal.toolbarStatus` data slot (row key is
+  the tab id). It finds the tab with `useShell().tabs.list`, answers only for `coolify-shell` tabs (parsed
+  with `shellTabData`), and reads statuses from `createStatusFeed`: one `listResources` read per connection
+  (the backend's 20 second cache) shared by every tab, polled every `STATUS_POLL_MS` while a tab shows it and
+  dropped when the last one goes. A uuid missing from the list shows "Gone"; a failed read shows nothing.
+  The hook runs in the background frame, so the feed is made in `activate`, not in a view. Its test mocks
+  `useShell` because the SDK's test host has no shell.
 - Status words: `src/shared/resource-health.ts` (`resourceHealth`, `countResources`) is the one reading of a
   Coolify status, imported by both the backend and the frontend. Exited is stopped, whatever its health
   suffix. Degraded covers degraded, restarting, dead and unhealthy, as a state (`unhealthy`) or a suffix

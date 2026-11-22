@@ -15,6 +15,7 @@ import type {
 import { createApi } from "./api";
 import { forgetPreview, linkOf, useLinkedRow } from "./linked";
 import { keepSocketTarget } from "./socket";
+import { registerToolbarStatus } from "./toolbar-status";
 import { ConnectStep } from "./views/ConnectStep";
 import { CoolifyTab } from "./views/CoolifyTab";
 import { HostSection, openCoolify } from "./views/HostSection";
@@ -48,6 +49,8 @@ export function activate(app: TermixApp): void {
     titleKey: "shellTab.title",
     hostless: true,
   });
+  // The container's name and status in a coolify-shell tab's toolbar.
+  registerToolbarStatus(app);
   app.registerOnboardingStep({
     id: "connect",
     titleKey: "onboarding.connect.title",

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.0
+
+### Added
+
+- A Coolify shell tab's terminal toolbar shows the container's name and status (Running, Degraded, Stopped
+  or Deploying), from the plugin's cached resource list, and **Gone** once the resource is no longer in
+  Coolify
+
 ## 1.0.0
 
 ### Added
