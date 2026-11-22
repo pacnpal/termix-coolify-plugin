@@ -502,7 +502,8 @@ Deploys the preview of a pull request: Coolify opens it, or redeploys it when it
 deployment. Needs **Operate Coolify resources** and the owner or an operate grant, and runs
 `coolify.preview-create` confirmed (the Previews tab asks first). Body: `pullRequestId` (1 to 2147483647) and optionally `pullRequestUrl` (http or https), `gitType` (`github`, `gitlab`, `gitea` or
 `bitbucket`; Coolify needs it unless the application uses a GitHub or GitLab App source), `commit` (a
-SHA; a new Bitbucket preview needs it), `dockerTag` (Docker image applications) and `force` (rebuild
+SHA of 7 to 40 hex characters; a new Bitbucket preview needs it), `dockerTag` (a Docker image
+tag; a new preview of a Docker image application needs it) and `force` (rebuild
 without cache). A bad value is 400 `invalid-input` before Coolify is asked. It answers
 `{ pullRequestId, deploymentUuid }`, or 202 `{ "status": "pending", "runId" }` while an approval waits.
 Coolify needs a token with `write` and `deploy` to open a preview.
@@ -515,7 +516,9 @@ application, or `composeDomains` (`[{ name, domain }]`, an empty domain clearing
 Docker Compose one. Each list is checked before Coolify is asked, by the same rules in the tab and the
 backend: comma separated `http://` or `https://` URLs with a DNS host name (no IP address or single
 label), an optional port and path, no user name or password, query or fragment, no repeats, at most 20.
-Hosts are lowercased and a trailing slash dropped. A list that fails is 400 `invalid-input` saying what is
+Hosts are lowercased and a trailing slash dropped. A port you give is kept as written, `:80` and `:443`
+included: Coolify keeps a preview's ports as internal routing overrides, so dropping one would change what it
+does. `pullRequestUrl` is also sent as given. A list that fails is 400 `invalid-input` saying what is
 wrong. It answers `{ pullRequestId, domains }` or `{ pullRequestId, composeDomains }`.
 
 ### `DELETE /plugin-api/coolify/connections/{id}/resources/{uuid}/previews/{pullRequestId}`

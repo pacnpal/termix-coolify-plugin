@@ -1,9 +1,6 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
-import {
-  IMAGE_TAG,
-  type ComposeDomainDto,
-  type PreviewDto,
-} from "../coolify/dto.js";
+import type { ComposeDomainDto, PreviewDto } from "../coolify/dto.js";
+import { COMMIT_SHA, IMAGE_TAG } from "../../shared/image-tag.js";
 import { OPERATIONS } from "../coolify/generated/operations.js";
 import { CoolifyError } from "../coolify/http.js";
 import { meetsMinVersion } from "../coolify/version.js";
@@ -116,13 +113,17 @@ function pullRequestUrl(raw: Record<string, unknown>): string | undefined {
     "pullRequestUrl must be an http or https URL",
   );
   if (value === undefined) return undefined;
+  let url: URL;
   try {
-    const url = new URL(value);
-    if (url.username || url.password) throw new Error("credentials");
-    return url.toString();
+    url = new URL(value);
   } catch {
     throw invalid("pullRequestUrl must be an http or https URL");
   }
+  if (url.username || url.password) {
+    throw invalid("pullRequestUrl can't carry a user name or password");
+  }
+  // Sent as given: the parser's form would drop a port the caller wrote.
+  return value;
 }
 
 /** What to open a preview with, checked before anything is asked. */
@@ -141,7 +142,7 @@ export function readPreviewCreate(raw: Record<string, unknown>): PreviewCreate {
     commit: optionalText(
       raw,
       "commit",
-      /^[0-9a-f]{7,64}$/i,
+      COMMIT_SHA,
       "commit must be a commit SHA",
     ),
     dockerTag: optionalText(

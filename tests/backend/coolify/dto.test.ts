@@ -185,6 +185,7 @@ describe("Coolify DTO strippers", () => {
       engine: null,
     });
     expect(dto.fqdns).toEqual(["https://a.x", "https://b.x"]);
+    expect(dto.buildPack).toBe("nixpacks");
     expectClean(dto);
   });
 

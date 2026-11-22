@@ -1671,7 +1671,11 @@
       },
       "done": "Deploying the preview of pull request #{{id}}.",
       "pending": "Waiting for approval to deploy the preview.",
-      "failed": "The preview could not be deployed."
+      "failed": "The preview could not be deployed.",
+      "commit": "Commit SHA (a new Bitbucket preview needs it)",
+      "dockerTag": "Docker tag (a new Docker image preview needs it)",
+      "invalidCommit": "Enter a commit SHA: 7 to 40 hexadecimal characters.",
+      "invalidDockerTag": "Enter a Docker image tag: letters, digits, _ . and -, at most 128."
     },
     "domains": {
       "edit": "Domains",
@@ -1698,7 +1702,10 @@
         "host": "Each domain needs a DNS host name.",
         "path": "A domain's path may hold only letters, digits and . _ ~ -.",
         "duplicate": "A domain is listed twice."
-      }
+      },
+      "serviceLabel": "{{name}} domains for pull request #{{id}}",
+      "serviceHint": "Comma separated; leave empty to clear this service's domains",
+      "noServices": "Coolify lists no Docker Compose services for this preview yet, so its domains can't be edited here."
     },
     "delete": {
       "action": "Delete",

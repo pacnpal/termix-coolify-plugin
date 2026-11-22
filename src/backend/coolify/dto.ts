@@ -1,3 +1,4 @@
+import { IMAGE_TAG } from "../../shared/image-tag.js";
 // Strippers from Coolify payloads to the plugin's own DTOs. Each one picks the
 // fields it needs by name, never with a spread, so a secret Coolify adds to a
 // payload later can't ride along. Coolify returns fields its OpenAPI schema
@@ -61,6 +62,12 @@ export interface ResourceDto {
   parentUuid: string | null;
   engine: string | null;
   lastDeployAt: string | null;
+  /**
+   * An application's build pack (nixpacks, static, dockerfile,
+   * dockercompose, dockerimage and so on), which decides what a preview
+   * needs; null for anything else.
+   */
+  buildPack: string | null;
 }
 
 export interface DeploymentDto {
@@ -339,6 +346,7 @@ type ResourceExtra = Partial<
     | "parentUuid"
     | "engine"
     | "lastDeployAt"
+    | "buildPack"
   >
 >;
 
@@ -369,6 +377,7 @@ function resource(
     parentUuid: extra.parentUuid ?? null,
     engine: extra.engine ?? null,
     lastDeployAt: extra.lastDeployAt ?? null,
+    buildPack: extra.buildPack ?? null,
   };
 }
 
@@ -377,6 +386,7 @@ export function toApplication(input: unknown): ResourceDto {
   return resource(raw, "application", {
     fqdns: fqdns(raw.fqdn),
     lastDeployAt: strOrNull(raw.last_deployment_at),
+    buildPack: strOrNull(raw.build_pack),
   });
 }
 
@@ -523,7 +533,7 @@ export interface RollbackImagesDto {
 }
 
 /** A Docker image tag: what Coolify lists and what a rollback may name. */
-export const IMAGE_TAG = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/;
+export { IMAGE_TAG };
 
 /**
  * An application's rollback images, in Coolify's order. Rows without a

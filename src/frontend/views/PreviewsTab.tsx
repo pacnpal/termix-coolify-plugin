@@ -28,8 +28,15 @@ import {
   ToolbarBand,
   useConfirm,
 } from "@termix-ssh/plugin-sdk/ui";
-import { createApi, failureOf, type Preview, type Resource } from "../api";
+import {
+  createApi,
+  failureOf,
+  type Preview,
+  type PreviewDomainsChange,
+  type Resource,
+} from "../api";
 import { checkDomains } from "../../shared/domains";
+import { COMMIT_SHA, IMAGE_TAG } from "../../shared/image-tag";
 import { resourceHealth } from "../../shared/resource-health";
 import { BuildLogView, DeploymentStatus } from "./BuildLogView";
 import { describeFailure } from "./ConnectionForm";
@@ -38,7 +45,8 @@ import { HEALTH_TONE, healthLabel } from "./resource-model";
 type T = (key: string, options?: Record<string, unknown>) => string;
 
 const MAX_PULL_REQUEST_ID = 2_147_483_647;
-const GIT_TYPES = ["", "github", "gitlab", "gitea", "bitbucket"] as const;
+/** "auto" leaves it to the application's source (a select item can't be ""). */
+const GIT_TYPES = ["auto", "github", "gitlab", "gitea", "bitbucket"] as const;
 type GitChoice = (typeof GIT_TYPES)[number];
 
 type Load =
@@ -58,11 +66,17 @@ interface Forms {
   pullRequestId: string;
   pullRequestUrl: string;
   gitType: GitChoice;
+  commit: string;
+  dockerTag: string;
   createError: string | null;
   /** The preview whose domains are being edited. */
   editing: number | null;
   domains: string;
+  /** A Docker Compose preview's domains, one entry per service. */
+  composeDomains: { name: string; domain: string }[] | null;
   domainsError: string | null;
+  /** The Compose service the error is about. */
+  domainsErrorFor: string | null;
 }
 
 function noForms(target: string): Forms {
@@ -71,12 +85,35 @@ function noForms(target: string): Forms {
     creating: false,
     pullRequestId: "",
     pullRequestUrl: "",
-    gitType: "",
+    gitType: "auto",
+    commit: "",
+    dockerTag: "",
     createError: null,
     editing: null,
     domains: "",
+    composeDomains: null,
     domainsError: null,
+    domainsErrorFor: null,
   };
+}
+
+/** What a closed domain editor holds. */
+const NO_EDIT = {
+  editing: null,
+  domains: "",
+  composeDomains: null,
+  domainsError: null,
+  domainsErrorFor: null,
+} as const;
+
+/**
+ * Whether a preview's domains are per Docker Compose service: Coolify's
+ * domains field doesn't apply to them, only docker_compose_domains does.
+ */
+function isCompose(resource: Resource, preview: Preview): boolean {
+  return (
+    resource.buildPack === "dockercompose" || preview.composeDomains.length > 0
+  );
 }
 
 /** A pull request number typed in, or null when it isn't one. */
@@ -238,6 +275,17 @@ export function PreviewsTab({
   const [formState, setFormState] = useState<Forms>(() => noForms(target));
   const forms = formState.target === target ? formState : noForms(target);
   const [busy, setBusy] = useState(false);
+  /** A Docker image application: a new preview needs its image tag. */
+  const dockerImage = resource.buildPack === "dockerimage";
+
+  /**
+   * Whether this view can edit a preview's domains. A Docker Compose
+   * preview's are per service, and only the services Coolify lists can be
+   * named; with none listed there is nothing sound to send.
+   */
+  function editable(preview: Preview): boolean {
+    return !isCompose(resource, preview) || preview.composeDomains.length > 0;
+  }
 
   function setForms(patch: Partial<Forms>, forTarget = target) {
     setFormState((prev) => ({
@@ -300,6 +348,17 @@ export function PreviewsTab({
       setForms({ createError: t("previews.create.invalidUrl") });
       return;
     }
+    // Shown only where they apply; a hidden one is never sent.
+    const commit = forms.gitType === "bitbucket" ? forms.commit.trim() : "";
+    if (commit && !COMMIT_SHA.test(commit)) {
+      setForms({ createError: t("previews.create.invalidCommit") });
+      return;
+    }
+    const dockerTag = dockerImage ? forms.dockerTag.trim() : "";
+    if (dockerTag && !IMAGE_TAG.test(dockerTag)) {
+      setForms({ createError: t("previews.create.invalidDockerTag") });
+      return;
+    }
     setForms({ createError: null });
     const ok = await confirm({
       title: t("previews.create.confirm.title", { id }),
@@ -314,7 +373,9 @@ export function PreviewsTab({
       const answer = await api.createPreview(connectionId, resource.uuid, {
         pullRequestId: id,
         ...(url ? { pullRequestUrl: url } : {}),
-        ...(forms.gitType ? { gitType: forms.gitType } : {}),
+        ...(forms.gitType === "auto" ? {} : { gitType: forms.gitType }),
+        ...(commit ? { commit } : {}),
+        ...(dockerTag ? { dockerTag } : {}),
       });
       if (!still(forTarget)) return;
       toast.success(
@@ -344,21 +405,74 @@ export function PreviewsTab({
     }
   }
 
+  /**
+   * The domains change the editor holds, every list checked as the backend
+   * checks it, or the first problem and the Compose service it is about.
+   */
+  function domainsChange():
+    | { change: PreviewDomainsChange; shown: string }
+    | { error: string; service: string | null } {
+    const problem = (text: string) => {
+      const checked = checkDomains(text);
+      return "reason" in checked
+        ? { error: t(`previews.domains.errors.${checked.reason}`) }
+        : { value: checked.value };
+    };
+    if (forms.composeDomains) {
+      const composeDomains: { name: string; domain: string | null }[] = [];
+      for (const service of forms.composeDomains) {
+        const text = service.domain.trim();
+        const checked = text ? problem(text) : { value: null };
+        if ("error" in checked) {
+          return { error: checked.error, service: service.name };
+        }
+        composeDomains.push({ name: service.name, domain: checked.value });
+      }
+      return {
+        change: { composeDomains },
+        shown: composeDomains
+          .map((d) => `${d.name}: ${d.domain ?? "-"}`)
+          .join("; "),
+      };
+    }
+    const checked = problem(forms.domains);
+    if ("error" in checked) return { error: checked.error, service: null };
+    return {
+      change: { domains: checked.value },
+      shown: checked.value.split(",").join(", "),
+    };
+  }
+
+  function editDomains(preview: Preview): void {
+    setForms({
+      ...NO_EDIT,
+      editing: preview.pullRequestId,
+      domains: preview.domains.join(","),
+      composeDomains: isCompose(resource, preview)
+        ? preview.composeDomains.map((d) => ({
+            name: d.name,
+            domain: d.domain ?? "",
+          }))
+        : null,
+    });
+  }
+
   async function saveDomains(preview: Preview): Promise<void> {
     const forTarget = target;
     const id = preview.pullRequestId;
-    const checked = checkDomains(forms.domains);
-    if ("reason" in checked) {
+    const checked = domainsChange();
+    if ("error" in checked) {
       setForms({
-        domainsError: t(`previews.domains.errors.${checked.reason}`),
+        domainsError: checked.error,
+        domainsErrorFor: checked.service,
       });
       return;
     }
-    setForms({ domainsError: null });
+    setForms({ domainsError: null, domainsErrorFor: null });
     const ok = await confirm({
       title: t("previews.domains.confirm.title", { id }),
       description: t("previews.domains.confirm.description", {
-        domains: checked.domains.join(", "),
+        domains: checked.shown,
       }),
       confirmLabel: t("previews.domains.confirm.confirm"),
     });
@@ -369,7 +483,7 @@ export function PreviewsTab({
         connectionId,
         resource.uuid,
         id,
-        checked.value,
+        checked.change,
       );
       if (!still(forTarget)) return;
       toast.success(
@@ -377,7 +491,7 @@ export function PreviewsTab({
           ? t("previews.domains.pending")
           : t("previews.domains.done"),
       );
-      setForms({ editing: null, domains: "", domainsError: null }, forTarget);
+      setForms(NO_EDIT, forTarget);
       setAttempt((n) => n + 1);
     } catch (err) {
       if (still(forTarget)) {
@@ -529,20 +643,16 @@ export function PreviewsTab({
                       <ScrollText className="size-3.5" />
                       {t("previews.logs.action")}
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() =>
-                        setForms({
-                          editing: p.pullRequestId,
-                          domains: p.domains.join(","),
-                          domainsError: null,
-                        })
-                      }
-                    >
-                      <Globe className="size-3.5" />
-                      {t("previews.domains.edit")}
-                    </Button>
+                    {editable(p) && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => editDomains(p)}
+                      >
+                        <Globe className="size-3.5" />
+                        {t("previews.domains.edit")}
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="ghost"
@@ -565,18 +675,53 @@ export function PreviewsTab({
                   ))}
                 </span>
               )}
+              {canOperate && !editable(p) && (
+                <span className="text-xs text-muted-foreground">
+                  {t("previews.domains.noServices")}
+                </span>
+              )}
             </ListRow>
             {canOperate && forms.editing === p.pullRequestId && (
               <div className="flex flex-col gap-2 border-b border-border p-3">
-                <TextInput
-                  label={t("previews.domains.label", { id: p.pullRequestId })}
-                  hint={t("previews.domains.hint")}
-                  value={forms.domains}
-                  error={forms.domainsError ?? undefined}
-                  onChange={(value) =>
-                    setForms({ domains: value, domainsError: null })
-                  }
-                />
+                {forms.composeDomains ? (
+                  forms.composeDomains.map((service, at) => (
+                    <TextInput
+                      key={service.name}
+                      label={t("previews.domains.serviceLabel", {
+                        id: p.pullRequestId,
+                        name: service.name,
+                      })}
+                      hint={t("previews.domains.serviceHint")}
+                      value={service.domain}
+                      error={
+                        forms.domainsErrorFor === service.name
+                          ? (forms.domainsError ?? undefined)
+                          : undefined
+                      }
+                      onChange={(value) =>
+                        setForms({
+                          composeDomains: (forms.composeDomains ?? []).map(
+                            (s, i) => (i === at ? { ...s, domain: value } : s),
+                          ),
+                          domainsError: null,
+                          domainsErrorFor: null,
+                        })
+                      }
+                    />
+                  ))
+                ) : (
+                  <TextInput
+                    label={t("previews.domains.label", {
+                      id: p.pullRequestId,
+                    })}
+                    hint={t("previews.domains.hint")}
+                    value={forms.domains}
+                    error={forms.domainsError ?? undefined}
+                    onChange={(value) =>
+                      setForms({ domains: value, domainsError: null })
+                    }
+                  />
+                )}
                 <div className="flex gap-2">
                   <Button
                     size="sm"
@@ -588,13 +733,7 @@ export function PreviewsTab({
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() =>
-                      setForms({
-                        editing: null,
-                        domains: "",
-                        domainsError: null,
-                      })
-                    }
+                    onClick={() => setForms(NO_EDIT)}
                   >
                     {t("previews.domains.cancel")}
                   </Button>
@@ -652,12 +791,31 @@ export function PreviewsTab({
             value={forms.gitType}
             options={GIT_TYPES.map((value) => ({
               value,
-              label: value
-                ? t(`ops.fields.gitType.${value}`)
-                : t("previews.create.gitTypeAuto"),
+              label:
+                value === "auto"
+                  ? t("previews.create.gitTypeAuto")
+                  : t(`ops.fields.gitType.${value}`),
             }))}
             onChange={(value) => setForms({ gitType: value })}
           />
+          {forms.gitType === "bitbucket" && (
+            <TextInput
+              label={t("previews.create.commit")}
+              value={forms.commit}
+              onChange={(value) =>
+                setForms({ commit: value, createError: null })
+              }
+            />
+          )}
+          {dockerImage && (
+            <TextInput
+              label={t("previews.create.dockerTag")}
+              value={forms.dockerTag}
+              onChange={(value) =>
+                setForms({ dockerTag: value, createError: null })
+              }
+            />
+          )}
           {forms.createError && (
             <NoticePanel tone="destructive" title={forms.createError} />
           )}

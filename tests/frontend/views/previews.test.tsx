@@ -34,6 +34,7 @@ let rendered: RenderedPluginApp | null = null;
 afterEach(async () => {
   await rendered?.deactivate();
   rendered = null;
+  initial = web;
   vi.restoreAllMocks();
 });
 
@@ -120,8 +121,11 @@ const controls = {
   setMounted: (_mounted: boolean) => {},
 };
 
+/** The resource the next harness opens on. */
+let initial: Resource = web;
+
 function Harness() {
-  const [resource, setResource] = useState<Resource>(web);
+  const [resource, setResource] = useState<Resource>(initial);
   const [mounted, setMounted] = useState(true);
   useEffect(() => {
     controls.setResource = setResource;
@@ -389,6 +393,146 @@ describe("previews tab", () => {
     expect(screen.queryByRole("button", { name: P.delete.action })).toBeNull();
     expect(screen.queryByRole("button", { name: P.create.open })).toBeNull();
     expect(screen.getByText(P.noAccess)).toBeTruthy();
+  });
+});
+
+/** Opens the create form and types a pull request number. */
+async function openCreate(id: string) {
+  await screen.findByText("Pull request #42");
+  fireEvent.click(screen.getByRole("button", { name: P.create.open }));
+  fireEvent.change(screen.getByLabelText(P.create.pullRequestId), {
+    target: { value: id },
+  });
+}
+
+/** Confirms the open dialog with `label`. */
+async function confirmWith(label: string) {
+  const dialog = await screen.findByRole("alertdialog");
+  fireEvent.click(within(dialog).getByRole("button", { name: label }));
+}
+
+describe("previews of Bitbucket, Docker image and Compose applications", () => {
+  it("a Bitbucket preview sends its commit, and a bad commit is refused first", async () => {
+    const api = previewApi(two);
+    api.post.mockImplementation(async () => ({
+      data: { pullRequestId: 51, deploymentUuid: null },
+    }));
+    await renderHarness(api);
+    await openCreate("51");
+    expect(screen.queryByLabelText(P.create.commit)).toBeNull();
+    // A Radix select: open it from the keyboard. jsdom has no
+    // scrollIntoView, which the open list calls.
+    Element.prototype.scrollIntoView = () => {};
+    // The form's one select: the Git provider.
+    fireEvent.keyDown(screen.getByRole("combobox"), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("option", { name: "Bitbucket" }));
+    const commit = await screen.findByLabelText(P.create.commit);
+    fireEvent.change(commit, { target: { value: "not-a-sha" } });
+    fireEvent.click(screen.getByRole("button", { name: P.create.submit }));
+    expect(await screen.findByText(P.create.invalidCommit)).toBeTruthy();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+
+    fireEvent.change(commit, { target: { value: "ABC1234def" } });
+    fireEvent.click(screen.getByRole("button", { name: P.create.submit }));
+    await confirmWith(P.create.confirm.confirm);
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        "/connections/1/resources/app-web-uuid/previews",
+        { pullRequestId: 51, gitType: "bitbucket", commit: "ABC1234def" },
+      ),
+    );
+  });
+
+  it("a Docker image application's preview sends its tag, and a bad tag is refused first", async () => {
+    initial = { ...web, buildPack: "dockerimage" } as Resource;
+    const api = previewApi(two);
+    api.post.mockImplementation(async () => ({
+      data: { pullRequestId: 51, deploymentUuid: null },
+    }));
+    await renderHarness(api);
+    await openCreate("51");
+    const tag = screen.getByLabelText(P.create.dockerTag);
+    fireEvent.change(tag, { target: { value: "bad tag" } });
+    fireEvent.click(screen.getByRole("button", { name: P.create.submit }));
+    expect(await screen.findByText(P.create.invalidDockerTag)).toBeTruthy();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+
+    fireEvent.change(tag, { target: { value: "pr-51" } });
+    fireEvent.click(screen.getByRole("button", { name: P.create.submit }));
+    await confirmWith(P.create.confirm.confirm);
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        "/connections/1/resources/app-web-uuid/previews",
+        { pullRequestId: 51, dockerTag: "pr-51" },
+      ),
+    );
+    expect(api.post).toHaveBeenCalledTimes(1);
+  });
+
+  it("a Compose preview edits each service's domains and sends them as Compose domains", async () => {
+    initial = { ...web, buildPack: "dockercompose" } as Resource;
+    const api = previewApi({
+      "app-web-uuid": async () => ({
+        rows: [
+          preview(42, {
+            domains: [],
+            composeDomains: [
+              { name: "web", domain: "https://web-42.example.test" },
+              { name: "api", domain: null },
+            ],
+          }),
+        ],
+      }),
+    });
+    api.patch.mockImplementation(async () => ({ data: { pullRequestId: 42 } }));
+    await renderHarness(api);
+    await screen.findByText("Pull request #42");
+    fireEvent.click(
+      within(rowOf(42)).getByRole("button", { name: P.domains.edit }),
+    );
+    const label = (name: string) =>
+      P.domains.serviceLabel.replace("{{id}}", "42").replace("{{name}}", name);
+    const webInput = screen.getByLabelText(label("web")) as HTMLInputElement;
+    const apiInput = screen.getByLabelText(label("api")) as HTMLInputElement;
+    expect(webInput.value).toBe("https://web-42.example.test");
+    expect(apiInput.value).toBe("");
+
+    fireEvent.change(apiInput, { target: { value: "api-42.example.test" } });
+    fireEvent.click(screen.getByRole("button", { name: P.domains.save }));
+    expect(await screen.findByText(P.domains.errors.scheme)).toBeTruthy();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+
+    fireEvent.change(apiInput, {
+      target: { value: "https://api-42.example.test:443" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: P.domains.save }));
+    await confirmWith(P.domains.confirm.confirm);
+    await waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith(
+        "/connections/1/resources/app-web-uuid/previews/42",
+        {
+          composeDomains: [
+            { name: "web", domain: "https://web-42.example.test" },
+            { name: "api", domain: "https://api-42.example.test:443" },
+          ],
+        },
+      ),
+    );
+  });
+
+  it("a Compose preview with no services listed offers no domain editor", async () => {
+    initial = { ...web, buildPack: "dockercompose" } as Resource;
+    const api = previewApi({
+      "app-web-uuid": async () => ({
+        rows: [preview(42, { domains: [], composeDomains: [] })],
+      }),
+    });
+    await renderHarness(api);
+    await screen.findByText("Pull request #42");
+    expect(
+      within(rowOf(42)).queryByRole("button", { name: P.domains.edit }),
+    ).toBeNull();
+    expect(within(rowOf(42)).getByText(P.domains.noServices)).toBeTruthy();
   });
 });
 

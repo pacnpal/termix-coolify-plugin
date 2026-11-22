@@ -109,7 +109,7 @@ describe("each preview change", () => {
     let { harness: h, fake, id } = await start();
     const made = await h.request("POST", `${web(id)}/previews`, {
       pullRequestId: 51,
-      pullRequestUrl: "https://github.com/acme/web/pull/51",
+      pullRequestUrl: "https://github.com:443/acme/web/pull/51",
       gitType: "github",
     });
     expect(made.status).toBe(200);
@@ -119,7 +119,7 @@ describe("each preview change", () => {
     });
     expect(sentBody(fake)).toEqual({
       pull_request_id: 51,
-      pull_request_html_url: "https://github.com/acme/web/pull/51",
+      pull_request_html_url: "https://github.com:443/acme/web/pull/51",
       git_type: "github",
       instant_deploy: true,
       force: false,
@@ -237,6 +237,8 @@ describe("checking inputs before Coolify", () => {
       { pullRequestId: 5, pullRequestUrl: "javascript:alert(1)" },
       { pullRequestId: 5, gitType: "svn" },
       { pullRequestId: 5, dockerTag: "bad tag" },
+      { pullRequestId: 5, commit: "a".repeat(41) },
+      { pullRequestId: 5, commit: "abc12" },
     ]) {
       const answer = await harness.request("POST", `${web(id)}/previews`, body);
       expect(answer.status, JSON.stringify(body)).toBe(400);

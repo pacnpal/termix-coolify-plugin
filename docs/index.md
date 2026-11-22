@@ -337,10 +337,15 @@ Grant at operate or configure.
 
 - **Deploy a preview** opens the preview of a pull request number, or redeploys it, after a confirm, and
   shows its build log. The Git provider is needed unless the application uses a GitHub or GitLab App
-  source. Coolify needs a token with `write` and `deploy`.
+  source. A Bitbucket preview also asks for the commit to deploy, and a Docker image application's
+  preview for its image tag; both are checked before anything is sent. Coolify needs a token with `write`
+  and `deploy`.
 - **Domains** replaces a preview's domains after a confirm. The list is checked before it is sent: comma
   separated `http://` or `https://` URLs with a DNS host name, an optional port and path, and no user name,
-  password, query or repeats. A bad list says what is wrong and sends nothing.
+  password, query or repeats. A port you give is kept, `:80` and `:443` included, since Coolify uses it
+  for routing. A bad list says what is wrong and sends nothing. A Docker Compose preview has one field per
+  service Coolify lists, an empty one clearing that service's domains; while Coolify lists none, the
+  preview's domains can't be edited here.
 - **Delete** removes a preview (its containers, volumes and networks) after a destructive confirm.
 - **Build log** opens the preview's newest build in the same live view as Deployments; **Logs** shows its
   container logs, masked as container logs are, with private keys masked across lines.

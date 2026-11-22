@@ -93,6 +93,8 @@ export interface Resource {
   parentUuid: string | null;
   engine: string | null;
   lastDeployAt: string | null;
+  /** Applications only: Coolify's build pack, like "dockercompose". */
+  buildPack?: string | null;
 }
 
 export interface ResourceList {
@@ -181,7 +183,16 @@ export interface PreviewCreateInput {
   pullRequestId: number;
   pullRequestUrl?: string;
   gitType?: string;
+  /** A new Bitbucket preview needs it. */
+  commit?: string;
+  /** A new Docker image preview needs it. */
+  dockerTag?: string;
 }
+
+/** A preview's domains: a list, or one per Docker Compose service. */
+export type PreviewDomainsChange =
+  | { domains: string }
+  | { composeDomains: { name: string; domain: string | null }[] };
 
 /** A preview change's answer; pending waits for an approval. */
 export interface PreviewAnswer {
@@ -983,12 +994,12 @@ export function createApi(api: PluginApiClient) {
       id: number,
       uuid: string,
       pullRequestId: number,
-      domains: string,
+      change: PreviewDomainsChange,
     ): Promise<PreviewAnswer> {
       const data = (
         await api.patch<{ status?: unknown }>(
           `/connections/${id}/resources/${encodeURIComponent(uuid)}/previews/${pullRequestId}`,
-          { domains },
+          change,
         )
       ).data;
       return { pending: data?.status === "pending", deploymentUuid: null };

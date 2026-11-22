@@ -79,6 +79,34 @@ describe("checkDomains", () => {
     });
   });
 
+  it("keeps every port given, a scheme's default one included", () => {
+    // Coolify reads a port as an internal routing override, so dropping
+    // :80 or :443 would change what it does.
+    const value = (text: string) => {
+      const checked = checkDomains(text);
+      return "reason" in checked ? checked.reason : checked.value;
+    };
+    expect(value("http://a.example.test:80")).toBe("http://a.example.test:80");
+    expect(value("https://a.example.test:443")).toBe(
+      "https://a.example.test:443",
+    );
+    expect(value("https://A.example.test:0443/api/")).toBe(
+      "https://a.example.test:443/api",
+    );
+    expect(value("https://a.example.test:3000")).toBe(
+      "https://a.example.test:3000",
+    );
+    expect(value("http://a.example.test:443")).toBe(
+      "http://a.example.test:443",
+    );
+    expect(value("https://a.example.test")).toBe("https://a.example.test");
+    expect(value("https://a.example.test:")).toBe("https://a.example.test");
+    // With and without a port, they are two different domains to Coolify.
+    expect(value("https://a.example.test,https://a.example.test:443")).toBe(
+      "https://a.example.test,https://a.example.test:443",
+    );
+  });
+
   it("names what is wrong with a bad list", () => {
     const reason = (text: string) => {
       const checked = checkDomains(text);

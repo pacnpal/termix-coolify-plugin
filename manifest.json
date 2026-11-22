@@ -1078,7 +1078,7 @@
               "type": "string",
               "labelKey": "ops.fields.commit.label",
               "descriptionKey": "ops.fields.commit.description",
-              "pattern": "[0-9a-fA-F]{7,64}"
+              "pattern": "[0-9a-fA-F]{7,40}"
             },
             {
               "key": "dockerTag",

@@ -87,7 +87,23 @@ function checkOne(entry: string): string | DomainProblem {
   }
   const path = withoutTrailingSlashes(url.pathname);
   if (!isSafePath(path)) return "path";
-  return `${url.protocol}//${url.host}${path}`;
+  return `${url.protocol}//${url.hostname}${portGiven(entry)}${path}`;
+}
+
+/**
+ * The port an entry names, as ":<number>", read from the text itself: the
+ * URL parser drops a scheme's default port (:80, :443), but Coolify reads
+ * any port given as an internal routing override, so it must stay. Called
+ * once the entry parsed as a URL with a host name, no credentials, query or
+ * fragment, so what follows the last colon of the authority is the port.
+ */
+function portGiven(entry: string): string {
+  const rest = entry.slice(entry.indexOf("//") + 2);
+  const slash = rest.indexOf("/");
+  const authority = slash < 0 ? rest : rest.slice(0, slash);
+  const colon = authority.lastIndexOf(":");
+  const digits = colon < 0 ? "" : authority.slice(colon + 1);
+  return digits === "" ? "" : `:${Number(digits)}`;
 }
 
 /**
