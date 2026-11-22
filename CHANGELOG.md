@@ -26,6 +26,9 @@
   removing a connection, removing a synced host and rotating or revoking a status page still acted on the
   old target. **Unlink** from a host's menu checks the host again after the confirm and does nothing if
   its link changed or it was deleted meanwhile
+- A dry run of a deploy or rollback shows a resource or server name exactly as it is. A name holding `$&`,
+  `$1` or `$$` was changed by the text it was put into, and one holding `{{server}}` or `{{image}}` was
+  filled a second time
 
 ## 1.1.0
 

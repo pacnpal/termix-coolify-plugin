@@ -1,25 +1,11 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import en from "../../locales/en.json";
 import { ACTIVITY_TYPES, type ActivityKind } from "../shared/activity.js";
+import { fill } from "../shared/template.js";
 import type { Sync } from "./sync/service.js";
 
 function errorName(err: unknown): string {
   return (err as Error)?.name ?? "error";
-}
-
-/**
- * Fills `{{key}}` placeholders in one pass. A callback, so `$&`, `$1` or a
- * placeholder inside an inserted value is kept as it is, never read again.
- */
-export function fill(
-  template: string,
-  values: Record<string, string | number>,
-): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (match, key: string) =>
-    Object.prototype.hasOwnProperty.call(values, key)
-      ? String(values[key])
-      : match,
-  );
 }
 
 /**

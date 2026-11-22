@@ -250,6 +250,14 @@ aren't obvious from the code, and anything that has bitten you before.
   counts only for the current tab data's key, and a clear only removes an entry with its own key. A uuid missing from the list shows "Gone"; a failed read shows nothing.
   The hook runs in the background frame, so the feed is made in `activate`, not in a view. Its test mocks
   `useShell` because the SDK's test host has no shell.
+- Locale templates: `fill(template, values)` in `src/shared/template.ts` is the one way to fill a
+  `{{key}}` template: one pass with a callback, so `$&`, `$1`, `$$` or a `{{...}}` inside a value (a
+  resource or server name) is kept as it is and never filled again. Recent activity, the deploy and
+  rollback dry runs and the status page (`fillHtml` escapes each value, then calls `fill`) use it.
+  `String.prototype.replace` with a string value expands `$` patterns, and chained calls refill earlier
+  values; `tests/backend/template-fill.test.ts` fails on any `.replace`/`.replaceAll` of a `{{` literal in
+  `src/` outside that file. The frontend's `t()` is core's i18next, which splices values in and skips
+  inserted text (`skipOnVariables`, on by default).
 - Status words: `src/shared/resource-health.ts` (`resourceHealth`, `countResources`) is the one reading of a
   Coolify status, imported by both the backend and the frontend. Exited is stopped, whatever its health
   suffix. Degraded covers degraded, restarting, dead and unhealthy, as a state (`unhealthy`) or a suffix
@@ -729,8 +737,7 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   that check and the answer. `deployStarted`: an application counts only with a deployment uuid, a
   service or database always (Coolify starts them with none). The hook resolves a server to its Linked
   host, checks `ctx.hosts.checkAccess(hostId, "connect")`, dedupes per `host:kind:uuid`, and never
-  throws (a failure logs only the error's name). Texts go through `fill`, one pass with a callback, so
-  `$&` or `{{...}}` in a resource name is kept as it is. Types `coolify_shell` and
+  throws (a failure logs only the error's name). Texts go through `fill` (`src/shared/template.ts`). Types `coolify_shell` and
   `coolify_deploy` (`src/shared/activity.ts`) are claimed by the `coolify` tab's `activityTypes`. It needs
   only `hosts:read`; `hosts:activity-provide` is for the plugin that stores activity. `coolify.api-call`
   passthroughs record nothing.
