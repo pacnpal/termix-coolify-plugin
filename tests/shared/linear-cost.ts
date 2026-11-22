@@ -16,10 +16,20 @@ export const SIZE_FACTOR = 8;
 /**
  * Linear work grows about 8 times (a little more where the bigger input
  * spills out of a cache), quadratic work about 64 times. Measured when this
- * was set: 4 to 13 for every check here, 29 to 480 with a quadratic version
+ * was set: 4 to 13 for every check here, 55 to 480 with a quadratic version
  * of each function planted. LINEAR_COST_LOG=1 prints each check's growth.
  */
-export const LINEAR_GROWTH = 24;
+export const LINEAR_GROWTH = linearLimit(SIZE_FACTOR);
+
+/**
+ * The bound for a check over `factor` times the input: 3 times what linear
+ * work grows. A quadratic part grows factor² times, so a check whose input
+ * can't be made longer (its quadratic part stays small at that size) can
+ * still clear the bound by comparing against a smaller small input.
+ */
+export function linearLimit(factor: number): number {
+  return 3 * factor;
+}
 
 const TRIES = 3;
 
@@ -64,16 +74,21 @@ function perCall(fn: () => unknown): number {
 
 /**
  * How many times as much the work of `at(1)` costs as that of
- * `at(1 / SIZE_FACTOR)`. `at(scale)` builds the input at that share of the
+ * `at(1 / factor)` (SIZE_FACTOR unless given). `at(scale)` builds the input at that share of the
  * test's full size and returns the call to measure. Best of a few tries; it
- * stops at the first try within LINEAR_GROWTH, which a linear call needs.
+ * stops at the first try within linearLimit(factor), which a linear call
+ * needs.
  *
  * Each size is repeated for at least 25 clock steps, so a check takes a few
  * tenths of a second of CPU: a test that makes one takes HEAVY_TEST_MS
  * (shared/timing.ts) rather than Vitest's 5 s.
  */
-export function growth(at: (scale: number) => () => unknown): number {
-  const small = at(1 / SIZE_FACTOR);
+export function growth(
+  at: (scale: number) => () => unknown,
+  factor = SIZE_FACTOR,
+): number {
+  const limit = linearLimit(factor);
+  const small = at(1 / factor);
   const full = at(1);
   let smallest = Number.POSITIVE_INFINITY;
   let fullest = Number.POSITIVE_INFINITY;
@@ -82,7 +97,7 @@ export function growth(at: (scale: number) => () => unknown): number {
     fullest = Math.min(fullest, perCall(full));
     const grew = fullest / smallest;
     // Within the bound, or quadratic beyond doubt: another try can't change it.
-    if (grew < LINEAR_GROWTH || grew > SIZE_FACTOR ** 2) break;
+    if (grew < limit || grew > factor ** 2) break;
   }
   if (process.env.LINEAR_COST_LOG) {
     console.log(`growth ${(fullest / smallest).toFixed(1)}`);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { growth, LINEAR_GROWTH } from "../shared/linear-cost.js";
+import { growth, LINEAR_GROWTH, linearLimit } from "../shared/linear-cost.js";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { storagePaths } from "../../src/backend/companions/container-adapters.js";
 import { hostnamesOf } from "../../src/backend/companions/service.js";
@@ -13,12 +13,21 @@ import { HEAVY_TEST_MS } from "../shared/timing.js";
 // ordinary cases as before. Linear by growth, not by milliseconds, so a busy
 // machine can't fail it (#105): `scaled(scale)` is the call at that share of
 // the full hostile input.
-function grows<T>(scaled: (scale: number) => () => T): {
+function grows<T>(
+  scaled: (scale: number) => () => T,
+  factor?: number,
+): {
   value: T;
   grew: number;
 } {
-  return { value: scaled(1)(), grew: growth(scaled) };
+  return { value: scaled(1)(), grew: growth(scaled, factor) };
 }
+
+// storagePaths refuses a path over 4096 characters, so its input can't grow.
+// At that size a quadratic trim costs only a few times the linear work, so
+// it is compared against a 32nd of the path, not an 8th, where the quadratic
+// part has all but vanished: a planted one then clears the bound by about 2x.
+const STORAGE_FACTOR = 32;
 
 function ctxAnswering(base: string): PluginContext {
   return { http: { baseUrl: () => base } } as unknown as PluginContext;
@@ -125,12 +134,12 @@ describe("storagePaths", () => {
     "stays linear on the longest path it takes",
     () => {
       const { value, grew } = grows((scale) => {
-        const hostPath = `/srv${"/".repeat(4_000 * scale)}a`;
+        const hostPath = `/srv${"/".repeat(4_088 * scale)}a`;
         return () =>
           storagePaths([volume(hostPath)], "/data/coolify/applications/x");
-      });
+      }, STORAGE_FACTOR);
       expect(value).toEqual(["/srv/a"]);
-      expect(grew).toBeLessThan(LINEAR_GROWTH);
+      expect(grew).toBeLessThan(linearLimit(STORAGE_FACTOR));
     },
     HEAVY_TEST_MS,
   );

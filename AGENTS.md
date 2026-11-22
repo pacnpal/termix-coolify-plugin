@@ -141,8 +141,9 @@ aren't obvious from the code, and anything that has bitten you before.
 - Tests and time (#105): no test budgets milliseconds; a busy machine failed them with nothing wrong.
   Linear-time checks use `growth()` (`tests/shared/linear-cost.ts`): the same call on an input 8 times as
   long, timed by the thread's CPU time (which steps in 4 ms ticks on some kernels, so samples run 25
-  steps), must cost less than 24 times as much (linear about 8, quadratic about 64). Waits use `WAIT_MS`
-  (`tests/shared/timing.ts`): `eventually()` for vi.waitFor, and `tests/frontend/setup.ts` (loaded by
+  steps), must cost less than 24 times as much (linear about 8, quadratic about 64). storagePaths
+  can't take a longer path (4096 cap), so it compares against a 32nd (`growth(at, 32)`, bound
+  `linearLimit(32)` = 96). Waits use `WAIT_MS` (`tests/shared/timing.ts`): `eventually()` for vi.waitFor, and `tests/frontend/setup.ts` (loaded by
   `vitest.config.ts`) for every findBy and waitFor. Tests with heavy fixed work or a real timer in the
   code take `HEAVY_TEST_MS`. A fixed sleep is only for checking that nothing happened.
   `tests/backend/wall-clock-guard.test.ts` refuses `performance.now`, `expect(Date.now()`, `vi.waitFor`,

@@ -521,7 +521,7 @@ describe("redactLog", () => {
   // of a second of CPU; an explicit timeout keeps a busy machine from failing
   // it on Vitest's 5 s (#105).
   it(
-    "streams 2 MB with no newline through the follow splitter in linear time, leaking nothing",
+    "streams 8 MB with no newline through the follow splitter in linear time, leaking nothing",
     () => {
       const block =
         "z".repeat(3000) +
@@ -539,8 +539,10 @@ describe("redactLog", () => {
         return sent;
       };
       const sized = (scale: number) =>
-        block.repeat(Math.ceil((2 * 1024 * 1024 * scale) / block.length));
-      // Growth, not milliseconds: load can't fail it (#105).
+        block.repeat(Math.ceil((8 * 1024 * 1024 * scale) / block.length));
+      // Growth, not milliseconds: load can't fail it (#105). 8 MB, not 2: at
+      // 2 MB a planted quadratic splitter grew only 29 times against the bound
+      // of 24; the longer stream gives its quadratic part room to show.
       const grew = growth((scale) => {
         const text = sized(scale);
         return () => stream(text);
