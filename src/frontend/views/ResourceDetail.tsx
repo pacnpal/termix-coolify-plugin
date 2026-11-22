@@ -306,7 +306,11 @@ export function ResourceDetail({
   initialTab?: string | null;
 }) {
   const { t } = useTranslation();
-  const runner = useLifecycle(connectionId, onChanged);
+  const runner = useLifecycle(
+    connectionId,
+    onChanged,
+    `${connectionId}\n${resource?.uuid ?? ""}\n${revision ?? ""}`,
+  );
   const lifecycle = canOperate ? runner : null;
   const tabs = detailTabs(resource, canOperate);
   const [chosen, setTab] = useState<DetailTab>(() => detailTabOf(initialTab));

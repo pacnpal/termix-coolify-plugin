@@ -29,9 +29,9 @@ import {
   StatusBadge,
   SwitchRow,
   cn,
-  useConfirm,
 } from "@termix-ssh/plugin-sdk/ui";
 import { createApi, type Api, type Connection } from "../api";
+import { useConfirmFor } from "../confirm";
 import {
   ConnectionFields,
   FormError,
@@ -173,7 +173,9 @@ export function ConnectionsView({
   const { t } = useTranslation();
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
-  const confirm = useConfirm();
+  // The list isn't for one target: a remove names its own connection, and a
+  // confirm answered after the list closed removes nothing.
+  const { confirm } = useConfirmFor("connections");
   const canConfigure = usePermission("configure");
   const canUseMcp = usePermission("mcp");
   const [rows, setRows] = useState<Connection[] | null>(null);

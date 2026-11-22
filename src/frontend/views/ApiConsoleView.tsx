@@ -23,7 +23,6 @@ import {
   SwitchRow,
   TextField,
   ToolbarSelect,
-  useConfirm,
 } from "@termix-ssh/plugin-sdk/ui";
 import {
   createApi,
@@ -34,6 +33,7 @@ import {
   type Connection,
   type JsonPointer,
 } from "../api";
+import { useConfirmFor } from "../confirm";
 
 type T = (key: string, options?: Record<string, unknown>) => string;
 
@@ -211,7 +211,11 @@ function OperationRunner({
   onClose: () => void;
 }) {
   const { t } = useTranslation();
-  const confirm = useConfirm();
+  // What a run acts on: an answer to a confirm opened for another
+  // connection, target or operation, or after the runner closed, runs nothing.
+  const { confirm } = useConfirmFor(
+    `${connection.id}\n${connection.revision}\n${op.id}`,
+  );
   const held = useHeld();
   const [values, setValues] = useState<Record<string, string>>({});
   // Nullable fields set to send JSON null (apart from leaving them out).

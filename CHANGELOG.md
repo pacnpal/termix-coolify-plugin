@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.1
+
+### Fixed
+
+- A confirm answered after its view moved to another resource, connection or host, or closed, now does
+  nothing everywhere. Before, stop, force rebuild, the API console, host unlink, turning on metrics,
+  removing a connection, removing a synced host and rotating or revoking a status page still acted on the
+  old target. **Unlink** from a host's menu checks the host again after the confirm and does nothing if
+  its link changed or it was deleted meanwhile
+
 ## 1.1.0
 
 ### Added

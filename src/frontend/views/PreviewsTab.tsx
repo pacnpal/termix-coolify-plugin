@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import {
   GitPullRequest,
   Globe,
@@ -26,7 +26,6 @@ import {
   SelectField,
   StatusBadge,
   ToolbarBand,
-  useConfirm,
 } from "@termix-ssh/plugin-sdk/ui";
 import {
   createApi,
@@ -39,6 +38,7 @@ import { checkDomains, withPortOverride } from "../../shared/domains";
 import { COMMIT_SHA, IMAGE_TAG } from "../../shared/image-tag";
 import { resourceHealth } from "../../shared/resource-health";
 import { BuildLogView, DeploymentStatus } from "./BuildLogView";
+import { useConfirmFor } from "../confirm";
 import { describeFailure } from "./ConnectionForm";
 import { HEALTH_TONE, healthLabel } from "./resource-model";
 
@@ -286,18 +286,11 @@ export function PreviewsTab({
   const { t } = useTranslation();
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
-  const confirm = useConfirm();
   const toast = useToast();
   const target = `${connectionId}\n${resource.uuid}`;
-  const current = useRef(target);
-  current.current = target;
-  const mounted = useRef(false);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
+  // still(forTarget): the view still shows `forTarget` and is mounted, so an
+  // answer may act or land; a confirm answers false otherwise.
+  const { confirm, still, isMounted } = useConfirmFor(target);
 
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<{ target: string; load: Load }>({
@@ -367,11 +360,6 @@ export function PreviewsTab({
     };
   }, [api, connectionId, resource.uuid, target, attempt, view.kind]);
 
-  /** The view still shows `forTarget` and is mounted: act, or drop it. */
-  function still(forTarget: string): boolean {
-    return mounted.current && current.current === forTarget;
-  }
-
   function failed(err: unknown, fallback: string): string {
     return failureOf(err) ? describeFailure(t, err) : fallback;
   }
@@ -436,7 +424,7 @@ export function PreviewsTab({
     });
     // The view moved to another application, or closed, while the confirm
     // was open: what was confirmed is no longer what is shown.
-    if (!ok || !still(forTarget)) return;
+    if (!ok) return;
     setBusy(true);
     try {
       const answer = await api.createPreview(connectionId, resource.uuid, {
@@ -470,7 +458,7 @@ export function PreviewsTab({
         toast.error(failed(err, t("previews.create.failed")));
       }
     } finally {
-      if (mounted.current) setBusy(false);
+      if (isMounted()) setBusy(false);
     }
   }
 
@@ -545,7 +533,7 @@ export function PreviewsTab({
       }),
       confirmLabel: t("previews.domains.confirm.confirm"),
     });
-    if (!ok || !still(forTarget)) return;
+    if (!ok) return;
     setBusy(true);
     try {
       const answer = await api.setPreviewDomains(
@@ -567,7 +555,7 @@ export function PreviewsTab({
         toast.error(failed(err, t("previews.domains.failed")));
       }
     } finally {
-      if (mounted.current) setBusy(false);
+      if (isMounted()) setBusy(false);
     }
   }
 
@@ -580,7 +568,7 @@ export function PreviewsTab({
       confirmLabel: t("previews.delete.confirm.confirm"),
       destructive: true,
     });
-    if (!ok || !still(forTarget)) return;
+    if (!ok) return;
     setBusy(true);
     try {
       const answer = await api.deletePreview(connectionId, resource.uuid, id);
@@ -596,7 +584,7 @@ export function PreviewsTab({
         toast.error(failed(err, t("previews.delete.failed")));
       }
     } finally {
-      if (mounted.current) setBusy(false);
+      if (isMounted()) setBusy(false);
     }
   }
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CircleStop, EyeOff, ScrollText, TriangleAlert } from "lucide-react";
 import {
   usePluginApi,
@@ -12,7 +12,6 @@ import {
   NoticePanel,
   StatusBadge,
   ToolbarBand,
-  useConfirm,
   type StatusTone,
 } from "@termix-ssh/plugin-sdk/ui";
 import {
@@ -22,6 +21,7 @@ import {
   type DeploymentDetail,
 } from "../api";
 import { isFinalDeployment } from "../../shared/deployment-status";
+import { useConfirmFor } from "../confirm";
 import { describeFailure } from "./ConnectionForm";
 
 /** How often a deployment that hasn't ended is read again while shown. */
@@ -87,7 +87,6 @@ export function BuildLogView({
   const { t } = useTranslation();
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
-  const confirm = useConfirm();
   const toast = useToast();
   const key = `${connectionId}\n${resourceUuid}\n${deploymentUuid}`;
   // Each read is stored with the deployment it is for, so a render for
@@ -107,15 +106,7 @@ export function BuildLogView({
   const final = read.kind === "ok" && ended(read.detail);
   // The deployment shown now, and whether the view is still open: a confirm
   // answered after either changed acts on nothing.
-  const current = useRef(key);
-  current.current = key;
-  const mounted = useRef(false);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
+  const { confirm } = useConfirmFor(key);
 
   useEffect(() => {
     if (!isVisible || final) return;
@@ -151,7 +142,6 @@ export function BuildLogView({
   ]);
 
   async function cancel(deployment: Deployment): Promise<void> {
-    const forKey = key;
     const ok = await confirm({
       title: t("deployments.cancelConfirm.title"),
       description: t("deployments.cancelConfirm.description"),
@@ -160,7 +150,7 @@ export function BuildLogView({
     });
     // The view moved to another deployment or closed while the confirm was
     // open: what was confirmed is no longer what is shown, so nothing runs.
-    if (!ok || !mounted.current || current.current !== forKey) return;
+    if (!ok) return;
     setCancelling(true);
     try {
       const answer = await api.cancelDeployment(

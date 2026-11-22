@@ -98,6 +98,12 @@ by one from the **Restart** button on each part in the service's Overview; a par
 Restart and Start or Stop, and deploys with its service. In the command palette, **Coolify: Deploy…** opens
 the Resources list to pick from (see [Command palette](#command-palette)).
 
+A confirm is for what it names. If you move to another resource, connection or host, or close the view,
+while a confirm is still open, saying yes to it does nothing. This holds for every confirm in the plugin:
+stop, force rebuild, cancel and rollback, previews, DNS records, metrics, host sync, unlink, status pages,
+removing a connection and the API console. **Unlink** from a host's menu checks the host again after you
+confirm, and does nothing if the host was unlinked, linked to another server or deleted meanwhile.
+
 These need **Operate Coolify resources**, and the connection must be yours or shared with you at operate or
 configure. They work whether or not the resource's server has a Linked host:
 
