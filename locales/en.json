@@ -681,6 +681,10 @@
       "title": "Coolify deployment queue",
       "description": "The connection's queued and running deployments and its recent ones, for its own applications only."
     },
+    "attention": {
+      "title": "Coolify activity",
+      "description": "Deployments in progress, recent failed deployments, degraded resources and unreachable servers across every connection you can view."
+    },
     "deployByTag": {
       "title": "Deploy Coolify resources by tag",
       "description": "Deploys every application and service on the connection that carries a tag. A dry run lists them."
@@ -1484,6 +1488,29 @@
     "noRunning": "Nothing is queued or running.",
     "noRecent": "No recent deployments.",
     "back": "All deployments"
+  },
+  "activityPanel": {
+    "title": "Coolify activity",
+    "refresh": "Refresh Coolify activity",
+    "updated": "Updated {{time}}",
+    "loading": "Loading Coolify activity…",
+    "failed": "Coolify activity could not be read.",
+    "readFailed": "{{name}}: {{reason}}",
+    "noView": "Seeing Coolify activity needs the View Coolify permission.",
+    "inProgress": "Deploying now",
+    "attention": "Needs attention",
+    "degraded": "Degraded",
+    "unreachable": "Unreachable",
+    "server": "Server",
+    "openTab": "Open Coolify",
+    "noConnections": {
+      "title": "No Coolify connections yet",
+      "hint": "Add one in the Coolify tab to see its deployments here."
+    },
+    "empty": {
+      "title": "Nothing needs attention",
+      "hint": "No deployments are running, nothing failed recently, and every resource and server is fine."
+    }
   },
   "deployByTag": {
     "open": "Deploy by tag",

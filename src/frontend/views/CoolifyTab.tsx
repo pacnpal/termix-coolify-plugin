@@ -80,7 +80,16 @@ interface OpenRequest extends PickIntent {
   section: Section;
   /** A connection id, or null for the first syncable one (the import menu). */
   connectionId: number | null;
+  /** On Resources: the resource whose detail opens (the activity panel). */
+  uuid: string | null;
+  /** On Deployments: the build log that opens, with operate. */
+  deployment: { resourceUuid: string; deploymentUuid: string } | null;
 }
+
+const UUID = /^[A-Za-z0-9_-]{1,64}$/;
+
+const uuidOf = (value: unknown): string | null =>
+  typeof value === "string" && UUID.test(value) ? value : null;
 
 /**
  * Reads the tab's data. "sync" (from a Linked host, the import menu or the
@@ -94,12 +103,24 @@ function requestOf(
   const raw = data?.section === "sync" ? "servers" : data?.section;
   if (typeof raw !== "string" || !SECTIONS.includes(raw)) return null;
   const id = Number(data?.connectionId);
+  const connectionId = Number.isSafeInteger(id) && id > 0 ? id : null;
+  const resourceUuid = uuidOf(data?.resourceUuid);
+  const deploymentUuid = uuidOf(data?.deploymentUuid);
   return {
     section: raw as Section,
-    connectionId: Number.isSafeInteger(id) && id > 0 ? id : null,
+    connectionId,
     open: raw === "resources" && data?.open === "shell" ? "shell" : null,
     detailTab:
       raw === "resources" && typeof data?.tab === "string" ? data.tab : null,
+    uuid:
+      raw === "resources" && connectionId !== null ? uuidOf(data?.uuid) : null,
+    deployment:
+      raw === "deployments" &&
+      connectionId !== null &&
+      resourceUuid &&
+      deploymentUuid
+        ? { resourceUuid, deploymentUuid }
+        : null,
   };
 }
 
@@ -203,9 +224,14 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
     const asked = requestOf(data);
     if (!asked) return;
     setSection(asked.section);
-    setOpenUuid(null);
+    setOpenUuid(asked.uuid);
     setIntent({ open: asked.open, detailTab: asked.detailTab });
     if (asked.connectionId !== null) setSelectedId(asked.connectionId);
+    setOpenDeployment(
+      asked.deployment && asked.connectionId !== null
+        ? { connectionId: asked.connectionId, ...asked.deployment }
+        : null,
+    );
     pickFirst.current =
       asked.section === "servers" && asked.connectionId === null;
   }, [data]);
@@ -227,6 +253,12 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
     connection?.id ?? null,
     connection?.revision ?? null,
   );
+  // The same rule as the detail view's Shell button.
+  const mayOperate =
+    canOperate && !!connection && OPERATE_ACCESS.has(connection.access);
+  // A build log holds secrets: it shows only with operate on this connection,
+  // also when the activity panel asked for one.
+  const shownDeployment = mayOperate ? openDeployment : null;
   // One read shared by the Overview and the Deployments section, polled only
   // while one of them is shown (and not under an open build log).
   const queue = useDeploymentQueue(
@@ -235,7 +267,7 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
     connection?.revision ?? null,
     isVisible &&
       (section === "overview" ||
-        (section === "deployments" && openDeployment === null)),
+        (section === "deployments" && shownDeployment === null)),
   );
 
   /** A saved connection replaces its row; a new target reloads resources. */
@@ -297,9 +329,6 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
     ) : null;
 
   const rows = resources.list?.rows ?? [];
-  // The same rule as the detail view's Shell button.
-  const mayOperate =
-    canOperate && !!connection && OPERATE_ACCESS.has(connection.access);
 
   function openShell(resource: Resource, console: "shell" | "db") {
     if (!connection) return;
@@ -397,7 +426,7 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
         queue={queue}
         canOperate={mayOperate}
         isVisible={isVisible}
-        open={openDeployment}
+        open={shownDeployment}
         onOpen={setOpenDeployment}
         picker={picker}
       />

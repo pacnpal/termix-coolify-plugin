@@ -46,6 +46,7 @@ appear in run history.
 | `coolify.deployment-get`         | `GET /plugin-api/coolify/connections/:id/resources/:uuid/deployments/:deploymentUuid`         | `/operations/coolify.deployment-get/run`         | `operations:read` or `operations:run` | `coolify__deployment_get`         | `curl -X POST "$TERMIX/operations/coolify.deployment-get/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","deploymentUuid":"<deployment uuid>","confirm":true}}'`                                    |
 | `coolify.deployment-cancel`      | `POST /plugin-api/coolify/connections/:id/resources/:uuid/deployments/:deploymentUuid/cancel` | `/operations/coolify.deployment-cancel/run`      | `operations:run`                      | `coolify__deployment_cancel`      | `curl -X POST "$TERMIX/operations/coolify.deployment-cancel/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","deploymentUuid":"<deployment uuid>"},"confirmed":true}'`                               |
 | `coolify.deployment-queue`       | `GET /plugin-api/coolify/connections/:id/deployments`                                         | `/operations/coolify.deployment-queue/run`       | `operations:read` or `operations:run` | `coolify__deployment_queue`       | `curl -X POST "$TERMIX/operations/coolify.deployment-queue/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'`                                                                                      |
+| `coolify.attention`              | `GET /plugin-api/coolify/attention`                                                           | `/operations/coolify.attention/run`              | `operations:read` or `operations:run` | `coolify__attention`              | `curl -X POST "$TERMIX/operations/coolify.attention/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{}}'`                                                                                                               |
 | `coolify.deploy-by-tag`          | `POST /plugin-api/coolify/connections/:id/deploy-by-tag`                                      | `/operations/coolify.deploy-by-tag/run`          | `operations:run`                      | `coolify__deploy_by_tag`          | `curl -X POST "$TERMIX/operations/coolify.deploy-by-tag/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","tag":"prod","force":false}}'`                                                              |
 | `coolify.signal-degraded`        | `GET /plugin-api/coolify/connections/:id/resources`                                           | `/operations/coolify.signal-degraded/run`        | `operations:read` or `operations:run` | `coolify__signal_degraded`        | `curl -X POST "$TERMIX/operations/coolify.signal-degraded/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7}'`                                                                                                         |
 | `coolify.signal-server`          | `GET /plugin-api/coolify/connections/:id/servers`                                             | `/operations/coolify.signal-server/run`          | `operations:read` or `operations:run` | `coolify__signal_server`          | `curl -X POST "$TERMIX/operations/coolify.signal-server/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7}'`                                                                                                           |
@@ -166,6 +167,7 @@ serves.
 | `GET /plugin-api/coolify/connections/:id/resources/:uuid/deployments/:deploymentUuid`         | `coolify.deployment-get`                                                                                                                                             |
 | `POST /plugin-api/coolify/connections/:id/resources/:uuid/deployments/:deploymentUuid/cancel` | `coolify.deployment-cancel`                                                                                                                                          |
 | `GET /plugin-api/coolify/connections/:id/deployments`                                         | `coolify.deployment-queue`                                                                                                                                           |
+| `GET /plugin-api/coolify/attention`                                                           | `coolify.attention`                                                                                                                                                  |
 | `GET /plugin-api/coolify/connections/:id/deploy-by-tag`                                       | `coolify.deploy-by-tag` (its dry run lists the same resources)                                                                                                       |
 | `POST /plugin-api/coolify/connections/:id/deploy-by-tag`                                      | `coolify.deploy-by-tag`                                                                                                                                              |
 | `POST /plugin-api/coolify/connections/:id/resources/:uuid/shell`                              | `coolify.shell-command`                                                                                                                                              |
@@ -384,6 +386,33 @@ the tag is 404.
 would deploy. Over MCP it needs `confirmed: true` and **Allow changes over MCP**. Like cancel, it checks the
 connection and your grant after every step and right before Coolify is asked, and stops before Coolify is
 asked once its run is cancelled.
+
+### `GET /plugin-api/coolify/attention?refresh=`
+
+What the sidebar panel lists and the rail badge counts, across every connection you can view. Needs **View
+Coolify**; another user's connection is never in it, and one whose grant went away meanwhile is left out. It
+answers `{ connections, counts, badge, fetchedAt }`. Each connection is `{ id, name, access, scoped,
+running, failed, degraded, unreachable, error }`:
+
+- `running`: the connection's queue, as `GET /connections/{id}/deployments` answers it.
+- `failed`: recent failed deployments. A failure counts while it is still its application's latest ended
+  deployment (per pull request) and ended within the last 24 hours, so a later successful deploy clears it.
+- `degraded`: resources whose status reads as degraded (restarting, dead or unhealthy); Parts are left out
+  and exited counts as stopped. Each is `{ uuid, name, kind, status, serverName, projectName,
+environmentName }`.
+- `unreachable`: servers Coolify can't reach, as `{ uuid, name }` only.
+- `error`: `{ error, cause }` when one of the connection's reads failed; the parts that were read stay.
+
+`counts` sums each list, and `badge` is `running` plus `failed`. It asks Coolify nothing of its own: it is put
+together from the deployment queue (10 seconds), resource (20 seconds) and server status (a minute) caches the
+tab reads through, so the panel, the badge and the tab together cost one read per connection.
+`?refresh=1` skips the queue and resource caches.
+
+### Action `coolify.attention`
+
+A read offered to the assistant and MCP, with an optional `refresh`. Its data is the route's answer and its
+summary counts each kind, like "2 deployments in progress, 1 recent failure, 2 degraded resources, 1
+unreachable server".
 
 ## Metrics and traffic
 

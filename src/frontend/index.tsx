@@ -1,4 +1,5 @@
 import {
+  Activity,
   Boxes,
   Download,
   RefreshCw,
@@ -15,13 +16,16 @@ import type {
 import { createApi } from "./api";
 import { forgetPreview, linkOf, useLinkedRow } from "./linked";
 import { keepSocketTarget } from "./socket";
+import { ActivityPanel } from "./views/ActivityPanel";
 import { ConnectStep } from "./views/ConnectStep";
 import { CoolifyTab } from "./views/CoolifyTab";
 import { HostSection, openCoolify } from "./views/HostSection";
 import { ShellTab } from "./views/ShellTab";
 import { TunnelsCoolifyView } from "./views/TunnelsCoolifyView";
+import { railBadge } from "./views/useAttention";
 
 const TAB_ID = "coolify";
+const PANEL_ID = "coolify-activity";
 const IMPORT_ACTION = "coolify.import-from-coolify";
 
 const isLinked = (host: PluginHostRecord) => linkOf(host) !== null;
@@ -29,13 +33,29 @@ const isLinked = (host: PluginHostRecord) => linkOf(host) !== null;
 export function activate(app: TermixApp): void {
   // The Logs view's live follow opens /plugin-ws/coolify/logs through it.
   keepSocketTarget(app);
+  // The badge counts running deployments plus recent failures; it reads the
+  // same cached GET /attention as the activity panel (views/useAttention.ts).
   app.registerRailItem({
     id: TAB_ID,
     icon: Rocket,
     titleKey: "tab.title",
     kind: "tab",
     permission: "view",
+    useBadge: railBadge({
+      api: createApi(app.api),
+      hasPermission: (name) => app.hasPermission(name),
+    }),
   });
+  app.registerRailItem({
+    id: PANEL_ID,
+    icon: Activity,
+    titleKey: "activityPanel.title",
+    kind: "panel",
+    permission: "view",
+    after: TAB_ID,
+    rightDockable: true,
+  });
+  app.registerPanel(PANEL_ID, ActivityPanel);
   app.registerTab(TAB_ID, CoolifyTab, {
     icon: Rocket,
     titleKey: "tab.title",

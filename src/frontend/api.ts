@@ -172,6 +172,70 @@ export interface DeploymentQueue {
   fetchedAt: string | null;
 }
 
+/** A degraded resource on the attention list (never a Part). */
+export interface AttentionResource {
+  uuid: string;
+  name: string;
+  kind: ResourceKind;
+  status: string;
+  serverName: string | null;
+  projectName: string | null;
+  environmentName: string | null;
+}
+
+/** What needs a look on one connection the user can view. */
+export interface AttentionConnection {
+  id: number;
+  name: string;
+  access: Connection["access"];
+  scoped: boolean;
+  running: QueueDeployment[];
+  /** Recent failures that are still their application's latest outcome. */
+  failed: QueueDeployment[];
+  degraded: AttentionResource[];
+  unreachable: { uuid: string; name: string }[];
+  /** Why a part could not be read; what was read is still there. */
+  error: ApiFailure | null;
+}
+
+/** GET /attention: the sidebar panel's and the rail badge's one read. */
+export interface Attention {
+  connections: AttentionConnection[];
+  /** Running deployments plus recent failures. */
+  badge: number;
+  fetchedAt: string | null;
+}
+
+function named<T extends { uuid: string; name: string }>(value: unknown): T[] {
+  return Array.isArray(value)
+    ? (value as T[]).filter(
+        (v) => !!v && typeof v.uuid === "string" && typeof v.name === "string",
+      )
+    : [];
+}
+
+function attentionConnection(value: unknown): AttentionConnection | null {
+  const c = value as Partial<AttentionConnection> | null;
+  if (!c || typeof c.id !== "number" || typeof c.name !== "string") {
+    return null;
+  }
+  const error = c.error as Partial<ApiFailure> | null | undefined;
+  return {
+    id: c.id,
+    name: c.name,
+    access: c.access ?? "view",
+    scoped: c.scoped === true,
+    running: queueRows(c.running),
+    failed: queueRows(c.failed),
+    degraded: named<AttentionResource>(c.degraded),
+    unreachable: named<{ uuid: string; name: string }>(c.unreachable),
+    error:
+      error && typeof error.cause === "string"
+        ? { error: String(error.error ?? ""), cause: error.cause }
+        : null,
+  };
+}
+
 /** A resource deploy by tag will deploy. */
 export interface TagTarget {
   uuid: string;
@@ -816,6 +880,25 @@ export function createApi(api: PluginApiClient) {
       return {
         running: queueRows(data?.running),
         recent: queueRows(data?.recent),
+        fetchedAt: typeof data?.fetchedAt === "string" ? data.fetchedAt : null,
+      };
+    },
+    /** Deployments in progress and attention items across connections. */
+    async attention(opts: { refresh?: boolean } = {}): Promise<Attention> {
+      const data = (
+        await api.get<Partial<Attention>>(
+          `/attention${opts.refresh ? "?refresh=1" : ""}`,
+        )
+      ).data;
+      const badge = Number(data?.badge);
+      const rows: unknown[] = Array.isArray(data?.connections)
+        ? data.connections
+        : [];
+      return {
+        connections: rows
+          .map(attentionConnection)
+          .filter((c): c is AttentionConnection => c !== null),
+        badge: Number.isSafeInteger(badge) && badge > 0 ? badge : 0,
         fetchedAt: typeof data?.fetchedAt === "string" ? data.fetchedAt : null,
       };
     },

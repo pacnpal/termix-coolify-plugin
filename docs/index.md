@@ -291,6 +291,25 @@ other resources by then nothing is deployed and you're asked to review again. It
 resources** and operate access. The action `coolify.deploy-by-tag` does the same (a dry run lists the
 resources), and `coolify.deployment-queue` reads the queue.
 
+### The activity panel and the rail badge
+
+The **Coolify activity** panel opens from its own sidebar button. It lists, across every connection you can
+view:
+
+- **Deploying now**: queued and running deployments.
+- **Needs attention**: recent failed deployments, degraded resources and servers Coolify can't reach. A
+  failed deployment stays here for 24 hours, or until a later deployment of the same application finishes.
+  A resource you stopped (Coolify reports it as exited) is not degraded.
+
+A deployment opens the Deployments section on its connection, with its build log when you have **Operate
+Coolify resources** and operate access. A resource opens its detail. A server opens **Servers** when you own
+the connection and have **Configure Coolify**, and the Overview otherwise. The panel reads again every 15
+seconds while it is shown and stops when it is hidden.
+
+The **Coolify** sidebar button shows a badge with the number of running deployments plus recent failures,
+read once a minute. It is hidden at zero and without **View Coolify**. The panel, the badge, the tab and
+the action `coolify.attention` share one cached read per connection, so they add no Coolify requests.
+
 ## Metrics and traffic
 
 Coolify keeps no metric history itself: Sentinel, its agent on each server, does. The plugin reads it the way

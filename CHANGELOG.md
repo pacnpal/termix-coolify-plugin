@@ -21,6 +21,13 @@
   and asks first, and deploys only those
 - Actions `coolify.deployment-queue` and `coolify.deploy-by-tag` (a dry run lists the resources; over MCP it
   needs `confirmed: true`)
+- A Coolify activity panel in the sidebar: deployments in progress, recent failed deployments, degraded
+  resources and unreachable servers across every connection you can view. Each row opens its place in the
+  Coolify tab, and the panel refreshes only while it is shown
+- A badge on the Coolify rail item counting running deployments and recent failures, hidden at zero and
+  without the View Coolify permission
+- Action `coolify.attention`, the same list for Operations Center, Automations, the CLI, the Termix API and
+  MCP. The panel, the badge and the action share the tab's cached reads, so they add no Coolify requests
 
 ## 1.0.0
 
