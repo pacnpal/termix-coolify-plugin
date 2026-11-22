@@ -350,7 +350,12 @@ export function createPreviews(ctx: PluginContext, deps: PreviewsDeps) {
       beforeFetch: () => Promise<void>,
       app: ResourceDto,
     ) => Promise<T>,
-  ): Promise<{ snap: Snapshot; appUuid: string; answer: T }> {
+  ): Promise<{
+    snap: Snapshot;
+    appUuid: string;
+    app: ResourceDto;
+    answer: T;
+  }> {
     const snap = await open(connectionId, level);
     const app = await deployments.application(connectionId, uuid);
     await deployments.holds(connectionId, snap, level);
@@ -363,7 +368,7 @@ export function createPreviews(ctx: PluginContext, deps: PreviewsDeps) {
       call(snap, app.uuid, beforeFetch, app),
     );
     await deployments.holds(connectionId, snap, level);
-    return { snap, appUuid: app.uuid, answer };
+    return { snap, appUuid: app.uuid, app, answer };
   }
 
   /**
@@ -495,18 +500,32 @@ export function createPreviews(ctx: PluginContext, deps: PreviewsDeps) {
       if (input.gitType) body.git_type = input.gitType;
       if (input.commit) body.commit = input.commit;
       if (input.dockerTag) body.docker_tag = input.dockerTag;
-      const { answer } = await onApplication(
+      const { answer, app, snap } = await onApplication(
         connectionId,
         uuid,
         "operate",
         signal,
-        async (s, app, beforeFetch, resource) => {
+        async (s, appUuid, beforeFetch, resource) => {
           await requireForNew(s, resource, input, beforeFetch);
           return changingQueue(connectionId, () =>
-            s.api.createPreview(app, body, { beforeFetch }),
+            s.api.createPreview(appUuid, body, { beforeFetch }),
           );
         },
       );
+      // A preview deploy is a deployment of the application, of a pull
+      // request: the shared post-start hook names the pull request. The
+      // target is checked again after it, so nothing is awaited between that
+      // check and the answer; an entry for a target that then changed stays.
+      await deployments.deployed(connectionId, [
+        {
+          name: app.name,
+          kind: app.kind,
+          deploymentUuid: answer.deploymentUuid,
+          serverUuid: app.serverUuid,
+          pullRequestId: input.pullRequestId,
+        },
+      ]);
+      await deployments.holds(connectionId, snap, "operate");
       return {
         pullRequestId: input.pullRequestId,
         deploymentUuid: answer.deploymentUuid,

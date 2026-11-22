@@ -13,6 +13,7 @@ import type {
   PluginHostRecord,
   TermixApp,
 } from "@termix-ssh/plugin-sdk/frontend";
+import { ACTIVITY_TYPES } from "../shared/activity";
 import { createApi } from "./api";
 import { forgetPreview, linkOf, useLinkedRow } from "./linked";
 import { keepSocketTarget } from "./socket";
@@ -63,6 +64,8 @@ export function activate(app: TermixApp): void {
     titleKey: "tab.title",
     singleton: true,
     hostless: true,
+    // Shells and deploys in Termix's recent activity open this tab.
+    activityTypes: Object.values(ACTIVITY_TYPES),
   });
   // One tab per shell; its data says which resource (views/ShellTab.tsx).
   app.registerTab("coolify-shell", ShellTab, {

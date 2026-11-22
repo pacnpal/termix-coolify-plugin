@@ -664,6 +664,19 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   Deployments. Deploy by tag finds the tag's targets itself (`/applications?tag=` and each service's tags)
   and deploys them by uuid: Coolify's own `tag` parameter refuses `pr` and `docker_tag`, and deploying by
   uuid deploys exactly what the confirm listed (`targets`, checked again before Coolify is asked).
+- Recent activity (1.1): `src/backend/activity.ts`. `recordShell` runs in `containers.shell` (route and
+  `coolify.shell-command`) once the answer is built. `createDeployActivity(ctx, sync)` makes the one
+  post-start hook (`deployed`), built in `index.ts` and passed as a required dep to `createLifecycle` and
+  `createDeployments` (previews reach it as `deployments.deployed`), so a new deploy service has to wire
+  it. Every path that starts a Coolify deploy calls it after Coolify accepted: `lifecycle.run` (a waited
+  deploy only if it didn't fail), `deployByTag` (one entry per target Coolify answered for), `rollback`
+  and `previews.create` (text names the pull request). `deployStarted`: an application counts only with
+  a deployment uuid, a service or database always (Coolify starts them with none). The hook resolves a
+  server to its Linked host, checks `ctx.hosts.checkAccess(hostId, "connect")`, dedupes per host and
+  text, and never throws (a failure logs only the error's name). Types `coolify_shell` and
+  `coolify_deploy` (`src/shared/activity.ts`) are claimed by the `coolify` tab's `activityTypes`. It needs
+  only `hosts:read`; `hosts:activity-provide` is for the plugin that stores activity. `coolify.api-call`
+  passthroughs record nothing.
 - Activity panel and rail badge (1.1): `src/backend/attention/` and `src/backend/ops/attention.ts`
   (`GET /attention`, `coolify.attention`) put together, for every connection the actor can view, the
   queue's running rows, recent failures (`recentFailures`: the application's latest ended deployment per

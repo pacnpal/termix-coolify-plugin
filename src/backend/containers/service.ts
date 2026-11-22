@@ -1,4 +1,5 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
+import { recordShell } from "../activity.js";
 import type { ResourceDto } from "../coolify/dto.js";
 import { ConnectionError, type Connections } from "../connections/service.js";
 import type { Lifecycle } from "../resources/lifecycle.js";
@@ -373,6 +374,11 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
         throw err;
       }
       const hostKeys = await fingerprints(snap, serverUuid);
+      // The route and coolify.shell-command both land here, once per open.
+      // Recorded before the last check, so nothing is awaited between that
+      // check and the answer. If the target changes meanwhile, the entry
+      // stays (it names a shell that was opened) but no command is answered.
+      await recordShell(ctx, hostId, res.name);
       await assertSnapshotHolds(connectionId, snap);
       const answer: ShellAnswer = {
         hostId,

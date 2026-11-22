@@ -1,4 +1,5 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
+import type { DeployActivity } from "../activity.js";
 import {
   IMAGE_TAG,
   type DeploymentDto,
@@ -135,6 +136,8 @@ function clean(row: DeploymentDto): DeploymentDto {
 export interface DeploymentsDeps {
   connections: Connections;
   resources: Resources;
+  /** The post-start hook every deploy path shares (recent activity). */
+  deployed: DeployActivity;
   /** The clock, for tests. */
   now?: () => number;
 }
@@ -149,7 +152,7 @@ export interface DeploymentsDeps {
  * of that connection's own applications.
  */
 export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
-  const { connections, resources } = deps;
+  const { connections, resources, deployed } = deps;
   const queueCache = createQueueCache({
     revision: (id) => connections.revision(id),
     now: deps.now,
@@ -360,6 +363,8 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
     holds,
     open,
     application,
+    /** The shared post-start hook, for the other deploy paths (previews). */
+    deployed,
 
     /**
      * The checks a call makes before anything else, for a route that hands
@@ -455,6 +460,17 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
         queueCache.invalidate(connectionId);
         await resources.invalidate(connectionId);
       }
+      // A rollback queues a deployment of the earlier image. Recorded before
+      // the last check, so nothing is awaited between it and the answer; an
+      // entry for a target that then changed stays (Coolify did deploy).
+      await deployed(connectionId, [
+        {
+          name: app.name,
+          kind: app.kind,
+          deploymentUuid: answer.deploymentUuid,
+          serverUuid: app.serverUuid,
+        },
+      ]);
       await holds(connectionId, snap, "operate");
       return {
         uuid: app.uuid,
@@ -532,6 +548,12 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
       }
       await holds(connectionId, snap, "operate");
       signal?.throwIfAborted();
+      // The targets' servers, from the list findTargets just read (cached).
+      const own = new Map(
+        (await resources.list(connectionId)).map((r) => [r.uuid, r]),
+      );
+      await holds(connectionId, snap, "operate");
+      signal?.throwIfAborted();
       let deployments;
       try {
         deployments = await snap.api.deployUuids(
@@ -550,6 +572,25 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
         queueCache.invalidate(connectionId);
         await resources.invalidate(connectionId);
       }
+      // Each target Coolify answered for, once; started or not is the hook's.
+      // Recorded before the last check (as in rollback), so nothing is
+      // awaited between it and the answer.
+      await deployed(
+        connectionId,
+        found.targets.flatMap((t) => {
+          const row = deployments.find((d) => d.resourceUuid === t.uuid);
+          if (!row) return [];
+          return [
+            {
+              name: t.name,
+              kind: t.kind,
+              deploymentUuid: row.deploymentUuid,
+              serverUuid: own.get(t.uuid)?.serverUuid ?? null,
+              pullRequestId: req.pullRequestId,
+            },
+          ];
+        }),
+      );
       await holds(connectionId, snap, "operate");
       return { ...found, deployments };
     },

@@ -159,6 +159,7 @@ describe("createLifecycle run", () => {
       connections: { api: async () => api } as unknown as Connections,
       resources: { invalidate } as unknown as Resources,
       sync: { linkOfHost: async () => null, linkedHostFor: async () => null },
+      deployed: async () => {},
       sleep: async () => {},
     });
     return { life, invalidate, order };

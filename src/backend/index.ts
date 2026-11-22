@@ -1,6 +1,7 @@
 import type { Router } from "express";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { defineTables } from "./db.js";
+import { createDeployActivity } from "./activity.js";
 import { registerApiConsoleRoutes } from "./api/routes.js";
 import { registerAttentionRoutes } from "./attention/routes.js";
 import { createAttention } from "./attention/service.js";
@@ -54,10 +55,21 @@ export async function activate(ctx: PluginContext): Promise<void> {
   });
   sync = await createSync(ctx, { tables, connections });
   const resources = createResources(ctx, { tables, connections });
-  const lifecycle = createLifecycle(ctx, { connections, resources, sync });
+  // The one post-start hook every deploy path shares: recent activity.
+  const deployed = createDeployActivity(ctx, sync);
+  const lifecycle = createLifecycle(ctx, {
+    connections,
+    resources,
+    sync,
+    deployed,
+  });
   const containers = createContainers(ctx, { connections, lifecycle, sync });
   const logs = createLogs(ctx, { connections, containers });
-  const deployments = createDeployments(ctx, { connections, resources });
+  const deployments = createDeployments(ctx, {
+    connections,
+    resources,
+    deployed,
+  });
   const previews = createPreviews(ctx, { deployments });
   const servers = createServerStatuses(ctx, { tables, connections });
   const exec = createExec(ctx, {
