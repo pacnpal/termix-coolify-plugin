@@ -5,10 +5,14 @@ import {
   deploymentAnswers,
   rollbackAnswers,
   rollbackImagesRaw,
+  expectRefusedBeforeCoolify,
+  REFUSED_CALLERS,
 } from "../helpers/deployments.js";
 import { changes, grant, link, startLifecycle } from "../helpers/lifecycle.js";
 import {
-  manifest,
+  declaredAction as action,
+  operationContext as context,
+  operationHandler as handler,
   OTHER,
   OWNER,
   type PluginHarness,
@@ -22,41 +26,18 @@ afterEach(async () => {
   harness = null;
 });
 
-/**
- * ctx.operations.run as core answers it across the plugin process boundary:
- * a handler's refusal comes back as a plain Error, its class and code lost.
- */
-function coreLikeRun(h: PluginHarness) {
-  const ops = h.mock.ctx.operations;
-  const run = ops.run.bind(ops);
-  vi.spyOn(ops, "run").mockImplementation(async (id, options) => {
-    try {
-      return await run(id, options);
-    } catch (err) {
-      throw new Error((err as Error).message);
-    }
-  });
-}
-
 describe("the rollback route refuses before Coolify is asked", () => {
-  it.each([
-    ["another user", null, 404],
-    ["a view grant", "view", 403],
-  ] as const)(
+  it.each(REFUSED_CALLERS)(
     "%s gets a refusal and Coolify gets no request",
     async (_who, level, status) => {
-      const { harness, fake, id } = await start();
-      if (level) grant(harness, id, OTHER, level);
-      coreLikeRun(harness);
-      const before = fake.calls.length;
-      const answer = await harness.request(
-        "POST",
-        `/connections/${id}/resources/app-web-uuid/rollback`,
+      const started = await start();
+      await expectRefusedBeforeCoolify(
+        started,
+        level,
+        status,
+        `/connections/${started.id}/resources/app-web-uuid/rollback`,
         { image: "0ld3r00" },
-        OTHER,
       );
-      expect(answer.status).toBe(status);
-      expect(fake.calls.slice(before)).toEqual([]);
     },
   );
 });
@@ -71,28 +52,6 @@ async function start(
   });
   harness = started.harness;
   return started;
-}
-
-function context(
-  over: Partial<PluginOperationContext> = {},
-): PluginOperationContext {
-  return {
-    runId: "run-test",
-    dryRun: false,
-    signal: new AbortController().signal,
-    log: () => {},
-    ...over,
-  };
-}
-
-function handler(h: PluginHarness, id: string) {
-  const found = h.mock.operationHandlers.get(id);
-  if (!found) throw new Error(`${id} has no handler`);
-  return found;
-}
-
-function action(id: string) {
-  return manifest.contributes!.operations!.actions!.find((a) => a.id === id);
 }
 
 /** A Coolify answer that runs `before` first, as if it happened meanwhile. */

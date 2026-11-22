@@ -1,4 +1,53 @@
-import type { FakeAnswer } from "./fake-coolify.js";
+import { expect, vi } from "vitest";
+import type { fakeCoolify, FakeAnswer } from "./fake-coolify.js";
+import { grant } from "./lifecycle.js";
+import { OTHER, type PluginHarness } from "./plugin.js";
+
+/**
+ * ctx.operations.run as core answers it across the plugin process boundary:
+ * a handler's refusal comes back as a plain Error, its class and code lost.
+ */
+export function coreLikeRun(harness: PluginHarness) {
+  const ops = harness.mock.ctx.operations;
+  const run = ops.run.bind(ops);
+  vi.spyOn(ops, "run").mockImplementation(async (id, options) => {
+    try {
+      return await run(id, options);
+    } catch (err) {
+      throw new Error((err as Error).message);
+    }
+  });
+}
+
+/** Callers a route that hands its work to an action must refuse itself. */
+export const REFUSED_CALLERS = [
+  ["another user", null, 404],
+  ["a view grant", "view", 403],
+] as const;
+
+/**
+ * POSTs `path` as OTHER (with a grant at `level`, if any) through a
+ * core-like run, and expects `status` with no request to Coolify.
+ */
+export async function expectRefusedBeforeCoolify(
+  started: {
+    harness: PluginHarness;
+    fake: ReturnType<typeof fakeCoolify>;
+    id: number;
+  },
+  level: "view" | null,
+  status: number,
+  path: string,
+  body?: unknown,
+): Promise<void> {
+  const { harness, fake, id } = started;
+  if (level) grant(harness, id, OTHER, level);
+  coreLikeRun(harness);
+  const before = fake.calls.length;
+  const answer = await harness.request("POST", path, body, OTHER);
+  expect(answer.status).toBe(status);
+  expect(fake.calls.slice(before)).toEqual([]);
+}
 
 /** Where Coolify's UI shows a deployment: it names the application's uuid. */
 export function deploymentUrl(appUuid: string, deploymentUuid: string): string {
