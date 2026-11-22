@@ -27,6 +27,7 @@ const manifest = manifestJson as unknown as PluginManifest;
 const TOKEN = "fake-token-resources-test";
 
 const RESOURCE_KEYS = [
+  "buildPack",
   "engine",
   "environmentName",
   "fqdns",

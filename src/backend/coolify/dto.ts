@@ -1,3 +1,4 @@
+import { IMAGE_TAG } from "../../shared/image-tag.js";
 // Strippers from Coolify payloads to the plugin's own DTOs. Each one picks the
 // fields it needs by name, never with a spread, so a secret Coolify adds to a
 // payload later can't ride along. Coolify returns fields its OpenAPI schema
@@ -61,6 +62,12 @@ export interface ResourceDto {
   parentUuid: string | null;
   engine: string | null;
   lastDeployAt: string | null;
+  /**
+   * An application's build pack (nixpacks, static, dockerfile,
+   * dockercompose, dockerimage and so on), which decides what a preview
+   * needs; null for anything else.
+   */
+  buildPack: string | null;
 }
 
 export interface DeploymentDto {
@@ -69,8 +76,46 @@ export interface DeploymentDto {
   resourceUuid: string | null;
   status: string;
   commit: string | null;
+  commitMessage: string | null;
+  /** The pull request a preview deployment is for; 0 when it isn't one. */
+  pullRequestId: number;
+  rollback: boolean;
+  serverName: string | null;
   createdAt: string;
+  updatedAt: string | null;
   finishedAt: string | null;
+}
+
+/** One service's domains on a Docker Compose preview. */
+export interface ComposeDomainDto {
+  name: string;
+  domain: string | null;
+}
+
+/**
+ * One pull request preview of an application. Coolify's domain port
+ * overrides and anything else it sends are left out.
+ */
+export interface PreviewDto {
+  pullRequestId: number;
+  uuid: string;
+  pullRequestUrl: string | null;
+  gitType: string | null;
+  /** The preview's containers, as Coolify reports a resource's status. */
+  status: string;
+  /** The public domains, portless, as Coolify lists them. */
+  domains: string[];
+  composeDomains: ComposeDomainDto[];
+  /**
+   * Coolify's internal port per portless domain URL (Docker Compose
+   * services' domains included). A save sends ports inline and replaces
+   * these, so an editor must start from the domains with them put back.
+   */
+  portOverrides: Record<string, number>;
+  dockerTag: string | null;
+  lastOnlineAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
 }
 
 /** A Coolify team as the plugin keeps it. Ids are strings, so instanceKey reads the same everywhere. */
@@ -308,6 +353,7 @@ type ResourceExtra = Partial<
     | "parentUuid"
     | "engine"
     | "lastDeployAt"
+    | "buildPack"
   >
 >;
 
@@ -338,6 +384,7 @@ function resource(
     parentUuid: extra.parentUuid ?? null,
     engine: extra.engine ?? null,
     lastDeployAt: extra.lastDeployAt ?? null,
+    buildPack: extra.buildPack ?? null,
   };
 }
 
@@ -346,6 +393,7 @@ export function toApplication(input: unknown): ResourceDto {
   return resource(raw, "application", {
     fqdns: fqdns(raw.fqdn),
     lastDeployAt: strOrNull(raw.last_deployment_at),
+    buildPack: strOrNull(raw.build_pack),
   });
 }
 
@@ -400,19 +448,136 @@ export function toPart(
     : resource(raw, kind, { parentUuid, engine: strOrNull(raw.image) });
 }
 
+const DEPLOYMENT_LINK =
+  /\/application\/([A-Za-z0-9_-]{1,64})\/deployment\/([A-Za-z0-9_-]{1,64})$/;
+
 /**
- * One deployment. `appUuid` is the application it was listed for, when known;
- * `application_id` is a database id, never a uuid, so it is not used.
+ * The application's uuid in a deployment's link (`deployment_url`, like
+ * `/project/…/application/<app uuid>/deployment/<deployment uuid>`), when
+ * the link is to this same deployment.
+ */
+function applicationOfLink(link: unknown, uuid: string): string | null {
+  if (typeof link !== "string") return null;
+  const match = DEPLOYMENT_LINK.exec(link.split(/[?#]/)[0] ?? "");
+  return match && match[2] === uuid ? match[1] : null;
+}
+
+/**
+ * One deployment, without its build log. `appUuid` is the application it
+ * was listed for, when known. `application_id` is a database id, never a
+ * uuid, so it is not used; Coolify's answer for one deployment names its
+ * application only in its link.
  */
 export function toDeployment(input: unknown, appUuid?: string): DeploymentDto {
   const raw = obj(input);
+  const uuid = str(raw.deployment_uuid ?? raw.uuid);
   return {
-    uuid: str(raw.deployment_uuid ?? raw.uuid),
-    resourceUuid: strOrNull(raw.application_uuid) ?? appUuid ?? null,
+    uuid,
+    resourceUuid:
+      strOrNull(raw.application_uuid) ??
+      applicationOfLink(raw.deployment_url, uuid) ??
+      appUuid ??
+      null,
     status: str(raw.status, "unknown"),
     commit: strOrNull(raw.commit),
+    commitMessage: strOrNull(raw.commit_message),
+    pullRequestId: num(raw.pull_request_id) ?? 0,
+    rollback: bool(raw.rollback),
+    serverName: strOrNull(raw.server_name),
     createdAt: str(raw.created_at),
+    updatedAt: strOrNull(raw.updated_at),
     finishedAt: strOrNull(raw.finished_at),
+  };
+}
+
+/**
+ * A deployment's raw build log (Coolify's JSON lines in one string), or null
+ * when the answer has none: Coolify leaves it out for a token without
+ * read:sensitive. It holds secrets: deployments/log.ts redacts it before it
+ * goes anywhere.
+ */
+export function toDeploymentLog(input: unknown): string | null {
+  const logs = obj(input).logs;
+  return typeof logs === "string" ? logs : null;
+}
+
+/** Coolify's port overrides: only whole ports from 1 to 65535 are kept. */
+function portOverridesOf(value: unknown): Record<string, number> {
+  const entries: [string, number][] = [];
+  for (const [domain, port] of Object.entries(obj(value))) {
+    const n = num(port);
+    if (n !== null && Number.isInteger(n) && n >= 1 && n <= 65_535) {
+      entries.push([domain, n]);
+    }
+  }
+  return Object.fromEntries(entries);
+}
+
+/** One pull request preview, as `GET /applications/{uuid}/previews` lists it. */
+export function toPreview(input: unknown): PreviewDto {
+  const raw = obj(input);
+  return {
+    pullRequestId: num(raw.pull_request_id) ?? 0,
+    uuid: str(raw.uuid),
+    pullRequestUrl: strOrNull(raw.pull_request_html_url),
+    gitType: strOrNull(raw.git_type),
+    status: str(raw.status, "unknown"),
+    domains: fqdns(raw.domains ?? raw.fqdn),
+    composeDomains: list(raw.docker_compose_domains)
+      .map(obj)
+      .filter((d) => typeof d.name === "string" && d.name !== "")
+      .map((d) => ({ name: str(d.name), domain: strOrNull(d.domain) })),
+    portOverrides: portOverridesOf(raw.domain_port_overrides),
+    dockerTag: strOrNull(raw.docker_registry_image_tag),
+    lastOnlineAt: strOrNull(raw.last_online_at),
+    createdAt: strOrNull(raw.created_at),
+    updatedAt: strOrNull(raw.updated_at),
+  };
+}
+
+/** One image an application can be rolled back to. */
+export interface RollbackImageDto {
+  /** The image tag (a commit for a built app); what a rollback is sent. */
+  tag: string;
+  createdAt: string | null;
+  /** The image the application runs now. */
+  current: boolean;
+  /** On the server (`local`) or in the Docker registry (`registry`). */
+  source: "local" | "registry" | null;
+}
+
+export interface RollbackImagesDto {
+  /** The tag running now, or null when nothing is. */
+  current: string | null;
+  images: RollbackImageDto[];
+}
+
+/** A Docker image tag: what Coolify lists and what a rollback may name. */
+export { IMAGE_TAG };
+
+/**
+ * An application's rollback images, in Coolify's order. Rows without a
+ * valid tag are dropped; `current` is kept only when it is a valid tag.
+ */
+export function toRollbackImages(input: unknown): RollbackImagesDto {
+  const raw = obj(input);
+  const images: RollbackImageDto[] = [];
+  for (const item of list(raw.images)) {
+    const row = obj(item);
+    const tag = str(row.tag);
+    if (!IMAGE_TAG.test(tag)) continue;
+    images.push({
+      tag,
+      createdAt: strOrNull(row.created_at),
+      current: bool(row.is_current),
+      source:
+        row.source === "local" || row.source === "registry" ? row.source : null,
+    });
+  }
+  const current = strOrNull(raw.current);
+  return {
+    current: current && IMAGE_TAG.test(current) ? current : null,
+    images,
   };
 }
 

@@ -3,10 +3,22 @@ import { checkFrameViews } from "@termix-ssh/plugin-sdk/testing";
 import * as plugin from "../../src/frontend/index";
 import manifest from "../../manifest.json";
 import locales from "../../locales/en.json";
-import { resourceAnswer, resourceRows } from "./fixtures";
+import {
+  attentionConnection,
+  degradedApi,
+  resourceAnswer,
+  resourceRows,
+} from "./fixtures";
 import { connectionFixture } from "./helpers";
 
 const connection = connectionFixture({ teamName: "Ops" });
+
+// What the sidebar panel reads: one connection with a degraded resource.
+const attention = {
+  connections: [attentionConnection(1, "Prod", { degraded: [degradedApi] })],
+  badge: 0,
+  fetchedAt: "2026-11-22T10:00:00.000Z",
+};
 
 const allCompanions = Object.fromEntries(
   [
@@ -67,6 +79,7 @@ describe("sandboxed frame views", () => {
           };
         }
         if (/\/connections\/1$/.test(path)) return connection;
+        if (/\/attention(\?|$)/.test(path)) return attention;
         return {};
       },
     });
@@ -75,6 +88,7 @@ describe("sandboxed frame views", () => {
     expect(rendered.map(String).join(" ")).toContain("hostSection:coolify");
     // The terminal companion draws for the Linked host, from a frame.
     expect(rendered.map(String)).toContain("companion:coolify.coolify");
+    expect(rendered.map(String)).toContain("panel:coolify-activity");
     expect(rendered.length).toBeGreaterThan(0);
   });
 });
