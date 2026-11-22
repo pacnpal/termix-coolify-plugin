@@ -110,8 +110,11 @@ A uuid is only accepted when it is one of that connection's own resources (and, 
 that host's server). When the Coolify token lacks the ability, the answer says so (`forbidden-ability`).
 
 The same actions work from the CLI, Automations and the phone app. `coolify.deploy` and
-`coolify.resource-deploy` can **wait** for the deployment: the run then follows it to the end, fails when it
-fails, and sends the `coolify.deployment-finished` or `coolify.deployment-failed` event. A dry run of a deploy
+`coolify.resource-deploy` can **wait** for the deployment: the run then follows it to the end and sends the
+`coolify.deployment-finished` or `coolify.deployment-failed` event. Only a finished build succeeds. A
+deployment that fails or is cancelled fails the run (`deployment-failed`), and one Coolify skips ends it at
+once as a failed run with the cause `skipped` ("Coolify skipped the deployment of <name>, so no new build
+ran"). A dry run of a deploy
 says what it would deploy, and on which server. Deploy and restart are offered to the assistant and MCP; start
 and stop aren't.
 
