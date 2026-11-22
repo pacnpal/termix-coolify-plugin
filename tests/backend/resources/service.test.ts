@@ -22,6 +22,7 @@ import { resourceHealth } from "../../../src/shared/resource-health.js";
 import { healthyCoolify } from "../helpers/fake-coolify.js";
 import { resourceLists, SECRET } from "../helpers/resources.js";
 import { byText } from "../helpers/order.js";
+import { HEAVY_TEST_MS } from "../../shared/timing.js";
 
 const pluginDir = fileURLToPath(new URL("../../..", import.meta.url));
 const manifest = manifestJson as unknown as PluginManifest;
@@ -446,14 +447,21 @@ describe("resource service", () => {
     expect(edge.map((r) => r.uuid)).toEqual(["app-api-uuid"]);
   });
 
-  it("lets a Coolify failure through as a CoolifyError and caches nothing", async () => {
-    fake.set("GET /services", { status: 500, json: { message: "boom" } });
-    await expect(resources.list(connectionId)).rejects.toMatchObject({
-      name: "CoolifyError",
-    });
-    const cached = db.sqlite
-      .prepare("SELECT count(*) AS n FROM p_coolify_cache")
-      .get() as { n: number };
-    expect(cached.n).toBe(0);
-  });
+  // Fixed work: GET retries wait out the request layer's real backoff
+  // (0.5 s, then 1.5 s), so it takes 2 s idle; a busy machine stretched
+  // past Vitest's 5 s (#105). An explicit timeout keeps a wide margin.
+  it(
+    "lets a Coolify failure through as a CoolifyError and caches nothing",
+    async () => {
+      fake.set("GET /services", { status: 500, json: { message: "boom" } });
+      await expect(resources.list(connectionId)).rejects.toMatchObject({
+        name: "CoolifyError",
+      });
+      const cached = db.sqlite
+        .prepare("SELECT count(*) AS n FROM p_coolify_cache")
+        .get() as { n: number };
+      expect(cached.n).toBe(0);
+    },
+    HEAVY_TEST_MS,
+  );
 });

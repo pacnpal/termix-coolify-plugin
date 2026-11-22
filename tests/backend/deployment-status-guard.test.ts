@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
+import { growth, LINEAR_GROWTH } from "../shared/linear-cost.js";
+import { HEAVY_TEST_MS } from "../shared/timing.js";
 
 const ROOT = join(__dirname, "../..");
 const SHARED = "src/shared/deployment-status.ts";
@@ -89,10 +91,21 @@ describe("the status scan", () => {
     expect(decidesStatus('status === "error"')).toBe(true);
   });
 
-  it("stays linear on many unclosed lists", () => {
-    const text = "new Set([S".repeat(16_000);
-    const started = performance.now();
-    expect(decidesStatus(text)).toBe(false);
-    expect(performance.now() - started).toBeLessThan(100);
-  });
+  // Fixed work: growth() samples each size for 25 clock steps, a few tenths
+  // of a second of CPU; an explicit timeout keeps a busy machine from failing
+  // it on Vitest's 5 s (#105).
+  it(
+    "stays linear on many unclosed lists",
+    () => {
+      const hostile = (scale: number) => "new Set([S".repeat(16_000 * scale);
+      expect(decidesStatus(hostile(1))).toBe(false);
+      // Growth, not milliseconds: load can't fail it (#105).
+      const grew = growth((scale) => {
+        const text = hostile(scale);
+        return () => decidesStatus(text);
+      });
+      expect(grew).toBeLessThan(LINEAR_GROWTH);
+    },
+    HEAVY_TEST_MS,
+  );
 });

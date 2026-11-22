@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
+import { growth, LINEAR_GROWTH } from "../shared/linear-cost.js";
+import { HEAVY_TEST_MS } from "../shared/timing.js";
 
 /**
  * #86: every confirm in the frontend goes through src/frontend/confirm.ts,
@@ -136,19 +138,37 @@ describe("confirm guard (#86)", () => {
 });
 
 describe("confirm guard scan", () => {
-  function linear(code: string): number {
-    const started = performance.now();
-    confirmProblems("views/Hostile.tsx", code);
-    return performance.now() - started;
+  // Growth, not milliseconds: load can't fail it (#105).
+  function grows(hostile: (scale: number) => string): number {
+    return growth((scale) => {
+      const code = hostile(scale);
+      return () => confirmProblems("views/Hostile.tsx", code);
+    });
   }
 
-  it("stays linear on many unclosed block comments", () => {
-    expect(linear("/* ".repeat(40_000))).toBeLessThan(100);
-  });
+  // Fixed work: growth() samples each size for 25 clock steps, a few tenths
+  // of a second of CPU; an explicit timeout keeps a busy machine from failing
+  // it on Vitest's 5 s (#105).
+  it(
+    "stays linear on many unclosed block comments",
+    () => {
+      expect(grows((scale) => "/* ".repeat(40_000 * scale))).toBeLessThan(
+        LINEAR_GROWTH,
+      );
+    },
+    HEAVY_TEST_MS,
+  );
 
-  it("stays linear on many braces before an unbound confirm(", () => {
-    expect(linear("r({".repeat(600) + "r(confirm(".repeat(600))).toBeLessThan(
-      100,
-    );
-  });
+  // Fixed work: growth() samples each size for 25 clock steps, a few tenths
+  // of a second of CPU; an explicit timeout keeps a busy machine from failing
+  // it on Vitest's 5 s (#105).
+  it(
+    "stays linear on many braces before an unbound confirm(",
+    () => {
+      const hostile = (scale: number) =>
+        "r({".repeat(600 * scale) + "r(confirm(".repeat(600 * scale);
+      expect(grows(hostile)).toBeLessThan(LINEAR_GROWTH);
+    },
+    HEAVY_TEST_MS,
+  );
 });

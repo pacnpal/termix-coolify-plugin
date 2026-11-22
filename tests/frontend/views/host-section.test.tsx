@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import {
   checkFrameApp,
   type RenderedPluginApp,
@@ -16,6 +16,7 @@ import {
   syncServer,
   stubClient,
 } from "../helpers";
+import { acceptConfirm } from "../helpers/confirm";
 
 function host(settings: Record<string, unknown> | null): PluginHostRecord {
   return {
@@ -177,16 +178,7 @@ describe("Linked host surfaces", () => {
     fireEvent.click(
       screen.getByRole("button", { name: locales.hostSection.unlink }),
     );
-    const dialog = await screen
-      .findByRole("alertdialog", {}, { timeout: 200 })
-      .catch(() => null);
-    if (dialog) {
-      fireEvent.click(
-        within(dialog).getByRole("button", {
-          name: locales.unlinkConfirm.confirm,
-        }),
-      );
-    }
+    await acceptConfirm(locales.unlinkConfirm.confirm);
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith(
         "/connections/1/servers/srv-web1/unlink",

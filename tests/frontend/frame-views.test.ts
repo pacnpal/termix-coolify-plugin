@@ -10,6 +10,7 @@ import {
   resourceRows,
 } from "./fixtures";
 import { connectionFixture } from "./helpers";
+import { HEAVY_TEST_MS } from "../shared/timing.js";
 
 const connection = connectionFixture({ teamName: "Ops" });
 
@@ -59,36 +60,43 @@ const linkedHost = {
 };
 
 describe("sandboxed frame views", () => {
-  it("asks core only for what a frame may reach", async () => {
-    const { refused, errors, rendered } = await checkFrameViews(plugin, {
-      manifest: manifest as unknown as Record<string, unknown>,
-      locales,
-      permissions: ["coolify.view", "coolify.configure", "coolify.mcp"],
-      hosts: [linkedHost],
-      respond: (method, path) => {
-        if (method !== "GET") return {};
-        // Every companion runs, so the host card asks for their parts too.
-        if (/\/companions$/.test(path)) return allCompanions;
-        if (/\/connections$/.test(path)) return [connection];
-        if (/\/connections\/1\/servers$/.test(path)) return [];
-        if (/\/resources(\?|$)/.test(path)) return resourceAnswer;
-        if (/\/resources\/[^/]+$/.test(path)) return resourceRows[0];
-        if (/\/mcp$/.test(path)) {
-          return {
-            endpoint: "https://termix.example.test/plugin-api/coolify/mcp",
-          };
-        }
-        if (/\/connections\/1$/.test(path)) return connection;
-        if (/\/attention(\?|$)/.test(path)) return attention;
-        return {};
-      },
-    });
-    expect(refused).toEqual([]);
-    expect(errors).toEqual([]);
-    expect(rendered.map(String).join(" ")).toContain("hostSection:coolify");
-    // The terminal companion draws for the Linked host, from a frame.
-    expect(rendered.map(String)).toContain("companion:coolify.coolify");
-    expect(rendered.map(String)).toContain("panel:coolify-activity");
-    expect(rendered.length).toBeGreaterThan(0);
-  });
+  // Fixed work: every registered view drawn in a sandboxed frame host, about
+  // 0.5 s idle; an explicit timeout keeps a busy machine from failing it on
+  // Vitest's 5 s (#105).
+  it(
+    "asks core only for what a frame may reach",
+    async () => {
+      const { refused, errors, rendered } = await checkFrameViews(plugin, {
+        manifest: manifest as unknown as Record<string, unknown>,
+        locales,
+        permissions: ["coolify.view", "coolify.configure", "coolify.mcp"],
+        hosts: [linkedHost],
+        respond: (method, path) => {
+          if (method !== "GET") return {};
+          // Every companion runs, so the host card asks for their parts too.
+          if (/\/companions$/.test(path)) return allCompanions;
+          if (/\/connections$/.test(path)) return [connection];
+          if (/\/connections\/1\/servers$/.test(path)) return [];
+          if (/\/resources(\?|$)/.test(path)) return resourceAnswer;
+          if (/\/resources\/[^/]+$/.test(path)) return resourceRows[0];
+          if (/\/mcp$/.test(path)) {
+            return {
+              endpoint: "https://termix.example.test/plugin-api/coolify/mcp",
+            };
+          }
+          if (/\/connections\/1$/.test(path)) return connection;
+          if (/\/attention(\?|$)/.test(path)) return attention;
+          return {};
+        },
+      });
+      expect(refused).toEqual([]);
+      expect(errors).toEqual([]);
+      expect(rendered.map(String).join(" ")).toContain("hostSection:coolify");
+      // The terminal companion draws for the Linked host, from a frame.
+      expect(rendered.map(String)).toContain("companion:coolify.coolify");
+      expect(rendered.map(String)).toContain("panel:coolify-activity");
+      expect(rendered.length).toBeGreaterThan(0);
+    },
+    HEAVY_TEST_MS,
+  );
 });

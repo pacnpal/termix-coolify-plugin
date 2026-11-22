@@ -1,11 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  cleanup,
-  configure,
-  fireEvent,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import {
   renderWithApp,
   type RenderedPluginApp,
@@ -15,10 +9,6 @@ import type { PluginApiClient } from "@termix-ssh/plugin-sdk/frontend";
 import * as plugin from "../../../src/frontend/index";
 import manifestJson from "../../../manifest.json";
 import locales from "../../../locales/en.json";
-
-// The console renders the whole operation list; under a loaded parallel run one
-// step can pass the default 1 s wait (#50). Nothing here is timing-sensitive.
-configure({ asyncUtilTimeout: 3000 });
 
 const manifest = manifestJson as unknown as PluginManifest;
 const L = locales.apiConsole;

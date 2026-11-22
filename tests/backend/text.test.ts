@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { trimTrailing } from "../../src/backend/text.js";
+import { growth, LINEAR_GROWTH } from "../shared/linear-cost.js";
+import { HEAVY_TEST_MS } from "../shared/timing.js";
 
 describe("trimTrailing", () => {
   it("removes every trailing copy of the character", () => {
@@ -16,12 +18,24 @@ describe("trimTrailing", () => {
     expect(trimTrailing("a//b/", "/")).toBe("a//b");
   });
 
-  it("stays linear on a long run that isn't at the end", () => {
-    const value = `a${"/".repeat(200_000)}b`;
-    const started = performance.now();
-    expect(trimTrailing(value, "/")).toBe(value);
-    expect(performance.now() - started).toBeLessThan(200);
-  });
+  // Fixed work: growth() samples each size for 25 clock steps, a few tenths
+  // of a second of CPU; an explicit timeout keeps a busy machine from failing
+  // it on Vitest's 5 s (#105).
+  it(
+    "stays linear on a long run that isn't at the end",
+    () => {
+      const hostile = (scale: number) => `a${"/".repeat(200_000 * scale)}b`;
+      const value = hostile(1);
+      expect(trimTrailing(value, "/")).toBe(value);
+      // Growth, not milliseconds: load can't fail it (#105).
+      const grew = growth((scale) => {
+        const input = hostile(scale);
+        return () => trimTrailing(input, "/");
+      });
+      expect(grew).toBeLessThan(LINEAR_GROWTH);
+    },
+    HEAVY_TEST_MS,
+  );
 
   it("takes exactly one character", () => {
     expect(() => trimTrailing("a", "//")).toThrow();

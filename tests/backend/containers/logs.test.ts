@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { REDACTED_VALUE } from "@termix-ssh/plugin-sdk/operations";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { expectKeyTailMasked, KEY_TAIL } from "../helpers/key-tail.js";
+import { growth, LINEAR_GROWTH } from "../../shared/linear-cost.js";
 import { OTHER, OWNER, type PluginHarness } from "../helpers/plugin.js";
 import { resourceLists } from "../helpers/resources.js";
 import {
@@ -18,6 +19,7 @@ import {
   MAX_LINE,
   redactLog,
 } from "../../../src/backend/containers/logs.js";
+import { eventually, HEAVY_TEST_MS } from "../../shared/timing.js";
 
 /** A deterministic secret of `n` characters from `alphabet`, no 6-gram repeating much. */
 function secretOf(
@@ -481,57 +483,86 @@ describe("redactLog", () => {
     }
   });
 
-  it("redacts one MAX_LINE line within budget, adversarial ones too", () => {
-    const inputs = [
-      // Scheme-like letter runs, dotted words, a secret field every so often.
-      ("abcdefghij".repeat(40) + " a-b.c-d.e-f " + "password=x ").repeat(
-        Math.ceil(MAX_LINE / 470),
-      ),
-      "a-".repeat(MAX_LINE / 2),
-      "q".repeat(MAX_LINE),
-      'password="' + "\\".repeat(MAX_LINE),
-      'password="' + '\\"'.repeat(MAX_LINE / 2),
-      "x://" + "y".repeat(MAX_LINE),
-      "&" + "token".repeat(MAX_LINE / 5),
-    ].map((s) => s.slice(0, MAX_LINE));
-    for (const line of inputs) {
-      const started = performance.now();
-      redactLog(line, [TOKEN]);
-      expect(performance.now() - started, line.slice(0, 20)).toBeLessThan(20);
-    }
-  });
-
-  it("streams 2 MB with no newline through the follow splitter in 500 ms, leaking nothing", () => {
-    const block =
-      "z".repeat(3000) +
-      ` ${TOKEN} ` +
-      "word-".repeat(400) +
-      " password=fake-perf-pass " +
-      "abcdefghij".repeat(300);
-    const text = block.repeat(Math.ceil((2 * 1024 * 1024) / block.length));
-    const sent: string[] = [];
-    const split = lineSplitter([TOKEN], (lines) => sent.push(...lines));
-    const started = performance.now();
-    for (let i = 0; i < text.length; i += 64 * 1024) {
-      split.data(Buffer.from(text.slice(i, i + 64 * 1024)));
-    }
-    split.end();
-    const took = performance.now() - started;
-    expect(took).toBeLessThan(500);
-    expect(sent.length).toBeGreaterThan(100);
-    for (const piece of sent) {
-      expect(piece.length).toBeLessThanOrEqual(MAX_LINE);
-      for (const leak of [
-        TOKEN,
-        TOKEN.slice(0, 6),
-        TOKEN.slice(-6),
-        "fake-perf",
-        "perf-pass",
-      ]) {
-        expect(piece).not.toContain(leak);
+  // Fixed work: growth() samples each size for 25 clock steps, a few tenths
+  // of a second of CPU; an explicit timeout keeps a busy machine from failing
+  // it on Vitest's 5 s (#105).
+  it(
+    "redacts one MAX_LINE line in linear time, adversarial ones too",
+    () => {
+      // Each shape at `scale` of MAX_LINE.
+      const shapes = (scale: number) => {
+        const size = MAX_LINE * scale;
+        return [
+          // Scheme-like letter runs, dotted words, a secret field every so often.
+          ("abcdefghij".repeat(40) + " a-b.c-d.e-f " + "password=x ").repeat(
+            Math.ceil(size / 470),
+          ),
+          "a-".repeat(size / 2),
+          "q".repeat(size),
+          'password="' + "\\".repeat(size),
+          'password="' + '\\"'.repeat(size / 2),
+          "x://" + "y".repeat(size),
+          "&" + "token".repeat(size / 5),
+        ].map((s) => s.slice(0, size));
+      };
+      for (const [n, line] of shapes(1).entries()) {
+        // Growth, not milliseconds: load can't fail it (#105).
+        const grew = growth((scale) => {
+          const input = shapes(scale)[n];
+          return () => redactLog(input, [TOKEN]);
+        });
+        expect(grew, line.slice(0, 20)).toBeLessThan(LINEAR_GROWTH);
       }
-    }
-  });
+    },
+    HEAVY_TEST_MS,
+  );
+
+  // Fixed work: growth() samples each size for 25 clock steps, a few tenths
+  // of a second of CPU; an explicit timeout keeps a busy machine from failing
+  // it on Vitest's 5 s (#105).
+  it(
+    "streams 2 MB with no newline through the follow splitter in linear time, leaking nothing",
+    () => {
+      const block =
+        "z".repeat(3000) +
+        ` ${TOKEN} ` +
+        "word-".repeat(400) +
+        " password=fake-perf-pass " +
+        "abcdefghij".repeat(300);
+      const stream = (text: string) => {
+        const sent: string[] = [];
+        const split = lineSplitter([TOKEN], (lines) => sent.push(...lines));
+        for (let i = 0; i < text.length; i += 64 * 1024) {
+          split.data(Buffer.from(text.slice(i, i + 64 * 1024)));
+        }
+        split.end();
+        return sent;
+      };
+      const sized = (scale: number) =>
+        block.repeat(Math.ceil((2 * 1024 * 1024 * scale) / block.length));
+      // Growth, not milliseconds: load can't fail it (#105).
+      const grew = growth((scale) => {
+        const text = sized(scale);
+        return () => stream(text);
+      });
+      expect(grew).toBeLessThan(LINEAR_GROWTH);
+      const sent = stream(sized(1));
+      expect(sent.length).toBeGreaterThan(100);
+      for (const piece of sent) {
+        expect(piece.length).toBeLessThanOrEqual(MAX_LINE);
+        for (const leak of [
+          TOKEN,
+          TOKEN.slice(0, 6),
+          TOKEN.slice(-6),
+          "fake-perf",
+          "perf-pass",
+        ]) {
+          expect(piece).not.toContain(leak);
+        }
+      }
+    },
+    HEAVY_TEST_MS,
+  );
 
   it("masks unquoted env values to the end of the token and YAML values to the end of the line", () => {
     const env = masked("DB_PASSWORD=abc;def,ghi user=bob");
@@ -1025,7 +1056,7 @@ describe("logs follow socket", () => {
       connectionId: started.connectionId,
       uuid: "app-web-uuid",
     });
-    await vi.waitFor(() => expect(sentOf(socket, "started")).toHaveLength(1));
+    await eventually(() => expect(sentOf(socket, "started")).toHaveLength(1));
     return { ...started, ssh, socket, state };
   }
 
@@ -1043,7 +1074,7 @@ describe("logs follow socket", () => {
     );
     ssh.execs[0].stream.emit("data", Buffer.from("one\r\ntwo\nthr"));
     ssh.execs[0].stream.emit("data", Buffer.from("ee\n"));
-    await vi.waitFor(() =>
+    await eventually(() =>
       expect(
         sentOf(socket, "lines").flatMap((m) => m.lines as string[]),
       ).toEqual(["one", "two", "three"]),
@@ -1062,7 +1093,7 @@ describe("logs follow socket", () => {
   it("stops on unsubscribe and keeps the socket open", async () => {
     const { ssh, socket } = await following();
     socket.message({ type: "unsubscribe" });
-    await vi.waitFor(() => expect(sentOf(socket, "stopped")).toHaveLength(1));
+    await eventually(() => expect(sentOf(socket, "stopped")).toHaveLength(1));
     expect(ssh.execs[0].stream.signals).toContain("KILL");
     expect(ssh.dispose).toHaveBeenCalled();
     expect(socket.closedWith).toBeNull();
@@ -1072,7 +1103,7 @@ describe("logs follow socket", () => {
     const { ssh, socket, state, connectionId } = await following();
     state.unlocked = false;
     socket.message({ type: "ping" });
-    await vi.waitFor(() => expect(socket.closedWith).toBe(1008));
+    await eventually(() => expect(socket.closedWith).toBe(1008));
     expect(sentOf(socket, "error").at(-1)).toMatchObject({ cause: "locked" });
     expect(ssh.execs[0].stream.signals).toContain("KILL");
     expect(ssh.dispose).toHaveBeenCalled();
@@ -1086,7 +1117,7 @@ describe("logs follow socket", () => {
       connectionId,
       uuid: "app-web-uuid",
     });
-    await vi.waitFor(() => expect(second.socket.closedWith).toBe(1008));
+    await eventually(() => expect(second.socket.closedWith).toBe(1008));
     expect(ssh.connect.mock.calls.length).toBe(before);
   });
 
@@ -1098,7 +1129,7 @@ describe("logs follow socket", () => {
       isShared: false,
     });
     socket.message({ type: "ping" });
-    await vi.waitFor(() => expect(socket.closedWith).toBe(1008));
+    await eventually(() => expect(socket.closedWith).toBe(1008));
     expect(sentOf(socket, "error").at(-1)).toMatchObject({
       cause: "no-host-access",
     });
@@ -1111,7 +1142,7 @@ describe("logs follow socket", () => {
     const ssh = fakeFollowSsh(h);
     const { socket } = openFollow(h, OTHER);
     socket.message({ type: "subscribe", connectionId, uuid: "app-web-uuid" });
-    await vi.waitFor(() => expect(socket.closedWith).toBe(1008));
+    await eventually(() => expect(socket.closedWith).toBe(1008));
     expect(sentOf(socket, "error").at(-1)).toMatchObject({
       cause: "not-found",
     });
@@ -1125,7 +1156,7 @@ describe("logs follow socket", () => {
     const { socket } = openFollow(h, OTHER);
     h.mock.setActor(OWNER);
     socket.message({ type: "subscribe", connectionId, uuid: "app-web-uuid" });
-    await vi.waitFor(() => expect(socket.closedWith).toBe(1008));
+    await eventually(() => expect(socket.closedWith).toBe(1008));
     expect(sentOf(socket, "error").at(-1)).toMatchObject({
       cause: "forbidden",
     });
@@ -1139,7 +1170,7 @@ describe("logs follow socket", () => {
     const ssh = fakeFollowSsh(h);
     const { socket } = openFollow(h);
     socket.message({ type: "subscribe", connectionId, uuid: "app-web-uuid" });
-    await vi.waitFor(() => expect(socket.closedWith).toBe(1008));
+    await eventually(() => expect(socket.closedWith).toBe(1008));
     expect(sentOf(socket, "error").at(-1)).toMatchObject({
       cause: "forbidden",
     });
@@ -1151,7 +1182,7 @@ describe("logs follow socket", () => {
     const ssh = fakeFollowSsh(h);
     const { socket } = openFollow(h);
     socket.message({ type: "subscribe", connectionId, uuid: "app-api-uuid" });
-    await vi.waitFor(() => expect(sentOf(socket, "error")).toHaveLength(1));
+    await eventually(() => expect(sentOf(socket, "error")).toHaveLength(1));
     expect(sentOf(socket, "error")[0]).toMatchObject({ cause: "not-linked" });
     expect(ssh.connect).not.toHaveBeenCalled();
   });
@@ -1159,7 +1190,7 @@ describe("logs follow socket", () => {
   it("masks secrets in followed lines", async () => {
     const { ssh, socket } = await following();
     ssh.execs[0].stream.emit("data", Buffer.from(LEAKY));
-    await vi.waitFor(() =>
+    await eventually(() =>
       expect(
         sentOf(socket, "lines").flatMap((m) => m.lines as string[]),
       ).toContain("plain line"),
@@ -1189,7 +1220,7 @@ describe("logs follow socket", () => {
         sentOf(socket, "lines")
           .flatMap((m) => m.lines as string[])
           .join("\n");
-      await vi.waitFor(() => expect(sent()).toContain(KEY_TAIL.after));
+      await eventually(() => expect(sent()).toContain(KEY_TAIL.after));
       expectKeyTailMasked(sent());
       expect(sent()).not.toContain("FAKEFOLLOW");
     },
@@ -1202,7 +1233,7 @@ describe("logs follow socket", () => {
     stream.emit("data", Buffer.from("y".repeat(MAX_LINE * 2)));
     stream.emit("data", Buffer.from(" password=" + "z".repeat(3)));
     stream.emit("data", Buffer.from("zzzz-tail\nnext\n"));
-    await vi.waitFor(() =>
+    await eventually(() =>
       expect(
         sentOf(socket, "lines").flatMap((m) => m.lines as string[]),
       ).toContain("next"),
@@ -1222,7 +1253,7 @@ describe("logs follow socket", () => {
     const bytes = Buffer.from("a界b\n");
     ssh.execs[0].stream.emit("data", bytes.subarray(0, 2));
     ssh.execs[0].stream.emit("data", bytes.subarray(2));
-    await vi.waitFor(() =>
+    await eventually(() =>
       expect(
         sentOf(socket, "lines").flatMap((m) => m.lines as string[]),
       ).toEqual(["a界b"]),
@@ -1234,7 +1265,7 @@ describe("logs follow socket", () => {
     const many = Array.from({ length: 1_000 }, (_, i) => `line ${i}`);
     ssh.execs[0].stream.emit("data", Buffer.from(many.join("\n") + "\n"));
     ssh.execs[0].stream.close();
-    await vi.waitFor(() => expect(sentOf(socket, "ended")).toHaveLength(1));
+    await eventually(() => expect(sentOf(socket, "ended")).toHaveLength(1));
     const sent = sentOf(socket, "lines").flatMap((m) => m.lines as string[]);
     expect(sent).toEqual(many);
     // ended comes after the last batch.
@@ -1248,7 +1279,7 @@ describe("logs follow socket", () => {
     const { ssh, socket, harness: h } = await following();
     repoint(h);
     socket.message({ type: "ping" });
-    await vi.waitFor(() =>
+    await eventually(() =>
       expect(sentOf(socket, "error").at(-1)).toMatchObject({
         cause: "target-changed",
       }),
@@ -1262,7 +1293,7 @@ describe("logs follow socket", () => {
     const { ssh, socket, harness: h } = await following();
     repoint(h);
     await vi.advanceTimersByTimeAsync(RECHECK_MS + 10);
-    await vi.waitFor(() =>
+    await eventually(() =>
       expect(sentOf(socket, "error").at(-1)).toMatchObject({
         cause: "target-changed",
       }),
@@ -1282,10 +1313,10 @@ describe("logs follow socket", () => {
     const ssh = fakeFollowSsh(h);
     const { socket } = openFollow(h, OTHER);
     socket.message({ type: "subscribe", connectionId, uuid: "app-web-uuid" });
-    await vi.waitFor(() => expect(sentOf(socket, "started")).toHaveLength(1));
+    await eventually(() => expect(sentOf(socket, "started")).toHaveLength(1));
     h.db.sqlite.prepare("DELETE FROM p_coolify_grants").run();
     await vi.advanceTimersByTimeAsync(RECHECK_MS + 10);
-    await vi.waitFor(() => expect(socket.closedWith).toBe(1008));
+    await eventually(() => expect(socket.closedWith).toBe(1008));
     expect(ssh.dispose).toHaveBeenCalled();
   });
 
@@ -1300,7 +1331,7 @@ describe("logs follow socket", () => {
     const ssh = fakeFollowSsh(h);
     const { socket } = openFollow(h, OTHER);
     socket.message({ type: "subscribe", connectionId, uuid: "app-web-uuid" });
-    await vi.waitFor(() => expect(socket.closedWith).toBe(1008));
+    await eventually(() => expect(socket.closedWith).toBe(1008));
     expect(sentOf(socket, "error").at(-1)).toMatchObject({
       cause: "forbidden",
     });
@@ -1311,7 +1342,7 @@ describe("logs follow socket", () => {
   it("a second subscribe on one socket ends the first SSH process", async () => {
     const { ssh, socket, connectionId } = await following();
     socket.message({ type: "subscribe", connectionId, uuid: "app-web-uuid" });
-    await vi.waitFor(() => expect(ssh.execs).toHaveLength(2));
+    await eventually(() => expect(ssh.execs).toHaveLength(2));
     expect(ssh.execs[0].stream.signals).toContain("KILL");
     expect(ssh.dispose).toHaveBeenCalledTimes(1);
   });
@@ -1320,7 +1351,7 @@ describe("logs follow socket", () => {
     const { ssh, socket } = await following();
     ssh.execs[0].stream.emit("data", Buffer.from("last words"));
     ssh.execs[0].stream.close();
-    await vi.waitFor(() => expect(sentOf(socket, "ended")).toHaveLength(1));
+    await eventually(() => expect(sentOf(socket, "ended")).toHaveLength(1));
     expect(sentOf(socket, "lines").flatMap((m) => m.lines as string[])).toEqual(
       ["last words"],
     );

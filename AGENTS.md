@@ -138,6 +138,15 @@ aren't obvious from the code, and anything that has bitten you before.
 - Service logs are read per Part; `get-service-logs-by-uuid` needs a `sub_service_name` and is skipped.
 - Operation tests: the mock ctx records no run history, so `tests/backend/helpers/run-history.ts` applies
   the SDK's own `parseOperationInput` and `redactFields` around `ctx.operations.run`, as core does.
+- Tests and time (#105): no test budgets milliseconds; a busy machine failed them with nothing wrong.
+  Linear-time checks use `growth()` (`tests/shared/linear-cost.ts`): the same call on an input 8 times as
+  long, timed by the thread's CPU time (which steps in 4 ms ticks on some kernels, so samples run 25
+  steps), must cost less than 24 times as much (linear about 8, quadratic about 64). Waits use `WAIT_MS`
+  (`tests/shared/timing.ts`): `eventually()` for vi.waitFor, and `tests/frontend/setup.ts` (loaded by
+  `vitest.config.ts`) for every findBy and waitFor. Tests with heavy fixed work or a real timer in the
+  code take `HEAVY_TEST_MS`. A fixed sleep is only for checking that nothing happened.
+  `tests/backend/wall-clock-guard.test.ts` refuses `performance.now`, `expect(Date.now()`, `vi.waitFor`,
+  short `timeout:` options and a per-file `asyncUtilTimeout`.
 - Coolify API: `vendor/coolify/` holds the v4.7.5, `main` and `next` specs as fetched (see its README).
   `npm run gen:coolify` writes `src/backend/coolify/generated/operations.ts` (`OPERATIONS`,
   `EXCLUDED_OPERATIONS`) and `schemas.json` with its accessor `schemas.ts` (each operation's parameters

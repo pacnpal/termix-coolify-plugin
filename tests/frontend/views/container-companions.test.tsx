@@ -16,6 +16,7 @@ import { forgetCompanions } from "../../../src/frontend/companions";
 import manifestJson from "../../../manifest.json";
 import locales from "../../../locales/en.json";
 import { stubApi } from "../fixtures";
+import { HEAVY_TEST_MS } from "../../shared/timing.js";
 
 const manifest = manifestJson as unknown as PluginManifest;
 const C = locales.containerCompanions;
@@ -126,34 +127,40 @@ async function openWeb(running: Partial<typeof NONE>, permissions = OPERATE) {
 const button = (name: string) => screen.queryByRole("button", { name });
 
 describe("container companion buttons", () => {
-  it("buttons hide when a plugin is missing", async () => {
-    const all = { files: true, tunnels: true, reverseProxy: true };
-    const buttons = {
-      files: [C.browse, C.editCompose],
-      tunnels: [C.reach],
-      reverseProxy: [C.webUi],
-    };
-    for (const missing of Object.keys(buttons) as Array<keyof typeof all>) {
-      await openWeb({ ...all, [missing]: false });
-      const shown = Object.entries(buttons)
-        .filter(([key]) => key !== missing)
-        .flatMap(([, names]) => names);
-      for (const name of shown) {
-        expect(await screen.findByRole("button", { name })).toBeTruthy();
+  // Fixed work: four full renders of the detail, about 0.8 s idle; an explicit
+  // timeout keeps a busy machine from failing it on Vitest's 5 s (#105).
+  it(
+    "buttons hide when a plugin is missing",
+    async () => {
+      const all = { files: true, tunnels: true, reverseProxy: true };
+      const buttons = {
+        files: [C.browse, C.editCompose],
+        tunnels: [C.reach],
+        reverseProxy: [C.webUi],
+      };
+      for (const missing of Object.keys(buttons) as Array<keyof typeof all>) {
+        await openWeb({ ...all, [missing]: false });
+        const shown = Object.entries(buttons)
+          .filter(([key]) => key !== missing)
+          .flatMap(([, names]) => names);
+        for (const name of shown) {
+          expect(await screen.findByRole("button", { name })).toBeTruthy();
+        }
+        for (const name of buttons[missing]) expect(button(name)).toBeNull();
+        await rendered?.deactivate();
+        rendered = null;
+        cleanup();
+        forgetCompanions();
       }
-      for (const name of buttons[missing]) expect(button(name)).toBeNull();
-      await rendered?.deactivate();
-      rendered = null;
-      cleanup();
-      forgetCompanions();
-    }
-    // With none running, none show.
-    await openWeb({});
-    await waitFor(() => expect(button(C.browse)).toBeNull());
-    expect(button(C.editCompose)).toBeNull();
-    expect(button(C.reach)).toBeNull();
-    expect(button(C.webUi)).toBeNull();
-  });
+      // With none running, none show.
+      await openWeb({});
+      await waitFor(() => expect(button(C.browse)).toBeNull());
+      expect(button(C.editCompose)).toBeNull();
+      expect(button(C.reach)).toBeNull();
+      expect(button(C.webUi)).toBeNull();
+    },
+    HEAVY_TEST_MS,
+  );
 
   it("shows only the buttons of the plugins that run", async () => {
     await openWeb({ files: true });

@@ -17,6 +17,7 @@ import {
   type PluginHarness,
 } from "../helpers/plugin.js";
 import { resourceLists } from "../helpers/resources.js";
+import { HEAVY_TEST_MS } from "../../shared/timing.js";
 
 let harness: PluginHarness | null = null;
 
@@ -204,17 +205,24 @@ describe("the attention read behind the sidebar panel and the rail badge", () =>
     expect(JSON.stringify(answer.body)).not.toContain("203.0.113");
   });
 
-  it("keeps the other parts when one of a connection's reads fails", async () => {
-    const { harness, fake } = await start();
-    fake.set("GET /servers", { status: 500, json: { message: "boom" } });
-    const answer = await harness.request("GET", "/attention");
-    expect(answer.status).toBe(200);
-    const [mine] = answer.body.connections;
-    expect(mine.error).toMatchObject({ cause: expect.any(String) });
-    expect(mine.unreachable).toEqual([]);
-    expect(uuids(mine.running)).toEqual(["dep-run", "dep-api-queued"]);
-    expect(answer.body.badge).toBe(3);
-  });
+  // Fixed work: GET retries wait out the request layer's real backoff
+  // (0.5 s, then 1.5 s), so it takes 2 s idle; a busy machine stretched
+  // past Vitest's 5 s (#105). An explicit timeout keeps a wide margin.
+  it(
+    "keeps the other parts when one of a connection's reads fails",
+    async () => {
+      const { harness, fake } = await start();
+      fake.set("GET /servers", { status: 500, json: { message: "boom" } });
+      const answer = await harness.request("GET", "/attention");
+      expect(answer.status).toBe(200);
+      const [mine] = answer.body.connections;
+      expect(mine.error).toMatchObject({ cause: expect.any(String) });
+      expect(mine.unreachable).toEqual([]);
+      expect(uuids(mine.running)).toEqual(["dep-run", "dep-api-queued"]);
+      expect(answer.body.badge).toBe(3);
+    },
+    HEAVY_TEST_MS,
+  );
 
   it("never shows a connection the user can't view", async () => {
     const { harness, fake, id } = await start();
