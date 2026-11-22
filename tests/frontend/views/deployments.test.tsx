@@ -385,9 +385,14 @@ async function openDeployments(
       return r;
     }),
   );
+  // The detail's tab, not the side nav's Deployments section of the same name.
   fireEvent.click(
-    await screen.findByRole("button", {
-      name: locales.detail.tabs.deployments,
+    await waitFor(() => {
+      const tab = screen
+        .getAllByRole("button", { name: locales.detail.tabs.deployments })
+        .find((b) => !b.closest(`[aria-label="${locales.nav.label}"]`));
+      if (!tab) throw new Error("no Deployments tab");
+      return tab;
     }),
   );
 }

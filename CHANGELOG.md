@@ -13,6 +13,14 @@
 - Actions `coolify.deployment-list`, `coolify.deployment-get` and `coolify.deployment-cancel`, so the
   history, build logs (redacted, needing `confirm: true`) and cancel work from Operations Center,
   Automations, the CLI, the Termix API and MCP
+- A Deployments section in the Coolify tab: the connection's queued and running deployments and its recent
+  ones, each opening its live build log with cancel. Only the connection's own applications are shown, and
+  the list refreshes only while it is shown
+- Deployments in progress on the Overview, from the same read as the Deployments section
+- Deploy by tag, with force rebuild, a pull request and a Docker tag: it lists the resources it will deploy
+  and asks first, and deploys only those
+- Actions `coolify.deployment-queue` and `coolify.deploy-by-tag` (a dry run lists the resources; over MCP it
+  needs `confirmed: true`)
 
 ## 1.0.0
 

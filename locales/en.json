@@ -402,6 +402,26 @@
       },
       "buildLog": {
         "label": "Build log"
+      },
+      "refresh": {
+        "label": "Refresh",
+        "description": "Read Coolify again instead of the 10 second cache."
+      },
+      "tag": {
+        "label": "Tag",
+        "description": "A Coolify tag name. Every resource with it is deployed."
+      },
+      "pullRequestId": {
+        "label": "Pull request",
+        "description": "Deploy this pull request's preview. Services have no previews and are left out."
+      },
+      "dockerTag": {
+        "label": "Docker tag",
+        "description": "The image tag for a Docker image preview. Needs a pull request."
+      },
+      "targets": {
+        "label": "Confirmed resources",
+        "description": "Comma separated uuids. When set, nothing is deployed unless the tag still hits exactly these."
       }
     },
     "listConnections": {
@@ -656,6 +676,14 @@
     "deploymentCancel": {
       "title": "Cancel a Coolify deployment",
       "description": "Cancels a queued or running deployment. One that already ended can't be cancelled."
+    },
+    "deploymentQueue": {
+      "title": "Coolify deployment queue",
+      "description": "The connection's queued and running deployments and its recent ones, for its own applications only."
+    },
+    "deployByTag": {
+      "title": "Deploy Coolify resources by tag",
+      "description": "Deploys every application and service on the connection that carries a tag. A dry run lists them."
     }
   },
   "connections": {
@@ -806,7 +834,8 @@
     "overview": "Overview",
     "resources": "Resources",
     "servers": "Servers",
-    "connections": "Connections"
+    "connections": "Connections",
+    "deployments": "Deployments"
   },
   "picker": {
     "label": "Coolify connection"
@@ -822,6 +851,11 @@
       "stopped": "Stopped",
       "deploying": "Deploying",
       "open": "Show in Resources"
+    },
+    "inProgress": {
+      "title": "Deployments in progress",
+      "empty": "Nothing is deploying right now.",
+      "showAll": "All deployments"
     }
   },
   "resources": {
@@ -1437,5 +1471,54 @@
     "cancelPending": "Waiting for approval to cancel the deployment.",
     "cancelFailed": "The deployment could not be cancelled.",
     "refresh": "Refresh deployments"
+  },
+  "deploymentsSection": {
+    "title": "Deployments",
+    "loading": "Loading deployments…",
+    "failed": "The deployments could not be read.",
+    "retry": "Try again",
+    "refresh": "Refresh deployments",
+    "updated": "Updated {{time}}",
+    "running": "Queued and running",
+    "recent": "Recent",
+    "noRunning": "Nothing is queued or running.",
+    "noRecent": "No recent deployments.",
+    "back": "All deployments"
+  },
+  "deployByTag": {
+    "open": "Deploy by tag",
+    "title": "Deploy every resource with a tag",
+    "tag": "Tag",
+    "tagHint": "A Coolify tag name. Applications and services with it are deployed.",
+    "force": "Force rebuild",
+    "forceHint": "Rebuild without Coolify's build cache.",
+    "pullRequest": "Pull request",
+    "pullRequestHint": "Optional. Deploys that pull request's preview; services have no previews and are left out.",
+    "dockerTag": "Docker tag",
+    "dockerTagHint": "Optional. The image tag for a Docker image preview. Needs a pull request.",
+    "review": "Review and deploy",
+    "close": "Close",
+    "needsTag": "Enter a tag.",
+    "badPr": "The pull request must be a number.",
+    "needsPr": "A Docker tag needs a pull request.",
+    "noTargets": "No resources on this connection have the tag {{tag}}.",
+    "skipped": "{{count}} service(s) with this tag are left out: services have no pull request previews.",
+    "kinds": {
+      "application": "application",
+      "service": "service"
+    },
+    "confirm": {
+      "title": "Deploy {{count}} resource(s) tagged {{tag}}?",
+      "description": "These are deployed now:",
+      "target": "{{name}} ({{kind}}, {{server}})",
+      "force": "Each one is rebuilt without the build cache.",
+      "confirm": "Deploy"
+    },
+    "deployed": "Deploy sent: {{count}} deployment(s) queued.",
+    "pending": "Waiting for approval to deploy.",
+    "failed": "The deploy could not be sent.",
+    "tagPlaceholder": "production",
+    "pullRequestPlaceholder": "12",
+    "dockerTagPlaceholder": "pr-12"
   }
 }

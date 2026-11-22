@@ -30,15 +30,23 @@ import {
   ToolbarSelect,
   type SideNavEntry,
 } from "@termix-ssh/plugin-sdk/ui";
-import { createApi, type Api, type Connection, type Resource } from "../api";
+import {
+  createApi,
+  type Api,
+  type Connection,
+  type QueueDeployment,
+  type Resource,
+} from "../api";
 import type { ResourceHealth } from "../../shared/resource-health";
 import { ApiConsoleView } from "./ApiConsoleView";
 import { ConnectionsView, syncable } from "./ConnectionsView";
+import { DeploymentsSection, type OpenDeployment } from "./DeploymentsSection";
 import { OverviewView } from "./OverviewView";
 import { ResourceDetail } from "./ResourceDetail";
 import { ResourcesView } from "./ResourcesView";
 import { SyncView } from "./SyncView";
 import type { HealthFilter } from "./resource-model";
+import { useDeploymentQueue } from "./useDeploymentQueue";
 import { useResources } from "./useResources";
 
 /**
@@ -46,11 +54,12 @@ import { useResources } from "./useResources";
  * the API console picks its own connection.
  */
 export type Section =
-  "overview" | "resources" | "servers" | "connections" | "api";
+  "overview" | "resources" | "deployments" | "servers" | "connections" | "api";
 
 const SECTIONS: readonly string[] = [
   "overview",
   "resources",
+  "deployments",
   "servers",
   "connections",
   "api",
@@ -159,6 +168,9 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
   const [health, setHealth] = useState<HealthFilter>("all");
   const [openUuid, setOpenUuid] = useState<string | null>(null);
   const [intent, setIntent] = useState<PickIntent>(NO_INTENT);
+  const [openDeployment, setOpenDeployment] = useState<OpenDeployment | null>(
+    null,
+  );
 
   const [loadFailed, setLoadFailed] = useState(false);
 
@@ -215,6 +227,16 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
     connection?.id ?? null,
     connection?.revision ?? null,
   );
+  // One read shared by the Overview and the Deployments section, polled only
+  // while one of them is shown (and not under an open build log).
+  const queue = useDeploymentQueue(
+    api,
+    connection?.id ?? null,
+    connection?.revision ?? null,
+    isVisible &&
+      (section === "overview" ||
+        (section === "deployments" && openDeployment === null)),
+  );
 
   /** A saved connection replaces its row; a new target reloads resources. */
   const saved = useCallback((next: Connection) => {
@@ -228,6 +250,7 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
   function select(next: string) {
     setSection(next as Section);
     setOpenUuid(null);
+    setOpenDeployment(null);
     setIntent(NO_INTENT);
     // Pick up connections added or removed in the Connections section.
     if (next !== "connections") void loadConnections();
@@ -248,6 +271,7 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
   const entries: SideNavEntry[] = [
     { id: "overview", label: t("nav.overview"), icon: LayoutDashboard },
     { id: "resources", label: t("nav.resources"), icon: Boxes },
+    { id: "deployments", label: t("nav.deployments"), icon: Rocket },
     ...(canConfigure
       ? [{ id: "servers", label: t("nav.servers"), icon: Server }]
       : []),
@@ -262,6 +286,7 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
         onChange={(id) => {
           setSelectedId(Number(id));
           setOpenUuid(null);
+          setOpenDeployment(null);
         }}
         options={connections.map((c) => ({
           value: String(c.id),
@@ -342,11 +367,39 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
     body = (
       <OverviewView
         resources={resources}
+        queue={queue}
         picker={picker}
+        onOpenDeployment={
+          mayOperate
+            ? (row: QueueDeployment) => {
+                setOpenDeployment({
+                  connectionId: connection.id,
+                  resourceUuid: row.resourceUuid,
+                  deploymentUuid: row.uuid,
+                });
+                setSection("deployments");
+              }
+            : undefined
+        }
+        onShowDeployments={() => setSection("deployments")}
         onShowResources={(h: ResourceHealth) => {
           setHealth(h);
           setSection("resources");
         }}
+      />
+    );
+  } else if (section === "deployments") {
+    body = (
+      <DeploymentsSection
+        api={api}
+        connectionId={connection.id}
+        revision={connection.revision ?? null}
+        queue={queue}
+        canOperate={mayOperate}
+        isVisible={isVisible}
+        open={openDeployment}
+        onOpen={setOpenDeployment}
+        picker={picker}
       />
     );
   } else {

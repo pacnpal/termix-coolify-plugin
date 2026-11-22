@@ -159,6 +159,62 @@ export interface CancelAnswer {
   pending: boolean;
 }
 
+/** A deployment in the connection's queue, with its application's name. */
+export interface QueueDeployment extends Deployment {
+  resourceUuid: string;
+  resourceName: string;
+}
+
+/** The connection's queued and running deployments and recent ended ones. */
+export interface DeploymentQueue {
+  running: QueueDeployment[];
+  recent: QueueDeployment[];
+  fetchedAt: string | null;
+}
+
+/** A resource deploy by tag will deploy. */
+export interface TagTarget {
+  uuid: string;
+  name: string;
+  kind: "application" | "service";
+  serverName: string | null;
+}
+
+/** What deploy by tag will hit, for its confirm. */
+export interface TagTargets {
+  tag: string;
+  targets: TagTarget[];
+  /** Services with the tag left out because a pull request was asked. */
+  skippedServices: number;
+}
+
+/** Deploy by tag's options as the form sends them. */
+export interface TagDeployBody {
+  tag: string;
+  force: boolean;
+  pullRequestId?: number;
+  dockerTag?: string;
+  /** The uuids the person confirmed. */
+  targets: string[];
+}
+
+/** What deploy by tag answers; pending waits for an approval. */
+export interface TagDeployAnswer {
+  queued: number;
+  pending: boolean;
+}
+
+function queueRows(value: unknown): QueueDeployment[] {
+  return Array.isArray(value)
+    ? (value as QueueDeployment[]).filter(
+        (r) =>
+          !!r &&
+          typeof r.uuid === "string" &&
+          typeof r.resourceUuid === "string",
+      )
+    : [];
+}
+
 /** GET /mcp: where the plugin's MCP endpoint is. */
 export interface McpInfo {
   endpoint: string;
@@ -744,6 +800,66 @@ export function createApi(api: PluginApiClient) {
       ).data;
       return {
         status: typeof data?.status === "string" ? data.status : null,
+        pending: data?.status === "pending",
+      };
+    },
+    /** The connection's deployment queue, from the backend's shared cache. */
+    async deploymentQueue(
+      id: number,
+      opts: { refresh?: boolean } = {},
+    ): Promise<DeploymentQueue> {
+      const data = (
+        await api.get<Partial<DeploymentQueue>>(
+          `/connections/${id}/deployments${opts.refresh ? "?refresh=1" : ""}`,
+        )
+      ).data;
+      return {
+        running: queueRows(data?.running),
+        recent: queueRows(data?.recent),
+        fetchedAt: typeof data?.fetchedAt === "string" ? data.fetchedAt : null,
+      };
+    },
+    /** The resources deploy by tag would deploy. Changes nothing. */
+    async tagTargets(
+      id: number,
+      query: { tag: string; pullRequestId?: number },
+    ): Promise<TagTargets> {
+      const params = new URLSearchParams({ tag: query.tag });
+      if (query.pullRequestId !== undefined) {
+        params.set("pullRequestId", String(query.pullRequestId));
+      }
+      const data = (
+        await api.get<Partial<TagTargets>>(
+          `/connections/${id}/deploy-by-tag?${params}`,
+        )
+      ).data;
+      return {
+        tag: typeof data?.tag === "string" ? data.tag : query.tag,
+        targets: Array.isArray(data?.targets) ? data.targets : [],
+        skippedServices:
+          typeof data?.skippedServices === "number" ? data.skippedServices : 0,
+      };
+    },
+    /** Deploys the confirmed resources with the tag; the backend runs an action. */
+    async deployByTag(
+      id: number,
+      body: TagDeployBody,
+    ): Promise<TagDeployAnswer> {
+      const data = (
+        await api.post<{ status?: unknown; deployments?: unknown }>(
+          `/connections/${id}/deploy-by-tag`,
+          body,
+        )
+      ).data;
+      const rows: unknown[] = Array.isArray(data?.deployments)
+        ? data.deployments
+        : [];
+      return {
+        queued: rows.filter(
+          (d) =>
+            typeof (d as { deploymentUuid?: unknown } | null)
+              ?.deploymentUuid === "string",
+        ).length,
         pending: data?.status === "pending",
       };
     },
