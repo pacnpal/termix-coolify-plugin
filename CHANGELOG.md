@@ -6,11 +6,10 @@
 
 - Termix's recent activity shows "Opened shell in <app>" when a container shell or database console opens
   on a Linked host, and "Deployed <app>" when Coolify starts a deploy: deploy, deploy by tag (one entry per
-  resource), rollback, and pull request previews ("Deployed <app> (pull request #<n>)"). A run that waits
-  adds it only if the deploy doesn't fail. It works from the UI, the operations API, the CLI, Automations
-  and MCP alike. Only a Linked host you
-  can connect to gets an entry, and only after the action worked; a failure to record one never fails the
-  shell or deploy. An entry opens the Coolify tab
+  resource), rollback, and pull request previews ("Deployed <app> (pull request #<n>)"). A deploy is
+  recorded once Coolify accepts it, whether it later finishes or fails. It works from the UI, the
+  operations API, the CLI, Automations and MCP alike. Only a Linked host you can connect to gets an entry;
+  a failure to record one never fails the shell or deploy. An entry opens the Coolify tab
 - A Coolify shell tab's terminal toolbar shows the container's name and status (Running, Degraded, Stopped
   or Deploying), from the plugin's cached resource list, and **Gone** once the resource is no longer in
   Coolify. The name is the container the shell connected to, and follows a change of container
