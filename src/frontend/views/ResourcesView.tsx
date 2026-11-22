@@ -1,7 +1,8 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { Boxes, CornerDownRight } from "lucide-react";
+import { Boxes, CornerDownRight, Server, X } from "lucide-react";
 import { useTranslation } from "@termix-ssh/plugin-sdk/frontend";
 import {
+  Button,
   DataTable,
   DataTableRow,
   EmptyState,
@@ -152,7 +153,8 @@ function PhoneRow({
 /**
  * The Resources section: every application, service and database of the
  * connection, each service followed by its Parts, with search and filters.
- * A phone gets a list instead of the table.
+ * A phone gets a list instead of the table. `server` (from a Linked host's
+ * Coolify action) keeps one server's resources until cleared.
  */
 export function ResourcesView({
   resources,
@@ -160,12 +162,16 @@ export function ResourcesView({
   health,
   onHealth,
   onOpen,
+  server = null,
+  onClearServer,
 }: {
   resources: ResourcesState;
   picker?: ReactNode;
   health: HealthFilter;
   onHealth: (next: HealthFilter) => void;
   onOpen: (uuid: string) => void;
+  server?: string | null;
+  onClearServer?: () => void;
 }) {
   const { t } = useTranslation();
   const mobile = useIsMobile();
@@ -175,10 +181,20 @@ export function ResourcesView({
 
   const groups = useMemo(() => groupResources(list?.rows ?? []), [list]);
   const visible = useMemo(
-    () => filterGroups(groups, { search, kind, health }),
-    [groups, search, kind, health],
+    () => filterGroups(groups, { search, kind, health, server }),
+    [groups, search, kind, health, server],
   );
-  const counts = useMemo(() => countResources(list?.rows ?? []), [list]);
+  const serverName =
+    list?.rows.find((r) => r.serverUuid === server && r.serverName)
+      ?.serverName ?? server;
+  // The health counts follow the server filter, so they match the list.
+  const counts = useMemo(
+    () =>
+      countResources(
+        (list?.rows ?? []).filter((r) => !server || r.serverUuid === server),
+      ),
+    [list, server],
+  );
   const rows = visible.flatMap((g) => [
     { r: g.resource, part: false },
     ...g.parts.map((p) => ({ r: p, part: true })),
@@ -295,6 +311,23 @@ export function ResourcesView({
       }
     >
       <ToolbarBand>
+        {server && (
+          <span className="flex items-center gap-1 text-xs">
+            <Server className="size-3.5 shrink-0" />
+            {t("resources.serverFilter.label", { server: serverName })}
+            {onClearServer && (
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label={t("resources.serverFilter.clear")}
+                title={t("resources.serverFilter.clear")}
+                onClick={onClearServer}
+              >
+                <X className="size-3" />
+              </Button>
+            )}
+          </span>
+        )}
         <Segmented<KindFilter>
           value={kind}
           onChange={setKind}

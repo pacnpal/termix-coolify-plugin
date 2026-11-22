@@ -61,6 +61,19 @@
 - A new preview needs the commit of a Bitbucket pull request and the image tag of a Docker image
   application (a redeploy needs neither); the domain editor keeps Coolify's port overrides; a Docker Compose preview's domains are edited per service. A port given with a domain is
   kept, `:80` and `:443` included
+- A **Coolify** button on Linked hosts that opens the Resources list filtered to that host's server; the
+  filter shows the server's name and clears with one click
+- `GET /plugin-api/coolify/connections/:id/server-health`: each server's reachability and degraded count,
+  served from the plugin's shared server and resource caches
+
+### Changed
+
+- The existing Linked host dot now also warns when a resource on the server is degraded. Coolify's
+  `exited` counts as stopped, not degraded
+- Every Linked host of a connection now shares one status read for its dot (a minute in the browser,
+  answered from the plugin's own caches) instead of a sync preview, so host rows no longer ask Coolify for
+  its server list each time
+- **Coolify resources** in a Linked host's menu now opens the list filtered to that host's server
 
 ## 1.0.0
 
