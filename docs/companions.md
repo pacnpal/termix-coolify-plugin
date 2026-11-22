@@ -35,7 +35,10 @@ read, every one of them hides and their routes and actions answer `companions-un
   `coolify.companion` action. Monitors already paused (or running) are left alone, and if one fails part
   way, each monitor already changed goes back to how it was.
 - **Log Search** searches every server's Docker logs and can't filter by host. The results say where they
-  came from.
+  came from. Every result is masked as container logs are (the connection's token and Access secret, URL
+  passwords, secret-named fields, Authorization credentials and private keys), in every field, before it
+  is cut to 2,000 characters. A key split over several results is masked whole; when the results hold key
+  markers that fit neither order, every message is masked.
 - **Databases** only shows names: logins and database names, never a password. A login matches a database
   by its uuid, or by its name only when no other database on that server has the same name.
 

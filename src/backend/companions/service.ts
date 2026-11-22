@@ -678,6 +678,7 @@ export function createCompanions(
       const results = await logSearch(
         guarded(connectionId, snap),
         resource.uuid,
+        await snap.secrets(),
       );
       return answer(connectionId, snap, {
         source: "docker" as const,

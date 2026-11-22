@@ -2,6 +2,8 @@ import type {
   PluginContext,
   PluginOperationOutcome,
 } from "@termix-ssh/plugin-sdk/backend";
+import { REDACTED_VALUE } from "@termix-ssh/plugin-sdk/operations";
+import { keyBlockCarry, redactLog } from "../containers/logs.js";
 import { CompanionError } from "./detect.js";
 
 // Calls into the companion plugins. Every call is one of their documented
@@ -250,29 +252,95 @@ export interface LogLine {
 const MAX_LINES = 200;
 const MAX_LINE = 2000;
 
-/** log-search.search over Docker logs, with `query`, `source` and `limit`. */
+/** A private key END marker, as redactLog's key rules spell it. */
+const KEY_END = /-----END [A-Z0-9 ]{0,40}PRIVATE KEY-----/;
+
+/** A line with an END marker that no BEGIN earlier on the line opened. */
+function orphanEnd(line: string): boolean {
+  const end = line.search(KEY_END);
+  return end >= 0 && !line.slice(0, end).includes("-----BEGIN ");
+}
+
+/**
+ * The messages (each a list of lines) redacted in the order given, through
+ * one keyBlockCarry, so a key whose BEGIN, body and END are separate hits
+ * is masked whole. Null for a message with nothing left. `sound` is false
+ * when that order can't be the log's own: an END that no BEGIN opened, or a
+ * key still open at the end.
+ */
+function carried(
+  messages: string[][],
+  secrets: readonly string[],
+): { texts: (string | null)[]; sound: boolean } {
+  const keys = keyBlockCarry(secrets);
+  let sound = true;
+  const texts = messages.map((lines) => {
+    const kept: string[] = [];
+    for (const line of lines) {
+      if (keys.keyEnd === null && orphanEnd(line)) sound = false;
+      const out = keys.line(line);
+      if (out !== null) kept.push(out);
+    }
+    return kept.length ? kept.join("\n") : null;
+  });
+  return { texts, sound: sound && keys.keyEnd === null };
+}
+
+/**
+ * Every hit's message redacted as container logs are (redactLog with the
+ * connection's own `secrets`), before anything is cut. Log Search doesn't
+ * document whether hits come oldest or newest first, so the key markers
+ * decide: the order given, else its reverse, whichever reads as a log. When
+ * neither does (a key cut off at both ends), every message is masked.
+ */
+function redactMessages(
+  messages: string[],
+  secrets: readonly string[],
+): string[] {
+  const lines = messages.map((m) => m.split(/\r?\n/));
+  const masked = (texts: (string | null)[]) =>
+    texts.map((text) => text ?? REDACTED_VALUE);
+  const forward = carried(lines, secrets);
+  if (forward.sound) return masked(forward.texts);
+  const backward = carried([...lines].reverse(), secrets);
+  if (backward.sound) return masked(backward.texts.reverse());
+  return messages.map(() => REDACTED_VALUE);
+}
+
+/**
+ * log-search.search over Docker logs, with `query`, `source` and `limit`.
+ * Every text field of every hit goes through redactLog with `secrets` (the
+ * connection snapshot's own) before it is cut or returned.
+ */
 export async function logSearch(
   ctx: CompanionCaller,
   query: string,
+  secrets: readonly string[],
 ): Promise<LogLine[]> {
   const data = await invoke(ctx, "log-search.search", "log-search", {
     input: { source: "docker", query, limit: MAX_LINES },
   });
-  return listOf(data, ["results", "rows", "lines", "hits"], "log-search")
+  const hits = listOf(data, ["results", "rows", "lines", "hits"], "log-search")
     .slice(0, MAX_LINES)
     .flatMap((entry) => {
       const raw = obj(entry);
       const message = str(first(raw, ["message", "line", "text"]));
-      if (message === null) return [];
-      return [
-        {
-          time: str(first(raw, ["time", "timestamp", "ts"])),
-          host: str(first(raw, ["host", "hostName"])),
-          container: str(first(raw, ["container", "containerName"])),
-          message: message.slice(0, MAX_LINE),
-        },
-      ];
+      return message === null ? [] : [{ raw, message }];
     });
+  const messages = redactMessages(
+    hits.map((hit) => hit.message),
+    secrets,
+  );
+  const field = (value: unknown): string | null => {
+    const text = str(value);
+    return text === null ? null : redactLog(text, secrets).slice(0, MAX_LINE);
+  };
+  return hits.map(({ raw }, i) => ({
+    time: field(first(raw, ["time", "timestamp", "ts"])),
+    host: field(first(raw, ["host", "hostName"])),
+    container: field(first(raw, ["container", "containerName"])),
+    message: messages[i].slice(0, MAX_LINE),
+  }));
 }
 
 // --- Security Center (security-center.status, .critical-vulns) ----------
