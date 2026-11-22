@@ -12,6 +12,14 @@ import {
   startLifecycle,
 } from "./helpers/lifecycle.js";
 import { type PluginHarness } from "./helpers/plugin.js";
+import {
+  queueAnswers,
+  rollbackAnswers,
+  tagAnswers,
+} from "./helpers/deployments.js";
+import type { FakeAnswer } from "./helpers/fake-coolify.js";
+import { previewAnswers } from "./helpers/previews.js";
+import { resourceLists } from "./helpers/resources.js";
 
 let harness: PluginHarness | null = null;
 
@@ -255,5 +263,201 @@ describe("recent activity: deploys", () => {
     const line = String(warn.mock.calls[0][0]);
     expect(line).toMatch(/activity/);
     expect(line).not.toContain(LIFECYCLE_TOKEN);
+  });
+
+  it("records a service deploy, which Coolify starts without a deployment uuid", async () => {
+    const { harness: h, id } = await deploys({
+      overrides: {
+        "POST /deploy": {
+          json: {
+            deployments: [
+              {
+                message: "Service n8n started.",
+                resource_uuid: "svc-n8n-uuid",
+              },
+            ],
+          },
+        },
+      },
+    });
+    const res = await h.request("POST", deployPath(id, "svc-n8n-uuid"), {});
+    expect(res.status).toBe(200);
+    expect(h.mock.activities).toEqual([
+      { hostId: HOST_ID, type: "coolify_deploy", hostName: "Deployed n8n" },
+    ]);
+  });
+});
+
+const applications = (resourceLists()["GET /applications"] as { json: unknown })
+  .json;
+
+/** n8n moved to srv-edge-uuid, a server with no Linked host. */
+function n8nOnEdge(): Record<string, FakeAnswer> {
+  const services = (resourceLists()["GET /services"] as { json: unknown[] })
+    .json as Record<string, unknown>[];
+  return {
+    "GET /services": {
+      json: services.map((s) => ({
+        ...s,
+        server: { id: 3, uuid: "srv-edge-uuid", name: "edge" },
+      })),
+    },
+  };
+}
+
+async function byTag(
+  extra: Record<string, FakeAnswer> = {},
+  input: Record<string, unknown> = {},
+) {
+  const started = await deploys({
+    overrides: { ...queueAnswers(), ...tagAnswers(applications), ...extra },
+  });
+  const run = () =>
+    started.harness.mock.ctx.operations.run("coolify.deploy-by-tag", {
+      input: { connectionId: String(started.id), tag: "prod", ...input },
+    });
+  return { ...started, run };
+}
+
+async function rollbacks(extra: Record<string, FakeAnswer> = {}) {
+  const started = await deploys({
+    overrides: { ...queueAnswers(), ...rollbackAnswers(), ...extra },
+  });
+  const run = () =>
+    started.harness.mock.ctx.operations.run("coolify.resource-rollback", {
+      input: {
+        connectionId: String(started.id),
+        uuid: "app-web-uuid",
+        image: "0ld3r00",
+      },
+    });
+  return { ...started, run };
+}
+
+describe("recent activity: every other deploy path", () => {
+  it("deploy by tag records one entry per resource on a Linked host", async () => {
+    const { harness: h, run } = await byTag();
+    await run();
+    expect(h.mock.activities).toEqual([
+      { hostId: HOST_ID, type: "coolify_deploy", hostName: "Deployed web" },
+      { hostId: HOST_ID, type: "coolify_deploy", hostName: "Deployed n8n" },
+    ]);
+  });
+
+  it("deploy by tag records nothing for a resource whose server has no Linked host", async () => {
+    const { harness: h, fake, run } = await byTag(n8nOnEdge());
+    await run();
+    expect(changes(fake).map((c) => c.path)).toEqual(["/deploy"]);
+    expect(h.mock.activities).toEqual([
+      { hostId: HOST_ID, type: "coolify_deploy", hostName: "Deployed web" },
+    ]);
+  });
+
+  it("deploy by tag with a pull request names the pull request", async () => {
+    const { harness: h, run } = await byTag({}, { pullRequestId: 7 });
+    await run();
+    expect(h.mock.activities).toEqual([
+      {
+        hostId: HOST_ID,
+        type: "coolify_deploy",
+        hostName: "Deployed web (pull request #7)",
+      },
+    ]);
+  });
+
+  it("a deploy by tag Coolify refuses records nothing", async () => {
+    const { harness: h, run } = await byTag({
+      "POST /deploy": { status: 500, json: { message: "no" } },
+    });
+    await expect(run()).rejects.toBeTruthy();
+    expect(h.mock.activities).toEqual([]);
+  });
+
+  it("a rollback records Deployed <app>", async () => {
+    const { harness: h, run } = await rollbacks();
+    const outcome = await run();
+    expect(outcome.status).toBe("success");
+    expect(h.mock.activities).toEqual([
+      { hostId: HOST_ID, type: "coolify_deploy", hostName: "Deployed web" },
+    ]);
+  });
+
+  it("a rollback on the Linked host's own action records once", async () => {
+    const { harness: h } = await rollbacks();
+    await h.mock.ctx.operations.run("coolify.rollback", {
+      hostId: HOST_ID,
+      resourceKey: "app-web-uuid",
+      input: { image: "0ld3r00" },
+    });
+    expect(h.mock.activities).toHaveLength(1);
+  });
+
+  it("a rollback Coolify refuses records nothing", async () => {
+    const { harness: h, run } = await rollbacks({
+      "POST /applications/app-web-uuid/rollback": {
+        status: 500,
+        json: { message: "no" },
+      },
+    });
+    await expect(run()).rejects.toBeTruthy();
+    expect(h.mock.activities).toEqual([]);
+  });
+
+  it("a recordActivity failure never fails a rollback or a deploy by tag", async () => {
+    const { harness: h, id, run } = await rollbacks(tagAnswers(applications));
+    vi.spyOn(h.mock.ctx.hosts, "recordActivity").mockRejectedValue(
+      new Error(`${LIFECYCLE_TOKEN} leaked into an error`),
+    );
+    const warn = vi.spyOn(h.mock.ctx.log, "warn");
+    expect((await run()).status).toBe("success");
+    const tagged = await h.mock.ctx.operations.run("coolify.deploy-by-tag", {
+      input: { connectionId: String(id), tag: "prod" },
+    });
+    expect(tagged.status).toBe("success");
+    expect(warn).toHaveBeenCalledTimes(3);
+    for (const [line] of warn.mock.calls) {
+      expect(String(line)).toMatch(/activity/);
+      expect(String(line)).not.toContain(LIFECYCLE_TOKEN);
+    }
+  });
+
+  it("a preview deploy records Deployed <app> with its pull request", async () => {
+    const { harness: h, id } = await deploys({ overrides: previewAnswers() });
+    await h.mock.ctx.operations.run("coolify.preview-create", {
+      input: {
+        connectionId: String(id),
+        uuid: "app-web-uuid",
+        pullRequestId: 42,
+      },
+    });
+    expect(h.mock.activities).toEqual([
+      {
+        hostId: HOST_ID,
+        type: "coolify_deploy",
+        hostName: "Deployed web (pull request #42)",
+      },
+    ]);
+  });
+
+  it("a preview deploy Coolify refuses records nothing", async () => {
+    const { harness: h, id } = await deploys({
+      overrides: {
+        ...previewAnswers(),
+        "POST /applications/app-web-uuid/previews": {
+          status: 500,
+          json: { message: "no" },
+        },
+      },
+    });
+    await expect(
+      h.mock.ctx.operations.run("coolify.preview-create", {
+        input: {
+          connectionId: String(id),
+          uuid: "app-web-uuid",
+          pullRequestId: 42,
+        },
+      }),
+    ).rejects.toBeTruthy();
+    expect(h.mock.activities).toEqual([]);
   });
 });

@@ -1517,7 +1517,8 @@
   },
   "activity": {
     "shell": "Opened shell in {{name}}",
-    "deploy": "Deployed {{name}}"
+    "deploy": "Deployed {{name}}",
+    "deployPreview": "Deployed {{name}} (pull request #{{pullRequestId}})"
   },
   "deployments": {
     "loading": "Loading deployments…",

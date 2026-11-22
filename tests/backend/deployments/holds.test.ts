@@ -61,7 +61,11 @@ function racingConnection() {
   } as unknown as Resources;
   const ctx = { rbac: { has: async () => true } } as unknown as PluginContext;
   return {
-    deployments: createDeployments(ctx, { connections, resources }),
+    deployments: createDeployments(ctx, {
+      connections,
+      resources,
+      deployed: async () => {},
+    }),
     sent,
   };
 }

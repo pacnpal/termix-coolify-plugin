@@ -338,6 +338,14 @@ The **Coolify** sidebar button shows a badge with the number of running deployme
 read once a minute. It is hidden at zero and without **View Coolify**. The panel, the badge, the tab and
 the action `coolify.attention` share one cached read per connection, so they add no Coolify requests.
 
+### Termix's recent activity
+
+Termix's own recent activity list shows what you did on a Linked host: "Opened shell in <app>" for a
+container shell or database console, and "Deployed <app>" for every deploy Coolify starts there, however
+you started it: deploy, deploy by tag (one entry per resource), rollback, or a pull request preview
+("Deployed <app> (pull request #<n>)"). Resources on a server with no Linked host, or on a host you can't
+connect to, add nothing, and an entry opens the Coolify tab. See [Permissions](permissions.md#recent-activity).
+
 ### Rollback
 
 **Roll back** in the Deployments view lists the images Coolify can roll the application back to (on its
