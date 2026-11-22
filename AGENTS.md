@@ -301,7 +301,10 @@ aren't obvious from the code, and anything that has bitten you before.
   remounts it and the old host's answers land on an unmounted view. It reads the connection (access,
   revision), then `useResources` filtered to the server. Actions need `coolify.operate` and
   `OPERATE_ACCESS`; Shell uses `openShellTab` (ShellTab.tsx, shared with CoolifyTab), Logs draws
-  `LogsView` in the panel, Restart and Deploy confirm and then call `useLifecycle().run`. Tests draw the
+  `LogsView` in the panel, Restart and Deploy confirm and then call `useLifecycle().run` only while the
+  view is mounted and on the target the confirm was opened for (`mounted`/`current` refs, as RollbackView).
+  Refresh (and `isVisible` turning true) bumps `attempt` (reads the connection again) and reloads the
+  list. Tests draw the
   registered component through `renderCompanion` (tests/frontend/helpers.tsx): the SDK test host has no
   companion renderer, and SDK hooks only work inside a registered component.
   `views/SshTerminalCheck.tsx` has the Open Plugins button (`useTabs().openSingletonTab("plugins")`) used

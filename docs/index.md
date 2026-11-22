@@ -148,6 +148,11 @@ resources only. When the terminal moves to another host, the panel starts empty 
 host's resources. A terminal on a host that isn't linked has no Coolify panel, and nothing is asked of
 Coolify.
 
+**Refresh resources** in the panel's header reads the list again, past the cache, which also recovers
+from a failed read. Showing the panel again (back from a background tab, or opened again) reads it too. A
+**Restart** or **Deploy** you confirm after the terminal moved to another host, or after the panel closed,
+runs nothing.
+
 ## Command palette
 
 The **Coolify** group in the command palette has:

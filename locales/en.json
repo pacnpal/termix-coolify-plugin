@@ -1735,6 +1735,8 @@
     "loading": "Loading this server's resources",
     "empty": "No resources run on this server.",
     "loadFailed": "This server's resources could not be loaded.",
+    "heading": "Resources on this server",
+    "refresh": "Refresh resources",
     "shell": "Open a shell in {{name}}",
     "logs": "Logs of {{name}}",
     "restart": "Restart {{name}}",

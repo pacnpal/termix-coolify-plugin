@@ -184,6 +184,8 @@ export function renderCompanion(
   return {
     view,
     rerender: (next: CompanionProps) => view.rerender(draw(next)),
+    /** Takes the companion away, as closing it does; the surface stays. */
+    close: () => view.rerender(<SurfaceScope>{null}</SurfaceScope>),
   };
 }
 let companionRenders = 0;

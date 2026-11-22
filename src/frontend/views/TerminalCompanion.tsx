@@ -1,5 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import { Rocket, RotateCw, ScrollText, SquareTerminal } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Boxes,
+  Rocket,
+  RotateCw,
+  ScrollText,
+  SquareTerminal,
+} from "lucide-react";
 import {
   usePermission,
   usePluginApi,
@@ -16,6 +22,7 @@ import {
   NoticePanel,
   PanelList,
   PanelShell,
+  RefreshButton,
   StatusBadge,
   useConfirm,
 } from "@termix-ssh/plugin-sdk/ui";
@@ -73,6 +80,18 @@ function ServerResources({
   const [connection, setConnection] = useState<Connection | null>(null);
   const [connectionFailed, setConnectionFailed] = useState(false);
   const [logsOf, setLogsOf] = useState<string | null>(null);
+  // Bumped by Refresh and by showing the panel again: reads the connection
+  // again, so a changed grant or a failed first read recovers.
+  const [attempt, setAttempt] = useState(0);
+  // False once this view is gone. The view is keyed by the host's link, so
+  // a terminal that moved to another host unmounts it too.
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   // The connection says how this user may use it (owner or grant level) and
   // its revision, which keys the shared resource list.
@@ -80,12 +99,16 @@ function ServerResources({
     let live = true;
     api
       .getConnection(link.connectionId)
-      .then((c) => live && setConnection(c))
+      .then((c) => {
+        if (!live) return;
+        setConnection(c);
+        setConnectionFailed(false);
+      })
       .catch(() => live && setConnectionFailed(true));
     return () => {
       live = false;
     };
-  }, [api, link.connectionId]);
+  }, [api, link.connectionId, attempt]);
 
   const resources = useResources(
     api,
@@ -96,6 +119,27 @@ function ServerResources({
     link.connectionId,
     () => void resources.reload(true),
   );
+  // What a confirm was opened for: this server under this target.
+  const target = `${link.connectionId}:${link.serverUuid}:${connection?.revision ?? ""}`;
+  const current = useRef(target);
+  current.current = target;
+
+  /** Reads again; `fresh` skips the backend's short resource cache. */
+  function refresh(fresh: boolean) {
+    setAttempt((n) => n + 1);
+    if (connection) void resources.reload(fresh);
+  }
+
+  // Shown again after a background tab or a closed panel: read again, so
+  // the list is never older than the last time it was hidden.
+  const latestRefresh = useRef(refresh);
+  latestRefresh.current = refresh;
+  const wasVisible = useRef(isVisible);
+  useEffect(() => {
+    if (isVisible && !wasVisible.current) latestRefresh.current(false);
+    wasVisible.current = isVisible;
+  }, [isVisible]);
+
   // The same rule as the resource detail's canOperate.
   const canOperate =
     mayOperate && !!connection && OPERATE_ACCESS.has(connection.access);
@@ -111,6 +155,7 @@ function ServerResources({
   );
 
   async function confirmThen(resource: Resource, verb: "restart" | "deploy") {
+    const forTarget = target;
     const key = `terminalCompanion.${verb}Confirm`;
     const ok = await confirm({
       title: t(`${key}.title`, { name: resource.name }),
@@ -118,16 +163,10 @@ function ServerResources({
       confirmLabel: t(`${key}.confirm`),
       destructive: false,
     });
-    if (ok) await lifecycle.run(resource, verb);
-  }
-
-  if (connectionFailed) {
-    return (
-      <NoticePanel
-        tone="destructive"
-        title={t("terminalCompanion.loadFailed")}
-      />
-    );
+    // The terminal moved to another host, the panel closed or the target
+    // changed while the confirm was open: what was confirmed is gone.
+    if (!ok || !mounted.current || current.current !== forTarget) return;
+    await lifecycle.run(resource, verb);
   }
 
   const open = logsOf ? rows.find((r) => r.uuid === logsOf) : undefined;
@@ -154,69 +193,105 @@ function ServerResources({
     );
   }
 
-  if (resources.error) {
-    return <NoticePanel tone="destructive" title={resources.error} />;
-  }
-  if (!resources.list) {
-    return <LoadingState label={t("terminalCompanion.loading")} />;
+  let body;
+  if (connectionFailed && !connection) {
+    body = (
+      <NoticePanel
+        tone="destructive"
+        title={t("terminalCompanion.loadFailed")}
+      />
+    );
+  } else if (resources.error) {
+    body = <NoticePanel tone="destructive" title={resources.error} />;
+  } else if (!resources.list) {
+    body = <LoadingState label={t("terminalCompanion.loading")} />;
+  } else {
+    body = list();
   }
 
   return (
-    <PanelList
-      empty={<EmptyState icon={Rocket} title={t("terminalCompanion.empty")} />}
-    >
-      {rows.map((r, i) => (
-        <ListRow
-          key={r.uuid}
-          stripe={i}
-          title={r.name}
-          className={isPart(r) ? "pl-4" : undefined}
-          meta={kindLabel(t, r.kind)}
-          badges={
-            <StatusBadge tone={HEALTH_TONE[resourceHealth(r.status)]}>
-              {healthLabel(t, r.status)}
-            </StatusBadge>
-          }
-          trailing={
-            canOperate && connection ? (
-              <div className="flex items-center gap-0.5">
-                <ListRowAction
-                  label={t("terminalCompanion.shell", { name: r.name })}
-                  aria-label={t("terminalCompanion.shell", { name: r.name })}
-                  onClick={() => openShellTab(tabs, t, connection, r, "shell")}
-                >
-                  <SquareTerminal className="size-3.5" />
-                </ListRowAction>
-                <ListRowAction
-                  label={t("terminalCompanion.logs", { name: r.name })}
-                  aria-label={t("terminalCompanion.logs", { name: r.name })}
-                  onClick={() => setLogsOf(r.uuid)}
-                >
-                  <ScrollText className="size-3.5" />
-                </ListRowAction>
-                <ListRowAction
-                  label={t("terminalCompanion.restart", { name: r.name })}
-                  aria-label={t("terminalCompanion.restart", { name: r.name })}
-                  disabled={lifecycle.busy !== null}
-                  onClick={() => void confirmThen(r, "restart")}
-                >
-                  <RotateCw className="size-3.5" />
-                </ListRowAction>
-                {!isPart(r) && (
-                  <ListRowAction
-                    label={t("terminalCompanion.deploy", { name: r.name })}
-                    aria-label={t("terminalCompanion.deploy", { name: r.name })}
-                    disabled={lifecycle.busy !== null}
-                    onClick={() => void confirmThen(r, "deploy")}
-                  >
-                    <Rocket className="size-3.5" />
-                  </ListRowAction>
-                )}
-              </div>
-            ) : undefined
-          }
+    <PanelShell
+      icon={<Boxes className="size-4" />}
+      title={t("terminalCompanion.heading")}
+      actions={
+        <RefreshButton
+          onClick={() => refresh(true)}
+          loading={resources.loading}
+          label={t("terminalCompanion.refresh")}
         />
-      ))}
-    </PanelList>
+      }
+      scroll={false}
+    >
+      {body}
+    </PanelShell>
   );
+
+  function list() {
+    return (
+      <PanelList
+        empty={
+          <EmptyState icon={Rocket} title={t("terminalCompanion.empty")} />
+        }
+      >
+        {rows.map((r, i) => (
+          <ListRow
+            key={r.uuid}
+            stripe={i}
+            title={r.name}
+            className={isPart(r) ? "pl-4" : undefined}
+            meta={kindLabel(t, r.kind)}
+            badges={
+              <StatusBadge tone={HEALTH_TONE[resourceHealth(r.status)]}>
+                {healthLabel(t, r.status)}
+              </StatusBadge>
+            }
+            trailing={
+              canOperate && connection ? (
+                <div className="flex items-center gap-0.5">
+                  <ListRowAction
+                    label={t("terminalCompanion.shell", { name: r.name })}
+                    aria-label={t("terminalCompanion.shell", { name: r.name })}
+                    onClick={() =>
+                      openShellTab(tabs, t, connection, r, "shell")
+                    }
+                  >
+                    <SquareTerminal className="size-3.5" />
+                  </ListRowAction>
+                  <ListRowAction
+                    label={t("terminalCompanion.logs", { name: r.name })}
+                    aria-label={t("terminalCompanion.logs", { name: r.name })}
+                    onClick={() => setLogsOf(r.uuid)}
+                  >
+                    <ScrollText className="size-3.5" />
+                  </ListRowAction>
+                  <ListRowAction
+                    label={t("terminalCompanion.restart", { name: r.name })}
+                    aria-label={t("terminalCompanion.restart", {
+                      name: r.name,
+                    })}
+                    disabled={lifecycle.busy !== null}
+                    onClick={() => void confirmThen(r, "restart")}
+                  >
+                    <RotateCw className="size-3.5" />
+                  </ListRowAction>
+                  {!isPart(r) && (
+                    <ListRowAction
+                      label={t("terminalCompanion.deploy", { name: r.name })}
+                      aria-label={t("terminalCompanion.deploy", {
+                        name: r.name,
+                      })}
+                      disabled={lifecycle.busy !== null}
+                      onClick={() => void confirmThen(r, "deploy")}
+                    >
+                      <Rocket className="size-3.5" />
+                    </ListRowAction>
+                  )}
+                </div>
+              ) : undefined
+            }
+          />
+        ))}
+      </PanelList>
+    );
+  }
 }

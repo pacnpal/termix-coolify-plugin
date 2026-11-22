@@ -178,14 +178,60 @@ async function show(
   permissions = OPERATE,
 ) {
   const { component } = await activateCapturing(api, permissions);
-  const { view, rerender } = renderCompanion(rendered!, component, props(h));
+  const { view, rerender, close } = renderCompanion(
+    rendered!,
+    component,
+    props(h),
+  );
   return {
     view,
     rerender: (next: PluginHostRecord | undefined) => rerender(props(next)),
+    /** The same host, shown or hidden (a background tab, a closed panel). */
+    setVisible: (isVisible: boolean) => rerender({ ...props(h), isVisible }),
+    close,
     api,
     r: rendered!,
   };
 }
+
+/** Resources answers in turn: each list call takes the next one. */
+function sequenceClient(
+  answers: Array<unknown | Error>,
+  access = "owner",
+): ReturnType<typeof client> {
+  let call = 0;
+  return stubClient({
+    get: async (url) => {
+      if (/^\/connections\/1\/resources(\?|$)/.test(url)) {
+        const answer = answers[Math.min(call++, answers.length - 1)];
+        if (answer instanceof Error) throw answer;
+        return { data: answer };
+      }
+      if (url === "/connections/1") {
+        return { data: { ...connection, access } };
+      }
+      return { data: {} };
+    },
+  });
+}
+
+/** resourceAnswer plus a new application, worker, on vps1. */
+const withWorker = {
+  ...resourceAnswer,
+  rows: [
+    ...resourceRows,
+    {
+      ...resourceRows.find((r) => r.name === "web")!,
+      uuid: "app-worker-uuid",
+      name: "worker",
+    },
+  ],
+};
+
+const listCalls = (api: ReturnType<typeof client>) =>
+  api.get.mock.calls.filter(([url]) =>
+    /^\/connections\/1\/resources(\?|$)/.test(String(url)),
+  );
 
 const label = (text: string, name: string) => text.replace("{{name}}", name);
 
@@ -408,6 +454,82 @@ describe("terminal companion panel", () => {
       within(view.container).getByRole("button", { name: L.back }),
     );
     await within(view.container).findByText("main-db");
+  });
+
+  it("after a failed load, Refresh shows the list", async () => {
+    const api = sequenceClient([new Error("down"), resourceAnswer]);
+    const { view } = await show(vps1, api);
+    await within(view.container).findByText(locales.resources.loadFailed);
+    fireEvent.click(
+      within(view.container).getByRole("button", { name: L.refresh }),
+    );
+    await within(view.container).findByText("web");
+    expect(listCalls(api).at(-1)?.[0]).toBe(
+      "/connections/1/resources?refresh=true",
+    );
+  });
+
+  it("with view-only access, Refresh picks up a new resource", async () => {
+    const api = sequenceClient([resourceAnswer, withWorker], "view");
+    const { view } = await show(vps1, api);
+    await within(view.container).findByText("web");
+    expect(within(view.container).queryByText("worker")).toBeNull();
+    fireEvent.click(
+      within(view.container).getByRole("button", { name: L.refresh }),
+    );
+    await within(view.container).findByText("worker");
+  });
+
+  it("reads the list again when the panel is shown again", async () => {
+    const api = sequenceClient([resourceAnswer, withWorker]);
+    const { view, setVisible } = await show(vps1, api);
+    await within(view.container).findByText("web");
+    setVisible(false);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    // Hidden: nothing is read.
+    expect(listCalls(api)).toHaveLength(1);
+    setVisible(true);
+    await within(view.container).findByText("worker");
+    expect(listCalls(api)).toHaveLength(2);
+  });
+
+  it("a confirm accepted after the host changed runs nothing", async () => {
+    const { view, rerender, api } = await show(vps1);
+    fireEvent.click(
+      await within(view.container).findByRole("button", {
+        name: label(L.restart, "web"),
+      }),
+    );
+    const dialog = await screen.findByRole("alertdialog");
+    rerender(edge);
+    await within(view.container).findByText("edge-api");
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: L.restartConfirm.confirm }),
+    );
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it("a confirm accepted after the panel closed runs nothing", async () => {
+    const { view, close, api } = await show(vps1);
+    fireEvent.click(
+      await within(view.container).findByRole("button", {
+        name: label(L.deploy, "web"),
+      }),
+    );
+    const dialog = await screen.findByRole("alertdialog");
+    close();
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: L.deployConfirm.confirm }),
+    );
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(api.post).not.toHaveBeenCalled();
   });
 
   it("covers every fixture row's server", () => {
