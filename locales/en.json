@@ -46,6 +46,11 @@
       "failed": "The shell could not be opened."
     }
   },
+  "toolbarStatus": {
+    "title": "Container status",
+    "gone": "Gone",
+    "goneHint": "This container is no longer in Coolify"
+  },
   "hostSection": {
     "title": "Coolify",
     "linked": "Linked to Coolify server {{server}} on {{connection}}.",

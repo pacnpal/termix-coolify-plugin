@@ -194,6 +194,11 @@ on the server's Linked host, running `docker exec` into the container.
 - If the connection's address, token or Access token changes while a shell is being opened, it stops and asks
   you to open it again, so a shell never reaches a container of another Coolify.
 - Without the SSH Terminal plugin the tab shows the command to copy and run in a terminal on the server.
+- The terminal's toolbar shows the container's name and status: Running, Degraded, Stopped or Deploying,
+  read the same way as in the Resources list (Coolify's `exited` is Stopped). The name is the container the
+  shell connected to, so two shells in one service each show their own, and picking another container
+  changes it. The status comes from the plugin's resource list, read 20 seconds after each answer for each
+  connection however many shell tabs are open, not from a call per tab. A resource that is no longer in Coolify shows **Gone** instead of its last status.
 
 Shells and consoles are checked like deploys: **Operate Coolify resources**, and the connection's owner or an
 operate or configure grant. They also need your own **connect** access to the Linked host, because a shell on

@@ -16,6 +16,7 @@ import type {
 import { createApi } from "./api";
 import { forgetPreview, linkOf, useLinkedRow } from "./linked";
 import { keepSocketTarget } from "./socket";
+import { registerToolbarStatus } from "./toolbar-status";
 import { ActivityPanel } from "./views/ActivityPanel";
 import { ConnectStep } from "./views/ConnectStep";
 import { CoolifyTab } from "./views/CoolifyTab";
@@ -69,6 +70,8 @@ export function activate(app: TermixApp): void {
     titleKey: "shellTab.title",
     hostless: true,
   });
+  // The container's name and status in a coolify-shell tab's toolbar.
+  registerToolbarStatus(app);
   // Beside a terminal on a Linked host: that server's resources, with Shell,
   // Logs, Restart and Deploy. Other hosts get no panel and no request.
   app.registerCompanion("coolify", TerminalCompanion, {
