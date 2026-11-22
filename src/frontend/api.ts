@@ -159,6 +159,36 @@ export interface CancelAnswer {
   pending: boolean;
 }
 
+/** One pull request preview of an application, with its newest build. */
+export interface Preview {
+  pullRequestId: number;
+  uuid: string;
+  pullRequestUrl: string | null;
+  gitType: string | null;
+  status: string;
+  domains: string[];
+  composeDomains: { name: string; domain: string | null }[];
+  dockerTag: string | null;
+  lastOnlineAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  deploymentUuid: string | null;
+  deploymentStatus: string | null;
+}
+
+/** What deploying a preview sends; the backend checks each value again. */
+export interface PreviewCreateInput {
+  pullRequestId: number;
+  pullRequestUrl?: string;
+  gitType?: string;
+}
+
+/** A preview change's answer; pending waits for an approval. */
+export interface PreviewAnswer {
+  pending: boolean;
+  deploymentUuid: string | null;
+}
+
 /** GET /mcp: where the plugin's MCP endpoint is. */
 export interface McpInfo {
   endpoint: string;
@@ -746,6 +776,74 @@ export function createApi(api: PluginApiClient) {
         status: typeof data?.status === "string" ? data.status : null,
         pending: data?.status === "pending",
       };
+    },
+    /** An application's pull request previews. */
+    async listPreviews(id: number, uuid: string): Promise<Preview[]> {
+      const data = (
+        await api.get<{ rows?: unknown }>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/previews`,
+        )
+      ).data;
+      return Array.isArray(data?.rows) ? (data.rows as Preview[]) : [];
+    },
+    /** Deploys the preview of a pull request; the backend runs it as an action. */
+    async createPreview(
+      id: number,
+      uuid: string,
+      input: PreviewCreateInput,
+    ): Promise<PreviewAnswer> {
+      const data = (
+        await api.post<{ status?: unknown; deploymentUuid?: unknown }>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/previews`,
+          input,
+        )
+      ).data;
+      return {
+        pending: data?.status === "pending",
+        deploymentUuid:
+          typeof data?.deploymentUuid === "string" ? data.deploymentUuid : null,
+      };
+    },
+    /** Replaces a preview's domains (checked before it is called). */
+    async setPreviewDomains(
+      id: number,
+      uuid: string,
+      pullRequestId: number,
+      domains: string,
+    ): Promise<PreviewAnswer> {
+      const data = (
+        await api.patch<{ status?: unknown }>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/previews/${pullRequestId}`,
+          { domains },
+        )
+      ).data;
+      return { pending: data?.status === "pending", deploymentUuid: null };
+    },
+    /** Deletes a preview; the backend runs it as a destructive action. */
+    async deletePreview(
+      id: number,
+      uuid: string,
+      pullRequestId: number,
+    ): Promise<PreviewAnswer> {
+      const data = (
+        await api.delete<{ status?: unknown }>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/previews/${pullRequestId}`,
+        )
+      ).data;
+      return { pending: data?.status === "pending", deploymentUuid: null };
+    },
+    /** A preview's container logs, redacted by the backend. */
+    async previewLogs(
+      id: number,
+      uuid: string,
+      pullRequestId: number,
+    ): Promise<string> {
+      const data = (
+        await api.get<{ text?: unknown }>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/previews/${pullRequestId}/logs`,
+        )
+      ).data;
+      return typeof data?.text === "string" ? data.text : "";
     },
     async listStatusPages(connectionId: number): Promise<StatusPageList> {
       const data = (

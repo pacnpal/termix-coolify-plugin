@@ -215,6 +215,8 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
 
   return {
     holds,
+    open,
+    application,
 
     /** One page of an application's deployments, newest first. */
     async list(

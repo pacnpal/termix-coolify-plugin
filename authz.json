@@ -279,6 +279,88 @@
       "allowed": "any",
       "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify (the application can't be read); there is no reachable Coolify in the authz run."
     },
+    "GET /plugin-api/coolify/connections/:id/resources/:uuid/previews": {
+      "access": "user",
+      "permission": "coolify.view",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-resource-uuid"
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify (the application can't be read); there is no reachable Coolify in the authz run."
+    },
+    "POST /plugin-api/coolify/connections/:id/resources/:uuid/previews": {
+      "access": "user",
+      "permission": "coolify.operate",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-resource-uuid"
+      },
+      "body": {
+        "pullRequestId": 42
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify (the application can't be read); there is no reachable Coolify in the authz run."
+    },
+    "PATCH /plugin-api/coolify/connections/:id/resources/:uuid/previews/:pullRequestId": {
+      "access": "user",
+      "permission": "coolify.operate",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-resource-uuid",
+        "pullRequestId": "=42"
+      },
+      "body": {
+        "domains": "https://pr-42.authz.invalid"
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify (the application can't be read); there is no reachable Coolify in the authz run."
+    },
+    "DELETE /plugin-api/coolify/connections/:id/resources/:uuid/previews/:pullRequestId": {
+      "access": "user",
+      "permission": "coolify.operate",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-resource-uuid",
+        "pullRequestId": "=42"
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify (the application can't be read); there is no reachable Coolify in the authz run."
+    },
+    "GET /plugin-api/coolify/connections/:id/resources/:uuid/previews/:pullRequestId/logs": {
+      "access": "user",
+      "permission": "coolify.operate",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-resource-uuid",
+        "pullRequestId": "=42"
+      },
+      "query": {
+        "lines": "10"
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify (the application can't be read); there is no reachable Coolify in the authz run."
+    },
     "POST /plugin-api/coolify/connections/:id/resources/:uuid/shell": {
       "access": "user",
       "permission": "coolify.operate",

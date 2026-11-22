@@ -79,6 +79,31 @@ export interface DeploymentDto {
   finishedAt: string | null;
 }
 
+/** One service's domains on a Docker Compose preview. */
+export interface ComposeDomainDto {
+  name: string;
+  domain: string | null;
+}
+
+/**
+ * One pull request preview of an application. Coolify's domain port
+ * overrides and anything else it sends are left out.
+ */
+export interface PreviewDto {
+  pullRequestId: number;
+  uuid: string;
+  pullRequestUrl: string | null;
+  gitType: string | null;
+  /** The preview's containers, as Coolify reports a resource's status. */
+  status: string;
+  domains: string[];
+  composeDomains: ComposeDomainDto[];
+  dockerTag: string | null;
+  lastOnlineAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
 /** A Coolify team as the plugin keeps it. Ids are strings, so instanceKey reads the same everywhere. */
 export interface TeamDto {
   id: string;
@@ -457,6 +482,27 @@ export function toDeployment(input: unknown, appUuid?: string): DeploymentDto {
 export function toDeploymentLog(input: unknown): string | null {
   const logs = obj(input).logs;
   return typeof logs === "string" ? logs : null;
+}
+
+/** One pull request preview, as `GET /applications/{uuid}/previews` lists it. */
+export function toPreview(input: unknown): PreviewDto {
+  const raw = obj(input);
+  return {
+    pullRequestId: num(raw.pull_request_id) ?? 0,
+    uuid: str(raw.uuid),
+    pullRequestUrl: strOrNull(raw.pull_request_html_url),
+    gitType: strOrNull(raw.git_type),
+    status: str(raw.status, "unknown"),
+    domains: fqdns(raw.domains ?? raw.fqdn),
+    composeDomains: list(raw.docker_compose_domains)
+      .map(obj)
+      .filter((d) => typeof d.name === "string" && d.name !== "")
+      .map((d) => ({ name: str(d.name), domain: strOrNull(d.domain) })),
+    dockerTag: strOrNull(raw.docker_registry_image_tag),
+    lastOnlineAt: strOrNull(raw.last_online_at),
+    createdAt: strOrNull(raw.created_at),
+    updatedAt: strOrNull(raw.updated_at),
+  };
 }
 
 export function toTeam(input: unknown): TeamDto {

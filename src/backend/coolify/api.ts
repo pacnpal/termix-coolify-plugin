@@ -8,6 +8,7 @@ import {
   toDeploymentLog,
   toKey,
   toPart,
+  toPreview,
   toProject,
   toSentinelSettings,
   toServer,
@@ -16,6 +17,7 @@ import {
   toTeam,
   type DeploymentDto,
   type KeyDto,
+  type PreviewDto,
   type ProjectDto,
   type ResourceDto,
   type ResourceKind,
@@ -396,6 +398,106 @@ export function createCoolifyApi(http: CoolifyHttp) {
           ? (body as { status?: unknown }).status
           : undefined;
       return { status: typeof status === "string" ? status : null };
+    },
+
+    /** An application's pull request previews, newest pull request first. */
+    async previews(
+      appUuid: string,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<PreviewDto[]> {
+      const body = await call(
+        op("list-preview-deployments-by-application-uuid", { uuid: appUuid }),
+        { beforeFetch: opts.beforeFetch },
+      );
+      return rows(body, "previews").map(toPreview);
+    },
+
+    /**
+     * Opens (or redeploys) a pull request preview and queues its
+     * deployment; the deployment's uuid when Coolify names one.
+     */
+    async createPreview(
+      appUuid: string,
+      body: Record<string, unknown>,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<{ deploymentUuid: string | null; preview: PreviewDto | null }> {
+      const answer = await call<unknown>(
+        op("create-preview-deployment-by-application-uuid", { uuid: appUuid }),
+        { body, beforeFetch: opts.beforeFetch },
+      );
+      const raw =
+        answer && typeof answer === "object"
+          ? (answer as Record<string, unknown>)
+          : {};
+      return {
+        deploymentUuid: text(raw.deployment_uuid),
+        preview:
+          raw.preview && typeof raw.preview === "object"
+            ? toPreview(raw.preview)
+            : null,
+      };
+    },
+
+    /** Deletes a preview: Coolify queues stopping and removing it. */
+    async deletePreview(
+      appUuid: string,
+      pullRequestId: number,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<void> {
+      await call(
+        op("delete-preview-deployment-by-pull-request-id", {
+          uuid: appUuid,
+          pull_request_id: String(pullRequestId),
+        }),
+        { beforeFetch: opts.beforeFetch },
+      );
+    },
+
+    /** Replaces a preview's domains (checked by the caller). */
+    async updatePreviewDomains(
+      appUuid: string,
+      pullRequestId: number,
+      body: Record<string, unknown>,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<void> {
+      await call(
+        op("update-preview-domains-by-pull-request-id", {
+          uuid: appUuid,
+          pull_request_id: String(pullRequestId),
+        }),
+        { body, beforeFetch: opts.beforeFetch },
+      );
+    },
+
+    /**
+     * A preview's container logs. Needs read:sensitive on the token. They
+     * hold secrets: previews/service.ts redacts them before they go anywhere.
+     */
+    async previewLogs(
+      appUuid: string,
+      pullRequestId: number,
+      opts: {
+        lines: number;
+        timestamps?: boolean;
+        beforeFetch?: () => Promise<void>;
+      },
+    ): Promise<string> {
+      const body = await call<unknown>(
+        op("get-preview-application-logs-by-pull-request-id", {
+          uuid: appUuid,
+          pull_request_id: String(pullRequestId),
+        }),
+        {
+          query: {
+            lines: opts.lines,
+            show_timestamps: opts.timestamps ? true : undefined,
+          },
+          beforeFetch: opts.beforeFetch,
+        },
+      );
+      if (typeof body === "string") return body;
+      const logs = (body as { logs?: unknown } | null)?.logs;
+      return typeof logs === "string" ? logs : "";
     },
 
     async patchSentinel(

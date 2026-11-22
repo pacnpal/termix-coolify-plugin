@@ -383,7 +383,8 @@
       "appUuid": {
         "label": "Application",
         "description": "The uuid of an application. Only applications have deployments.",
-        "optional": "The uuid of the application the deployment belongs to. Leave it empty to accept any of the connection's applications."
+        "optional": "The uuid of the application the deployment belongs to. Leave it empty to accept any of the connection's applications.",
+        "previews": "The uuid of an application. Only applications have pull request previews."
       },
       "skip": {
         "label": "Skip",
@@ -402,6 +403,38 @@
       },
       "buildLog": {
         "label": "Build log"
+      },
+      "pullRequestId": {
+        "label": "Pull request",
+        "description": "The pull request's number."
+      },
+      "pullRequestUrl": {
+        "label": "Pull request URL",
+        "description": "The pull request's page, an http or https URL."
+      },
+      "gitType": {
+        "label": "Git provider",
+        "description": "Where the pull request is. Needed unless the application uses a GitHub or GitLab App source.",
+        "github": "GitHub",
+        "gitlab": "GitLab",
+        "gitea": "Gitea",
+        "bitbucket": "Bitbucket"
+      },
+      "commit": {
+        "label": "Commit",
+        "description": "The commit SHA to deploy. A new Bitbucket preview needs it."
+      },
+      "dockerTag": {
+        "label": "Docker tag",
+        "description": "The image tag, for an application built from a Docker image."
+      },
+      "previewDomains": {
+        "label": "Domains",
+        "description": "Comma separated http or https URLs, like https://pr-42.example.com:3000. Leave empty for a Docker Compose application."
+      },
+      "composeDomains": {
+        "label": "Compose domains",
+        "description": "For a Docker Compose application: [{ \"name\": \"<service>\", \"domain\": \"https://…\" }]. An empty domain clears that service's."
       }
     },
     "listConnections": {
@@ -656,6 +689,26 @@
     "deploymentCancel": {
       "title": "Cancel a Coolify deployment",
       "description": "Cancels a queued or running deployment. One that already ended can't be cancelled."
+    },
+    "previewList": {
+      "title": "List an application's pull request previews",
+      "description": "Lists the pull request previews of a Coolify application, each with its newest build."
+    },
+    "previewCreate": {
+      "title": "Deploy a pull request preview",
+      "description": "Opens the preview of a pull request, or redeploys it when it exists, and queues its deployment."
+    },
+    "previewDomains": {
+      "title": "Change a pull request preview's domains",
+      "description": "Replaces a preview's domains. Each one is checked before it is sent."
+    },
+    "previewDelete": {
+      "title": "Delete a pull request preview",
+      "description": "Coolify cancels its deployments, stops its containers and removes its volumes and networks."
+    },
+    "previewLogs": {
+      "title": "Read a pull request preview's logs",
+      "description": "The preview's container logs through Coolify, with secrets masked."
     }
   },
   "connections": {
@@ -879,7 +932,8 @@
       "logs": "Logs",
       "stats": "Stats",
       "traffic": "Traffic",
-      "deployments": "Deployments"
+      "deployments": "Deployments",
+      "previews": "Previews"
     },
     "fields": {
       "type": "Type",
@@ -1437,5 +1491,83 @@
     "cancelPending": "Waiting for approval to cancel the deployment.",
     "cancelFailed": "The deployment could not be cancelled.",
     "refresh": "Refresh deployments"
+  },
+  "previews": {
+    "loading": "Loading previews…",
+    "empty": "No pull request previews.",
+    "failed": "The previews could not be read.",
+    "unsupported": "This Coolify doesn't have pull request previews in its API. Update Coolify to 4.7.5 or newer.",
+    "retry": "Try again",
+    "refresh": "Refresh previews",
+    "title": "Pull request #{{id}}",
+    "noAccess": "Deploying, deleting and changing previews, and their logs, need the Operate Coolify permission and operate access to this connection.",
+    "back": "All previews",
+    "noBuild": "No recent build",
+    "create": {
+      "open": "Deploy a preview",
+      "pullRequestId": "Pull request number",
+      "pullRequestUrl": "Pull request URL (optional)",
+      "gitType": "Git provider",
+      "gitTypeAuto": "From the application's source",
+      "submit": "Deploy preview",
+      "cancel": "Cancel",
+      "invalidId": "Enter a pull request number from 1 to 2147483647.",
+      "invalidUrl": "Enter an http or https URL, or leave it empty.",
+      "confirm": {
+        "title": "Deploy the preview of pull request #{{id}}?",
+        "description": "Coolify builds and runs the pull request's code as a preview of this application.",
+        "confirm": "Deploy preview"
+      },
+      "done": "Deploying the preview of pull request #{{id}}.",
+      "pending": "Waiting for approval to deploy the preview.",
+      "failed": "The preview could not be deployed."
+    },
+    "domains": {
+      "edit": "Domains",
+      "label": "Domains for pull request #{{id}}",
+      "hint": "Comma separated, like https://pr-42.example.com:3000",
+      "save": "Save domains",
+      "cancel": "Cancel",
+      "confirm": {
+        "title": "Change the domains of pull request #{{id}}?",
+        "description": "Coolify answers the preview at these domains: {{domains}}",
+        "confirm": "Change domains"
+      },
+      "done": "Domains changed.",
+      "pending": "Waiting for approval to change the domains.",
+      "failed": "The domains could not be changed.",
+      "errors": {
+        "empty": "Enter at least one domain.",
+        "too-long": "The list is too long.",
+        "too-many": "At most 20 domains.",
+        "scheme": "Each domain must start with http:// or https://.",
+        "credentials": "A domain can't carry a user name or password.",
+        "query": "A domain can't have a query or a fragment.",
+        "not-url": "Each domain must be a URL.",
+        "host": "Each domain needs a DNS host name.",
+        "path": "A domain's path may hold only letters, digits and . _ ~ -.",
+        "duplicate": "A domain is listed twice."
+      }
+    },
+    "delete": {
+      "action": "Delete",
+      "confirm": {
+        "title": "Delete the preview of pull request #{{id}}?",
+        "description": "Coolify cancels its deployments, stops its containers and removes its volumes and networks. This can't be undone.",
+        "confirm": "Delete preview"
+      },
+      "done": "Deleting the preview of pull request #{{id}}.",
+      "pending": "Waiting for approval to delete the preview.",
+      "failed": "The preview could not be deleted."
+    },
+    "buildLog": "Build log",
+    "logs": {
+      "action": "Logs",
+      "title": "Container logs",
+      "loading": "Loading the preview's logs…",
+      "empty": "No log lines.",
+      "failed": "The preview's logs could not be read.",
+      "refresh": "Refresh logs"
+    }
   }
 }

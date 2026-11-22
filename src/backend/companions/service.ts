@@ -8,6 +8,7 @@ import {
 } from "../connections/service.js";
 import { dbClient, type Tables } from "../db.js";
 import type { Resources } from "../resources/service.js";
+import { HOSTNAME } from "../../shared/domains.js";
 import type { Sync } from "../sync/service.js";
 import {
   backupsFailed,
@@ -46,8 +47,6 @@ const RANK: Record<AccessLevel, number> = {
 };
 
 const UUID = /^[A-Za-z0-9_-]{1,64}$/;
-const HOSTNAME =
-  /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}$/;
 const IPV4 =
   /^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
 /**
