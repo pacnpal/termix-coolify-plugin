@@ -12,7 +12,6 @@ import {
   SelectField,
   StatusBadge,
   TextField,
-  useConfirm,
   type StatusTone,
 } from "@termix-ssh/plugin-sdk/ui";
 import {
@@ -23,6 +22,7 @@ import {
   type UptimeMonitor,
 } from "../api";
 import { useCompanions } from "../companions";
+import { useConfirmFor } from "../confirm";
 
 /** The parts of a Coolify resource the companion actions need. */
 export interface CompanionResource {
@@ -114,23 +114,14 @@ function DnsRecords({
   const { t } = useTranslation();
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
-  const confirm = useConfirm();
   const domains = domainsOf(resource.fqdns);
   // Everything here belongs to one target: rows, form and errors read from
-  // another connection, resource or revision are never shown or acted on.
-  const current = useRef(target);
-  current.current = target;
-  // A new target remounts this view; a confirm the old one opened then
-  // answers into an unmounted view and must run nothing.
-  const mounted = useRef(false);
+  // another connection, resource or revision are never shown or acted on. A
+  // new target remounts this view; a confirm the old one opened then answers
+  // into an unmounted view and runs nothing.
+  const { confirm, still } = useConfirmFor(target);
   // The generation of the list read; a change since it began drops it.
   const listRead = useRef(0);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
   const [records, setRecords] = useState<{
     target: string;
     rows: DnsRecord[];
@@ -195,11 +186,7 @@ function DnsRecords({
     api
       .listDnsRecords(connectionId, resource.uuid)
       .then((list) => {
-        if (
-          mounted.current &&
-          mine === listRead.current &&
-          current.current === forTarget
-        ) {
+        if (still(forTarget) && mine === listRead.current) {
           setRecords({ target: forTarget, rows: list });
         }
       })
@@ -216,11 +203,11 @@ function DnsRecords({
       });
       update(forTarget, (list) => [...list, made]);
       reload(forTarget);
-      if (current.current !== forTarget) return;
+      if (!still(forTarget)) return;
       setOpen(false);
       setContent("");
     } catch {
-      if (current.current === forTarget) setError(t("companions.dns.failed"));
+      if (still(forTarget)) setError(t("companions.dns.failed"));
     }
   }
 
@@ -234,7 +221,7 @@ function DnsRecords({
     });
     // The view moved to another resource while the confirm was open: what
     // was confirmed is no longer what is shown, so nothing runs.
-    if (!ok || !mounted.current || current.current !== forTarget) return;
+    if (!ok) return;
     const id = record.id;
     setError(null);
     try {
@@ -242,7 +229,7 @@ function DnsRecords({
       update(forTarget, (list) => list.filter((r) => r.id !== id));
       reload(forTarget);
     } catch {
-      if (current.current === forTarget) {
+      if (still(forTarget)) {
         setError(t("companions.dns.removeFailed"));
       }
     }

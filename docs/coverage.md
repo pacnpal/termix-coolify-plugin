@@ -159,13 +159,13 @@ run `npm run gen:coolify` and add the new rows.
 
 ## Deployments
 
-| Operation                    | Status | Where or why                                                                                                                                                |
-| ---------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| cancel-deployment-by-uuid    | used   | 1.1 `cancelDeployment()`: `coolify.deployment-cancel` and the resource Deployments tab.                                                                     |
-| deploy-by-tag-or-uuid        | used   | Task 4 `deploy()`, Tasks 11 and 12 (deploy and force rebuild); 1.1 `deployUuids()`: `coolify.deploy-by-tag` (by uuid, with force, PR and Docker tag).       |
-| get-deployment-by-uuid       | used   | Task 4 `deployment()`, Task 12 (deploy with `wait` reports finished or failed); 1.1 `deploymentWithLog()`: `coolify.deployment-get` and the live build log. |
-| list-deployments             | used   | 1.1 `runningDeployments()`: `coolify.deployment-queue`, the Deployments section and the Overview.                                                           |
-| list-deployments-by-app-uuid | used   | 1.1 `deploymentPage()`: `coolify.deployment-list` and the resource Deployments tab history.                                                                 |
+| Operation                    | Status | Where or why                                                                                                                                                         |
+| ---------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| cancel-deployment-by-uuid    | used   | 1.1 `cancelDeployment()`: `coolify.deployment-cancel` and the resource Deployments tab.                                                                              |
+| deploy-by-tag-or-uuid        | used   | Task 4 `deploy()`, Tasks 11 and 12 (deploy and force rebuild); 1.1 `deployUuids()`: `coolify.deploy-by-tag` (by uuid, with force, PR and Docker tag).                |
+| get-deployment-by-uuid       | used   | Task 4 `deployment()`, Task 12 (deploy with `wait` reports finished, failed or skipped); 1.1 `deploymentWithLog()`: `coolify.deployment-get` and the live build log. |
+| list-deployments             | used   | 1.1 `runningDeployments()`: `coolify.deployment-queue`, the Deployments section and the Overview.                                                                    |
+| list-deployments-by-app-uuid | used   | 1.1 `deploymentPage()`: `coolify.deployment-list` and the resource Deployments tab history.                                                                          |
 
 ## Destinations
 

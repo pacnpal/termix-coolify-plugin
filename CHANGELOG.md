@@ -4,6 +4,28 @@
 
 ### Fixed
 
+- Logs read from their tail no longer show a private key's body when the cut falls inside the key. When a
+  key's END line appears with no BEGIN before it, everything from the start of the log up to and
+  including that line is masked; the lines after it are unchanged. This covers container log snapshots
+  (from Coolify and over SSH), preview logs, deployment build logs and Coolify's log endpoints called
+  through the API console or `coolify.api-call`, in the UI, the operations API and MCP alike. A followed
+  log holds its first lines while they look like a key's body, so a follow that starts inside a key
+  shows none of it either. Log fields that the API console or `coolify.api-call` shows to an operator
+  are now masked as container logs are: private keys, the connection's token and Access secret,
+  secret-named fields and credentials
+- A waited deploy (`coolify.deploy` or `coolify.resource-deploy` with **wait**, from Operations Center,
+  Automations, the CLI or MCP) ends as soon as its deployment reaches any final status. A deployment
+  Coolify skipped was followed for up to 30 minutes; it now ends the run at once as a failed run with the
+  cause `skipped` ("Coolify skipped the deployment of <app>, so no new build ran") and sends
+  `coolify.deployment-failed`. The recent-activity entry is still recorded once, when Coolify accepts the
+  deploy
+- The deployment queue's summary counts older Coolify spellings of a failed deployment (`error`) as
+  failed, and the build log's status badge colours `success` and `error` like finished and failed
+- A confirm answered after its view moved to another resource, connection or host, or closed, now does
+  nothing everywhere. Before, stop, force rebuild, the API console, host unlink, turning on metrics,
+  removing a connection, removing a synced host and rotating or revoking a status page still acted on the
+  old target. **Unlink** from a host's menu checks the host again after the confirm and does nothing if
+  its link changed or it was deleted meanwhile
 - A dry run of a deploy or rollback shows a resource or server name exactly as it is. A name holding `$&`,
   `$1` or `$$` was changed by the text it was put into, and one holding `{{server}}` or `{{image}}` was
   filled a second time

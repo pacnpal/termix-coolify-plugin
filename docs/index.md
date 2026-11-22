@@ -98,6 +98,12 @@ by one from the **Restart** button on each part in the service's Overview; a par
 Restart and Start or Stop, and deploys with its service. In the command palette, **Coolify: Deploy…** opens
 the Resources list to pick from (see [Command palette](#command-palette)).
 
+A confirm is for what it names. If you move to another resource, connection or host, or close the view,
+while a confirm is still open, saying yes to it does nothing. This holds for every confirm in the plugin:
+stop, force rebuild, cancel and rollback, previews, DNS records, metrics, host sync, unlink, status pages,
+removing a connection and the API console. **Unlink** from a host's menu checks the host again after you
+confirm, and does nothing if the host was unlinked, linked to another server or deleted meanwhile.
+
 These need **Operate Coolify resources**, and the connection must be yours or shared with you at operate or
 configure. They work whether or not the resource's server has a Linked host:
 
@@ -110,8 +116,11 @@ A uuid is only accepted when it is one of that connection's own resources (and, 
 that host's server). When the Coolify token lacks the ability, the answer says so (`forbidden-ability`).
 
 The same actions work from the CLI, Automations and the phone app. `coolify.deploy` and
-`coolify.resource-deploy` can **wait** for the deployment: the run then follows it to the end, fails when it
-fails, and sends the `coolify.deployment-finished` or `coolify.deployment-failed` event. A dry run of a deploy
+`coolify.resource-deploy` can **wait** for the deployment: the run then follows it to the end and sends the
+`coolify.deployment-finished` or `coolify.deployment-failed` event. Only a finished build succeeds. A
+deployment that fails or is cancelled fails the run (`deployment-failed`), and one Coolify skips ends it at
+once as a failed run with the cause `skipped` ("Coolify skipped the deployment of <name>, so no new build
+ran"). A dry run of a deploy
 says what it would deploy, and on which server. Deploy and restart are offered to the assistant and MCP; start
 and stop aren't.
 
@@ -261,7 +270,10 @@ hidden without them. Each read is labelled with where it came from:
 
 Before any line reaches you, the connection's own token and Cloudflare Access secret are masked wherever
 they appear, and so are passwords in URLs, credential query parameters, fields named like a password,
-token or key (`DB_PASSWORD=…`) and `Authorization` credentials. If the connection's address, token or
+token or key (`DB_PASSWORD=…`) and `Authorization` credentials. A private key's body is masked, and so is
+everything before a key's END line that has no BEGIN before it: logs read from their tail can start inside
+a key, and the lines after that END are shown as they are. A follow holds its first lines while they look
+like a key's body, so one that starts inside a key shows none of it. If the connection's address, token or
 Access settings change while logs are read, the read stops with `target-changed` and shows nothing from the
 old target.
 
@@ -606,7 +618,8 @@ Everything in Coolify's API is reachable from Termix, checked against your permi
 - The **API console** in the Coolify tab lists every operation you may call on a connection, with a form for
   its parameters and body. Plain reads run at once; reads of secrets or logs and anything that changes
   Coolify ask first, and a delete asks you
-  to type the operation id. Secrets in answers are masked. With **Configure Coolify**, configure access and a
+  to type the operation id. Secrets in answers are masked, and logs and command output in an answer are
+  masked as container logs are. With **Configure Coolify**, configure access and a
   token with `read:sensitive`, **Reveal** shows one value; each reveal is recorded in the audit log and
   nothing is kept.
 - The actions `coolify.api-read` (reads) and `coolify.api-call` (anything, after a confirm) do the same from
@@ -631,6 +644,7 @@ what. See [Permissions](permissions.md).
 - [Troubleshooting](troubleshooting.md)
 - [API and MCP reference](api.md)
 - [Coolify API coverage](coverage.md)
+- [This repo's registry](registry.md): install and update from it, and how releases reach it
 
 ## Coolify versions
 

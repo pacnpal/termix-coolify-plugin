@@ -19,6 +19,7 @@ import {
   TEXT_ANSWERS,
   type OperationSchema,
 } from "../coolify/generated/schemas.js";
+import { redactLog } from "../containers/logs.js";
 import { CoolifyError } from "../coolify/http.js";
 import { fillPath, pathRules } from "../coolify/path.js";
 import { meetsMinVersion } from "../coolify/version.js";
@@ -388,6 +389,35 @@ function logFieldsOf(op: CoolifyOperation): readonly string[] {
   return LOG_FIELDS[op.id] ?? [];
 }
 
+/**
+ * A copy of `value` with every string under one of `keys` (an operation's
+ * log and output fields), at any depth, put through redactLog as container
+ * logs are: private keys (a log that starts inside one included), the
+ * connection's own `secrets`, secret fields and credentials.
+ */
+function redactLogFields(
+  value: unknown,
+  keys: readonly string[],
+  secrets: readonly string[],
+  inLog = false,
+): unknown {
+  if (typeof value === "string") {
+    return inLog ? redactLog(value, secrets) : value;
+  }
+  if (!keys.length || value === null || typeof value !== "object") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => redactLogFields(item, keys, secrets, inLog));
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, inner]) => [
+      key,
+      redactLogFields(inner, keys, secrets, inLog || keys.includes(key)),
+    ]),
+  );
+}
+
 /** Follows a path of keys and indexes; undefined when it leads nowhere. */
 function at(value: unknown, pointer: readonly (string | number)[]): unknown {
   let current = value;
@@ -587,6 +617,7 @@ export function createGenericApi(ctx: PluginContext, deps: GenericApiDeps) {
         opts.confirmed === true &&
         grantMeets(snap.view.access, "operate") &&
         (await holds("coolify.operate"));
+      const logFields = logFieldsOf(op);
       return {
         method: op.method,
         operationId: op.id,
@@ -596,8 +627,14 @@ export function createGenericApi(ctx: PluginContext, deps: GenericApiDeps) {
           ...(body !== undefined ? { body } : {}),
         }) as ApiCallResult["request"],
         data: logsAllowed
-          ? redact(answer ?? null)
-          : maskKeys(redact(answer ?? null), logFieldsOf(op)),
+          ? redact(
+              redactLogFields(
+                answer ?? null,
+                logFields,
+                logFields.length ? await snap.secrets() : [],
+              ),
+            )
+          : maskKeys(redact(answer ?? null), logFields),
       };
     },
 

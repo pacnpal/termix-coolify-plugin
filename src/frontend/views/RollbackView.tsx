@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { History, TriangleAlert, Undo2 } from "lucide-react";
 import {
   usePluginApi,
@@ -13,7 +13,6 @@ import {
   LoadingState,
   NoticePanel,
   PanelList,
-  useConfirm,
 } from "@termix-ssh/plugin-sdk/ui";
 import {
   createApi,
@@ -22,6 +21,7 @@ import {
   type RollbackImage,
   type RollbackImages,
 } from "../api";
+import { useConfirmFor } from "../confirm";
 import { describeFailure } from "./ConnectionForm";
 import { formatTime } from "./resource-model";
 
@@ -50,19 +50,12 @@ export function RollbackView({
   const { t } = useTranslation();
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
-  const confirm = useConfirm();
   const toast = useToast();
   const isApp = resource.kind === "application";
   const key = `${connectionId}\n${resource.uuid}`;
-  const current = useRef(key);
-  current.current = key;
-  const mounted = useRef(false);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
+  // A confirm answered after the view moved to another application, or
+  // went away, rolls nothing back.
+  const { confirm, still, isMounted } = useConfirmFor(key);
   const [state, setState] = useState<{ key: string; read: Read }>({
     key,
     read: { kind: "loading" },
@@ -99,7 +92,7 @@ export function RollbackView({
     });
     // The view moved to another application, or went away, while the
     // confirm was open: what was confirmed is not what is shown.
-    if (!ok || !mounted.current || current.current !== forKey) return;
+    if (!ok) return;
     setBusy(image.tag);
     try {
       const answer = await api.rollback(connectionId, uuid, image.tag);
@@ -108,7 +101,7 @@ export function RollbackView({
           ? t("deployments.rollbackPending")
           : t("deployments.rolledBack", { tag: image.tag }),
       );
-      if (mounted.current && current.current === forKey) onDone?.();
+      if (still(forKey)) onDone?.();
     } catch (err) {
       toast.error(
         failureOf(err)
@@ -116,7 +109,7 @@ export function RollbackView({
           : t("deployments.rollbackFailed"),
       );
     } finally {
-      if (mounted.current) setBusy(null);
+      if (isMounted()) setBusy(null);
     }
   }
 

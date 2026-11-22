@@ -7,13 +7,9 @@ import {
   type HostSectionProps,
   type ShellApi,
 } from "@termix-ssh/plugin-sdk/frontend";
-import {
-  Button,
-  NoticePanel,
-  StatusBadge,
-  useConfirm,
-} from "@termix-ssh/plugin-sdk/ui";
+import { Button, NoticePanel, StatusBadge } from "@termix-ssh/plugin-sdk/ui";
 import { createApi, failureOf } from "../api";
+import { useConfirmFor } from "../confirm";
 import { forgetPreview, linkOf, useLinkedRow, type HostLink } from "../linked";
 import { describeFailure } from "./ConnectionForm";
 import { ServerMetrics } from "./ServerMetrics";
@@ -40,9 +36,13 @@ export function HostSection({ host, shell }: HostSectionProps) {
   const { t } = useTranslation();
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
-  const confirm = useConfirm();
   const canConfigure = usePermission("configure");
   const link = linkOf(host);
+  // Unlink acts on this host's link: a confirm answered after the card moved
+  // to another host or link, or closed, unlinks nothing.
+  const { confirm } = useConfirmFor(
+    `${host.id}\n${link?.connectionId ?? ""}\n${link?.serverUuid ?? ""}`,
+  );
   const [connectionName, setConnectionName] = useState<string | null>(null);
   const [revision, setRevision] = useState<string | null>(null);
   const row = useLinkedRow(link, revision);

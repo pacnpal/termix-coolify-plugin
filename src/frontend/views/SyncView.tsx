@@ -18,7 +18,6 @@ import {
   SelectField,
   StatusBadge,
   TextField,
-  useConfirm,
   type StatusTone,
 } from "@termix-ssh/plugin-sdk/ui";
 import {
@@ -29,6 +28,7 @@ import {
   type SyncResult,
   type SyncRow,
 } from "../api";
+import { useConfirmFor } from "../confirm";
 import { describeFailure } from "./ConnectionForm";
 import { OpenPluginsButton, SSH_TERMINAL_CAUSES } from "./SshTerminalCheck";
 
@@ -319,7 +319,9 @@ export function SyncView({
   actions?: React.ReactNode;
 }) {
   const { t } = useTranslation();
-  const confirm = useConfirm();
+  // A remove acts on this connection's target: a confirm answered after its
+  // address, token or TLS settings changed, or the view closed, runs nothing.
+  const { confirm } = useConfirmFor(`${connection.id}\n${connection.revision}`);
   const [rows, setRows] = useState<SyncRow[] | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [credentials, setCredentials] = useState<

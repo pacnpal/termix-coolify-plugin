@@ -24,9 +24,9 @@ import {
   PanelShell,
   RefreshButton,
   StatusBadge,
-  useConfirm,
 } from "@termix-ssh/plugin-sdk/ui";
 import { createApi, type Connection, type Resource } from "../api";
+import { useConfirmFor } from "../confirm";
 import { linkOf, type HostLink } from "../linked";
 import { resourceHealth } from "../../shared/resource-health";
 import { OPERATE_ACCESS } from "./CoolifyTab";
@@ -75,7 +75,6 @@ function ServerResources({
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
   const tabs = useTabs();
-  const confirm = useConfirm();
   const mayOperate = usePermission("operate");
   const [connection, setConnection] = useState<Connection | null>(null);
   const [connectionFailed, setConnectionFailed] = useState(false);
@@ -83,15 +82,6 @@ function ServerResources({
   // Bumped by Refresh and by showing the panel again: reads the connection
   // again, so a changed grant or a failed first read recovers.
   const [attempt, setAttempt] = useState(0);
-  // False once this view is gone. The view is keyed by the host's link, so
-  // a terminal that moved to another host unmounts it too.
-  const mounted = useRef(false);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
 
   // The connection says how this user may use it (owner or grant level) and
   // its revision, which keys the shared resource list.
@@ -115,14 +105,16 @@ function ServerResources({
     connection?.id ?? null,
     connection?.revision ?? null,
   );
+  // What a confirm was opened for: this server under this target. The view
+  // is keyed by the host's link, so a terminal that moved to another host
+  // unmounts it, and a confirm answered then runs nothing either.
+  const target = `${link.connectionId}:${link.serverUuid}:${connection?.revision ?? ""}`;
+  const { confirm } = useConfirmFor(target);
   const lifecycle = useLifecycle(
     link.connectionId,
     () => void resources.reload(true),
+    target,
   );
-  // What a confirm was opened for: this server under this target.
-  const target = `${link.connectionId}:${link.serverUuid}:${connection?.revision ?? ""}`;
-  const current = useRef(target);
-  current.current = target;
 
   /** Reads again; `fresh` skips the backend's short resource cache. */
   function refresh(fresh: boolean) {
@@ -155,7 +147,6 @@ function ServerResources({
   );
 
   async function confirmThen(resource: Resource, verb: "restart" | "deploy") {
-    const forTarget = target;
     const key = `terminalCompanion.${verb}Confirm`;
     const ok = await confirm({
       title: t(`${key}.title`, { name: resource.name }),
@@ -165,7 +156,7 @@ function ServerResources({
     });
     // The terminal moved to another host, the panel closed or the target
     // changed while the confirm was open: what was confirmed is gone.
-    if (!ok || !mounted.current || current.current !== forTarget) return;
+    if (!ok) return;
     await lifecycle.run(resource, verb);
   }
 

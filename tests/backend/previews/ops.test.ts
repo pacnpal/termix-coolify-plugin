@@ -10,10 +10,12 @@ import {
 import {
   dropGrant,
   duringResourceRead,
+  keyTailPreviewLogs,
   moveTarget,
   PREVIEW_CHANGES,
   previewAnswers,
 } from "../helpers/previews.js";
+import { expectKeyTailMasked } from "../helpers/key-tail.js";
 import { withRunHistory } from "../helpers/run-history.js";
 
 let harness: PluginHarness | null = null;
@@ -169,5 +171,16 @@ describe("preview operations", () => {
     const history = JSON.stringify(runs.history);
     expect(history).not.toContain("preview ready");
     expect(history).not.toContain("fake-preview-pass");
+  });
+
+  it("coolify.preview-logs masks logs that start inside a private key", async () => {
+    const { harness, fake, id } = await start();
+    fake.set(...keyTailPreviewLogs());
+    const input = { connectionId: String(id), uuid: "app-web-uuid" };
+    const outcome = await withRunHistory(harness.mock).run(
+      "coolify.preview-logs",
+      { ...input, pullRequestId: 42, confirm: true },
+    );
+    expectKeyTailMasked((outcome.data as { text: string }).text);
   });
 });

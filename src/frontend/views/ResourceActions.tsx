@@ -5,7 +5,7 @@ import {
   useToast,
   useTranslation,
 } from "@termix-ssh/plugin-sdk/frontend";
-import { Button, ListRowAction, useConfirm } from "@termix-ssh/plugin-sdk/ui";
+import { Button, ListRowAction } from "@termix-ssh/plugin-sdk/ui";
 import {
   createApi,
   failureOf,
@@ -13,6 +13,7 @@ import {
   type Resource,
 } from "../api";
 import { resourceHealth } from "../../shared/resource-health";
+import { useConfirmFor } from "../confirm";
 import { describeFailure } from "./ConnectionForm";
 
 const isPart = (r: Resource) =>
@@ -29,12 +30,19 @@ function canStart(r: Resource): boolean {
 /**
  * Runs lifecycle actions for one connection: confirms where asked, posts to
  * the lifecycle route, reports with a toast and tells the caller to reload.
+ * `target` is what the caller's view shows (connection, resource and
+ * revision): a confirm answered after it changed, or after the view
+ * closed, runs nothing.
  */
-export function useLifecycle(connectionId: number, onChanged: () => void) {
+export function useLifecycle(
+  connectionId: number,
+  onChanged: () => void,
+  target: string,
+) {
   const { t } = useTranslation();
   const client = usePluginApi();
   const api = useMemo(() => createApi(client), [client]);
-  const confirm = useConfirm();
+  const { confirm } = useConfirmFor(target);
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
 

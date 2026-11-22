@@ -2,6 +2,7 @@ import { expect, vi } from "vitest";
 import type { fakeCoolify, FakeAnswer } from "./fake-coolify.js";
 import { grant } from "./lifecycle.js";
 import { OTHER, type PluginHarness } from "./plugin.js";
+import { KEY_TAIL } from "./key-tail.js";
 
 /**
  * ctx.operations.run as core answers it across the plugin process boundary:
@@ -158,6 +159,23 @@ export function keyEntries(from: number) {
     logEntry(from + 2, `${KEY_BODY}-line-2`, { hidden: true }),
     logEntry(from + 3, "-----END OPENSSH PRIVATE KEY-----"),
     logEntry(from + 4, "after the key"),
+  ];
+}
+
+/** KEY_TAIL's lines as build log entries, the first at `from`. */
+export function keyTailEntries(from: number) {
+  return KEY_TAIL.lines.map((line, i) => logEntry(from + i, line));
+}
+
+/** web's dep-done with a build log that starts inside a key: `fake.set(...it)`. */
+export function keyTailDeployment(): [string, FakeAnswer] {
+  return [
+    "GET /deployments/dep-done",
+    {
+      json: deploymentRaw("dep-done", "finished", {
+        entries: keyTailEntries(1),
+      }),
+    },
   ];
 }
 

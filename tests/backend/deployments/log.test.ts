@@ -6,9 +6,18 @@ import {
 } from "../../../src/backend/deployments/log.js";
 import {
   isCancellableDeployment,
+  isFailedDeployment,
   isFinalDeployment,
+  isSkippedDeployment,
+  isSuccessfulDeployment,
 } from "../../../src/shared/deployment-status.js";
-import { KEY_BODY, keyEntries, logEntry } from "../helpers/deployments.js";
+import {
+  KEY_BODY,
+  keyEntries,
+  keyTailEntries,
+  logEntry,
+} from "../helpers/deployments.js";
+import { expectKeyTailMasked, KEY_TAIL } from "../helpers/key-tail.js";
 
 describe("build log parsing", () => {
   it("reads Coolify's JSON lines in order, keeping the hidden flag", () => {
@@ -111,6 +120,17 @@ describe("private keys across build log lines", () => {
     expect(log.lines.map((l) => l.output)).toContain("after the key");
   });
 
+  it("masks a log that starts inside a key, from its start through the END", () => {
+    const entries = keyTailEntries(1);
+    for (const raw of [JSON.stringify(entries), KEY_TAIL.text]) {
+      const log = buildLog(raw, []);
+      expectKeyTailMasked(log);
+      const outputs = log.lines.map((l) => l.output);
+      expect(outputs).toContain(KEY_TAIL.after);
+      expect(outputs).toContain(`[redacted]${KEY_TAIL.end}`);
+    }
+  });
+
   it("masks a key's body when truncation cuts its BEGIN marker", () => {
     const filler = Array.from({ length: MAX_BUILD_LOG_LINES }, (_, i) =>
       logEntry(i + 10, `filler ${i}`),
@@ -137,6 +157,35 @@ describe("deployment statuses", () => {
     for (const s of ["queued", "in_progress"]) {
       expect(isFinalDeployment(s), s).toBe(false);
       expect(isCancellableDeployment(s), s).toBe(true);
+    }
+  });
+
+  it("knows which final statuses succeeded, failed or were skipped", () => {
+    for (const s of ["finished", "success"]) {
+      expect(isSuccessfulDeployment(s), s).toBe(true);
+      expect(isSkippedDeployment(s), s).toBe(false);
+    }
+    // Skipped and cancelled end a deployment, but no new build ran.
+    for (const s of [
+      "skipped",
+      "failed",
+      "error",
+      "cancelled",
+      "cancelled-by-user",
+      "queued",
+      "in_progress",
+      "",
+    ]) {
+      expect(isSuccessfulDeployment(s), s).toBe(false);
+    }
+    expect(isSkippedDeployment("skipped")).toBe(true);
+    for (const s of ["finished", "failed", "cancelled-by-user", "queued"]) {
+      expect(isSkippedDeployment(s), s).toBe(false);
+    }
+    // Every final status is exactly one of: succeeded, or a failed run.
+    for (const s of ["skipped", "cancelled-by-user"]) {
+      expect(isFinalDeployment(s), s).toBe(true);
+      expect(isFailedDeployment(s), s).toBe(false);
     }
   });
 });
