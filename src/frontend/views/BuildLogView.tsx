@@ -96,7 +96,10 @@ export function BuildLogView({
     key,
     read: { kind: "loading" },
   });
-  const [showHidden, setShowHidden] = useState(false);
+  // Kept with the deployment it was turned on for: another one starts with
+  // its hidden lines hidden.
+  const [hiddenShownFor, setHiddenShownFor] = useState<string | null>(null);
+  const showHidden = hiddenShownFor === key;
   const [cancelling, setCancelling] = useState(false);
   // Bumped to read again now: a retry or a cancel.
   const [attempt, setAttempt] = useState(0);
@@ -206,7 +209,7 @@ export function BuildLogView({
           size="sm"
           variant={showHidden ? "default" : "outline"}
           aria-pressed={showHidden}
-          onClick={() => setShowHidden((v) => !v)}
+          onClick={() => setHiddenShownFor(showHidden ? null : key)}
         >
           <EyeOff className="size-3.5" />
           {t("deployments.log.showHidden")}
