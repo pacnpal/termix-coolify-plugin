@@ -380,6 +380,31 @@ do the same from Operations Center, Automations, the CLI, the Termix API and MCP
 them, and the confirm names the tag. A rollback is also the **undo** of a deploy: deploying an application
 records the image it ran before, and undoing the run in Operations Center rolls back to it.
 
+## Dashboard cards and homepage widgets
+
+Termix's dashboard offers four Coolify cards under **Coolify** in its add list, and the Homepage plugin
+offers the same four as widgets. You can add each as often as you like; each one keeps its own connection
+(and resource) in its own settings. A new card asks for them until they are picked; on the dashboard you
+change them while arranging it, on the homepage in the widget's edit form.
+
+- **Coolify overview**: the connection's resources by status (running, degraded, stopped, deploying; a
+  resource you stopped counts as stopped) and how many of its servers Coolify can't reach.
+- **Coolify resource**: one resource's status, with **Deploy**. Deploy needs **Operate Coolify resources**
+  and owner, operate or configure access to the connection, as everywhere else; anyone else sees no
+  button. It asks first, and a yes given after the card was switched to another resource or connection, or
+  closed, deploys nothing.
+- **Coolify deployments**: the connection's deployments in progress.
+- **Coolify vulnerabilities**: how many of the connection's resources Coolify's image scanning found
+  vulnerabilities in, with the critical and high counts and a link to your Coolify.
+
+Every card needs **View Coolify** and access to its connection, and says so when either is missing. They
+read through the same cached reads as the tab: a card reads again only once that cache has turned over
+(the overview every minute, a resource every 20 seconds, deployments every 10 seconds, vulnerabilities
+every five minutes), only while it is shown, so cards add no Coolify requests the tab wouldn't make. The
+vulnerability counts are the one read only cards make, kept five minutes per connection. The actions
+`coolify.connection-overview` and `coolify.vulnerability-summary` give the same answers to Operations
+Center, Automations, the CLI, the Termix API and MCP. See [the API reference](api.md#dashboard-cards-and-homepage-widgets).
+
 ## Pull request previews
 
 An application's **Previews** view lists its pull request previews: each one's status, domains, pull

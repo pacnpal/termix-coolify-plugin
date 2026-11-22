@@ -799,3 +799,24 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   `undoInput` only when it is listed; a failed read never blocks the deploy. `PluginOperationOutcome` has
   no `undoInput`, so tests read it from the handler's own result. `RollbackView` re-checks after the
   confirm that it is still mounted and on the same application before it posts.
+- Dashboard cards and homepage widgets (1.2): `src/frontend/views/dashboard/` (`register.tsx`,
+  `CoolifyCards.tsx`, `useCardRead.ts`), shared kinds, settings and poll intervals in
+  `src/shared/dashboard.ts`, backend reads in `src/backend/dashboard/` and `ops/dashboard.ts`. One
+  dashboard card `coolify` (manifest `dashboardCards`) whose `entries` are the four kinds, each entry's
+  `config` `{ card }`; the card's own `setConfig` adds `connectionId` (and `uuid` for the resource card).
+  The same four go to `homepage.widgets` (in `uses`) as `coolify.<kind>`, with `components` `view`,
+  `editForm` and `label` (the Homepage plugin's `WidgetRegistry` reads those three; its widget props are
+  `{ widget, config, onConfigUpdate }`, its edit form's `{ config, onChange }`). A widget has no
+  visibility prop, so it reads only while `document.visibilityState` is visible. `readCardConfig` keeps
+  only well formed stored values. `useCardRead` reads the connection (403/404: the no-access state), then
+  the card's data, keyed by the card's target, newest read only, a setTimeout chain every
+  `CARD_POLL_MS[kind]`, which `poll-intervals.test.ts` holds at or above each backend cache's TTL.
+  Overview reads `GET /connections/:id/overview` (resources and server statuses caches, no Coolify request
+  of its own); the resource card reads the resource list and deploys through `useLifecycle` after a
+  `useConfirmFor` keyed by connection, uuid and revision, with the body keyed by target (the terminal
+  companion's rule for the button: `coolify.operate` and `OPERATE_ACCESS`, never a Part); deployments
+  reads the queue route; vulnerabilities reads `GET /connections/:id/vulnerabilities`, Coolify's
+  `/vulnerabilities` summarized to counts (`dashboard/vulnerabilities.ts`, in memory five minutes, keyed
+  by revision, shared in-flight, kept only if the revision held; no names or Coolify text, so nothing to
+  redact) and links to the connection's `baseUrl`. No recent events on any card: the event pipeline (#89)
+  is separate, and an events card belongs to the event log ticket.

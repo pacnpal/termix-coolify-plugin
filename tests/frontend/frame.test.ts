@@ -13,6 +13,26 @@ describe("sandboxed frame", () => {
     expect(registrations.map((r) => r.kind)).toContain("companion");
   });
 
+  it("registers the dashboard card and the four homepage widgets from a frame", async () => {
+    const { problems, registrations } = await checkFrameApp(plugin, {
+      manifest: manifest as unknown as Record<string, unknown>,
+    });
+    expect(problems).toEqual([]);
+    const ids = (kind: string) =>
+      registrations
+        .filter((r) => r.kind === kind)
+        .map((r) => (r.data as { id?: string }).id);
+    expect(ids("dashboardCard")).toEqual(["coolify"]);
+    expect(ids("extension")).toEqual(
+      expect.arrayContaining([
+        "coolify.overview",
+        "coolify.resource",
+        "coolify.deployments",
+        "coolify.vulnerabilities",
+      ]),
+    );
+  });
+
   it("gives the Coolify rail item a badge and opens the activity panel from the rail", async () => {
     const { problems, registrations } = await checkFrameApp(plugin, {
       manifest: manifest as unknown as Record<string, unknown>,

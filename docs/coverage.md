@@ -487,12 +487,12 @@ run `npm run gen:coolify` and add the new rows.
 
 ## Vulnerabilities
 
-| Operation                       | Status | Where or why                                                                                                                         |
-| ------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| get-application-vulnerabilities | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.6 Team and sharing (Security section). |
-| get-database-vulnerabilities    | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.6 Team and sharing (Security section). |
-| get-service-vulnerabilities     | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.6 Team and sharing (Security section). |
-| list-vulnerabilities            | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.6 Team and sharing (Security section). |
+| Operation                       | Status | Where or why                                                                                                                                                                                             |
+| ------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| get-application-vulnerabilities | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.6 Team and sharing (Security section).                                                                     |
+| get-database-vulnerabilities    | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.6 Team and sharing (Security section).                                                                     |
+| get-service-vulnerabilities     | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.6 Team and sharing (Security section).                                                                     |
+| list-vulnerabilities            | used   | 1.2 `vulnerabilities()`: `coolify.vulnerability-summary` and the vulnerabilities dashboard card and homepage widget (counts only); the full list is planned for 1.6 Team and sharing (Security section). |
 
 ## Vultr
 

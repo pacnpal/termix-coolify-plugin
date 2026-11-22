@@ -22,6 +22,7 @@ import { registerToolbarStatus } from "./toolbar-status";
 import { ActivityPanel } from "./views/ActivityPanel";
 import { ConnectStep } from "./views/ConnectStep";
 import { CoolifyTab } from "./views/CoolifyTab";
+import { registerDashboard } from "./views/dashboard/register";
 import { HostSection, openCoolify } from "./views/HostSection";
 import { ShellTab } from "./views/ShellTab";
 import { TerminalCompanion } from "./views/TerminalCompanion";
@@ -100,6 +101,8 @@ export function activate(app: TermixApp): void {
   });
   // The container's name and status in a coolify-shell tab's toolbar.
   registerToolbarStatus(app);
+  // The dashboard card and the homepage widgets (views/dashboard/).
+  registerDashboard(app);
   // Beside a terminal on a Linked host: that server's resources, with Shell,
   // Logs, Restart and Deploy. Other hosts get no panel and no request.
   app.registerCompanion("coolify", TerminalCompanion, {
