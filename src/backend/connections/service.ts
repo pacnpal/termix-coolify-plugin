@@ -212,7 +212,9 @@ function ipv4Reach(a: number, b: number): Reach {
 function parseIpv4(text: string): number[] | null {
   const parts = text.split(".");
   if (parts.length !== 4) return null;
-  const octets = parts.map((p) => (/^\d{1,3}$/.test(p) ? Number(p) : NaN));
+  const octets = parts.map((p) =>
+    /^\d{1,3}$/.test(p) ? Number(p) : Number.NaN,
+  );
   return octets.every((o) => o >= 0 && o <= 255) ? octets : null;
 }
 
@@ -235,7 +237,7 @@ function parseIpv6(text: string): number[] | null {
     if (part === "") return [];
     const groups = part.split(":");
     if (!groups.every((g) => /^[0-9a-f]{1,4}$/.test(g))) return null;
-    return groups.map((g) => parseInt(g, 16));
+    return groups.map((g) => Number.parseInt(g, 16));
   };
   const head = read(halves[0]);
   const after = halves.length === 2 ? read(halves[1]) : [];

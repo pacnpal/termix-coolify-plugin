@@ -8,6 +8,7 @@ import {
   changeTarget,
   startCompanions,
 } from "../companions/fixtures.js";
+import { byText } from "../helpers/order.js";
 
 let harness: PluginHarness | null = null;
 
@@ -63,7 +64,7 @@ describe("companion operations", () => {
   });
 
   it("every companion route has a companion or companion-read kind", () => {
-    expect(kinds("coolify.companion-read").sort()).toEqual(
+    expect(kinds("coolify.companion-read").sort(byText)).toEqual(
       [
         "companions",
         "uptime",
@@ -75,9 +76,9 @@ describe("companion operations", () => {
         "host-metrics",
         "dns-list",
         "files-paths",
-      ].sort(),
+      ].sort(byText),
     );
-    expect(kinds("coolify.companion").sort()).toEqual(
+    expect(kinds("coolify.companion").sort(byText)).toEqual(
       [
         "dns",
         "uptime-pause",
@@ -85,7 +86,7 @@ describe("companion operations", () => {
         "tunnel-open",
         "tunnel-close",
         "web-ui",
-      ].sort(),
+      ].sort(byText),
     );
     // Removing a DNS record is its own destructive action.
     expect(declared("coolify.companion-dns-remove")).toBeDefined();

@@ -15,6 +15,7 @@ import type {
 } from "@termix-ssh/plugin-sdk/frontend";
 import { ACTIVITY_TYPES } from "../shared/activity";
 import { createApi } from "./api";
+import { confirmOnApp } from "./confirm";
 import { forgetPreview, linkOf, useHostProblem } from "./linked";
 import { keepSocketTarget } from "./socket";
 import { registerToolbarStatus } from "./toolbar-status";
@@ -179,13 +180,34 @@ export function activate(app: TermixApp): void {
     run: (host) => {
       const link = linkOf(host);
       if (!link) return;
+      // The confirm is over the main area, not a view, and names the host:
+      // what can change while it is open is the host's link (unlinked,
+      // linked to another server, or the host deleted). The hosts are read
+      // again after a yes, and nothing is sent unless this host still has
+      // the link the confirm was for; a failed read sends nothing.
+      const still = async () => {
+        const now = (await app.listHosts()).find(
+          (h) => String(h.id) === String(host.id),
+        );
+        const fresh = now ? linkOf(now) : null;
+        return (
+          fresh?.connectionId === link.connectionId &&
+          fresh.serverUuid === link.serverUuid
+        );
+      };
       void (async () => {
-        const ok = await app.confirm({
-          title: app.t("unlinkConfirm.title", { name: host.name ?? host.ip }),
-          description: app.t("unlinkConfirm.description"),
-          confirmLabel: app.t("unlinkConfirm.confirm"),
-          destructive: false,
-        });
+        const ok = await confirmOnApp(
+          app,
+          {
+            title: app.t("unlinkConfirm.title", {
+              name: host.name ?? host.ip,
+            }),
+            description: app.t("unlinkConfirm.description"),
+            confirmLabel: app.t("unlinkConfirm.confirm"),
+            destructive: false,
+          },
+          still,
+        );
         if (!ok) return;
         try {
           await createApi(app.api).unlinkServer(

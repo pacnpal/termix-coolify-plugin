@@ -68,9 +68,8 @@ const LOG_EXITS: Record<string, LogExit> = {
     what: "an operation's log and output field names",
   },
   "src/backend/ops/api-generic.ts#dispatch": {
-    kind: "pending",
-    issue: "#81 (PR #103) puts log fields through redactLog",
-    what: "generic API log fields",
+    kind: "exit",
+    what: "generic API log fields (redactLogFields)",
   },
   "src/backend/ops/api-generic.ts#reveal": {
     kind: "unredacted",
@@ -224,22 +223,40 @@ describe("log exits", () => {
     );
   });
 
-  it("fails once a pending exit is fixed, so it becomes a checked exit", () => {
+  it("fails when the generic API's log fields skip redactLog", () => {
     const files = sources();
     const generic = "src/backend/ops/api-generic.ts";
-    files[generic] = files[generic].replace(
-      "    async dispatch(\n",
-      "    async dispatch(\n      _redacted = redactLog,\n",
-    );
-    // A reference without a call is not a redactor; a call is.
-    expect(auditLogExits(files, LOG_EXITS)).toEqual([]);
-    files[generic] = files[generic].replace(
-      "_redacted = redactLog,",
-      '_redacted = redactLog("", []),',
-    );
+    files[generic] = files[generic].replaceAll("redactLogFields(", "noop(");
     expect(auditLogExits(files, LOG_EXITS)).toEqual([
-      "src/backend/ops/api-generic.ts#dispatch (generic API log fields) now calls a redactor: make it an exit (#81 (PR #103) puts log fields through redactLog)",
+      `${generic}#dispatch (generic API log fields (redactLogFields)) skips redactLog`,
     ]);
+  });
+
+  it("has no pending exit left, and fails once a pending one is fixed", () => {
+    expect(
+      Object.entries(LOG_EXITS).filter(([, e]) => e.kind === "pending"),
+    ).toEqual([]);
+    const files = sources();
+    const pending: LogExit = { kind: "pending", issue: "#0", what: "gap" };
+    expect(
+      auditLogExits(files, {
+        ...LOG_EXITS,
+        [`${ADAPTERS}#logSearch`]: pending,
+      }),
+    ).toEqual([
+      `${ADAPTERS}#logSearch (gap) now calls a redactor: make it an exit (#0)`,
+    ]);
+    // A reference without a call is not a redactor.
+    files[ADAPTERS] = files[ADAPTERS].replaceAll(
+      "redactLog(",
+      "noop(",
+    ).replaceAll("keyBlockCarry(", "noop(");
+    expect(
+      auditLogExits(files, {
+        ...LOG_EXITS,
+        [`${ADAPTERS}#logSearch`]: pending,
+      }),
+    ).toEqual([]);
   });
 
   it("fails on a registered function that no longer exists", () => {

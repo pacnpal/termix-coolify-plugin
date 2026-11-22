@@ -7,6 +7,7 @@ import {
 import { activePlugins } from "../../../src/backend/plugins.js";
 import { manifest } from "../helpers/plugin.js";
 import { installed } from "./fixtures.js";
+import { byText } from "../helpers/order.js";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -27,7 +28,7 @@ describe("companions(ctx)", () => {
     expect(first.docker).toBe(true);
     expect(first.uptime).toBe(false);
     expect(first.sshTerminal).toBe(false);
-    expect(Object.keys(first).sort()).toEqual(
+    expect(Object.keys(first).sort(byText)).toEqual(
       [
         "docker",
         "sshTerminal",
@@ -42,7 +43,7 @@ describe("companions(ctx)", () => {
         "hostMetrics",
         "databases",
         "backups",
-      ].sort(),
+      ].sort(byText),
     );
     // Read fresh each time, as sync and updates read it: a plugin turned
     // off is seen at once.
@@ -84,7 +85,7 @@ describe("manifest", () => {
     const invokes = manifest.contributes?.operations?.invokes ?? [];
     // Every id the adapters and server updates invoke, spelled as the
     // companions' references spell them, and nothing else.
-    expect([...invokes].sort()).toEqual(
+    expect([...invokes].sort(byText)).toEqual(
       [
         "backups.failed",
         "databases.list-connections",
@@ -99,7 +100,7 @@ describe("manifest", () => {
         "uptime.monitors",
         "uptime.pause",
         "uptime.resume",
-      ].sort(),
+      ].sort(byText),
     );
     for (const id of invokes) {
       expect(id).toMatch(/^[a-z0-9-]+\.[a-z0-9-]+$/);

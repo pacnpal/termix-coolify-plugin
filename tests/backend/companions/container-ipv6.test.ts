@@ -31,7 +31,7 @@ function dockerNetworks(
     const format = /docker inspect -f '([^']*)'/.exec(command)?.[1];
     if (!format) return inner(target, command, ...rest);
     const body =
-      /\{\{range \.NetworkSettings\.Networks\}\}(.*)\{\{end\}\}/.exec(
+      /^(?:(?!\{\{range \.NetworkSettings\.Networks\}\}).)*\{\{range \.NetworkSettings\.Networks\}\}(.*)\{\{end\}\}/m.exec(
         format,
       )![1]!;
     const stdout = networks

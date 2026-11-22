@@ -515,7 +515,9 @@ describe("connection service", () => {
         baseUrl,
       ).rejects.toMatchObject({
         status: 400,
-        message: expect.stringMatching(/HTTPS.*private IP address/),
+        message: expect.stringMatching(
+          /^(?:(?!HTTPS).)*HTTPS.*private IP address/m,
+        ),
       });
     }
     expect(fake.calls).toHaveLength(0);
@@ -534,7 +536,9 @@ describe("connection service", () => {
         baseUrl,
       ).rejects.toMatchObject({
         status: 400,
-        message: expect.stringMatching(/HTTPS.*private IP address/),
+        message: expect.stringMatching(
+          /^(?:(?!HTTPS).)*HTTPS.*private IP address/m,
+        ),
       });
       const saved = await service.create({
         ...input,

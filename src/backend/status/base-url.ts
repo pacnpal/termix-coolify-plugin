@@ -1,4 +1,5 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
+import { trimTrailing } from "../text.js";
 
 /** One kv entry per user: `publicBaseUrl:<userId>`. */
 const KV_PREFIX = "publicBaseUrl:";
@@ -13,7 +14,7 @@ const remembered = new Map<string, string>();
 export function baseUrlOf(ctx: PluginContext, req: unknown): string | null {
   let base: string;
   try {
-    base = String(ctx.http.baseUrl(req)).replace(/\/+$/, "");
+    base = trimTrailing(String(ctx.http.baseUrl(req)), "/");
   } catch {
     return null;
   }

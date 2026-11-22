@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { manifest } from "./helpers/plugin.js";
 import { EXTRA_TOOLS, toolName } from "../../src/backend/mcp/server.js";
+import { byText } from "./helpers/order.js";
 
 /**
  * Actions with no plugin route: they run only through Termix's operations
@@ -30,8 +31,8 @@ describe("docs/api.md", () => {
   it("every operation in manifest.json has a docs/api.md row and vice versa", () => {
     const declared = manifest
       .contributes!.operations!.actions!.map((a) => a.id)
-      .sort();
-    expect([...rows().keys()].sort()).toEqual(declared);
+      .sort(byText);
+    expect([...rows().keys()].sort(byText)).toEqual(declared);
   });
 
   it("each row gives the route, run path, key scope, MCP tool and a curl example", () => {

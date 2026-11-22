@@ -5,6 +5,7 @@ import type {
   PluginSshExecResult,
 } from "@termix-ssh/plugin-sdk/backend";
 import { healthyCoolify } from "../helpers/fake-coolify.js";
+import { KEY_TAIL } from "../helpers/key-tail.js";
 import { OWNER, startPlugin, type PluginHarness } from "../helpers/plugin.js";
 import { resourceLists } from "../helpers/resources.js";
 
@@ -54,6 +55,35 @@ export interface DockerHost {
   partial?: string;
   /** The exec channel's open is never acknowledged until `opens` is called. */
   openHang?: boolean;
+}
+
+const HEREDOC_OPEN = "<<'";
+const WORD = /\w+/y;
+
+/**
+ * The body of the first `<<'WORD'` here-document closed by a `WORD` line,
+ * as `/<<'(\w+)'[^\n]*\n([\s\S]*)\n\1\n/` captured it, found by index
+ * scans: that pattern backtracked over the whole rest of the text.
+ */
+function hereDocBody(text: string): string | null {
+  const closes = new Map<string, number>();
+  for (
+    let at = text.indexOf(HEREDOC_OPEN);
+    at >= 0;
+    at = text.indexOf(HEREDOC_OPEN, at + 1)
+  ) {
+    WORD.lastIndex = at + HEREDOC_OPEN.length;
+    const word = WORD.exec(text)?.[0];
+    if (!word) continue;
+    const quote = WORD.lastIndex;
+    if (text[quote] !== "'") continue;
+    const lineEnd = text.indexOf("\n", quote + 1);
+    if (lineEnd < 0) continue;
+    const close = closes.get(word) ?? text.lastIndexOf(`\n${word}\n`);
+    closes.set(word, close);
+    if (close > lineEnd) return text.slice(lineEnd + 1, close);
+  }
+  return null;
 }
 
 function result(stdout: string, code = 0): PluginSshExecResult {
@@ -133,9 +163,9 @@ export function fakeDocker(harness: PluginHarness, host: DockerHost) {
           channel.onEnd = (stdin) => {
             // The exec script carries the command in a quoted here-document
             // and has the new group's leader print a marker line first.
-            const doc = stdin && /<<'(\w+)'[^\n]*\n([\s\S]*)\n\1\n/.exec(stdin);
+            const doc = stdin ? hereDocBody(stdin) : null;
             const mark = stdin && /echo "(\S+ \S+) \$\$"/.exec(stdin);
-            const command_ = doc ? doc[2] : stdin;
+            const command_ = doc ?? stdin;
             call.options = { stdin: command_ };
             call.script = stdin;
             const answer = host.exec
@@ -226,6 +256,30 @@ export function setSensitive(
   harness.db.sqlite
     .prepare("UPDATE p_coolify_connections SET abilities = ? WHERE id = ?")
     .run(JSON.stringify(stored), connectionId);
+}
+
+/** Where a logs snapshot comes from, by whether the token has read:sensitive. */
+export const LOG_SOURCES = [
+  ["coolify", true],
+  ["ssh", false],
+] as const;
+
+/**
+ * web's logs read from their tail, cut inside a key (KEY_TAIL), from Coolify
+ * and over SSH alike, with the token's read:sensitive set to `sensitive`.
+ */
+export function serveKeyTail(
+  started: Awaited<ReturnType<typeof startShell>>,
+  sensitive: boolean,
+) {
+  started.fake.set("GET /applications/app-web-uuid/logs", {
+    json: { logs: KEY_TAIL.text },
+  });
+  setSensitive(started.harness, started.connectionId, sensitive);
+  return fakeDocker(started.harness, {
+    ps: [[/applicationUuid=app-web-uuid/, "web-abc|running||\n"]],
+    logs: KEY_TAIL.text,
+  });
 }
 
 /** A plugin with one connection whose server srv-vps1-uuid has a Linked host. */

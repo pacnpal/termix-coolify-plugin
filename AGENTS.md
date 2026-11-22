@@ -73,6 +73,19 @@ aren't obvious from the code, and anything that has bitten you before.
   `companions.md`, `troubleshooting.md`, `api.md`, `coverage.md`.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
   `docs/superpowers/plans/2026-11-19-coolify-1.0.md`.
+- Own registry (`docs/registry.md`): `.github/workflows/registry.yml` runs `scripts/registry-index.mjs`
+  (pure rules in `scripts/registry-lib.mjs`, tests in `tests/backend/registry/`) and pushes `index.json` to
+  the orphan `registry` branch. It copies Termix-Registry's `scripts/sync.mjs`/`lib.mjs` rules (gated by
+  `engine.termix` against 26.10.2, betas only above stable) and refuses the whole index on any failed
+  signature, manifest or provenance check. `registry/public-key.txt` is the owner's (key id
+  `d07bfdc9da00b6e7`, pinned by a test); never generate or commit a key, a private one least of all.
+  Releases made by Release don't fire `release` events (workflow token), hence the hourly run. Its
+  `--if-changed` shortcut skips only when `inputs.json` on the branch equals every input verification reads
+  and every release field the index shows (per release its `releaseFacts` and three asset digests;
+  repository, key, `first-version.txt`, tooling hash, published index hash). `readRelease` sees a release
+  only through `releaseFacts`, so a field the index starts using lands in the record; a new input to the
+  checks must join it too. Each release needs exactly one `.tmxplug`, named `coolify-<tag version>.tmxplug`.
+  After a key rotation, `registry/first-version.txt` leaves out releases the old key signed.
 - Completeness tests: `authz.test.ts` (every route and socket has an `authz.json` entry, and no stale ones),
   `route-parity.test.ts` (docs/api.md's "Route map" lists exactly the served routes and sockets, each with
   a declared action or `none: <reason>`, and every route an action's row names is served and maps back),
@@ -167,11 +180,20 @@ aren't obvious from the code, and anything that has bitten you before.
   confirm (they are `isOperate` and sensitive). Any other answer that merely holds a log field
   (`list-servers`, `get-server-by-uuid`, the database reads and `update-server-by-uuid`, through
   `validation_logs`) is an ordinary read; `dispatch` masks the operation's `LOG_FIELDS` unless the call
-  is confirmed and the actor has `coolify.operate` and an operate grant. Revealing a log field needs
+  is confirmed and the actor has `coolify.operate` and an operate grant; when it does come back, every
+  string under a log field goes through `redactLog` (`redactLogFields`) with the snapshot's secrets, as
+  container logs do. Revealing a log field needs
   `coolify.operate` too. A server transfer's status stays operate by hand (its schema has no log field).
   `authorize` also applies `tokenAllows` (`token-ability`, 409), and `send` passes `beforeFetch` so the
   request layer checks the revision again after its budget and retry waits, right before each fetch.
   The console drops late answers with request generations (reveal, operation list, connections).
+- Scanner hygiene (#84): trim a trailing run with `trimTrailing` (`src/backend/text.ts`), never `/x+$/`
+  (quadratic on a long run that isn't at the end); an unanchored `A.*B` or `x+y` regex rescans from every
+  start, so use index scans or a pattern that can only start once (`isTaskRunPath` in
+  `ops/api-generic.ts`). Every sort takes a compare function: `byText` (`tests/backend/helpers/order.ts`)
+  in tests, `byCodeUnit` (`scripts/registry-lib.mjs`) in the scripts, both the order `sort()` gives without one. Use
+  `Number.NaN` and `Number.parseInt`, not the globals. `tests/backend/linear-regex.test.ts` times each
+  rewritten site on a hostile input.
 - Redaction: `src/backend/redact.ts` is the one redactor for the generic API, the console and every MCP
   tool result. It masks secret keys (`SECRET_KEY`, including `*_key` and `*_db_url`, plus
   `SECRET_FIELDS`) and, in every other string at any depth, a URL's userinfo password and credential
@@ -235,6 +257,14 @@ aren't obvious from the code, and anything that has bitten you before.
   counts only for the current tab data's key, and a clear only removes an entry with its own key. A uuid missing from the list shows "Gone"; a failed read shows nothing.
   The hook runs in the background frame, so the feed is made in `activate`, not in a view. Its test mocks
   `useShell` because the SDK's test host has no shell.
+- Locale templates: `fill(template, values)` in `src/shared/template.ts` is the one way to fill a
+  `{{key}}` template: one pass with a callback, so `$&`, `$1`, `$$` or a `{{...}}` inside a value (a
+  resource or server name) is kept as it is and never filled again. Recent activity, the deploy and
+  rollback dry runs and the status page (`fillHtml` escapes each value, then calls `fill`) use it.
+  `String.prototype.replace` with a string value expands `$` patterns, and chained calls refill earlier
+  values; `tests/backend/template-fill.test.ts` fails on any `.replace`/`.replaceAll` of a `{{` literal in
+  `src/` outside that file. The frontend's `t()` is core's i18next, which splices values in and skips
+  inserted text (`skipOnVariables`, on by default).
 - Status words: `src/shared/resource-health.ts` (`resourceHealth`, `countResources`) is the one reading of a
   Coolify status, imported by both the backend and the frontend. Exited is stopped, whatever its health
   suffix. Degraded covers degraded, restarting, dead and unhealthy, as a state (`unhealthy`) or a suffix
@@ -248,6 +278,15 @@ aren't obvious from the code, and anything that has bitten you before.
   Open shell and Open database console buttons (only with `canOperate`), and `logs`, `stats` and
   `traffic` (`OPERATE_TABS`: shown only with `canOperate`; `detailTabs()` shows `traffic` for
   applications only). Stats and Traffic are keyed by connection, uuid and revision, like Logs.
+- Confirms: `src/frontend/confirm.ts` is the only code that asks. A view calls
+  `useConfirmFor(target)`, never the SDK's `useConfirm`; its `confirm` answers false once the view
+  unmounted or `target` (what the action acts on: connection, uuid, revision, host link) is not the one
+  of the render that asked, and `still(forTarget)`/`isMounted()` guard the view's other awaits.
+  `useLifecycle(connectionId, onChanged, target)` takes its caller's target. Outside a view (the host
+  menu's Unlink, in the background frame) `confirmOnApp(app, options, holds)` asks `app.confirm` and
+  then `holds()`: Unlink reads `app.listHosts()` again and sends nothing unless the host still has the
+  link it was opened for (a failed read sends nothing). `tests/frontend/confirm-guard.test.ts` scans
+  `src/frontend` and fails on any `useConfirm`, `.confirm(` or `confirm(` not bound from the helper.
 - Host sync: `src/backend/sync/` (`mapping.ts` pure `planHost`, `credentials.ts` key copy, `locks.ts`,
   `service.ts` `createSync`, `routes.ts`) and `src/backend/ops/sync.ts`. `createSync` is async (it loads the
   lock set from `servers.hostId` before providing locks) and is made right after `createConnections`, whose
@@ -352,7 +391,15 @@ aren't obvious from the code, and anything that has bitten you before.
   outcome back to a status and cause. `sync.linkOfHost(hostId)` is the reverse lookup handlers use. Every
   action that reaches Coolify calls `resources.invalidate(connectionId)` afterwards (success or failure),
   and a waited deploy calls it again when the deployment ends, so the next read refetches and an
-  in-flight fetch from before the action is dropped.
+  in-flight fetch from before the action is dropped. A waited deploy ends on every final status in
+  `src/shared/deployment-status.ts` (`isFinalDeployment`; Coolify's `isFinal()` counts `skipped`). Only
+  `isSuccessfulDeployment` (finished, or the older success) emits deployment-finished; every other final
+  status emits deployment-failed and throws `DeploymentFailedError`, whose code is `skipped` (with its own
+  message in words) for a skipped deployment and `deployment-failed` otherwise. Recent activity is
+  recorded once, at accept, before the wait. That module is the one reading of a deployment status
+  (final, cancellable, succeeded, failed, skipped, Coolify's own spellings);
+  `tests/backend/deployment-status-guard.test.ts` fails on a `status === "<spelling>"` comparison or a
+  `new Set([...])` of spellings anywhere else in `src/`.
 - Shells: `src/backend/ssh.ts` (`SshRunner` over `ctx.ssh.exec`, `isHostKeyError`) and
   `src/backend/containers/` (`commands.ts` name check, `DB_CONSOLES`, `shellCommand`; `resolver.ts` docker ps
   filters; `service.ts` the checks; `routes.ts`) and `src/backend/ops/containers.ts`. Order of checks:
@@ -391,16 +438,26 @@ console, revision? }`, calls the shell route and draws `PluginComponent id="term
 - Log exits: `tests/backend/log-exits.test.ts` (`LOG_EXITS`, checked by `tests/backend/helpers/log-exits.ts`)
   lists every backend function that touches log or command text (Coolify log reads, `docker logs`, SSH
   channels and `.stdout`/`.stderr`, Log Search, the generic API's `LOG_FIELDS`, Package Manager's upgrade)
-  and what it does with it. An `exit` must call `redactLog` or a helper built on it (`keyBlockCarry`,
-  `lineSplitter`, `redactLogStream`, `buildLog`); a new read of log text anywhere else fails until it is
-  listed. Function spans come from prettier's layout. `dispatch` in api-generic.ts is `pending` until #81
-  (PR #103) lands, and the test fails once it calls a redactor so it becomes an `exit`. `reveal` is
+  and what it does with it. An `exit` must call `redactLog` or a helper built on it (`redactLogFields`,
+  `keyBlockCarry`, `lineSplitter`, `redactLogStream`, `buildLog`); a new read of log text anywhere else
+  fails until it is listed. Function spans come from prettier's layout. A `pending` entry (an exit known to
+  skip the redactor; none today) fails once it calls one, so it becomes an `exit`. `reveal` is
   deliberately `unredacted`.
 - Log redaction: every snapshot text and every followed line goes through `redactLog`. It first masks
   every private key block's body (`maskKeyBlocks`: several on a line, escaped `\n` or real newlines, and a
   block without END to the end of the text; linear `indexOf` scans). `lineSplitter` keeps a block opened
   by one line open (`keyEnd`) and drops the body lines until its END, and `openSecretStart` counts an open
-  block, so a long-line cut never splits one. Then the snapshot's own
+  block, so a long-line cut never splits one. The tail rule (#81): a tail cut (`--tail`, `?lines=`, a
+  follow at now) can start inside a key, so an END that no BEGIN before it opened (`lastLoneKeyEnd`)
+  masks everything from the start of that text up to it, and what follows is untouched. `maskKeyBlocks`
+  applies it to every text `redactLog` gets; `maskKeyTail` applies it across texts in order (buildLog's
+  commands and outputs); `lineSplitter` holds a stream's first lines while its last line is shaped like
+  a key's body (`mayBeInKey`: 64/70/76-wide base64, a PEM header or blank line, a short line first or
+  after a wide one; a `docker logs --timestamps` prefix is ignored) or a partial line is pending, up to
+  `KEY_HOLD_MAX` (32 KiB), then applies it to everything held. A key interleaved with other lines in a
+  live follow can still pass once a non-key line settles the start. `safeCut` compares its windows with
+  `redactSlice` (no tail rule): a window's start is not where the log starts, and the rule there only
+  refused good cuts. Then the snapshot's own
   token and Access secret (`snapshot.secrets()`, unsealed from the same row) are replaced anywhere, then
   redact.ts's `maskCredentials`, then secret-named `name=value`/`"name": "value"` fields and
   `Authorization` credentials. Names are bounded (`{0,64}`) so a long line can't backtrack for long.
@@ -419,7 +476,9 @@ console, revision? }`, calls the shell route and draws `PluginComponent id="term
   start to the end of the line. A prefix whose redaction ends masked does the same. At a cut a context
   closes only at whitespace (or its own closing quote): `@`, `/` and `&` never close it. The connection's
   own secrets, which can outrun the window, are checked by `indexOf` across the cut. A seeded 500-case
-  property test in `logs.test.ts` streams mixed secret shapes 1–5× MAX_LINE long in random chunks.
+  property test in `logs.test.ts` streams mixed secret shapes 1–5× MAX_LINE long in random chunks. Its
+  work is fixed by the seed; only wall time grows with load, so it has its own 120 s timeout (#75), not
+  Vitest's 5 s default.
 - logs-tail over MCP: `text` is a sensitive output, so core drops it from run history and from what
   `redactFields` passes on. The handler keeps the redacted text in memory (`takeLogText`, per user and
   `handoffId`, 60 s, 16 MB at most) and `actionResult` in `mcp/server.ts` puts it back into that one
@@ -697,8 +756,7 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   that check and the answer. `deployStarted`: an application counts only with a deployment uuid, a
   service or database always (Coolify starts them with none). The hook resolves a server to its Linked
   host, checks `ctx.hosts.checkAccess(hostId, "connect")`, dedupes per `host:kind:uuid`, and never
-  throws (a failure logs only the error's name). Texts go through `fill`, one pass with a callback, so
-  `$&` or `{{...}}` in a resource name is kept as it is. Types `coolify_shell` and
+  throws (a failure logs only the error's name). Texts go through `fill` (`src/shared/template.ts`). Types `coolify_shell` and
   `coolify_deploy` (`src/shared/activity.ts`) are claimed by the `coolify` tab's `activityTypes`. It needs
   only `hosts:read`; `hosts:activity-provide` is for the plugin that stores activity. `coolify.api-call`
   passthroughs record nothing.

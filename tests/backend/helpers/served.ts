@@ -3,6 +3,7 @@ import express, { type Router } from "express";
 import { createMockCtx, createTestDb } from "@termix-ssh/plugin-sdk/testing";
 import { activate } from "../../../src/backend/index.js";
 import { manifest } from "./plugin.js";
+import { byText } from "./order.js";
 
 const pluginDir = fileURLToPath(new URL("../../..", import.meta.url));
 
@@ -37,10 +38,10 @@ export async function served(): Promise<{
           `${method.toUpperCase()} /plugin-api/${manifest.id}${layer.route!.path}`,
       ),
     )
-    .sort();
+    .sort(byText);
   const sockets = mock.wsRoutes
     .map((r) => `WS /plugin-ws/${manifest.id}${r.path}`)
-    .sort();
+    .sort(byText);
   db.close();
   return { routes, sockets };
 }

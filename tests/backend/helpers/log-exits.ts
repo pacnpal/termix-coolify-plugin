@@ -21,7 +21,7 @@ export type LogExit =
 
 /** The redactors: redactLog itself, or a helper that runs every line through it. */
 export const REDACTORS =
-  /\b(?:redactLog|keyBlockCarry|lineSplitter|redactLogStream|buildLog)\(/;
+  /\b(?:redactLog|redactLogFields|keyBlockCarry|lineSplitter|redactLogStream|buildLog)\(/;
 
 /** Where log or command text enters the backend. */
 export const SOURCES: readonly RegExp[] = [

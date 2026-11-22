@@ -1,4 +1,5 @@
 import en from "../../../locales/en.json";
+import { fill } from "../../shared/template.js";
 
 /** One resource on the public page. Never a uuid, server, domain or log. */
 export interface StatusItem {
@@ -38,10 +39,13 @@ export function escapeHtml(value: unknown): string {
   return String(value ?? "").replace(/[&<>"']/g, (c) => ESCAPES[c]);
 }
 
-function fill(template: string, values: Record<string, string>): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (_m, key: string) =>
-    escapeHtml(values[key] ?? ""),
-  );
+/** A locale template filled with HTML-escaped values. */
+function fillHtml(template: string, values: Record<string, string>): string {
+  const escaped: Record<string, string> = {};
+  for (const [key, value] of Object.entries(values)) {
+    escaped[key] = escapeHtml(value);
+  }
+  return fill(template, escaped);
 }
 
 /** "2026-11-19 10:00 UTC", or null for a value that isn't a time. */
@@ -86,7 +90,7 @@ function itemHtml(item: StatusItem): string {
   const deployedAt = when(item.lastDeployAt);
   const meta: string[] = [];
   if (deployedAt) {
-    let deploy = fill(P.lastDeploy, { time: deployedAt });
+    let deploy = fillHtml(P.lastDeploy, { time: deployedAt });
     if (item.lastDeployOk === true) deploy += ` · ${escapeHtml(P.deployOk)}`;
     if (item.lastDeployOk === false) {
       deploy += ` · ${escapeHtml(P.deployFailed)}`;
@@ -97,7 +101,7 @@ function itemHtml(item: StatusItem): string {
   }
   if (typeof item.uptime === "number" && Number.isFinite(item.uptime)) {
     const percent = String(Math.round(item.uptime * 100) / 100);
-    meta.push(fill(P.uptime, { percent }));
+    meta.push(fillHtml(P.uptime, { percent }));
   }
   return `<li><div><div class="name">${escapeHtml(item.name)}</div><div class="meta">${meta.join(" · ")}</div></div><span class="status ${tone}">${escapeHtml(word)}</span></li>`;
 }
@@ -127,7 +131,7 @@ export function renderStatusPage(view: StatusView): string {
     "<main>",
     `<h1>${escapeHtml(view.title)}</h1>`,
     updated
-      ? `<p class="updated">${fill(P.updated, { time: updated })}</p>`
+      ? `<p class="updated">${fillHtml(P.updated, { time: updated })}</p>`
       : "",
     view.stale ? `<p class="stale">${escapeHtml(P.stale)}</p>` : "",
     list,

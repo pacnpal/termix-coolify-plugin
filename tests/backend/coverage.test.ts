@@ -6,6 +6,7 @@ import {
   OPERATIONS,
 } from "../../src/backend/coolify/generated/operations.js";
 import { meetsMinVersion } from "../../src/backend/coolify/version.js";
+import { byText } from "./helpers/order.js";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const SPEC_FILES = [
@@ -50,7 +51,7 @@ for (const file of SPEC_FILES) {
     if (!specUnion.has(operation.id)) specUnion.set(operation.id, operation);
   }
 }
-const unionIds = [...specUnion.keys()].sort();
+const unionIds = [...specUnion.keys()].sort(byText);
 
 interface CoverageRow {
   id: string;
@@ -81,11 +82,11 @@ describe("Coolify coverage contract", () => {
   it("every spec operation is listed in docs/coverage.md", () => {
     const ids = coverageRows().map((row) => row.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect([...ids].sort()).toEqual(unionIds);
+    expect([...ids].sort(byText)).toEqual(unionIds);
   });
 
   it("generated operations match the vendored specs", () => {
-    expect(OPERATIONS.map((o) => o.id).sort()).toEqual(unionIds);
+    expect(OPERATIONS.map((o) => o.id).sort(byText)).toEqual(unionIds);
     for (const operation of OPERATIONS) {
       const fromSpec = specUnion.get(operation.id)!;
       expect({ method: operation.method, path: operation.path }).toEqual({
