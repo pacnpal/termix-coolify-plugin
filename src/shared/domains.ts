@@ -1,10 +1,52 @@
+/** Letters, digits and hyphens only: one flat class, nothing to backtrack. */
+const LABEL_CHARS = /^[a-z0-9-]+$/;
+const MAX_HOSTNAME = 253;
+const MAX_LABEL = 63;
+
 /**
- * A DNS host name: lowercase labels, at least two, the last one not all
- * digits short enough to be an address. DNS records and preview domains use
- * it alike.
+ * A DNS host name: at most 253 characters, at least two dot separated
+ * labels of lowercase letters, digits and hyphens, each at most 63. Every
+ * label but the last is at least one character and doesn't start or end
+ * with a hyphen; the last is at least two, so a single label or an address
+ * like 203.0.113.5 is refused. Checked label by label, with lengths first,
+ * so no input can make it backtrack. DNS records and preview domains use it
+ * alike.
  */
-export const HOSTNAME =
-  /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}$/;
+export function isHostname(text: string): boolean {
+  if (text.length < 1 || text.length > MAX_HOSTNAME) return false;
+  const labels = text.split(".");
+  const last = labels.pop() ?? "";
+  if (labels.length === 0) return false;
+  if (last.length < 2 || last.length > MAX_LABEL) return false;
+  if (!LABEL_CHARS.test(last)) return false;
+  return labels.every(
+    (label) =>
+      label.length >= 1 &&
+      label.length <= MAX_LABEL &&
+      LABEL_CHARS.test(label) &&
+      !label.startsWith("-") &&
+      !label.endsWith("-"),
+  );
+}
+
+/** A path without its trailing slashes, in one pass from the end. */
+export function withoutTrailingSlashes(path: string): string {
+  let end = path.length;
+  while (end > 0 && path[end - 1] === "/") end -= 1;
+  return path.slice(0, end);
+}
+
+const SEGMENT = /^[A-Za-z0-9._~-]*$/;
+
+/** An empty path, or "/" separated segments of URL-safe characters. */
+function isSafePath(path: string): boolean {
+  if (path === "") return true;
+  if (!path.startsWith("/")) return false;
+  return path
+    .slice(1)
+    .split("/")
+    .every((segment) => SEGMENT.test(segment));
+}
 
 /** The most domains one list may hold. */
 export const MAX_DOMAINS = 20;
@@ -27,8 +69,6 @@ export type DomainCheck =
   | { ok: true; domains: string[]; value: string }
   | { ok: false; reason: DomainProblem; entry?: string };
 
-const PATH = /^(?:\/[A-Za-z0-9._~-]*)*$/;
-
 /** One entry of a domain list, normalized, or what is wrong with it. */
 function checkOne(entry: string): string | DomainProblem {
   if (!/^https?:\/\//i.test(entry)) return "scheme";
@@ -42,11 +82,11 @@ function checkOne(entry: string): string | DomainProblem {
     return "not-url";
   }
   if (url.username || url.password) return "credentials";
-  if (!HOSTNAME.test(url.hostname) || /^[\d.]+$/.test(url.hostname)) {
+  if (!isHostname(url.hostname) || /^[\d.]+$/.test(url.hostname)) {
     return "host";
   }
-  const path = url.pathname.replace(/\/+$/, "");
-  if (!PATH.test(path)) return "path";
+  const path = withoutTrailingSlashes(url.pathname);
+  if (!isSafePath(path)) return "path";
   return `${url.protocol}//${url.host}${path}`;
 }
 
