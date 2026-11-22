@@ -629,3 +629,35 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   state, `notCoolifyHost`, with no connection read, since only the hostless tab lists every connection's
   resources). `files.openHost` and `files.openEditor` are File
   Manager frontend actions run with `invokeAction`.
+- Deployments (1.1): `src/backend/deployments/` (service, log, routes, queue, by-tag) and
+  `src/backend/ops/deployments.ts`. `deployments.queue(connectionId)` is the one connection-wide read of
+  Coolify's queue (`GET /deployments`) plus the recent history of the ten most recently deployed
+  applications; it is cached 10 seconds in memory (`queue.ts`), keyed by revision and an invalidate
+  generation like the resources cache, shared by the Deployments section, the Overview, the
+  `coolify.deployment-queue` action and anything later (the sidebar panel, rail badge). Rows whose link
+  names no application of the connection are dropped. Cancel, deploy by tag and rollback invalidate it. In the
+  frontend, `useDeploymentQueue` is held by CoolifyTab and polls only while the tab shows Overview or
+  Deployments. Deploy by tag finds the tag's targets itself (`/applications?tag=` and each service's tags)
+  and deploys them by uuid: Coolify's own `tag` parameter refuses `pr` and `docker_tag`, and deploying by
+  uuid deploys exactly what the confirm listed (`targets`, checked again before Coolify is asked).
+- Activity panel and rail badge (1.1): `src/backend/attention/` and `src/backend/ops/attention.ts`
+  (`GET /attention`, `coolify.attention`) put together, for every connection the actor can view, the
+  queue's running rows, recent failures (`recentFailures`: the application's latest ended deployment per
+  pull request, failed, ended within 24 hours), degraded resources (no Parts) and unreachable servers. It
+  makes no Coolify request of its own: it reads `deployments.queue`, `resources.list` and `servers.list`,
+  whose caches the tab shares, so the panel, the badge and the tab cost one read per connection. A part
+  that fails sets the connection's `error` and keeps the others; a connection whose access went away by
+  the end is dropped. Frontend: `views/useAttention.ts` (one hook; `railBadge` is the `coolify` rail item's
+  `useBadge`, run in the background frame, checking `app.hasPermission("view")` before any read and
+  polling every 60 s) and `views/ActivityPanel.tsx` (panel `coolify-activity` with its own rail item,
+  polling every 15 s while `active`). Panel rows open the tab with data the tab reads in `requestOf`:
+  `uuid` on Resources opens that resource's detail, `resourceUuid` + `deploymentUuid` on Deployments
+  opens the build log, but only with operate (`shownDeployment` in CoolifyTab).
+- Rollback (1.1): `deployments/service.ts` `rollbackImages` (view) and `rollback` (operate), applications
+  only, through the same `open`/`holds` snapshot re-check as cancel; the image must be in Coolify's list as
+  read in that same call. `ops/rollback.ts` has both scopes; the rollbacks are destructive and in
+  `MCP_CONFIRM_REQUIRED`. `coolify.deploy` / `coolify.resource-deploy` declare them as `undo`: before an
+  application deploy, `imageBefore` in `ops/lifecycle.ts` reads the current image and returns it as
+  `undoInput` only when it is listed; a failed read never blocks the deploy. `PluginOperationOutcome` has
+  no `undoInput`, so tests read it from the handler's own result. `RollbackView` re-checks after the
+  confirm that it is still mounted and on the same application before it posts.

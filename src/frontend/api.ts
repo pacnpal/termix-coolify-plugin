@@ -189,6 +189,147 @@ export interface PreviewAnswer {
   deploymentUuid: string | null;
 }
 
+/** A deployment in the connection's queue, with its application's name. */
+export interface QueueDeployment extends Deployment {
+  resourceUuid: string;
+  resourceName: string;
+}
+
+/** The connection's queued and running deployments and recent ended ones. */
+export interface DeploymentQueue {
+  running: QueueDeployment[];
+  recent: QueueDeployment[];
+  fetchedAt: string | null;
+}
+
+/** A degraded resource on the attention list (never a Part). */
+export interface AttentionResource {
+  uuid: string;
+  name: string;
+  kind: ResourceKind;
+  status: string;
+  serverName: string | null;
+  projectName: string | null;
+  environmentName: string | null;
+}
+
+/** What needs a look on one connection the user can view. */
+export interface AttentionConnection {
+  id: number;
+  name: string;
+  access: Connection["access"];
+  scoped: boolean;
+  running: QueueDeployment[];
+  /** Recent failures that are still their application's latest outcome. */
+  failed: QueueDeployment[];
+  degraded: AttentionResource[];
+  unreachable: { uuid: string; name: string }[];
+  /** Why a part could not be read; what was read is still there. */
+  error: ApiFailure | null;
+}
+
+/** GET /attention: the sidebar panel's and the rail badge's one read. */
+export interface Attention {
+  connections: AttentionConnection[];
+  /** Running deployments plus recent failures. */
+  badge: number;
+  fetchedAt: string | null;
+}
+
+function named<T extends { uuid: string; name: string }>(value: unknown): T[] {
+  return Array.isArray(value)
+    ? (value as T[]).filter(
+        (v) => !!v && typeof v.uuid === "string" && typeof v.name === "string",
+      )
+    : [];
+}
+
+function attentionConnection(value: unknown): AttentionConnection | null {
+  const c = value as Partial<AttentionConnection> | null;
+  if (!c || typeof c.id !== "number" || typeof c.name !== "string") {
+    return null;
+  }
+  const error = c.error as Partial<ApiFailure> | null | undefined;
+  return {
+    id: c.id,
+    name: c.name,
+    access: c.access ?? "view",
+    scoped: c.scoped === true,
+    running: queueRows(c.running),
+    failed: queueRows(c.failed),
+    degraded: named<AttentionResource>(c.degraded),
+    unreachable: named<{ uuid: string; name: string }>(c.unreachable),
+    error:
+      error && typeof error.cause === "string"
+        ? { error: String(error.error ?? ""), cause: error.cause }
+        : null,
+  };
+}
+
+/** A resource deploy by tag will deploy. */
+export interface TagTarget {
+  uuid: string;
+  name: string;
+  kind: "application" | "service";
+  serverName: string | null;
+}
+
+/** What deploy by tag will hit, for its confirm. */
+export interface TagTargets {
+  tag: string;
+  targets: TagTarget[];
+  /** Services with the tag left out because a pull request was asked. */
+  skippedServices: number;
+}
+
+/** Deploy by tag's options as the form sends them. */
+export interface TagDeployBody {
+  tag: string;
+  force: boolean;
+  pullRequestId?: number;
+  dockerTag?: string;
+  /** The uuids the person confirmed. */
+  targets: string[];
+}
+
+/** What deploy by tag answers; pending waits for an approval. */
+export interface TagDeployAnswer {
+  queued: number;
+  pending: boolean;
+}
+
+function queueRows(value: unknown): QueueDeployment[] {
+  return Array.isArray(value)
+    ? (value as QueueDeployment[]).filter(
+        (r) =>
+          !!r &&
+          typeof r.uuid === "string" &&
+          typeof r.resourceUuid === "string",
+      )
+    : [];
+}
+
+/** One image an application can be rolled back to. */
+export interface RollbackImage {
+  tag: string;
+  createdAt: string | null;
+  /** The image the application runs now. */
+  current: boolean;
+  source: "local" | "registry" | null;
+}
+
+/** An application's rollback images and the tag it runs now. */
+export interface RollbackImages {
+  current: string | null;
+  images: RollbackImage[];
+}
+
+/** What a rollback answers; pending waits for an approval. */
+export interface RollbackAnswer {
+  deploymentUuid: string | null;
+  pending: boolean;
+}
+
 /** GET /mcp: where the plugin's MCP endpoint is. */
 export interface McpInfo {
   endpoint: string;
@@ -760,6 +901,39 @@ export function createApi(api: PluginApiClient) {
         cancellable: data?.cancellable === true,
       };
     },
+    /** The images an application can be rolled back to. */
+    async listRollbackImages(
+      id: number,
+      uuid: string,
+    ): Promise<RollbackImages> {
+      const data = (
+        await api.get<Partial<RollbackImages>>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/rollback-images`,
+        )
+      ).data;
+      return {
+        current: typeof data?.current === "string" ? data.current : null,
+        images: Array.isArray(data?.images) ? data.images : [],
+      };
+    },
+    /** Rolls an application back to `image`; the backend runs it as an action. */
+    async rollback(
+      id: number,
+      uuid: string,
+      image: string,
+    ): Promise<RollbackAnswer> {
+      const data = (
+        await api.post<{ status?: unknown; deploymentUuid?: unknown }>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/rollback`,
+          { image },
+        )
+      ).data;
+      return {
+        deploymentUuid:
+          typeof data?.deploymentUuid === "string" ? data.deploymentUuid : null,
+        pending: data?.status === "pending",
+      };
+    },
     /** Cancels a queued or running deployment; the backend runs it as an action. */
     async cancelDeployment(
       id: number,
@@ -844,6 +1018,85 @@ export function createApi(api: PluginApiClient) {
         )
       ).data;
       return typeof data?.text === "string" ? data.text : "";
+    },
+    /** The connection's deployment queue, from the backend's shared cache. */
+    async deploymentQueue(
+      id: number,
+      opts: { refresh?: boolean } = {},
+    ): Promise<DeploymentQueue> {
+      const data = (
+        await api.get<Partial<DeploymentQueue>>(
+          `/connections/${id}/deployments${opts.refresh ? "?refresh=1" : ""}`,
+        )
+      ).data;
+      return {
+        running: queueRows(data?.running),
+        recent: queueRows(data?.recent),
+        fetchedAt: typeof data?.fetchedAt === "string" ? data.fetchedAt : null,
+      };
+    },
+    /** Deployments in progress and attention items across connections. */
+    async attention(opts: { refresh?: boolean } = {}): Promise<Attention> {
+      const data = (
+        await api.get<Partial<Attention>>(
+          `/attention${opts.refresh ? "?refresh=1" : ""}`,
+        )
+      ).data;
+      const badge = Number(data?.badge);
+      const rows: unknown[] = Array.isArray(data?.connections)
+        ? data.connections
+        : [];
+      return {
+        connections: rows
+          .map(attentionConnection)
+          .filter((c): c is AttentionConnection => c !== null),
+        badge: Number.isSafeInteger(badge) && badge > 0 ? badge : 0,
+        fetchedAt: typeof data?.fetchedAt === "string" ? data.fetchedAt : null,
+      };
+    },
+    /** The resources deploy by tag would deploy. Changes nothing. */
+    async tagTargets(
+      id: number,
+      query: { tag: string; pullRequestId?: number },
+    ): Promise<TagTargets> {
+      const params = new URLSearchParams({ tag: query.tag });
+      if (query.pullRequestId !== undefined) {
+        params.set("pullRequestId", String(query.pullRequestId));
+      }
+      const data = (
+        await api.get<Partial<TagTargets>>(
+          `/connections/${id}/deploy-by-tag?${params}`,
+        )
+      ).data;
+      return {
+        tag: typeof data?.tag === "string" ? data.tag : query.tag,
+        targets: Array.isArray(data?.targets) ? data.targets : [],
+        skippedServices:
+          typeof data?.skippedServices === "number" ? data.skippedServices : 0,
+      };
+    },
+    /** Deploys the confirmed resources with the tag; the backend runs an action. */
+    async deployByTag(
+      id: number,
+      body: TagDeployBody,
+    ): Promise<TagDeployAnswer> {
+      const data = (
+        await api.post<{ status?: unknown; deployments?: unknown }>(
+          `/connections/${id}/deploy-by-tag`,
+          body,
+        )
+      ).data;
+      const rows: unknown[] = Array.isArray(data?.deployments)
+        ? data.deployments
+        : [];
+      return {
+        queued: rows.filter(
+          (d) =>
+            typeof (d as { deploymentUuid?: unknown } | null)
+              ?.deploymentUuid === "string",
+        ).length,
+        pending: data?.status === "pending",
+      };
     },
     async listStatusPages(connectionId: number): Promise<StatusPageList> {
       const data = (

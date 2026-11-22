@@ -61,7 +61,7 @@ Adding, changing and removing connections needs **Configure Coolify**; listing a
 ## Overview and resources
 
 The Coolify tab has its sections on the left (a select at the top on a phone): **Overview**, **Resources**,
-**Servers** (with **Configure Coolify**, see below) and **Connections**. With no connection yet it opens on
+**Deployments**, **Servers** (with **Configure Coolify**, see below) and **Connections**. With no connection yet it opens on
 Connections. With more than one, pick the connection in the section's header.
 
 **Overview** counts the connection's resources by status:
@@ -73,7 +73,8 @@ Connections. With more than one, pick the connection in the section's header.
 - **Deploying**: starting or building.
 
 Service parts aren't counted on their own; their service's status covers them. Choose a tile to open the
-Resources list filtered to that status.
+Resources list filtered to that status. Below the tiles, **Deployments in progress** lists what Coolify has
+queued or running on the connection, from the same read as the Deployments section.
 
 **Resources** lists every application, service and database, with each service's parts (its containers,
 like n8n's worker or its Postgres) right under it. Each row shows the status, the Coolify server, the project
@@ -272,6 +273,60 @@ connection's token also needs `read:sensitive`; without it the view says Coolify
 The actions `coolify.deployment-list`, `coolify.deployment-get` (the build log, with `confirm: true`) and
 `coolify.deployment-cancel` do the same from Operations Center, Automations, the CLI, the Termix API and
 MCP. See [the API](api.md).
+
+### The Deployments section
+
+The tab's **Deployments** section shows the whole connection: what Coolify has **queued and running** now,
+and the **recent** ended deployments of its ten most recently deployed applications. Only deployments of the
+connection's own applications are shown; one of another application in the same Coolify team never is. The
+list is one read, kept 10 seconds and shared with the Overview, and read again every 10 seconds only while
+the tab shows the Overview or this section. With **Operate Coolify resources** and operate access, a row
+opens its build log, with **Cancel deployment** while it runs, as above.
+
+**Deploy by tag** deploys every application and service on the connection that carries a Coolify tag. It
+takes the tag, **Force rebuild**, and optionally a **Pull request** (that pull request's preview; services
+have no previews and are left out) with its **Docker tag** (for a Docker image preview). **Review and
+deploy** lists the resources it will deploy and asks first; only those are deployed, and if the tag hits
+other resources by then nothing is deployed and you're asked to review again. It needs **Operate Coolify
+resources** and operate access. The action `coolify.deploy-by-tag` does the same (a dry run lists the
+resources), and `coolify.deployment-queue` reads the queue.
+
+### The activity panel and the rail badge
+
+The **Coolify activity** panel opens from its own sidebar button. It lists, across every connection you can
+view:
+
+- **Deploying now**: queued and running deployments.
+- **Needs attention**: recent failed deployments, degraded resources and servers Coolify can't reach. A
+  failed deployment stays here for 24 hours, or until a later deployment of the same application finishes.
+  A resource you stopped (Coolify reports it as exited) is not degraded.
+
+A deployment opens the Deployments section on its connection, with its build log when you have **Operate
+Coolify resources** and operate access. A resource opens its detail. A server opens **Servers** when you own
+the connection and have **Configure Coolify**, and the Overview otherwise. The panel reads again every 15
+seconds while it is shown and stops when it is hidden.
+
+The **Coolify** sidebar button shows a badge with the number of running deployments plus recent failures,
+read once a minute. It is hidden at zero and without **View Coolify**. The panel, the badge, the tab and
+the action `coolify.attention` share one cached read per connection, so they add no Coolify requests.
+
+### Rollback
+
+**Roll back** in the Deployments view lists the images Coolify can roll the application back to (on its
+server, and in the registry when a registry image is set), marks the one running now, and rolls back to the
+one you pick after a confirm that names its image tag. Coolify then queues a rollback deployment, which shows
+in the history, the Deployments section and the activity panel. It needs **Operate Coolify resources** and a connection you own or a Grant at operate or
+configure; services and databases have no rollback.
+
+- The image must still be in Coolify's list when you confirm; the connection and your Grant are checked
+  again right before Coolify is asked.
+- Moving to another application, or closing the view, while the confirm is open sends nothing.
+
+`coolify.rollback` (on a Linked host's application) and `coolify.resource-rollback` (by connection and uuid)
+do the same from Operations Center, Automations, the CLI, the Termix API and MCP, with the image picked from
+`coolify.rollback-images` or `coolify.resource-rollback-images`. They are destructive, so Termix confirms
+them, and the confirm names the tag. A rollback is also the **undo** of a deploy: deploying an application
+records the image it ran before, and undoing the run in Operations Center rolls back to it.
 
 ## Pull request previews
 

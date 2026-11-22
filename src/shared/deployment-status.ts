@@ -27,3 +27,11 @@ export function isFinalDeployment(status: string): boolean {
 export function isCancellableDeployment(status: string): boolean {
   return CANCELLABLE.has(status);
 }
+
+/** Final statuses that mean the deployment failed (and an older spelling). */
+const FAILED: ReadonlySet<string> = new Set(["failed", "error"]);
+
+/** Whether a deployment with this status ended in failure. */
+export function isFailedDeployment(status: string): boolean {
+  return FAILED.has(status);
+}

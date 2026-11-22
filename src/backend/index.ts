@@ -2,6 +2,8 @@ import type { Router } from "express";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { defineTables } from "./db.js";
 import { registerApiConsoleRoutes } from "./api/routes.js";
+import { registerAttentionRoutes } from "./attention/routes.js";
+import { createAttention } from "./attention/service.js";
 import { registerCompanionRoutes } from "./companions/routes.js";
 import { createCompanions } from "./companions/service.js";
 import { createContainerCompanions } from "./companions/container-service.js";
@@ -90,6 +92,12 @@ export async function activate(ctx: PluginContext): Promise<void> {
     resources,
     sync,
   });
+  const attention = createAttention(ctx, {
+    connections,
+    resources,
+    deployments,
+    servers,
+  });
   const statusPages = createStatusPages(ctx, {
     tables,
     connections,
@@ -103,6 +111,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
   registerLifecycleRoutes(router, ctx, lifecycle);
   registerDeploymentRoutes(router, ctx, deployments);
   registerPreviewRoutes(router, ctx, previews);
+  registerAttentionRoutes(router, ctx, attention);
   registerContainerRoutes(router, ctx, containers, logs);
   registerLogSocket(ctx, { logs });
   registerStatsSocket(ctx, { connections, containers });
@@ -131,6 +140,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
     statusPages,
     genericApi,
     metrics,
+    attention,
   });
   provideClient(ctx);
   await statusPages.start();

@@ -11,32 +11,19 @@ import {
   renderWithApp,
   type RenderedPluginApp,
 } from "@termix-ssh/plugin-sdk/testing";
-import type { PluginManifest } from "@termix-ssh/plugin-sdk/manifest";
 import * as plugin from "../../../src/frontend/index";
 import { BuildLogView } from "../../../src/frontend/views/BuildLogView";
-import manifestJson from "../../../manifest.json";
 import locales from "../../../locales/en.json";
 import { stubApi } from "../fixtures";
+import {
+  harnessManifest,
+  OPERATE,
+  openDeployments as openDeploymentsIn,
+} from "../helpers/deployments";
 
-const real = manifestJson as unknown as PluginManifest;
 /** The plugin's manifest plus a test tab that holds BuildLogView. */
-const manifest: PluginManifest = {
-  ...real,
-  contributes: {
-    ...real.contributes,
-    tabs: [
-      ...(real.contributes?.tabs ?? []),
-      {
-        id: "build-log-harness",
-        titleKey: "tab.title",
-        icon: "ScrollText",
-        openFrom: ["palette"],
-      },
-    ],
-  },
-};
+const manifest = harnessManifest("build-log-harness", "ScrollText");
 const D = locales.deployments;
-const OPERATE = ["coolify.view", "coolify.operate"];
 
 let rendered: RenderedPluginApp | null = null;
 
@@ -364,32 +351,11 @@ describe("build log view", () => {
 });
 
 /** Opens the coolify tab, the web application and its Deployments view. */
-async function openDeployments(
+function openDeployments(
   api: ReturnType<typeof stubApi>,
   permissions = OPERATE,
 ) {
-  rendered = await renderWithApp(plugin, {
-    manifest,
-    locales,
-    api,
-    permissions,
-  });
-  rendered.renderTab("coolify", { isVisible: true });
-  fireEvent.click(
-    await screen.findByRole("button", { name: locales.nav.resources }),
-  );
-  fireEvent.click(
-    await waitFor(() => {
-      const r = document.querySelector('[data-name="web"]');
-      if (!r) throw new Error("no row");
-      return r;
-    }),
-  );
-  fireEvent.click(
-    await screen.findByRole("button", {
-      name: locales.detail.tabs.deployments,
-    }),
-  );
+  return openDeploymentsIn(manifest, (r) => (rendered = r), api, permissions);
 }
 
 function historyApi(pages: (url: string) => unknown) {

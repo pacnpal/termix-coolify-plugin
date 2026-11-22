@@ -10,6 +10,7 @@ import {
   toPart,
   toPreview,
   toProject,
+  toRollbackImages,
   toSentinelSettings,
   toServer,
   toService,
@@ -21,6 +22,7 @@ import {
   type ProjectDto,
   type ResourceDto,
   type ResourceKind,
+  type RollbackImagesDto,
   type SentinelSettingsDto,
   type ServerDto,
   type StorageDto,
@@ -43,6 +45,13 @@ export interface KeyForCopy {
   /** Null when the token can't read key material (no read:sensitive). */
   privateKey: string | null;
   publicKey: string | null;
+}
+
+/** Coolify's answer for one resource of a deploy request. */
+export interface DeployRow {
+  resourceUuid: string | null;
+  deploymentUuid: string | null;
+  message: string | null;
 }
 
 function text(value: unknown): string | null {
@@ -356,6 +365,79 @@ export function createCoolifyApi(http: CoolifyHttp) {
       };
     },
 
+    /**
+     * Deploys the resources named by uuid in one request, with Coolify's
+     * force, pull request and Docker tag options. Each row is Coolify's word
+     * for one resource; deploymentUuid is null when it queued none.
+     */
+    async deployUuids(
+      uuids: string[],
+      opts: {
+        force: boolean;
+        pullRequestId?: number;
+        dockerTag?: string;
+        beforeFetch?: () => Promise<void>;
+      },
+    ): Promise<DeployRow[]> {
+      const body = await call(op("deploy-by-tag-or-uuid"), {
+        query: {
+          uuid: uuids.join(","),
+          force: opts.force,
+          pr: opts.pullRequestId,
+          docker_tag: opts.dockerTag,
+        },
+        beforeFetch: opts.beforeFetch,
+      });
+      return rows(body, "deployments").map((raw) => {
+        const d = (raw ?? {}) as Record<string, unknown>;
+        return {
+          resourceUuid: text(d.resource_uuid),
+          deploymentUuid: text(d.deployment_uuid),
+          message: text(d.message),
+        };
+      });
+    },
+
+    /** Coolify's queue: the deployments queued or running now, without logs. */
+    async runningDeployments(
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<DeploymentDto[]> {
+      const body = await call(op("list-deployments"), {
+        beforeFetch: opts.beforeFetch,
+      });
+      return rows(body, "deployments").map((d) => toDeployment(d));
+    },
+
+    /** The applications that carry a tag (Coolify filters by its name). */
+    async applicationsTagged(
+      tag: string,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<ResourceDto[]> {
+      return rows(
+        await call(op("list-applications"), {
+          query: { tag },
+          beforeFetch: opts.beforeFetch,
+        }),
+        "applications",
+      ).map(toApplication);
+    },
+
+    /** The names of a resource's tags. */
+    async tagsOf(
+      kind: "application" | "service" | "database",
+      uuid: string,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<string[]> {
+      return rows(
+        await call(op(`list-tags-by-${kind}-uuid`, { uuid }), {
+          beforeFetch: opts.beforeFetch,
+        }),
+        "tags",
+      )
+        .map((t) => text((t as { name?: unknown } | null)?.name))
+        .filter((name): name is string => name !== null);
+    },
+
     async deployments(
       appUuid: string,
       opts: { skip: number; take: number },
@@ -382,6 +464,35 @@ export function createCoolifyApi(http: CoolifyHttp) {
         beforeFetch: opts.beforeFetch,
       });
       return { deployment: toDeployment(body), log: toDeploymentLog(body) };
+    },
+
+    /** The images an application can be rolled back to, and the current one. */
+    async rollbackImages(
+      appUuid: string,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<RollbackImagesDto> {
+      return toRollbackImages(
+        await call(op("list-application-rollback-images", { uuid: appUuid }), {
+          beforeFetch: opts.beforeFetch,
+        }),
+      );
+    },
+
+    /** Queues a rollback deployment to `tag`; its deployment uuid, when Coolify says. */
+    async rollback(
+      appUuid: string,
+      tag: string,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<{ deploymentUuid: string | null }> {
+      const body = await call<unknown>(
+        op("rollback-application-by-uuid", { uuid: appUuid }),
+        { body: { commit: tag }, beforeFetch: opts.beforeFetch },
+      );
+      const id =
+        body && typeof body === "object"
+          ? (body as { deployment_uuid?: unknown }).deployment_uuid
+          : undefined;
+      return { deploymentUuid: typeof id === "string" ? id : null };
     },
 
     /** Cancels a queued or running deployment; its new status, when Coolify says. */

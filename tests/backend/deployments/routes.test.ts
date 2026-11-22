@@ -5,6 +5,8 @@ import {
   deploymentRaw,
   KEY_BODY,
   keyEntries,
+  expectRefusedBeforeCoolify,
+  REFUSED_CALLERS,
 } from "../helpers/deployments.js";
 import {
   changes,
@@ -219,41 +221,17 @@ describe("one deployment with its build log", () => {
   });
 });
 
-/**
- * ctx.operations.run as core answers it across the plugin process boundary:
- * a handler's refusal comes back as a plain Error, its class and code lost.
- */
-function coreLikeRun(harness: PluginHarness) {
-  const ops = harness.mock.ctx.operations;
-  const run = ops.run.bind(ops);
-  vi.spyOn(ops, "run").mockImplementation(async (id, options) => {
-    try {
-      return await run(id, options);
-    } catch (err) {
-      throw new Error((err as Error).message);
-    }
-  });
-}
-
 describe("cancel refuses before Coolify is asked", () => {
-  it.each([
-    ["another user", null, 404],
-    ["a view grant", "view", 403],
-  ] as const)(
+  it.each(REFUSED_CALLERS)(
     "%s gets a refusal and Coolify gets no request",
     async (_who, level, status) => {
-      const { harness, fake, id } = await start();
-      if (level) grant(harness, id, OTHER, level);
-      coreLikeRun(harness);
-      const before = fake.calls.length;
-      const answer = await harness.request(
-        "POST",
-        `${web(id)}/deployments/dep-run/cancel`,
-        undefined,
-        OTHER,
+      const started = await start();
+      await expectRefusedBeforeCoolify(
+        started,
+        level,
+        status,
+        `${web(started.id)}/deployments/dep-run/cancel`,
       );
-      expect(answer.status).toBe(status);
-      expect(fake.calls.slice(before)).toEqual([]);
     },
   );
 });

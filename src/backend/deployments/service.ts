@@ -1,5 +1,10 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
-import type { DeploymentDto, ResourceDto } from "../coolify/dto.js";
+import {
+  IMAGE_TAG,
+  type DeploymentDto,
+  type ResourceDto,
+  type RollbackImagesDto,
+} from "../coolify/dto.js";
 import {
   ConnectionError,
   type AccessLevel,
@@ -11,7 +16,20 @@ import {
   isCancellableDeployment,
   isFinalDeployment,
 } from "../../shared/deployment-status.js";
+import { CoolifyError } from "../coolify/http.js";
+import {
+  describeTargets,
+  readPullRequest,
+  readTag,
+  sameTargets,
+  TargetsChangedError,
+  toTarget,
+  type TagDeployRequest,
+  type TagDeployResult,
+  type TagTargets,
+} from "./by-tag.js";
 import { buildLog, type BuildLog } from "./log.js";
+import { createQueueCache, mapLimit, type DeploymentQueue } from "./queue.js";
 
 /** A deployment that can't be cancelled any more (it ended). */
 export class DeploymentError extends Error {
@@ -47,6 +65,20 @@ export interface DeploymentDetail {
   /** Nothing more will change: polling can stop. */
   final: boolean;
   cancellable: boolean;
+}
+
+/** An application's rollback images, named. */
+export interface RollbackImages extends RollbackImagesDto {
+  uuid: string;
+  name: string;
+}
+
+/** A queued rollback. */
+export interface RollbackOutcome {
+  uuid: string;
+  name: string;
+  image: string;
+  deploymentUuid: string | null;
 }
 
 type Level = "view" | "operate";
@@ -103,6 +135,8 @@ function clean(row: DeploymentDto): DeploymentDto {
 export interface DeploymentsDeps {
   connections: Connections;
   resources: Resources;
+  /** The clock, for tests. */
+  now?: () => number;
 }
 
 /**
@@ -116,6 +150,10 @@ export interface DeploymentsDeps {
  */
 export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
   const { connections, resources } = deps;
+  const queueCache = createQueueCache({
+    revision: (id) => connections.revision(id),
+    now: deps.now,
+  });
 
   async function open(connectionId: number, level: Level): Promise<Snapshot> {
     if (!(await ctx.rbac.has(level))) {
@@ -215,6 +253,109 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
     return answer;
   }
 
+  /**
+   * One of the connection's own applications, on `serverUuid` when one is
+   * given (a Linked host's own server).
+   */
+  async function applicationOn(
+    connectionId: number,
+    uuid: string,
+    serverUuid: string | undefined,
+  ): Promise<ResourceDto> {
+    const app = await application(connectionId, uuid);
+    if (serverUuid !== undefined && app.serverUuid !== serverUuid) {
+      throw noApplication();
+    }
+    return app;
+  }
+
+  async function images(
+    connectionId: number,
+    snap: Snapshot,
+    level: Level,
+    app: ResourceDto,
+    signal: AbortSignal | undefined,
+  ): Promise<RollbackImagesDto> {
+    await holds(connectionId, snap, level);
+    signal?.throwIfAborted();
+    const answer = await snap.api.rollbackImages(app.uuid, {
+      beforeFetch: () => holds(connectionId, snap, level),
+    });
+    await holds(connectionId, snap, level);
+    return answer;
+  }
+
+  /**
+   * The connection's own applications and services that carry `tag`, as
+   * Coolify's deploy by tag would pick them: applications through Coolify's
+   * tag filter, services through each one's tags. With a pull request,
+   * services are left out (they have no previews). Checked against the
+   * actor's operate grant after every await and before each request.
+   */
+  async function findTargets(
+    connectionId: number,
+    snap: Snapshot,
+    req: { tag: string; pullRequestId?: number },
+    signal?: AbortSignal,
+  ): Promise<TagTargets> {
+    const guard = async () => {
+      await holds(connectionId, snap, "operate");
+      signal?.throwIfAborted();
+    };
+    const own = await resources.list(connectionId);
+    await guard();
+    const byUuid = new Map(own.map((r) => [r.uuid, r]));
+    const tagged = await snap.api.applicationsTagged(req.tag, {
+      beforeFetch: guard,
+    });
+    await guard();
+    const apps = new Map<string, ResourceDto>();
+    for (const a of tagged) {
+      const mine = byUuid.get(a.uuid);
+      if (mine?.kind === "application") apps.set(mine.uuid, mine);
+    }
+    const services = own.filter((r) => r.kind === "service");
+    const hits = await mapLimit(services, 4, async (svc) => {
+      try {
+        const tags = await snap.api.tagsOf("service", svc.uuid, {
+          beforeFetch: guard,
+        });
+        return tags.includes(req.tag);
+      } catch (err) {
+        if (err instanceof CoolifyError && err.cause === "not-found") {
+          return false;
+        }
+        throw err;
+      }
+    });
+    await guard();
+    const tagServices = services.filter((_, i) => hits[i]);
+    const withPr = req.pullRequestId !== undefined;
+    const byName = (a: ResourceDto, b: ResourceDto) =>
+      a.name.localeCompare(b.name);
+    return {
+      tag: req.tag,
+      targets: [
+        ...[...apps.values()].sort(byName),
+        ...(withPr ? [] : tagServices.sort(byName)),
+      ].map(toTarget),
+      skippedServices: withPr ? tagServices.length : 0,
+    };
+  }
+
+  async function tagTargets(
+    connectionId: number,
+    input: { tag?: unknown; pullRequestId?: unknown },
+    signal?: AbortSignal,
+  ): Promise<TagTargets> {
+    const req = {
+      tag: readTag(input.tag),
+      pullRequestId: readPullRequest(input.pullRequestId),
+    };
+    const snap = await open(connectionId, "operate");
+    return findTargets(connectionId, snap, req, signal);
+  }
+
   return {
     holds,
     open,
@@ -238,6 +379,179 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
         await application(connectionId, resourceUuid);
         await holds(connectionId, snap, level);
       }
+    },
+
+    /**
+     * The application a rollback would act on, for its confirm text: the
+     * same checks as a rollback, without asking Coolify anything.
+     */
+    async rollbackTarget(
+      connectionId: number,
+      uuid: string,
+      opts: { serverUuid?: string } = {},
+    ): Promise<ResourceDto> {
+      const snap = await open(connectionId, "operate");
+      const app = await applicationOn(connectionId, uuid, opts.serverUuid);
+      await holds(connectionId, snap, "operate");
+      return app;
+    },
+
+    /**
+     * The images an application can be rolled back to, with the one it
+     * runs now. Only applications have them; anything else is not-found.
+     */
+    async rollbackImages(
+      connectionId: number,
+      uuid: string,
+      opts: { serverUuid?: string; signal?: AbortSignal } = {},
+    ): Promise<RollbackImages> {
+      const snap = await open(connectionId, "view");
+      const app = await applicationOn(connectionId, uuid, opts.serverUuid);
+      const answer = await images(connectionId, snap, "view", app, opts.signal);
+      return { uuid: app.uuid, name: app.name, ...answer };
+    },
+
+    /**
+     * Rolls an application back to one of its listed images. Needs operate.
+     * The image must be in Coolify's list as read now; the connection and
+     * the actor's grant are checked after every await and right before
+     * Coolify is asked, and a cancelled run stops before that.
+     */
+    async rollback(
+      connectionId: number,
+      uuid: string,
+      image: string,
+      opts: { serverUuid?: string; signal?: AbortSignal } = {},
+    ): Promise<RollbackOutcome> {
+      const snap = await open(connectionId, "operate");
+      if (!IMAGE_TAG.test(image)) {
+        throw new ConnectionError("invalid-input", "image is not an image tag");
+      }
+      const app = await applicationOn(connectionId, uuid, opts.serverUuid);
+      const listed = await images(
+        connectionId,
+        snap,
+        "operate",
+        app,
+        opts.signal,
+      );
+      if (!listed.images.some((i) => i.tag === image)) {
+        throw new ConnectionError(
+          "invalid-input",
+          "That image is not one this application can be rolled back to",
+        );
+      }
+      opts.signal?.throwIfAborted();
+      let answer: { deploymentUuid: string | null };
+      try {
+        answer = await snap.api.rollback(app.uuid, image, {
+          beforeFetch: async () => {
+            await holds(connectionId, snap, "operate");
+            opts.signal?.throwIfAborted();
+          },
+        });
+      } finally {
+        // The application redeploys: its status and the queue change.
+        queueCache.invalidate(connectionId);
+        await resources.invalidate(connectionId);
+      }
+      await holds(connectionId, snap, "operate");
+      return {
+        uuid: app.uuid,
+        name: app.name,
+        image,
+        deploymentUuid: answer.deploymentUuid,
+      };
+    },
+
+    /**
+     * The connection's queued and running deployments and recent history,
+     * from one cached read shared by the Deployments section, the Overview
+     * and every other reader. Only the connection's own applications'
+     * deployments are in it.
+     */
+    async queue(
+      connectionId: number,
+      opts: { refresh?: boolean; signal?: AbortSignal } = {},
+    ): Promise<DeploymentQueue> {
+      const snap = await open(connectionId, "view");
+      const applications = (await resources.list(connectionId)).filter(
+        (r) => r.kind === "application",
+      );
+      await holds(connectionId, snap, "view");
+      opts.signal?.throwIfAborted();
+      const value = await queueCache.read(
+        connectionId,
+        snap.view.revision,
+        { api: snap.api, applications },
+        { refresh: opts.refresh },
+      );
+      await holds(connectionId, snap, "view");
+      return value;
+    },
+
+    /** Drops the cached queue, so the next read asks Coolify. */
+    invalidateQueue(connectionId: number): void {
+      queueCache.invalidate(connectionId);
+    },
+
+    /** What deploy by tag would hit, for the confirm. Needs operate. */
+    tagTargets,
+
+    /** The dry run's words for deploy by tag. */
+    async describeTagDeploy(
+      connectionId: number,
+      input: { tag?: unknown; pullRequestId?: unknown },
+    ): Promise<string> {
+      return describeTargets(await tagTargets(connectionId, input));
+    },
+
+    /**
+     * Deploys every resource with the tag, by uuid, so exactly the resources
+     * found (and, with `targets`, confirmed) are deployed, and the pull
+     * request and Docker tag options work. Refused before Coolify is asked
+     * when the run is cancelled, the targets changed, or the connection or
+     * the actor's grant changed meanwhile.
+     */
+    async deployByTag(
+      connectionId: number,
+      req: TagDeployRequest,
+      signal?: AbortSignal,
+    ): Promise<TagDeployResult> {
+      const snap = await open(connectionId, "operate");
+      signal?.throwIfAborted();
+      const found = await findTargets(connectionId, snap, req, signal);
+      if (!found.targets.length) {
+        throw new ConnectionError(
+          "not-found",
+          `No resources on this connection have the tag ${req.tag}`,
+        );
+      }
+      if (req.targets && !sameTargets(req.targets, found.targets)) {
+        throw new TargetsChangedError();
+      }
+      await holds(connectionId, snap, "operate");
+      signal?.throwIfAborted();
+      let deployments;
+      try {
+        deployments = await snap.api.deployUuids(
+          found.targets.map((t) => t.uuid),
+          {
+            force: req.force,
+            pullRequestId: req.pullRequestId,
+            dockerTag: req.dockerTag,
+            beforeFetch: async () => {
+              await holds(connectionId, snap, "operate");
+              signal?.throwIfAborted();
+            },
+          },
+        );
+      } finally {
+        queueCache.invalidate(connectionId);
+        await resources.invalidate(connectionId);
+      }
+      await holds(connectionId, snap, "operate");
+      return { ...found, deployments };
     },
 
     /** One page of an application's deployments, newest first. */
@@ -319,7 +633,8 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
           },
         });
       } finally {
-        // The resource's status changes with its deployment.
+        // The resource's status and the queue change with its deployment.
+        queueCache.invalidate(connectionId);
         await resources.invalidate(connectionId);
       }
       await holds(connectionId, snap, "operate");

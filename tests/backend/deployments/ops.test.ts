@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { PluginOperationContext } from "@termix-ssh/plugin-sdk/backend";
 import {
   deploymentAnswers,
   deploymentRaw,
@@ -7,7 +6,12 @@ import {
   keyEntries,
 } from "../helpers/deployments.js";
 import { changes, startLifecycle } from "../helpers/lifecycle.js";
-import { manifest, type PluginHarness } from "../helpers/plugin.js";
+import {
+  declaredAction as action,
+  operationContext as context,
+  operationHandler as handler,
+  type PluginHarness,
+} from "../helpers/plugin.js";
 import { withRunHistory } from "../helpers/run-history.js";
 
 let harness: PluginHarness | null = null;
@@ -25,28 +29,6 @@ async function start(permissions?: string[]) {
   });
   harness = started.harness;
   return started;
-}
-
-function context(
-  over: Partial<PluginOperationContext> = {},
-): PluginOperationContext {
-  return {
-    runId: "run-test",
-    dryRun: false,
-    signal: new AbortController().signal,
-    log: () => {},
-    ...over,
-  };
-}
-
-function handler(h: PluginHarness, id: string) {
-  const found = h.mock.operationHandlers.get(id);
-  if (!found) throw new Error(`${id} has no handler`);
-  return found;
-}
-
-function action(id: string) {
-  return manifest.contributes!.operations!.actions!.find((a) => a.id === id);
 }
 
 describe("deployment operations", () => {

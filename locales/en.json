@@ -404,9 +404,29 @@
       "buildLog": {
         "label": "Build log"
       },
+      "refresh": {
+        "label": "Refresh",
+        "description": "Read Coolify again instead of the 10 second cache."
+      },
+      "tag": {
+        "label": "Tag",
+        "description": "A Coolify tag name. Every resource with it is deployed."
+      },
       "pullRequestId": {
         "label": "Pull request",
-        "description": "The pull request's number."
+        "description": "Deploy this pull request's preview. Services have no previews and are left out."
+      },
+      "dockerTag": {
+        "label": "Docker tag",
+        "description": "The image tag for a Docker image preview. Needs a pull request."
+      },
+      "targets": {
+        "label": "Confirmed resources",
+        "description": "Comma separated uuids. When set, nothing is deployed unless the tag still hits exactly these."
+      },
+      "image": {
+        "label": "Image",
+        "description": "The image tag to roll back to, one of the application's rollback images (often a commit)."
       },
       "pullRequestUrl": {
         "label": "Pull request URL",
@@ -424,10 +444,6 @@
         "label": "Commit",
         "description": "The commit SHA to deploy. A new Bitbucket preview needs it."
       },
-      "dockerTag": {
-        "label": "Docker tag",
-        "description": "The image tag, for an application built from a Docker image."
-      },
       "previewDomains": {
         "label": "Domains",
         "description": "Comma separated http or https URLs, like https://pr-42.example.com:3000. Leave empty for a Docker Compose application."
@@ -435,6 +451,14 @@
       "composeDomains": {
         "label": "Compose domains",
         "description": "For a Docker Compose application: [{ \"name\": \"<service>\", \"domain\": \"https://…\" }]. An empty domain clears that service's."
+      },
+      "previewPullRequestId": {
+        "label": "Pull request",
+        "description": "The pull request's number."
+      },
+      "previewDockerTag": {
+        "label": "Docker tag",
+        "description": "The image tag, for an application built from a Docker image."
       }
     },
     "listConnections": {
@@ -690,6 +714,35 @@
       "title": "Cancel a Coolify deployment",
       "description": "Cancels a queued or running deployment. One that already ended can't be cancelled."
     },
+    "rollbackImages": {
+      "title": "List a Coolify app's rollback images",
+      "description": "The images this application can be rolled back to, with the one it runs now. Applications only."
+    },
+    "rollback": {
+      "title": "Roll back a Coolify app",
+      "description": "Redeploys the application with an earlier image from its rollback images. Applications only.",
+      "dryRun": "Would roll back {{name}} to image {{image}}"
+    },
+    "resourceRollbackImages": {
+      "title": "List a Coolify app's rollback images by uuid",
+      "description": "The images an application can be rolled back to, with the one it runs now. Applications only."
+    },
+    "resourceRollback": {
+      "title": "Roll back a Coolify app by uuid",
+      "description": "Redeploys an application with an earlier image from its rollback images. Applications only."
+    },
+    "deploymentQueue": {
+      "title": "Coolify deployment queue",
+      "description": "The connection's queued and running deployments and its recent ones, for its own applications only."
+    },
+    "attention": {
+      "title": "Coolify activity",
+      "description": "Deployments in progress, recent failed deployments, degraded resources and unreachable servers across every connection you can view."
+    },
+    "deployByTag": {
+      "title": "Deploy Coolify resources by tag",
+      "description": "Deploys every application and service on the connection that carries a tag. A dry run lists them."
+    },
     "previewList": {
       "title": "List an application's pull request previews",
       "description": "Lists the pull request previews of a Coolify application, each with its newest build."
@@ -859,7 +912,8 @@
     "overview": "Overview",
     "resources": "Resources",
     "servers": "Servers",
-    "connections": "Connections"
+    "connections": "Connections",
+    "deployments": "Deployments"
   },
   "picker": {
     "label": "Coolify connection"
@@ -875,6 +929,11 @@
       "stopped": "Stopped",
       "deploying": "Deploying",
       "open": "Show in Resources"
+    },
+    "inProgress": {
+      "title": "Deployments in progress",
+      "empty": "Nothing is deploying right now.",
+      "showAll": "All deployments"
     }
   },
   "resources": {
@@ -1490,7 +1549,99 @@
     "cancelled": "Deployment cancelled.",
     "cancelPending": "Waiting for approval to cancel the deployment.",
     "cancelFailed": "The deployment could not be cancelled.",
-    "refresh": "Refresh deployments"
+    "refresh": "Refresh deployments",
+    "rollbackOpen": "Roll back",
+    "rollbackImages": {
+      "title": "Roll back to an earlier image",
+      "loading": "Loading rollback images…",
+      "empty": "Coolify has no earlier image of this application.",
+      "failed": "The rollback images could not be read.",
+      "retry": "Try again",
+      "current": "Running now",
+      "registry": "Registry",
+      "local": "On the server",
+      "action": "Roll back to {{tag}}"
+    },
+    "rollbackConfirm": {
+      "title": "Roll back {{name}} to {{tag}}?",
+      "description": "Coolify redeploys {{name}} with the image {{tag}}. The image it runs now is replaced once the rollback deployment finishes.",
+      "confirm": "Roll back to {{tag}}"
+    },
+    "rolledBack": "Rollback to {{tag}} queued.",
+    "rollbackPending": "Waiting for approval to roll back.",
+    "rollbackFailed": "The rollback could not be started."
+  },
+  "deploymentsSection": {
+    "title": "Deployments",
+    "loading": "Loading deployments…",
+    "failed": "The deployments could not be read.",
+    "retry": "Try again",
+    "refresh": "Refresh deployments",
+    "updated": "Updated {{time}}",
+    "running": "Queued and running",
+    "recent": "Recent",
+    "noRunning": "Nothing is queued or running.",
+    "noRecent": "No recent deployments.",
+    "back": "All deployments"
+  },
+  "activityPanel": {
+    "title": "Coolify activity",
+    "refresh": "Refresh Coolify activity",
+    "updated": "Updated {{time}}",
+    "loading": "Loading Coolify activity…",
+    "failed": "Coolify activity could not be read.",
+    "readFailed": "{{name}}: {{reason}}",
+    "noView": "Seeing Coolify activity needs the View Coolify permission.",
+    "inProgress": "Deploying now",
+    "attention": "Needs attention",
+    "degraded": "Degraded",
+    "unreachable": "Unreachable",
+    "server": "Server",
+    "openTab": "Open Coolify",
+    "noConnections": {
+      "title": "No Coolify connections yet",
+      "hint": "Add one in the Coolify tab to see its deployments here."
+    },
+    "empty": {
+      "title": "Nothing needs attention",
+      "hint": "No deployments are running, nothing failed recently, and every resource and server is fine."
+    }
+  },
+  "deployByTag": {
+    "open": "Deploy by tag",
+    "title": "Deploy every resource with a tag",
+    "tag": "Tag",
+    "tagHint": "A Coolify tag name. Applications and services with it are deployed.",
+    "force": "Force rebuild",
+    "forceHint": "Rebuild without Coolify's build cache.",
+    "pullRequest": "Pull request",
+    "pullRequestHint": "Optional. Deploys that pull request's preview; services have no previews and are left out.",
+    "dockerTag": "Docker tag",
+    "dockerTagHint": "Optional. The image tag for a Docker image preview. Needs a pull request.",
+    "review": "Review and deploy",
+    "close": "Close",
+    "needsTag": "Enter a tag.",
+    "badPr": "The pull request must be a number.",
+    "needsPr": "A Docker tag needs a pull request.",
+    "noTargets": "No resources on this connection have the tag {{tag}}.",
+    "skipped": "{{count}} service(s) with this tag are left out: services have no pull request previews.",
+    "kinds": {
+      "application": "application",
+      "service": "service"
+    },
+    "confirm": {
+      "title": "Deploy {{count}} resource(s) tagged {{tag}}?",
+      "description": "These are deployed now:",
+      "target": "{{name}} ({{kind}}, {{server}})",
+      "force": "Each one is rebuilt without the build cache.",
+      "confirm": "Deploy"
+    },
+    "deployed": "Deploy sent: {{count}} deployment(s) queued.",
+    "pending": "Waiting for approval to deploy.",
+    "failed": "The deploy could not be sent.",
+    "tagPlaceholder": "production",
+    "pullRequestPlaceholder": "12",
+    "dockerTagPlaceholder": "pr-12"
   },
   "previews": {
     "loading": "Loading previews…",

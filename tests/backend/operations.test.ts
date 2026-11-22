@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PluginOperationContext } from "@termix-ssh/plugin-sdk/backend";
 import { validateManifest } from "@termix-ssh/plugin-sdk/manifest";
 import { checkOperationReferences } from "@termix-ssh/plugin-sdk/operations";
 import { fakeCoolify, healthyCoolify } from "./helpers/fake-coolify.js";
@@ -12,6 +11,9 @@ import {
   startLifecycle,
 } from "./helpers/lifecycle.js";
 import {
+  declaredAction as action,
+  operationContext as context,
+  operationHandler as handler,
   manifest,
   OTHER,
   OWNER,
@@ -32,29 +34,6 @@ async function start(options: Parameters<typeof startLifecycle>[0] = {}) {
   const started = await startLifecycle({ serve: false, ...options });
   harness = started.harness;
   return started;
-}
-
-/** Calls a handler directly, with the context core would give it. */
-function context(
-  over: Partial<PluginOperationContext> = {},
-): PluginOperationContext {
-  return {
-    runId: "run-test",
-    dryRun: false,
-    signal: new AbortController().signal,
-    log: () => {},
-    ...over,
-  };
-}
-
-function handler(h: PluginHarness, id: string) {
-  const found = h.mock.operationHandlers.get(id);
-  if (!found) throw new Error(`${id} has no handler`);
-  return found;
-}
-
-function action(id: string) {
-  return manifest.contributes!.operations!.actions!.find((a) => a.id === id);
 }
 
 describe("lifecycle, resource and signal operations", () => {
