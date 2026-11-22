@@ -153,7 +153,7 @@ function metaLine(
 }
 
 /** Whether the actor can sync this connection's servers into hosts. */
-export function syncable(c: Connection): boolean {
+export function syncable(c: Pick<Connection, "access" | "scoped">): boolean {
   return c.access === "owner" && !c.scoped;
 }
 

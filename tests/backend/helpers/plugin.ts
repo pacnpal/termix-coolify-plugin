@@ -9,7 +9,10 @@ import {
   type MockPluginContext,
   type TestDb,
 } from "@termix-ssh/plugin-sdk/testing";
-import type { PluginFetchInit } from "@termix-ssh/plugin-sdk/backend";
+import type {
+  PluginFetchInit,
+  PluginOperationContext,
+} from "@termix-ssh/plugin-sdk/backend";
 import type { PluginManifest } from "@termix-ssh/plugin-sdk/manifest";
 import manifestJson from "../../../manifest.json";
 import { activate } from "../../../src/backend/index.js";
@@ -142,4 +145,29 @@ export async function startPlugin(
       db.close();
     },
   };
+}
+
+/** The context core gives a handler, for calling one directly. */
+export function operationContext(
+  over: Partial<PluginOperationContext> = {},
+): PluginOperationContext {
+  return {
+    runId: "run-test",
+    dryRun: false,
+    signal: new AbortController().signal,
+    log: () => {},
+    ...over,
+  };
+}
+
+/** The handler registered for an action, or a failure naming it. */
+export function operationHandler(h: PluginHarness, id: string) {
+  const found = h.mock.operationHandlers.get(id);
+  if (!found) throw new Error(`${id} has no handler`);
+  return found;
+}
+
+/** An action as manifest.json declares it. */
+export function declaredAction(id: string) {
+  return manifest.contributes!.operations!.actions!.find((a) => a.id === id);
 }

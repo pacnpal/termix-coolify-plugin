@@ -4,9 +4,15 @@ import {
   renderWithApp,
   type RenderedPluginApp,
 } from "@termix-ssh/plugin-sdk/testing";
-import { listHostSections, SurfaceScope } from "@termix-ssh/plugin-sdk/ui";
+import {
+  listHostSections,
+  PluginComponent,
+  SurfaceScope,
+} from "@termix-ssh/plugin-sdk/ui";
 import type { PluginManifest } from "@termix-ssh/plugin-sdk/manifest";
+import type { ComponentType } from "react";
 import type {
+  CompanionProps,
   PluginApiClient,
   PluginHostRecord,
 } from "@termix-ssh/plugin-sdk/frontend";
@@ -152,6 +158,37 @@ export function renderHostSection(
   );
   return section;
 }
+
+/**
+ * A companion component, drawn in the plugin's scope so its SDK hooks work.
+ * The test host has no renderCompanion, so it goes through registerComponent
+ * and PluginComponent; `rerender` swaps the props, as the shell does when the
+ * tab's host changes.
+ */
+export function renderCompanion(
+  rendered: RenderedPluginApp,
+  component: ComponentType<CompanionProps>,
+  props: CompanionProps,
+) {
+  const id = `coolify.companion-under-test-${++companionRenders}`;
+  rendered.app.registerComponent(
+    id,
+    component as unknown as ComponentType<Record<string, unknown>>,
+  );
+  const draw = (next: CompanionProps) => (
+    <SurfaceScope>
+      <PluginComponent id={id} {...next} />
+    </SurfaceScope>
+  );
+  const view = render(draw(props));
+  return {
+    view,
+    rerender: (next: CompanionProps) => view.rerender(draw(next)),
+    /** Takes the companion away, as closing it does; the surface stays. */
+    close: () => view.rerender(<SurfaceScope>{null}</SurfaceScope>),
+  };
+}
+let companionRenders = 0;
 
 type Call = (url: string, body?: unknown) => Promise<{ data: unknown }>;
 type Calls = Record<"get" | "post" | "patch" | "delete" | "put", Mock<Call>>;
