@@ -6,11 +6,15 @@
  *   node scripts/registry-index.mjs --repo owner/name --out index.json \
  *     [--key registry/public-key.txt] [--previous old-index.json] [--if-changed]
  *
+ * It also writes inputs.json next to --out, and reads the one next to
+ * --previous: the record --if-changed compares (see registry-lib.mjs).
+ *
  * It refuses to run without a valid registry/public-key.txt, and writes
  * nothing unless every release checks out and the index matches the
  * vendored schema. Set GH_TOKEN for the higher GitHub API rate limit.
  */
 
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -18,6 +22,7 @@ import { fileURLToPath } from "node:url";
 import {
   buildIndex,
   downloadReleases,
+  inputsRecord,
   keepTimestamp,
   listReleases,
   parseFirstVersion,
@@ -70,6 +75,34 @@ function readPrevious(file) {
   }
 }
 
+/**
+ * A hash of what does the checks and writes the index: these scripts, the
+ * vendored schema and the versions of the packages they import. Part of the
+ * inputs record, so changed rules make the next run read everything again.
+ */
+function toolingHash() {
+  const hash = crypto.createHash("sha256");
+  for (const file of [
+    "scripts/registry-lib.mjs",
+    "scripts/registry-index.mjs",
+    "vendor/termix-registry/registry-index-schema.json",
+  ]) {
+    hash.update(`${file}\0`).update(fs.readFileSync(path.join(ROOT, file)));
+  }
+  for (const pkg of ["@termix-ssh/plugin-sdk", "semver", "ajv"]) {
+    const manifest = path.join(ROOT, "node_modules", pkg, "package.json");
+    hash.update(
+      `\0${pkg}@${JSON.parse(fs.readFileSync(manifest, "utf8")).version}`,
+    );
+  }
+  return hash.digest("hex");
+}
+
+/** inputs.json, next to an index.json. */
+function inputsPath(indexFile) {
+  return path.join(path.dirname(indexFile), "inputs.json");
+}
+
 /** Writes the whole file or nothing. */
 function write(out, index) {
   const temp = `${out}.tmp`;
@@ -110,16 +143,29 @@ async function main(args) {
   );
   if (since) console.log(`Releases from ${since} on`);
 
-  const previous = readPrevious(option(args, "--previous", null));
+  const previousFile = option(args, "--previous", null);
+  const previous = readPrevious(previousFile);
+  const previousInputs = previousFile
+    ? readPrevious(inputsPath(previousFile))
+    : null;
+  const tooling = toolingHash();
   const releases = await listReleases(fetchJson, repo);
 
   // Every download counts in GitHub's download totals, so a scheduled check
-  // reads only asset digests and stops when the published index still holds.
+  // reads only asset digests and stops when every input verification reads
+  // is the same as in the last full run (registry-lib.mjs lists them).
   if (
     args.includes("--if-changed") &&
-    unchangedSince(previous, releases, publicKey, { since })
+    unchangedSince(previousInputs, {
+      releases,
+      publicKey,
+      since,
+      tooling,
+      index: previous,
+    })
   ) {
     write(out, previous);
+    write(inputsPath(out), previousInputs);
     console.log(`${out}: unchanged, nothing downloaded`);
     return;
   }
@@ -144,6 +190,10 @@ async function main(args) {
   }
   const index = keepTimestamp(built, previous);
   write(out, index);
+  write(
+    inputsPath(out),
+    inputsRecord({ ready, publicKey, since, tooling, index }),
+  );
   const listed = index.plugins.flatMap((plugin) => [
     ...plugin.versions,
     ...(plugin.prereleases ?? []),

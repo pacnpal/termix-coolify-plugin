@@ -13,7 +13,10 @@ import {
   parsePublicKey,
   placeReleases,
   readTmxplugFile,
+  cutAtNul,
+  byCodeUnit,
   schemaProblems,
+  inputsRecord,
   unchangedSince,
   verifySignature,
 } from "../../../scripts/registry-lib.mjs";
@@ -36,6 +39,7 @@ import {
 } from "./fixtures";
 
 const UPDATED_AT = "2026-11-22T12:00:00.000Z";
+const TOOLING = "test-tooling";
 
 /** Builds the index the way the script does: download what is complete, then build. */
 async function indexOf(built: Built[], publicKey: string) {
@@ -117,6 +121,48 @@ describe("verifySignature", () => {
   });
 });
 
+describe("cutAtNul", () => {
+  // The pattern readTmxplugFile used before: everything from the first NUL on.
+  const OLD = (value: string) => value.replace(/\0.*$/s, "");
+  const cases = [
+    "",
+    "\0",
+    "\0\0\0",
+    "name",
+    "name\0",
+    "name\0\0\0\0",
+    "name\0junk",
+    "name\0junk\0more",
+    "\0leading",
+    "a\nb\0c\nd",
+    "line\nbreak",
+    "multi\r\nline\0\r\ntail",
+    "ustar\u0000\u0000",
+    "é\0é",
+    "0000644\0",
+    "\0".repeat(5) + "x",
+  ];
+
+  it("keeps exactly what the old pattern kept", () => {
+    for (const value of cases) {
+      expect(cutAtNul(value), JSON.stringify(value)).toBe(OLD(value));
+    }
+  });
+
+  it("stays linear on long hostile input", () => {
+    const hostile = [
+      "a".repeat(2_000_000),
+      "\n".repeat(2_000_000),
+      "a".repeat(1_000_000) + "\0" + "\0b".repeat(500_000),
+      "\0\n".repeat(1_000_000),
+    ];
+    const started = performance.now();
+    for (const value of hostile) cutAtNul(value);
+    expect(performance.now() - started).toBeLessThan(250);
+    for (const value of hostile) expect(cutAtNul(value)).toBe(OLD(value));
+  });
+});
+
 describe("readTmxplugFile", () => {
   it("reads the manifest and changelog out of a .tmxplug the SDK packed", async () => {
     const file = await packPlugin(manifestFor("1.2.3"), "# Changelog\n");
@@ -128,6 +174,31 @@ describe("readTmxplugFile", () => {
       "# Changelog\n",
     );
     expect(readTmxplugFile(file, "missing.json")).toBeNull();
+  });
+});
+
+describe("byCodeUnit", () => {
+  it("orders strings by UTF-16 code unit, not by locale", () => {
+    expect(["b", "C", "a", "Alpha", "alpha"].sort(byCodeUnit)).toEqual([
+      "Alpha",
+      "C",
+      "a",
+      "alpha",
+      "b",
+    ]);
+    expect(byCodeUnit("a", "a")).toBe(0);
+  });
+
+  it("sorts what a plugin contributes the same way in the index", async () => {
+    const keys = testKeyPair();
+    const built = await fakeRelease("1.0.0", {
+      keys,
+      manifest: manifestFor("1.0.0", {
+        contributes: { tabs: [], Zed: [], commands: [] },
+      }),
+    });
+    const [plugin] = (await indexOf([built], keys.publicKey)).plugins;
+    expect(plugin.contributes).toEqual(["Zed", "commands", "tabs"]);
   });
 });
 
@@ -245,21 +316,23 @@ describe("a rotated key (registry/first-version.txt)", () => {
       updatedAt: UPDATED_AT,
     });
     expect(index.plugins[0].gated.map((r) => r.version)).toEqual(["1.1.0"]);
-    expect(
-      unchangedSince(
-        index,
-        all.map((one) => one.release),
-        keys.publicKey,
-        { since: "1.1.0" },
-      ),
-    ).toBe(true);
-    expect(
-      unchangedSince(
-        index,
-        all.map((one) => one.release),
-        keys.publicKey,
-      ),
-    ).toBe(false);
+    const inputs = inputsRecord({
+      ready,
+      publicKey: keys.publicKey,
+      since: "1.1.0",
+      tooling: TOOLING,
+      index,
+    });
+    const now = {
+      releases: all.map((one) => one.release),
+      publicKey: keys.publicKey,
+      tooling: TOOLING,
+      index,
+    };
+    expect(unchangedSince(inputs, { ...now, since: "1.1.0" })).toBe(true);
+    // Dropping or moving first-version.txt is a change.
+    expect(unchangedSince(inputs, { ...now, since: null })).toBe(false);
+    expect(unchangedSince(inputs, { ...now, since: "1.0.0" })).toBe(false);
   });
 
   it("reads first-version.txt as one semver version, or nothing when it is absent", () => {
@@ -390,6 +463,50 @@ describe("buildIndex", () => {
     expect(schemaProblems(index)).toEqual([]);
   });
 
+  it("publishes the empty registry with the committed key, and the next hourly run keeps it", async () => {
+    const publicKey = fs
+      .readFileSync(path.join(ROOT, "registry", "public-key.txt"), "utf8")
+      .trim();
+    // No releases yet, and ones without a .sig never count.
+    const unsigned = await fakeRelease("1.0.0", {
+      keys: testKeyPair(),
+      omit: ["sig"],
+    });
+    const { download } = fakeDownload([unsigned]);
+    const { ready } = await downloadReleases([unsigned.release], download);
+    const index = buildIndex({
+      releases: ready,
+      publicKey,
+      repository: REPOSITORY,
+      updatedAt: UPDATED_AT,
+    });
+    expect(index).toEqual({
+      registry: "pacnpal-coolify",
+      name: "Coolify for Termix (pacnpal)",
+      apiVersion: 1,
+      publicKey,
+      updatedAt: UPDATED_AT,
+      plugins: [],
+    });
+    expect(schemaProblems(index)).toEqual([]);
+
+    const inputs = inputsRecord({
+      ready,
+      publicKey,
+      since: null,
+      tooling: TOOLING,
+      index,
+    });
+    const now = {
+      releases: [unsigned.release],
+      publicKey,
+      since: null,
+      tooling: TOOLING,
+      index: JSON.parse(JSON.stringify(index)),
+    };
+    expect(unchangedSince(JSON.parse(JSON.stringify(inputs)), now)).toBe(true);
+  });
+
   describe("refuses the whole index", () => {
     const refusals: Array<[string, RegExp, (keys: KeyPair) => Promise<Built>]> =
       [
@@ -498,6 +615,14 @@ describe("buildIndex", () => {
       await expect(indexOf([good, other], keys.publicKey)).rejects.toThrow(
         /plugin id/,
       );
+      // The ids are named in code-unit order, upper case first, whatever the locale.
+      const upper = await fakeRelease("1.2.0", {
+        keys,
+        manifest: manifestFor("1.2.0", { id: "Delta" }),
+      });
+      await expect(indexOf([good, upper], keys.publicKey)).rejects.toThrow(
+        "more than one plugin id: Delta, coolify",
+      );
     });
 
     it("an invalid registry key", async () => {
@@ -556,6 +681,29 @@ describe("keepTimestamp", () => {
 });
 
 describe("unchangedSince", () => {
+  /** One published run: the index and the inputs record the script stores beside it. */
+  async function publish(built: Built[], publicKey: string) {
+    const { download } = fakeDownload(built);
+    const { ready } = await downloadReleases(
+      built.map((one) => one.release),
+      download,
+    );
+    const index = buildIndex({
+      releases: ready,
+      publicKey,
+      repository: REPOSITORY,
+      updatedAt: UPDATED_AT,
+    });
+    const inputs = inputsRecord({
+      ready,
+      publicKey,
+      since: null,
+      tooling: TOOLING,
+      index,
+    });
+    return { index, inputs };
+  }
+
   async function published() {
     const keys = testKeyPair();
     const older = { engine: { termix: ">=26.0.0", api: "^2.7.0" } };
@@ -569,41 +717,117 @@ describe("unchangedSince", () => {
       }),
       fakeRelease("0.8.0", { keys, omit: ["sig"] }),
     ]);
-    const index = await indexOf(built, keys.publicKey);
-    return { keys, built, index, releases: built.map((one) => one.release) };
+    const { index, inputs } = await publish(built, keys.publicKey);
+    const releases = built.map((one) => one.release);
+    const now = {
+      releases,
+      publicKey: keys.publicKey,
+      since: null,
+      tooling: TOOLING,
+      index,
+    };
+    return { keys, built, index, inputs, releases, now };
   }
 
-  it("is true while every listed file still has its sha256 and nothing was added or removed", async () => {
-    const { keys, index, releases } = await published();
-    expect(unchangedSince(index, releases, keys.publicKey)).toBe(true);
+  it("short-circuits while every input verification reads is byte for byte the same", async () => {
+    const { inputs, now } = await published();
+    expect(unchangedSince(inputs, now)).toBe(true);
+    // The record survives the trip through inputs.json on the registry branch.
+    expect(unchangedSince(JSON.parse(JSON.stringify(inputs)), now)).toBe(true);
   });
 
   it("is false after any change that needs a full read", async () => {
-    const { keys, built, index, releases } = await published();
+    const { keys, inputs, releases, now } = await published();
     const added = await fakeRelease("1.2.0", { keys });
     expect(
-      unchangedSince(index, [...releases, added.release], keys.publicKey),
+      unchangedSince(inputs, {
+        ...now,
+        releases: [...releases, added.release],
+      }),
     ).toBe(false);
-    expect(unchangedSince(index, releases.slice(1), keys.publicKey)).toBe(
+    expect(
+      unchangedSince(inputs, { ...now, releases: releases.slice(1) }),
+    ).toBe(false);
+    expect(
+      unchangedSince(inputs, { ...now, publicKey: testKeyPair().publicKey }),
+    ).toBe(false);
+    expect(unchangedSince(inputs, { ...now, tooling: "other-tooling" })).toBe(
       false,
     );
-    expect(unchangedSince(index, releases, testKeyPair().publicKey)).toBe(
-      false,
-    );
-    expect(unchangedSince(null, releases, keys.publicKey)).toBe(false);
+    expect(unchangedSince(null, now)).toBe(false);
 
-    const replaced = structuredClone(releases);
-    replaced[0].assets[0].digest = `sha256:${"1".repeat(64)}`;
-    expect(unchangedSince(index, replaced, keys.publicKey)).toBe(false);
+    // The published index itself was changed by hand.
+    const edited = structuredClone(now.index);
+    edited.plugins[0].description = "Edited on the branch";
+    expect(unchangedSince(inputs, { ...now, index: edited })).toBe(false);
+    expect(unchangedSince(inputs, { ...now, index: null })).toBe(false);
 
-    const noDigest = structuredClone(releases);
-    delete noDigest[0].assets[0].digest;
-    expect(unchangedSince(index, noDigest, keys.publicKey)).toBe(false);
+    // Each of the three assets: replaced, or with no digest from the API.
+    for (const at of [0, 1, 2]) {
+      const replaced = structuredClone(releases);
+      replaced[0].assets[at].digest = `sha256:${"1".repeat(64)}`;
+      expect(
+        unchangedSince(inputs, { ...now, releases: replaced }),
+        `${at}`,
+      ).toBe(false);
+      const noDigest = structuredClone(releases);
+      delete noDigest[0].assets[at].digest;
+      expect(
+        unchangedSince(inputs, { ...now, releases: noDigest }),
+        `${at}`,
+      ).toBe(false);
+    }
 
     const drafted = structuredClone(releases);
     drafted[0].draft = true;
-    expect(unchangedSince(index, drafted, keys.publicKey)).toBe(false);
-    expect(built).toHaveLength(4);
+    expect(unchangedSince(inputs, { ...now, releases: drafted })).toBe(false);
+  });
+
+  it("a replaced .sig is read again, and a bad one refuses the index", async () => {
+    const keys = testKeyPair();
+    const first = await fakeRelease("1.0.0", { keys });
+    const { index, inputs } = await publish([first], keys.publicKey);
+
+    // Same .tmxplug, a .sig from another key.
+    const resigned = await fakeRelease("1.0.0", {
+      keys,
+      sig: sign(first.artifact, testKeyPair().privateKey),
+    });
+    expect(resigned.artifact.equals(first.artifact)).toBe(true);
+    const now = {
+      releases: [resigned.release],
+      publicKey: keys.publicKey,
+      since: null,
+      tooling: TOOLING,
+      index,
+    };
+    expect(unchangedSince(inputs, now)).toBe(false);
+    await expect(publish([resigned], keys.publicKey)).rejects.toThrow(
+      /signature/,
+    );
+  });
+
+  it("a replaced .sigstore.json is read again, and one for another file refuses the index", async () => {
+    const keys = testKeyPair();
+    const first = await fakeRelease("1.0.0", { keys });
+    const { index, inputs } = await publish([first], keys.publicKey);
+
+    const rebundled = await fakeRelease("1.0.0", {
+      keys,
+      provenance: provenanceFor("coolify-1.0.0.tmxplug", "0".repeat(64)),
+    });
+    expect(rebundled.artifact.equals(first.artifact)).toBe(true);
+    const now = {
+      releases: [rebundled.release],
+      publicKey: keys.publicKey,
+      since: null,
+      tooling: TOOLING,
+      index,
+    };
+    expect(unchangedSince(inputs, now)).toBe(false);
+    await expect(publish([rebundled], keys.publicKey)).rejects.toThrow(
+      /provenance/,
+    );
   });
 });
 
@@ -657,11 +881,22 @@ describe("scripts/registry-index.mjs", () => {
 describe("registry/", () => {
   const file = (name: string) => path.join(ROOT, "registry", name);
 
-  it("public-key.txt is a valid public key whenever it is committed", () => {
-    if (!fs.existsSync(file("public-key.txt"))) return;
-    expect(() =>
-      parsePublicKey(fs.readFileSync(file("public-key.txt"), "utf8")),
-    ).not.toThrow();
+  it("public-key.txt is the owner's key, with the key id the README publishes", () => {
+    const text = fs.readFileSync(file("public-key.txt"), "utf8");
+    // One line: the key and a newline, nothing else (no private key, no comment).
+    expect(text).toBe("Qhm4ZKAVAodNOzxb2Ez2DdcDccUAZUwKN9+id4JG7iU=\n");
+    const { keyId } = parsePublicKey(text);
+    expect(keyId).toBe("d07bfdc9da00b6e7");
+    const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
+    expect(readme).toContain(`**Key id:** \`${keyId}\``);
+  });
+
+  it("nothing else in registry/ but the public key and first-version.txt", () => {
+    const allowed = new Set(["public-key.txt", "first-version.txt"]);
+    const extra = fs
+      .readdirSync(path.join(ROOT, "registry"))
+      .filter((name) => !allowed.has(name));
+    expect(extra).toEqual([]);
   });
 
   it("first-version.txt is one version whenever it is committed", () => {

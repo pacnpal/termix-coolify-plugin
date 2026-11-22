@@ -77,10 +77,13 @@ aren't obvious from the code, and anything that has bitten you before.
   (pure rules in `scripts/registry-lib.mjs`, tests in `tests/backend/registry/`) and pushes `index.json` to
   the orphan `registry` branch. It copies Termix-Registry's `scripts/sync.mjs`/`lib.mjs` rules (gated by
   `engine.termix` against 26.10.2, betas only above stable) and refuses the whole index on any failed
-  signature, manifest or provenance check. `registry/public-key.txt` is the owner's; never generate or
-  commit a key, a private one least of all. Releases made by Release don't fire `release` events (workflow
-  token), hence the hourly run, which downloads nothing when asset digests match the index. After a key
-  rotation, `registry/first-version.txt` leaves out releases the old key signed.
+  signature, manifest or provenance check. `registry/public-key.txt` is the owner's (key id
+  `d07bfdc9da00b6e7`, pinned by a test); never generate or commit a key, a private one least of all.
+  Releases made by Release don't fire `release` events (workflow token), hence the hourly run. Its
+  `--if-changed` shortcut skips only when `inputs.json` on the branch equals every input verification reads
+  (all three assets' digests per release, key, `first-version.txt`, tooling hash, published index hash); a
+  new input to the checks must join that record. After a key rotation, `registry/first-version.txt` leaves
+  out releases the old key signed.
 - Completeness tests: `authz.test.ts` (every route and socket has an `authz.json` entry, and no stale ones),
   `route-parity.test.ts` (docs/api.md's "Route map" lists exactly the served routes and sockets, each with
   a declared action or `none: <reason>`, and every route an action's row names is served and maps back),

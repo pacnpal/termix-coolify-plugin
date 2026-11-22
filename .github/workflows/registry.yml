@@ -8,10 +8,11 @@ name: Registry
 #
 # The Release workflow publishes (and deletes passed betas) with the workflow
 # token, and GitHub starts no workflow for events that token causes. So this
-# also runs every hour: it reads the asset digests from the API and stops when
-# the published index still holds, without downloading anything. A release
-# published, edited or deleted by hand starts it right away, and running it by
-# hand re-reads and re-verifies every release.
+# also runs every hour. The hourly run downloads nothing when every input the
+# checks read (the three assets of each release, the key, first-version.txt,
+# the tooling and the published index) is unchanged; see registry-lib.mjs. A
+# release published, edited or deleted by hand, or a run by hand, re-reads and
+# re-verifies every release.
 
 on:
   release:
@@ -38,7 +39,7 @@ jobs:
           ref: main
           persist-credentials: false
 
-      # Until the owner adds the key, the hourly run stops quietly. A release or
+      # If the key is ever missing, the hourly run stops quietly. A release or
       # a run by hand goes on, and the script refuses with the reason.
       - name: Registry key
         id: key
@@ -90,9 +91,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          args=(--repo "$GITHUB_REPOSITORY" --previous "$RUNNER_TEMP/registry-branch/index.json" --out "$RUNNER_TEMP/index.json")
-          # By hand: download and verify every release again.
-          if [ "$GITHUB_EVENT_NAME" != "workflow_dispatch" ]; then args+=(--if-changed); fi
+          args=(--repo "$GITHUB_REPOSITORY" --previous "$RUNNER_TEMP/registry-branch/index.json" --out "$RUNNER_TEMP/out/index.json")
+          # Only the hourly run may skip: a release event or a run by hand verifies everything again.
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then args+=(--if-changed); fi
+          mkdir -p "$RUNNER_TEMP/out"
           node scripts/registry-index.mjs "${args[@]}"
 
       - name: Push to the registry branch
@@ -103,9 +105,9 @@ jobs:
           dir="$RUNNER_TEMP/registry-branch"
           url="https://github.com/$GITHUB_REPOSITORY.git"
           auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          cp "$RUNNER_TEMP/index.json" "$dir/index.json"
+          cp "$RUNNER_TEMP/out/index.json" "$RUNNER_TEMP/out/inputs.json" "$dir/"
           cd "$dir"
-          git add index.json
+          git add index.json inputs.json
           if git diff --cached --quiet; then
             echo "index.json is already up to date."
             exit 0

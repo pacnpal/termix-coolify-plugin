@@ -102,6 +102,18 @@ export function verifySignature(buffer, sigText, publicKey) {
   }
 }
 
+/** Orders strings by UTF-16 code unit, the same on every machine and locale. */
+export function byCodeUnit(a, b) {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
+/** A NUL-padded tar header field: everything before its first NUL. One linear scan. */
+export function cutAtNul(value) {
+  const end = value.indexOf("\0");
+  return end === -1 ? value : value.slice(0, end);
+}
+
 /** Reads one file out of a .tmxplug (a gzipped ustar archive), or null. */
 export function readTmxplugFile(buffer, wanted) {
   const tar = zlib.gunzipSync(buffer, { maxOutputLength: MAX_UNPACKED });
@@ -110,10 +122,7 @@ export function readTmxplugFile(buffer, wanted) {
     const header = tar.subarray(offset, offset + 512);
     if (header.every((byte) => byte === 0)) break;
     const field = (start, length) =>
-      header
-        .subarray(start, start + length)
-        .toString("utf8")
-        .replace(/\0.*$/s, "");
+      cutAtNul(header.subarray(start, start + length).toString("utf8"));
     const prefix = field(345, 155);
     const name = prefix ? `${prefix}/${field(0, 100)}` : field(0, 100);
     const size = Number.parseInt(field(124, 12).trim() || "0", 8);
@@ -233,13 +242,25 @@ export async function downloadReleases(releases, download, options = {}) {
       continue;
     }
     const artifact = await download(assets.artifact.browser_download_url);
-    const sig = (await download(assets.sig.browser_download_url)).toString(
-      "utf8",
+    const sigBytes = await download(assets.sig.browser_download_url);
+    const provenanceBytes = await download(
+      assets.provenance.browser_download_url,
     );
-    const provenance = (
-      await download(assets.provenance.browser_download_url)
-    ).toString("utf8");
-    ready.push({ release, assets, files: { artifact, sig, provenance } });
+    ready.push({
+      release,
+      assets,
+      files: {
+        artifact,
+        sig: sigBytes.toString("utf8"),
+        provenance: provenanceBytes.toString("utf8"),
+      },
+      // The bytes verification read, for the inputs record.
+      digests: {
+        tmxplug: sha256Hex(artifact),
+        sig: sha256Hex(sigBytes),
+        provenance: sha256Hex(provenanceBytes),
+      },
+    });
   }
   return { ready, skipped };
 }
@@ -290,7 +311,7 @@ function contributesOf(manifest) {
   const kinds = Object.keys(manifest.contributes ?? {}).filter((kind) =>
     /^[A-Za-z]+$/.test(kind),
   );
-  return kinds.length > 0 ? { contributes: kinds.sort() } : {};
+  return kinds.length > 0 ? { contributes: kinds.sort(byCodeUnit) } : {};
 }
 
 /** The manifest's docs link, when it is https. */
@@ -420,7 +441,7 @@ export function buildIndex({ releases, publicKey, repository, updatedAt }) {
   const ids = new Set(found.map(({ manifest }) => manifest.id));
   if (ids.size > 1) {
     throw new Error(
-      `The releases use more than one plugin id: ${[...ids].sort().join(", ")}`,
+      `The releases use more than one plugin id: ${[...ids].sort(byCodeUnit).join(", ")}`,
     );
   }
   const seen = new Set();
@@ -501,55 +522,93 @@ function assetSha256(asset) {
   return /^sha256:([0-9a-f]{64})$/.exec(asset?.digest ?? "")?.[1] ?? null;
 }
 
-/**
- * True when the published index still lists exactly what the releases hold,
- * read from the API's asset digests without downloading anything: the same
- * key, every complete release listed with the same file and sha256, and no
- * listed release gone. A beta older than the newest stable is never listed,
- * so it doesn't count. Anything else needs a full read.
+function sha256Hex(bytes) {
+  return crypto.createHash("sha256").update(bytes).digest("hex");
+}
+
+/*
+ * The hourly shortcut (`--if-changed`) may skip downloading and verifying only
+ * when every input that verification reads is byte for byte what the last
+ * full run read. The script stores this record as inputs.json next to
+ * index.json on the registry branch. Its parts:
+ *
+ * - releases: for each counted release (published, all three assets, not
+ *   older than first-version.txt), the sha256 of its .tmxplug, .sig and
+ *   .sigstore.json. Downloaded bytes when recorded, the API's asset digests
+ *   when compared, so a replaced, added or removed asset or release, a draft
+ *   flip or a missing digest all mean a full read.
+ * - publicKey: registry/public-key.txt, which every .sig is checked against.
+ * - since: registry/first-version.txt, which decides which releases count.
+ * - tooling: a hash of the code and data that do the checks and write the
+ *   index (these scripts, the vendored schema and the dependency versions
+ *   they import), so changed rules re-read everything.
+ * - index: the sha256 of the published index.json, so the shortcut never
+ *   republishes an index that was changed on the branch by hand.
  */
-export function unchangedSince(previous, releases, publicKey, options = {}) {
-  if (
-    !previous ||
-    previous.registry !== REGISTRY_ID ||
-    previous.publicKey !== publicKey
-  )
-    return false;
-  const listed = (previous.plugins ?? []).flatMap((plugin) => [
-    ...(plugin.versions ?? []),
-    ...(plugin.prereleases ?? []),
-    ...(plugin.gated ?? []),
-  ]);
-  const newestStable = listed
-    .map((entry) => entry.version)
-    .filter((version) => !isPrerelease(version))
-    .sort(compareVersions)
-    .pop();
-  let matched = 0;
+
+const INPUTS_VERSION = 1;
+
+function indexDigest(index) {
+  return index ? sha256Hex(JSON.stringify(index)) : null;
+}
+
+function inputs({ releases, publicKey, since, tooling, index }) {
+  const byTag = {};
+  for (const { tag, digests } of releases) byTag[tag] = digests;
+  return {
+    version: INPUTS_VERSION,
+    tooling,
+    publicKey,
+    since: since ?? null,
+    index: indexDigest(index),
+    releases: byTag,
+  };
+}
+
+/**
+ * The inputs record of a full run: ready is downloadReleases' list, whose
+ * digests are of the bytes verification read; index is the one written.
+ */
+export function inputsRecord({ ready, publicKey, since, tooling, index }) {
+  return inputs({
+    releases: ready.map(({ release, digests }) => ({
+      tag: release.tag_name,
+      digests,
+    })),
+    publicKey,
+    since,
+    tooling,
+    index,
+  });
+}
+
+/**
+ * The same record from the API's release listing, without downloading, or
+ * null when a counted asset has no digest.
+ */
+function currentInputs({ releases, publicKey, since, tooling, index }) {
+  const counted = [];
   for (const release of releases) {
-    const { assets } = releaseAssets(release, options);
+    const { assets } = releaseAssets(release, { since });
     if (!assets) continue;
-    const version = String(release.tag_name).replace(/^v/, "");
-    const entry = listed.find((item) => item.version === version);
-    if (!entry) {
-      if (
-        semver.valid(version) &&
-        isPrerelease(version) &&
-        newestStable &&
-        compareVersions(version, newestStable) <= 0
-      ) {
-        continue;
-      }
-      return false;
-    }
-    const sha = assetSha256(assets.artifact);
-    if (
-      !sha ||
-      sha !== entry.sha256 ||
-      entry.url !== assets.artifact.browser_download_url
-    )
-      return false;
-    matched++;
+    const digests = {
+      tmxplug: assetSha256(assets.artifact),
+      sig: assetSha256(assets.sig),
+      provenance: assetSha256(assets.provenance),
+    };
+    if (!digests.tmxplug || !digests.sig || !digests.provenance) return null;
+    counted.push({ tag: release.tag_name, digests });
   }
-  return matched === listed.length;
+  return inputs({ releases: counted, publicKey, since, tooling, index });
+}
+
+/**
+ * True when nothing verification reads has changed since the full run that
+ * wrote previousInputs (see the list above). now holds the release listing,
+ * public key, first version, tooling hash and the published index.
+ */
+export function unchangedSince(previousInputs, now) {
+  if (!previousInputs || !now?.index) return false;
+  const current = currentInputs(now);
+  return current !== null && isDeepStrictEqual(previousInputs, current);
 }

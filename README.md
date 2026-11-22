@@ -41,8 +41,10 @@ https://raw.githubusercontent.com/pacnpal/termix-coolify-plugin/registry/index.j
 Choose **Check** and compare the key id Termix shows with the one below before you choose **Trust and add**.
 Coolify for Termix then installs and updates from it.
 
-**Key id:** not published yet. The owner adds it here, with the public key in `registry/public-key.txt`,
-before the first signed release. Until then the registry URL serves nothing.
+**Key id:** `d07bfdc9da00b6e7`
+
+The public key is in [`registry/public-key.txt`](registry/public-key.txt). The registry lists nothing until
+the first signed release.
 
 The key id is the first 16 hex characters of the sha256 of the raw public key; `npx termix-plugin keygen`
 prints it, and Termix shows the same id. If the key ever changes, Termix stops updating from the registry
