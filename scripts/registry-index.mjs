@@ -25,10 +25,12 @@ import {
   inputsRecord,
   keepTimestamp,
   listReleases,
+  readLimited,
   parseFirstVersion,
   parsePublicKey,
   schemaProblems,
   unchangedSince,
+  usablePrevious,
 } from "./registry-lib.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -60,10 +62,7 @@ async function fetchJson(apiPath) {
 async function download(url) {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`GET ${url}: ${response.status}`);
-  const buffer = Buffer.from(await response.arrayBuffer());
-  if (buffer.length > MAX_DOWNLOAD)
-    throw new Error(`${url} is larger than ${MAX_DOWNLOAD} bytes`);
-  return buffer;
+  return readLimited(response, MAX_DOWNLOAD, url);
 }
 
 function readPrevious(file) {
@@ -144,7 +143,9 @@ async function main(args) {
   if (since) console.log(`Releases from ${since} on`);
 
   const previousFile = option(args, "--previous", null);
-  const previous = readPrevious(previousFile);
+  // An index that isn't valid for this registry is never reused or kept from.
+  const previous = usablePrevious(readPrevious(previousFile));
+  const repository = `https://github.com/${repo}`;
   const previousInputs = previousFile
     ? readPrevious(inputsPath(previousFile))
     : null;
@@ -158,6 +159,7 @@ async function main(args) {
     args.includes("--if-changed") &&
     unchangedSince(previousInputs, {
       releases,
+      repository,
       publicKey,
       since,
       tooling,
@@ -179,7 +181,7 @@ async function main(args) {
   const built = buildIndex({
     releases: ready,
     publicKey,
-    repository: `https://github.com/${repo}`,
+    repository,
     updatedAt: new Date().toISOString(),
   });
   const problems = schemaProblems(built);
@@ -192,7 +194,7 @@ async function main(args) {
   write(out, index);
   write(
     inputsPath(out),
-    inputsRecord({ ready, publicKey, since, tooling, index }),
+    inputsRecord({ ready, repository, publicKey, since, tooling, index }),
   );
   const listed = index.plugins.flatMap((plugin) => [
     ...plugin.versions,

@@ -45,17 +45,21 @@ run it by hand. It checks out `main`, then:
      26.10.2 never reads. This plugin needs `>=26.11.2-0`, so its releases are in `gated`.
 5. Checks the index against the registry index schema (vendored in `vendor/termix-registry/`) and pushes it
    to the `registry` branch with `inputs.json`, the record the hourly shortcut compares. The first run
-   creates the branch. With no signed release yet, the index is valid and its `plugins` list is empty.
+   creates the branch. With no signed release yet, the index it writes is valid and its `plugins` list is
+   empty.
 
 The Release workflow publishes with the workflow's own token, and GitHub starts no workflow for what that
 token does, so a release made by Release reaches the index on the next hourly run. Run **Registry** by hand
 to publish it at once.
 
 Every download counts toward a release's download total, so the hourly run downloads nothing when every
-input the checks read is byte for byte what the last full run read: the sha256 of each counted release's
-`.tmxplug`, `.sig` and `.sigstore.json` (from the GitHub API's asset digests), the public key,
+input the checks read, and every release detail the index shows, is byte for byte what the last full run
+used: each counted release's tag, flags, release page, date, and the name, download URL, upload time and
+sha256 of its `.tmxplug`, `.sig` and `.sigstore.json` (from the GitHub API), the repository, the public key,
 `first-version.txt`, a hash of the scripts, schema and package versions that do the checks, and the
 published `index.json` itself. Any difference, or an asset with no digest, means a full download and check.
+A release with more than one `.tmxplug`, or one not named `coolify-<version>.tmxplug` for its tag, refuses
+the index.
 A release published, edited or deleted by hand, and a run by hand, always download and check everything
 again.
 
@@ -85,7 +89,10 @@ every Termix that added this registry has to add it again.
 4. Add `registry/first-version.txt` holding the first version the new key will sign (one line, like
    `1.3.0`). Releases are immutable, so older ones keep the old key's `.sig`; the index leaves out every
    release older than this version instead of failing on them.
-5. Release that version as above. Until it is out, the index lists no versions.
+5. Run **Registry** by hand (Actions, Registry, Run workflow) and check that it succeeds. Until it runs,
+   the index published with the old key stays up, whatever the files on `main` say.
+6. Release that version as above, then run **Registry** by hand again. Open the registry URL and check that
+   `publicKey` is the new key and that the versions listed are the ones you expect.
 
 If the old key leaked, rotate at once and tell users, since anyone with it could sign a file this registry's
 old key accepts.

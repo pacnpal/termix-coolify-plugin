@@ -81,9 +81,11 @@ aren't obvious from the code, and anything that has bitten you before.
   `d07bfdc9da00b6e7`, pinned by a test); never generate or commit a key, a private one least of all.
   Releases made by Release don't fire `release` events (workflow token), hence the hourly run. Its
   `--if-changed` shortcut skips only when `inputs.json` on the branch equals every input verification reads
-  (all three assets' digests per release, key, `first-version.txt`, tooling hash, published index hash); a
-  new input to the checks must join that record. After a key rotation, `registry/first-version.txt` leaves
-  out releases the old key signed.
+  and every release field the index shows (per release its `releaseFacts` and three asset digests;
+  repository, key, `first-version.txt`, tooling hash, published index hash). `readRelease` sees a release
+  only through `releaseFacts`, so a field the index starts using lands in the record; a new input to the
+  checks must join it too. Each release needs exactly one `.tmxplug`, named `coolify-<tag version>.tmxplug`.
+  After a key rotation, `registry/first-version.txt` leaves out releases the old key signed.
 - Completeness tests: `authz.test.ts` (every route and socket has an `authz.json` entry, and no stale ones),
   `route-parity.test.ts` (docs/api.md's "Route map" lists exactly the served routes and sockets, each with
   a declared action or `none: <reason>`, and every route an action's row names is served and maps back),

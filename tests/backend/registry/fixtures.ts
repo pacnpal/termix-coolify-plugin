@@ -121,6 +121,7 @@ const sdkPacker = import(
 export async function packPlugin(
   manifest: Record<string, unknown>,
   changelog?: string,
+  extra: Record<string, string> = {},
 ): Promise<Buffer> {
   const { createTmxplug, collectFiles } = await sdkPacker;
   return withTemp((dir) => {
@@ -135,6 +136,9 @@ export async function packPlugin(
       path.join(dir, "dist", "backend.js"),
       "export default {};\n",
     );
+    for (const [name, body] of Object.entries(extra)) {
+      fs.writeFileSync(path.join(dir, "dist", name), body);
+    }
     return createTmxplug(dir, collectFiles(dir)) as Buffer;
   });
 }
@@ -210,6 +214,8 @@ export interface ReleaseOptions {
   artifact?: (buffer: Buffer) => Buffer;
   /** Names the .tmxplug asset something other than <id>-<version>.tmxplug. */
   fileName?: string;
+  /** More assets on the release, after the usual three. */
+  extraAssets?: Array<{ name: string; body: Buffer }>;
 }
 
 /** A published GitHub release of one version, signed by keys, with its asset bodies. */
@@ -240,6 +246,7 @@ export async function fakeRelease(
     bodies.set(entry.browser_download_url, body);
   };
   add(fileName, artifact);
+  for (const extra of options.extraAssets ?? []) add(extra.name, extra.body);
   if (!options.omit?.includes("sig")) add(`${fileName}.sig`, Buffer.from(sig));
   if (!options.omit?.includes("provenance"))
     add(`${fileName}.sigstore.json`, Buffer.from(provenance));

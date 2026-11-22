@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { gunzipSync, gzipSync } from "node:zlib";
 import {
   REGISTRY_ID,
   REGISTRY_NAME,
@@ -13,6 +14,8 @@ import {
   parsePublicKey,
   placeReleases,
   readTmxplugFile,
+  readLimited,
+  usablePrevious,
   cutAtNul,
   byCodeUnit,
   schemaProblems,
@@ -175,6 +178,109 @@ describe("readTmxplugFile", () => {
     );
     expect(readTmxplugFile(file, "missing.json")).toBeNull();
   });
+
+  /** The archive with the first entry's size field replaced. */
+  function withSize(file: Buffer, size: string): Buffer {
+    const tar = Buffer.from(gunzipSync(file));
+    tar.write(size.padEnd(12, "\0").slice(0, 12), 124, "latin1");
+    return gzipSync(tar);
+  }
+
+  it("refuses an entry size that isn't octal or runs past the archive", async () => {
+    const file = await packPlugin(manifestFor("1.2.3"), "# Changelog\n");
+    for (const size of [
+      "99999999999",
+      "zzzzzzzzzzz",
+      "-0000000001",
+      "77777777777",
+      "00000777777",
+    ]) {
+      expect(
+        () => readTmxplugFile(withSize(file, size), "manifest.json"),
+        size,
+      ).toThrow(/size/);
+    }
+  });
+
+  it("still steps over a zero-length entry", async () => {
+    const file = await packPlugin(manifestFor("1.2.3"), undefined, {
+      "empty.js": "",
+    });
+    expect(readTmxplugFile(file, "dist/empty.js")!.length).toBe(0);
+    expect(
+      JSON.parse(readTmxplugFile(file, "manifest.json")!.toString("utf8"))
+        .version,
+    ).toBe("1.2.3");
+  });
+});
+
+describe("readLimited", () => {
+  /** A body of chunk-sized pieces, counting how many were pulled and whether it was cancelled. */
+  function body(
+    chunks: number,
+    chunkSize: number,
+    headers: Record<string, string> = {},
+  ) {
+    const state = { pulled: 0, cancelled: false };
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (state.pulled >= chunks) return controller.close();
+        state.pulled++;
+        controller.enqueue(new Uint8Array(chunkSize).fill(7));
+      },
+      cancel() {
+        state.cancelled = true;
+      },
+    });
+    return { response: new Response(stream, { headers }), state };
+  }
+
+  it("returns the whole body when it fits", async () => {
+    const { response } = body(4, 1000);
+    const buffer = await readLimited(response, 4000, "small.tmxplug");
+    expect(Buffer.isBuffer(buffer)).toBe(true);
+    expect(buffer.length).toBe(4000);
+  });
+
+  it("stops reading and cancels as soon as the body passes the limit", async () => {
+    const { response, state } = body(10_000, 1024);
+    await expect(
+      readLimited(response, 8 * 1024, "big.tmxplug"),
+    ).rejects.toThrow(/big\.tmxplug is larger than 8192 bytes/);
+    expect(state.pulled).toBeLessThan(12);
+    expect(state.cancelled).toBe(true);
+  });
+
+  it("refuses a declared length over the limit before reading", async () => {
+    const { response, state } = body(10, 1024, { "content-length": "999999" });
+    await expect(
+      readLimited(response, 8 * 1024, "declared.tmxplug"),
+    ).rejects.toThrow(/declared\.tmxplug is larger/);
+    expect(state.pulled).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("usablePrevious", () => {
+  it("keeps a valid index of this registry and drops anything else", async () => {
+    const keys = testKeyPair();
+    const index = await indexOf(
+      [await fakeRelease("1.0.0", { keys })],
+      keys.publicKey,
+    );
+    expect(usablePrevious(structuredClone(index))).toEqual(index);
+    expect(
+      usablePrevious({ ...structuredClone(index), updatedAt: "not-a-date" }),
+    ).toBeNull();
+    expect(
+      usablePrevious({ ...structuredClone(index), registry: "someone-else" }),
+    ).toBeNull();
+    const broken = structuredClone(index);
+    broken.plugins[0].gated[0].sha256 = "nope";
+    expect(usablePrevious(broken)).toBeNull();
+    for (const junk of [null, undefined, 3, "index", [], {}]) {
+      expect(usablePrevious(junk), JSON.stringify(junk)).toBeNull();
+    }
+  });
 });
 
 describe("byCodeUnit", () => {
@@ -262,7 +368,7 @@ describe("downloadReleases", () => {
       download,
     );
 
-    expect(ready.map((one) => one.release.tag_name)).toEqual(["v1.0.0"]);
+    expect(ready.map((one) => one.facts.tag)).toEqual(["v1.0.0"]);
     expect(ready[0].files.artifact.equals(complete.artifact)).toBe(true);
     expect(ready[0].files.sig).toBe(sign(complete.artifact, keys.privateKey));
     expect(skipped.map((one) => one.tag)).toEqual([
@@ -304,7 +410,7 @@ describe("a rotated key (registry/first-version.txt)", () => {
       download,
       { since: "1.1.0" },
     );
-    expect(ready.map((one) => one.release.tag_name)).toEqual(["v1.1.0"]);
+    expect(ready.map((one) => one.facts.tag)).toEqual(["v1.1.0"]);
     expect(skipped.map((one) => one.tag)).toEqual(["v1.0.0", "v1.1.0-beta.1"]);
     expect(skipped[0].reason).toMatch(/1\.1\.0/);
     expect(asked.every((url) => url.includes("/v1.1.0/"))).toBe(true);
@@ -321,12 +427,14 @@ describe("a rotated key (registry/first-version.txt)", () => {
       publicKey: keys.publicKey,
       since: "1.1.0",
       tooling: TOOLING,
+      repository: REPOSITORY,
       index,
     });
     const now = {
       releases: all.map((one) => one.release),
       publicKey: keys.publicKey,
       tooling: TOOLING,
+      repository: REPOSITORY,
       index,
     };
     expect(unchangedSince(inputs, { ...now, since: "1.1.0" })).toBe(true);
@@ -495,6 +603,7 @@ describe("buildIndex", () => {
       publicKey,
       since: null,
       tooling: TOOLING,
+      repository: REPOSITORY,
       index,
     });
     const now = {
@@ -502,6 +611,7 @@ describe("buildIndex", () => {
       publicKey,
       since: null,
       tooling: TOOLING,
+      repository: REPOSITORY,
       index: JSON.parse(JSON.stringify(index)),
     };
     expect(unchangedSince(JSON.parse(JSON.stringify(inputs)), now)).toBe(true);
@@ -537,9 +647,71 @@ describe("buildIndex", () => {
             }),
         ],
         [
-          "a tag that is not the manifest version",
-          /version/,
+          "a tag whose version the .tmxplug name doesn't carry",
+          /file name.*version/,
           (keys) => fakeRelease("1.0.0", { keys, tag: "v1.0.1" }),
+        ],
+        [
+          "a manifest whose version is not the tag's",
+          /manifest version/,
+          (keys) =>
+            fakeRelease("1.0.0", {
+              keys,
+              tag: "v1.0.1",
+              fileName: "coolify-1.0.1.tmxplug",
+            }),
+        ],
+        [
+          "a tag that is not v<version>",
+          /tag/,
+          (keys) => fakeRelease("1.0.0", { keys, tag: "nightly" }),
+        ],
+        [
+          "an extra .tmxplug on the release",
+          /more than one \.tmxplug/,
+          (keys) =>
+            fakeRelease("1.0.0", {
+              keys,
+              extraAssets: [
+                { name: "other-1.0.0.tmxplug", body: Buffer.from("x") },
+              ],
+            }),
+        ],
+        [
+          "an unrelated .tmxplug listed before the right one",
+          /more than one \.tmxplug/,
+          async (keys) => {
+            const built = await fakeRelease("1.0.0", {
+              keys,
+              extraAssets: [
+                { name: "aaa-1.0.0.tmxplug", body: Buffer.from("x") },
+              ],
+            });
+            built.release.assets.unshift(built.release.assets.pop()!);
+            return built;
+          },
+        ],
+        [
+          "a malformed engine.termix range",
+          /engine\.termix/,
+          (keys) =>
+            fakeRelease("1.0.0", {
+              keys,
+              manifest: manifestFor("1.0.0", {
+                engine: { termix: "26.11.2 or newer", api: "^2.7.0" },
+              }),
+            }),
+        ],
+        [
+          "a malformed engine.api range",
+          /engine\.api/,
+          (keys) =>
+            fakeRelease("1.0.0", {
+              keys,
+              manifest: manifestFor("1.0.0", {
+                engine: { termix: ">=26.11.2-0", api: "two" },
+              }),
+            }),
         ],
         [
           "a file not named <id>-<version>.tmxplug",
@@ -610,18 +782,11 @@ describe("buildIndex", () => {
       const other = await fakeRelease("1.1.0", {
         keys,
         manifest: manifestFor("1.1.0", { id: "other" }),
+        fileName: "coolify-1.1.0.tmxplug",
       });
       await expect(indexOf([good], keys.publicKey)).resolves.toBeTruthy();
       await expect(indexOf([good, other], keys.publicKey)).rejects.toThrow(
-        /plugin id/,
-      );
-      // The ids are named in code-unit order, upper case first, whatever the locale.
-      const upper = await fakeRelease("1.2.0", {
-        keys,
-        manifest: manifestFor("1.2.0", { id: "Delta" }),
-      });
-      await expect(indexOf([good, upper], keys.publicKey)).rejects.toThrow(
-        "more than one plugin id: Delta, coolify",
+        "the plugin id in the manifest is other, not coolify",
       );
     });
 
@@ -699,6 +864,7 @@ describe("unchangedSince", () => {
       publicKey,
       since: null,
       tooling: TOOLING,
+      repository: REPOSITORY,
       index,
     });
     return { index, inputs };
@@ -724,6 +890,7 @@ describe("unchangedSince", () => {
       publicKey: keys.publicKey,
       since: null,
       tooling: TOOLING,
+      repository: REPOSITORY,
       index,
     };
     return { keys, built, index, inputs, releases, now };
@@ -783,6 +950,92 @@ describe("unchangedSince", () => {
     expect(unchangedSince(inputs, { ...now, releases: drafted })).toBe(false);
   });
 
+  it("is false when anything the index shows or verification reads changes", async () => {
+    const { releases, inputs, now } = await published();
+    const changed = (edit: (copy: typeof releases) => void) => {
+      const copy = structuredClone(releases);
+      edit(copy);
+      return unchangedSince(inputs, { ...now, releases: copy });
+    };
+    // All three assets renamed together, bytes (and so digests) unchanged.
+    expect(
+      changed((copy) => {
+        for (const asset of copy[0].assets) {
+          asset.name = asset.name.replace("coolify-", "renamed-");
+          asset.browser_download_url = asset.browser_download_url.replace(
+            "coolify-",
+            "renamed-",
+          );
+        }
+      }),
+    ).toBe(false);
+    for (const at of [0, 1, 2]) {
+      expect(
+        changed((copy) => {
+          copy[0].assets[at].browser_download_url += "?moved";
+        }),
+        `url ${at}`,
+      ).toBe(false);
+    }
+    expect(
+      changed(
+        (copy) => (copy[0].assets[0].updated_at = "2026-11-21T00:00:00Z"),
+      ),
+    ).toBe(false);
+    expect(changed((copy) => (copy[0].html_url += "-moved"))).toBe(false);
+    expect(
+      changed((copy) => (copy[0].published_at = "2026-11-21T00:00:00Z")),
+    ).toBe(false);
+    expect(changed((copy) => (copy[0].prerelease = !copy[0].prerelease))).toBe(
+      false,
+    );
+    expect(
+      unchangedSince(inputs, {
+        ...now,
+        repository: "https://github.com/someone/fork",
+      }),
+    ).toBe(false);
+    // And nothing else: the same listing still short-circuits.
+    expect(changed(() => undefined)).toBe(true);
+  });
+
+  it("checks a superseded beta on both paths, and counts each release once", async () => {
+    const keys = testKeyPair();
+    const stable = await fakeRelease("1.2.0", { keys });
+    const { index, inputs } = await publish([stable], keys.publicKey);
+    const now = {
+      releases: [stable.release],
+      repository: REPOSITORY,
+      publicKey: keys.publicKey,
+      since: null,
+      tooling: TOOLING,
+      index,
+    };
+    expect(unchangedSince(inputs, now)).toBe(true);
+
+    // A beta older than stable is never listed, but it is still verified.
+    const beta = await fakeRelease("1.1.0-beta.1", {
+      keys: { ...testKeyPair(), publicKey: keys.publicKey },
+    });
+    expect(
+      unchangedSince(inputs, {
+        ...now,
+        releases: [stable.release, beta.release],
+      }),
+    ).toBe(false);
+    await expect(publish([stable, beta], keys.publicKey)).rejects.toThrow(
+      /signature/,
+    );
+
+    // The same release listed twice is not the same listing.
+    expect(
+      unchangedSince(inputs, {
+        ...now,
+        releases: [stable.release, stable.release],
+      }),
+    ).toBe(false);
+  });
+
   it("a replaced .sig is read again, and a bad one refuses the index", async () => {
     const keys = testKeyPair();
     const first = await fakeRelease("1.0.0", { keys });
@@ -799,6 +1052,7 @@ describe("unchangedSince", () => {
       publicKey: keys.publicKey,
       since: null,
       tooling: TOOLING,
+      repository: REPOSITORY,
       index,
     };
     expect(unchangedSince(inputs, now)).toBe(false);
@@ -822,6 +1076,7 @@ describe("unchangedSince", () => {
       publicKey: keys.publicKey,
       since: null,
       tooling: TOOLING,
+      repository: REPOSITORY,
       index,
     };
     expect(unchangedSince(inputs, now)).toBe(false);

@@ -30,6 +30,8 @@ import semver from "semver";
 export const REGISTRY_ID = "pacnpal-coolify";
 export const REGISTRY_NAME = "Coolify for Termix (pacnpal)";
 export const LAST_UNCHECKED_CORE = "26.10.2";
+/** The one plugin this registry lists. */
+export const PLUGIN_ID = "coolify";
 
 // DER prefix of an Ed25519 SubjectPublicKeyInfo; the raw 32-byte key follows.
 const SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
@@ -125,10 +127,18 @@ export function readTmxplugFile(buffer, wanted) {
       cutAtNul(header.subarray(start, start + length).toString("utf8"));
     const prefix = field(345, 155);
     const name = prefix ? `${prefix}/${field(0, 100)}` : field(0, 100);
-    const size = Number.parseInt(field(124, 12).trim() || "0", 8);
+    const sizeField = field(124, 12).trim();
+    if (!/^[0-7]*$/.test(sizeField)) {
+      throw new Error(`The .tmxplug entry ${name} has a size that isn't octal`);
+    }
+    const size = Number.parseInt(sizeField || "0", 8);
     const start = offset + 512;
+    const next = start + Math.ceil(size / 512) * 512;
+    if (next > tar.length) {
+      throw new Error(`The .tmxplug entry ${name} has a size past the archive`);
+    }
     if (name === wanted) return tar.subarray(start, start + size);
-    offset = start + Math.ceil(size / 512) * 512;
+    offset = next;
   }
   return null;
 }
@@ -200,32 +210,80 @@ export function parseFirstVersion(text) {
   return version;
 }
 
+/** One release asset as the index and the checks use it. */
+function assetFacts(asset) {
+  return {
+    name: asset.name,
+    url: asset.browser_download_url,
+    updatedAt: asset.updated_at ?? null,
+  };
+}
+
 /**
- * The .tmxplug, .sig and provenance assets of a published release, or why it
- * doesn't count. With since, a release older than that version was signed by
- * an earlier key and doesn't count either.
+ * Everything about a release, from the GitHub API, that ends up in index.json
+ * or drives verification. readRelease reads a release only through these
+ * facts, and the inputs record holds them whole, so a field the index starts
+ * using is compared by the hourly shortcut too.
+ */
+function releaseFacts(release, assets) {
+  return {
+    tag: release.tag_name,
+    draft: Boolean(release.draft),
+    prerelease: Boolean(release.prerelease),
+    htmlUrl: release.html_url ?? null,
+    publishedAt: release.published_at ?? null,
+    tmxplug: assetFacts(assets.artifact),
+    sig: assetFacts(assets.sig),
+    provenance: assetFacts(assets.provenance),
+  };
+}
+
+/**
+ * A published release's facts and the API's digests of its three assets, or
+ * why it doesn't count. With since, a release older than that version was
+ * signed by an earlier key and doesn't count either. A release with a
+ * .tmxplug that is ambiguous (more than one), or not named
+ * coolify-<tag version>.tmxplug, refuses the index rather than being skipped.
  */
 export function releaseAssets(release, { since = null } = {}) {
+  const tag = String(release.tag_name ?? "");
   if (release.draft) return { skip: "a draft" };
-  const tagged = String(release.tag_name ?? "").replace(/^v/, "");
-  if (since && semver.valid(tagged) && semver.lt(tagged, since)) {
+  const tagged = tag.startsWith("v") ? tag.slice(1) : "";
+  const version = semver.valid(tagged) === tagged ? tagged : null;
+  if (since && version && semver.lt(version, since)) {
     return {
       skip: `older than ${since}, the first version the current key signed`,
     };
   }
-  const artifact = release.assets?.find((asset) =>
-    asset.name.endsWith(".tmxplug"),
+  const assets = release.assets ?? [];
+  const tmxplugs = assets.filter((asset) => asset.name.endsWith(".tmxplug"));
+  if (tmxplugs.length === 0) return { skip: "no .tmxplug" };
+  if (tmxplugs.length > 1) {
+    const names = tmxplugs.map((asset) => asset.name).sort(byCodeUnit);
+    throw new Error(`${tag}: more than one .tmxplug (${names.join(", ")})`);
+  }
+  if (!version) throw new Error(`${tag}: the tag is not v<version>`);
+  const expected = `${PLUGIN_ID}-${version}.tmxplug`;
+  const [artifact] = tmxplugs;
+  if (artifact.name !== expected) {
+    throw new Error(
+      `${tag}: the .tmxplug file name ${artifact.name} is not ${expected}, the name for the tag's version`,
+    );
+  }
+  const sig = assets.find((asset) => asset.name === `${expected}.sig`);
+  if (!sig) return { skip: `no ${expected}.sig` };
+  const provenance = assets.find(
+    (asset) => asset.name === `${expected}.sigstore.json`,
   );
-  if (!artifact) return { skip: "no .tmxplug" };
-  const sig = release.assets.find(
-    (asset) => asset.name === `${artifact.name}.sig`,
-  );
-  if (!sig) return { skip: `no ${artifact.name}.sig` };
-  const provenance = release.assets.find(
-    (asset) => asset.name === `${artifact.name}.sigstore.json`,
-  );
-  if (!provenance) return { skip: `no ${artifact.name}.sigstore.json` };
-  return { assets: { artifact, sig, provenance } };
+  if (!provenance) return { skip: `no ${expected}.sigstore.json` };
+  return {
+    facts: releaseFacts(release, { artifact, sig, provenance }),
+    apiDigests: {
+      tmxplug: assetSha256(artifact),
+      sig: assetSha256(sig),
+      provenance: assetSha256(provenance),
+    },
+  };
 }
 
 /**
@@ -236,19 +294,16 @@ export async function downloadReleases(releases, download, options = {}) {
   const ready = [];
   const skipped = [];
   for (const release of releases) {
-    const { assets, skip } = releaseAssets(release, options);
-    if (!assets) {
+    const { facts, skip } = releaseAssets(release, options);
+    if (!facts) {
       skipped.push({ tag: release.tag_name, reason: skip });
       continue;
     }
-    const artifact = await download(assets.artifact.browser_download_url);
-    const sigBytes = await download(assets.sig.browser_download_url);
-    const provenanceBytes = await download(
-      assets.provenance.browser_download_url,
-    );
+    const artifact = await download(facts.tmxplug.url);
+    const sigBytes = await download(facts.sig.url);
+    const provenanceBytes = await download(facts.provenance.url);
     ready.push({
-      release,
-      assets,
+      facts,
       files: {
         artifact,
         sig: sigBytes.toString("utf8"),
@@ -300,10 +355,29 @@ export function bundleDescribes(bundleText, fileName, sha256Hex) {
 }
 
 /** The manifest's engine ranges. */
+/**
+ * The manifest's engine ranges, or why they can't be used. A range semver
+ * can't parse would make needsNewerCore answer false and put the release in
+ * the list Termix 26.10.2 reads without checking, so it refuses the index.
+ */
 function engineOf(manifest) {
   const { api, termix } = manifest.engine ?? {};
-  if (typeof api !== "string" || typeof termix !== "string") return null;
-  return { api, termix };
+  if (typeof api !== "string" || typeof termix !== "string") {
+    return {
+      problem: "the manifest has no engine.api and engine.termix ranges",
+    };
+  }
+  for (const [name, range] of [
+    ["engine.termix", termix],
+    ["engine.api", api],
+  ]) {
+    if (range.trim() === "" || semver.validRange(range) === null) {
+      return {
+        problem: `the manifest ${name} ${JSON.stringify(range)} is not a semver range`,
+      };
+    }
+  }
+  return { engine: { api, termix } };
 }
 
 /** What kinds of things the plugin adds, so Termix can filter by them. */
@@ -347,23 +421,23 @@ function listing(manifest, repository) {
 }
 
 /** Checks one downloaded release and returns its manifest and index entry. Throws on any problem. */
-function readRelease({ release, assets, files }, publicKey, repository) {
-  const where = release.tag_name;
+function readRelease({ facts, files }, publicKey, repository) {
+  const where = facts.tag;
   const { artifact } = files;
   if (!verifySignature(artifact, files.sig, publicKey)) {
     throw new Error(
-      `${where}: the signature in ${assets.sig.name} does not match registry/public-key.txt`,
+      `${where}: the signature in ${facts.sig.name} does not match registry/public-key.txt`,
     );
   }
   const raw = readTmxplugFile(artifact, "manifest.json");
   if (!raw)
-    throw new Error(`${where}: no manifest.json in ${assets.artifact.name}`);
+    throw new Error(`${where}: no manifest.json in ${facts.tmxplug.name}`);
   let manifest;
   try {
     manifest = JSON.parse(raw.toString("utf8"));
   } catch {
     throw new Error(
-      `${where}: manifest.json in ${assets.artifact.name} is not valid JSON`,
+      `${where}: manifest.json in ${facts.tmxplug.name} is not valid JSON`,
     );
   }
   if (
@@ -372,26 +446,28 @@ function readRelease({ release, assets, files }, publicKey, repository) {
   ) {
     throw new Error(`${where}: the manifest version is not a semver version`);
   }
-  if (`v${manifest.version}` !== release.tag_name) {
+  if (`v${manifest.version}` !== facts.tag) {
     throw new Error(`${where}: the manifest version is ${manifest.version}`);
   }
-  if (assets.artifact.name !== `${manifest.id}-${manifest.version}.tmxplug`) {
+  if (manifest.id !== PLUGIN_ID) {
     throw new Error(
-      `${where}: the file name ${assets.artifact.name} is not ${manifest.id}-${manifest.version}.tmxplug`,
+      `${where}: the plugin id in the manifest is ${manifest.id}, not ${PLUGIN_ID}`,
+    );
+  }
+  if (facts.tmxplug.name !== `${manifest.id}-${manifest.version}.tmxplug`) {
+    throw new Error(
+      `${where}: the file name ${facts.tmxplug.name} is not ${manifest.id}-${manifest.version}.tmxplug`,
     );
   }
   if (manifest.repository !== repository) {
     throw new Error(`${where}: the manifest repository is not ${repository}`);
   }
-  const engine = engineOf(manifest);
-  if (!engine)
-    throw new Error(
-      `${where}: the manifest has no engine.api and engine.termix ranges`,
-    );
+  const { engine, problem } = engineOf(manifest);
+  if (problem) throw new Error(`${where}: ${problem}`);
   const sha256 = crypto.createHash("sha256").update(artifact).digest("hex");
-  if (!bundleDescribes(files.provenance, assets.artifact.name, sha256)) {
+  if (!bundleDescribes(files.provenance, facts.tmxplug.name, sha256)) {
     throw new Error(
-      `${where}: the provenance bundle ${assets.provenance.name} is not for this file`,
+      `${where}: the provenance bundle ${facts.provenance.name} is not for this file`,
     );
   }
   const changelog = readTmxplugFile(artifact, "CHANGELOG.md");
@@ -401,7 +477,7 @@ function readRelease({ release, assets, files }, publicKey, repository) {
   const entry = {
     version: manifest.version,
     api: engine.api.match(/\d+/)?.[0] ?? "",
-    url: assets.artifact.browser_download_url,
+    url: facts.tmxplug.url,
     sha256,
     signature: String(files.sig).trim(),
     size: artifact.length,
@@ -410,12 +486,12 @@ function readRelease({ release, assets, files }, publicKey, repository) {
     ...(manifest.dependencies && Object.keys(manifest.dependencies).length > 0
       ? { dependencies: manifest.dependencies }
       : {}),
-    releaseNotesUrl: release.html_url,
+    releaseNotesUrl: facts.htmlUrl,
     ...(notes ? { notes: notes.slice(0, 20_000) } : {}),
-    provenance: { url: assets.provenance.browser_download_url },
+    provenance: { url: facts.provenance.url },
     // The asset upload time, which is the release date.
     publishedAt: new Date(
-      assets.artifact.updated_at ?? release.published_at,
+      facts.tmxplug.updatedAt ?? facts.publishedAt,
     ).toISOString(),
   };
   return { manifest, entry };
@@ -438,12 +514,6 @@ export function buildIndex({ releases, publicKey, repository, updatedAt }) {
   };
   if (found.length === 0) return index;
 
-  const ids = new Set(found.map(({ manifest }) => manifest.id));
-  if (ids.size > 1) {
-    throw new Error(
-      `The releases use more than one plugin id: ${[...ids].sort(byCodeUnit).join(", ")}`,
-    );
-  }
   const seen = new Set();
   for (const { manifest } of found) {
     if (seen.has(manifest.version))
@@ -528,15 +598,20 @@ function sha256Hex(bytes) {
 
 /*
  * The hourly shortcut (`--if-changed`) may skip downloading and verifying only
- * when every input that verification reads is byte for byte what the last
- * full run read. The script stores this record as inputs.json next to
- * index.json on the registry branch. Its parts:
+ * when every input that verification reads, and every release field that ends
+ * up in index.json, is byte for byte what the last full run used. The script
+ * stores this record as inputs.json next to index.json on the registry
+ * branch. Its parts:
  *
  * - releases: for each counted release (published, all three assets, not
- *   older than first-version.txt), the sha256 of its .tmxplug, .sig and
- *   .sigstore.json. Downloaded bytes when recorded, the API's asset digests
- *   when compared, so a replaced, added or removed asset or release, a draft
- *   flip or a missing digest all mean a full read.
+ *   older than first-version.txt), its releaseFacts (tag, draft and
+ *   prerelease flags, release page, publish date, and each asset's name,
+ *   download URL and upload time) and the sha256 of its .tmxplug, .sig and
+ *   .sigstore.json. The facts are the only release data readRelease sees, so
+ *   anything new the index shows is compared too. Digests are of the
+ *   downloaded bytes when recorded and the API's asset digests when compared;
+ *   a missing digest means a full read.
+ * - repository: the repo the manifests must name and the index links to.
  * - publicKey: registry/public-key.txt, which every .sig is checked against.
  * - since: registry/first-version.txt, which decides which releases count.
  * - tooling: a hash of the code and data that do the checks and write the
@@ -546,35 +621,43 @@ function sha256Hex(bytes) {
  *   republishes an index that was changed on the branch by hand.
  */
 
-const INPUTS_VERSION = 1;
+const INPUTS_VERSION = 2;
 
 function indexDigest(index) {
   return index ? sha256Hex(JSON.stringify(index)) : null;
 }
 
-function inputs({ releases, publicKey, since, tooling, index }) {
-  const byTag = {};
-  for (const { tag, digests } of releases) byTag[tag] = digests;
+function inputs({ releases, repository, publicKey, since, tooling, index }) {
   return {
     version: INPUTS_VERSION,
     tooling,
+    repository,
     publicKey,
     since: since ?? null,
     index: indexDigest(index),
-    releases: byTag,
+    // One entry per counted release, in a fixed order.
+    releases: releases
+      .map(({ facts, digests }) => ({ facts, digests }))
+      .sort((a, b) => byCodeUnit(a.facts.tag, b.facts.tag)),
   };
 }
 
 /**
  * The inputs record of a full run: ready is downloadReleases' list, whose
- * digests are of the bytes verification read; index is the one written.
+ * facts the index was built from and whose digests are of the bytes
+ * verification read; index is the one written.
  */
-export function inputsRecord({ ready, publicKey, since, tooling, index }) {
+export function inputsRecord({
+  ready,
+  repository,
+  publicKey,
+  since,
+  tooling,
+  index,
+}) {
   return inputs({
-    releases: ready.map(({ release, digests }) => ({
-      tag: release.tag_name,
-      digests,
-    })),
+    releases: ready,
+    repository,
     publicKey,
     since,
     tooling,
@@ -586,29 +669,86 @@ export function inputsRecord({ ready, publicKey, since, tooling, index }) {
  * The same record from the API's release listing, without downloading, or
  * null when a counted asset has no digest.
  */
-function currentInputs({ releases, publicKey, since, tooling, index }) {
+function currentInputs({
+  releases,
+  repository,
+  publicKey,
+  since,
+  tooling,
+  index,
+}) {
   const counted = [];
   for (const release of releases) {
-    const { assets } = releaseAssets(release, { since });
-    if (!assets) continue;
-    const digests = {
-      tmxplug: assetSha256(assets.artifact),
-      sig: assetSha256(assets.sig),
-      provenance: assetSha256(assets.provenance),
-    };
-    if (!digests.tmxplug || !digests.sig || !digests.provenance) return null;
-    counted.push({ tag: release.tag_name, digests });
+    const { facts, apiDigests } = releaseAssets(release, { since });
+    if (!facts) continue;
+    if (!apiDigests.tmxplug || !apiDigests.sig || !apiDigests.provenance) {
+      return null;
+    }
+    counted.push({ facts, digests: apiDigests });
   }
-  return inputs({ releases: counted, publicKey, since, tooling, index });
+  return inputs({
+    releases: counted,
+    repository,
+    publicKey,
+    since,
+    tooling,
+    index,
+  });
 }
 
 /**
- * True when nothing verification reads has changed since the full run that
- * wrote previousInputs (see the list above). now holds the release listing,
- * public key, first version, tooling hash and the published index.
+ * True when nothing verification reads or the index shows has changed since
+ * the full run that wrote previousInputs (see the list above). now holds the
+ * release listing, repository, public key, first version, tooling hash and
+ * the published index. A listing that refuses the index (an ambiguous
+ * .tmxplug) is never unchanged.
  */
 export function unchangedSince(previousInputs, now) {
   if (!previousInputs || !now?.index) return false;
-  const current = currentInputs(now);
+  let current;
+  try {
+    current = currentInputs(now);
+  } catch {
+    return false;
+  }
   return current !== null && isDeepStrictEqual(previousInputs, current);
+}
+
+/**
+ * The previous index, when it is one this registry could have written: an
+ * object that matches the registry index schema with this registry's id.
+ * Anything else is treated as absent, so it is never reused or kept from.
+ */
+export function usablePrevious(index) {
+  if (!index || typeof index !== "object" || Array.isArray(index)) return null;
+  if (index.registry !== REGISTRY_ID) return null;
+  return schemaProblems(index).length === 0 ? index : null;
+}
+
+/**
+ * A response body as a Buffer, read chunk by chunk and cancelled as soon as
+ * it passes limit bytes, so an oversized asset is never held whole.
+ */
+export async function readLimited(response, limit, label) {
+  const tooBig = () => new Error(`${label} is larger than ${limit} bytes`);
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > limit) {
+    await response.body?.cancel();
+    throw tooBig();
+  }
+  if (!response.body) return Buffer.alloc(0);
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel();
+      throw tooBig();
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks, total);
 }
