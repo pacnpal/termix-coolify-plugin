@@ -289,18 +289,19 @@ export function createCompanions(
    * it too.
    */
   async function holds(connectionId: number, snap: Snapshot): Promise<void> {
-    if ((await connections.revision(connectionId)) !== snap.view.revision) {
-      throw new ConnectionError(
-        "target-changed",
-        "The connection's address, token or Access settings changed. Try again.",
-      );
-    }
     const access = await connections.access(connectionId);
     if (!access) {
       throw new ConnectionError("not-found", "Coolify connection not found");
     }
     if (RANK[access] < RANK[levels.get(snap) ?? "owner"]) {
       throw forbidden(`Your grant on this connection doesn't allow this`);
+    }
+    // Last, so nothing is awaited between this check and the guarded call.
+    if ((await connections.revision(connectionId)) !== snap.view.revision) {
+      throw new ConnectionError(
+        "target-changed",
+        "The connection's address, token or Access settings changed. Try again.",
+      );
     }
   }
 

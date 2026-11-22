@@ -140,10 +140,13 @@ export function toTarget(r: ResourceDto): TagTarget {
   };
 }
 
+/** Code point order: the same on every runtime and locale. */
+const byCodePoint = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
 /** Whether the confirmed uuids are exactly the targets found now. */
 export function sameTargets(confirmed: string[], found: TagTarget[]): boolean {
-  const a = [...new Set(confirmed)].sort();
-  const b = found.map((t) => t.uuid).sort();
+  const a = [...new Set(confirmed)].sort(byCodePoint);
+  const b = found.map((t) => t.uuid).sort(byCodePoint);
   return a.length === b.length && a.every((u, i) => u === b[i]);
 }
 

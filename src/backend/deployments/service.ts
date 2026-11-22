@@ -155,25 +155,27 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
   /**
    * Fails closed unless the connection still points at the snapshot's
    * target and the actor's grant still reaches `level`: a grant lowered
-   * mid-way leaves the revision as it was.
+   * mid-way leaves the revision as it was. The revision is read last, so
+   * nothing is awaited between its check and the request this guards: a
+   * change that lands while the grant is read is still caught.
    */
   async function holds(
     connectionId: number,
     snap: Snapshot,
     level: Level,
   ): Promise<void> {
-    if ((await connections.revision(connectionId)) !== snap.view.revision) {
-      throw new ConnectionError(
-        "target-changed",
-        "The connection's address, token or Access settings changed. Try again.",
-      );
-    }
     const access = await connections.access(connectionId);
     if (!access) {
       throw new ConnectionError("not-found", "Coolify connection not found");
     }
     if (RANK[access] < RANK[level]) {
       throw forbidden("Your access to this connection doesn't allow this");
+    }
+    if ((await connections.revision(connectionId)) !== snap.view.revision) {
+      throw new ConnectionError(
+        "target-changed",
+        "The connection's address, token or Access settings changed. Try again.",
+      );
     }
   }
 
