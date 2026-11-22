@@ -500,7 +500,7 @@ export function createPreviews(ctx: PluginContext, deps: PreviewsDeps) {
       if (input.gitType) body.git_type = input.gitType;
       if (input.commit) body.commit = input.commit;
       if (input.dockerTag) body.docker_tag = input.dockerTag;
-      const { answer, app } = await onApplication(
+      const { answer, app, snap } = await onApplication(
         connectionId,
         uuid,
         "operate",
@@ -513,7 +513,9 @@ export function createPreviews(ctx: PluginContext, deps: PreviewsDeps) {
         },
       );
       // A preview deploy is a deployment of the application, of a pull
-      // request: the shared post-start hook names the pull request.
+      // request: the shared post-start hook names the pull request. The
+      // target is checked again after it, so nothing is awaited between that
+      // check and the answer; an entry for a target that then changed stays.
       await deployments.deployed(connectionId, [
         {
           name: app.name,
@@ -523,6 +525,7 @@ export function createPreviews(ctx: PluginContext, deps: PreviewsDeps) {
           pullRequestId: input.pullRequestId,
         },
       ]);
+      await deployments.holds(connectionId, snap, "operate");
       return {
         pullRequestId: input.pullRequestId,
         deploymentUuid: answer.deploymentUuid,

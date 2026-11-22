@@ -18,7 +18,7 @@ import {
   tagAnswers,
 } from "./helpers/deployments.js";
 import type { FakeAnswer } from "./helpers/fake-coolify.js";
-import { previewAnswers } from "./helpers/previews.js";
+import { moveTarget, previewAnswers } from "./helpers/previews.js";
 import { resourceLists } from "./helpers/resources.js";
 
 let harness: PluginHarness | null = null;
@@ -459,5 +459,68 @@ describe("recent activity: every other deploy path", () => {
       }),
     ).rejects.toBeTruthy();
     expect(h.mock.activities).toEqual([]);
+  });
+});
+
+/** recordActivity that repoints the connection while it is pending. */
+function moveWhileRecording(h: PluginHarness, id: number) {
+  vi.spyOn(h.mock.ctx.hosts, "recordActivity").mockImplementation(async () => {
+    moveTarget(h, id);
+  });
+}
+
+describe("recent activity: the target is checked after recording", () => {
+  it("a shell whose connection moves while recording answers target-changed, no command", async () => {
+    const { harness: h, connectionId } = await shell();
+    fakeDocker(h, { ps: [WEB_RUNNING] });
+    moveWhileRecording(h, connectionId);
+    const res = await h.request(
+      "POST",
+      shellPath(connectionId, "app-web-uuid"),
+      {},
+    );
+    expect(res.body.cause).toBe("target-changed");
+    expect(res.body.command).toBeUndefined();
+  });
+
+  it("a database console whose connection moves while recording is refused", async () => {
+    const { harness: h, connectionId } = await shell();
+    fakeDocker(h, { ps: [DB_RUNNING] });
+    moveWhileRecording(h, connectionId);
+    await expect(
+      h.mock.ctx.operations.run("coolify.shell-command", {
+        input: {
+          connectionId: String(connectionId),
+          uuid: "db-main-uuid",
+          console: "db",
+        },
+      }),
+    ).rejects.toMatchObject({ code: "target-changed" });
+  });
+
+  it("a deploy by tag whose connection moves while recording is refused", async () => {
+    const { harness: h, id, run } = await byTag();
+    moveWhileRecording(h, id);
+    await expect(run()).rejects.toMatchObject({ code: "target-changed" });
+  });
+
+  it("a rollback whose connection moves while recording is refused", async () => {
+    const { harness: h, id, run } = await rollbacks();
+    moveWhileRecording(h, id);
+    await expect(run()).rejects.toMatchObject({ code: "target-changed" });
+  });
+
+  it("a preview deploy whose connection moves while recording is refused", async () => {
+    const { harness: h, id } = await deploys({ overrides: previewAnswers() });
+    moveWhileRecording(h, id);
+    await expect(
+      h.mock.ctx.operations.run("coolify.preview-create", {
+        input: {
+          connectionId: String(id),
+          uuid: "app-web-uuid",
+          pullRequestId: 42,
+        },
+      }),
+    ).rejects.toMatchObject({ code: "target-changed" });
   });
 });

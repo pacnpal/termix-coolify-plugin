@@ -374,6 +374,11 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
         throw err;
       }
       const hostKeys = await fingerprints(snap, serverUuid);
+      // The route and coolify.shell-command both land here, once per open.
+      // Recorded before the last check, so nothing is awaited between that
+      // check and the answer. If the target changes meanwhile, the entry
+      // stays (it names a shell that was opened) but no command is answered.
+      await recordShell(ctx, hostId, res.name);
       await assertSnapshotHolds(connectionId, snap);
       const answer: ShellAnswer = {
         hostId,
@@ -383,8 +388,6 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
         fingerprints: hostKeys,
       };
       if (request.console === "db" && !engine) answer.note = "no-console";
-      // The route and coolify.shell-command both land here, once per open.
-      await recordShell(ctx, hostId, res.name);
       return answer;
     },
   };

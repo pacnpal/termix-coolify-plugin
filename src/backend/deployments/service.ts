@@ -460,8 +460,9 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
         queueCache.invalidate(connectionId);
         await resources.invalidate(connectionId);
       }
-      await holds(connectionId, snap, "operate");
-      // A rollback queues a deployment of the earlier image.
+      // A rollback queues a deployment of the earlier image. Recorded before
+      // the last check, so nothing is awaited between it and the answer; an
+      // entry for a target that then changed stays (Coolify did deploy).
       await deployed(connectionId, [
         {
           name: app.name,
@@ -470,6 +471,7 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
           serverUuid: app.serverUuid,
         },
       ]);
+      await holds(connectionId, snap, "operate");
       return {
         uuid: app.uuid,
         name: app.name,
@@ -570,8 +572,9 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
         queueCache.invalidate(connectionId);
         await resources.invalidate(connectionId);
       }
-      await holds(connectionId, snap, "operate");
       // Each target Coolify answered for, once; started or not is the hook's.
+      // Recorded before the last check (as in rollback), so nothing is
+      // awaited between it and the answer.
       await deployed(
         connectionId,
         found.targets.flatMap((t) => {
@@ -588,6 +591,7 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
           ];
         }),
       );
+      await holds(connectionId, snap, "operate");
       return { ...found, deployments };
     },
 
