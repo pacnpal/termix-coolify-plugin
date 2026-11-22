@@ -19,6 +19,7 @@ import {
   type PluginHarness,
 } from "../helpers/plugin.js";
 import { withRunHistory } from "../helpers/run-history.js";
+import { expectKeyTailMasked, KEY_TAIL } from "../helpers/key-tail.js";
 
 const TOKEN = "fake-token-api-generic";
 const PRIVATE_KEY =
@@ -814,6 +815,37 @@ describe("generic API: log and output fields", () => {
     const read = await apiCall("get-deployment-by-uuid", { uuid: "dep-1" });
     expect(read.data).toMatchObject({ data: { uuid: "dep-1", logs: "build" } });
   });
+
+  it.each([
+    [
+      "get-application-logs-by-uuid",
+      "GET /applications/app-web-uuid/logs",
+      // A tail cut inside one key, then a whole key.
+      `${KEY_TAIL.text}-----BEGIN RSA PRIVATE KEY-----\nfake-key-tail-body-whole\n-----END RSA PRIVATE KEY-----\nlast line`,
+      { uuid: "app-web-uuid" },
+      "last line",
+    ],
+    [
+      "get-deployment-by-uuid",
+      "GET /deployments/dep-1",
+      // A build log, as Coolify keeps it: a JSON list of entries.
+      JSON.stringify(
+        KEY_TAIL.lines.map((output, i) => ({ output, order: i + 1 })),
+      ),
+      { uuid: "dep-1" },
+      KEY_TAIL.after,
+    ],
+  ])(
+    "a confirmed %s masks private keys, and a log that starts inside one",
+    async (operationId, route, logs, params, kept) => {
+      const { fake } = await start({ permissions: ["view", "operate"] });
+      fake.set(route, { json: { uuid: "x", logs } });
+      const read = await apiCall(operationId, params);
+      const shown = (read.data as { data: { logs: string } }).data.logs;
+      expectKeyTailMasked(shown);
+      expect(shown).toContain(kept);
+    },
+  );
 
   it("an operate-level, confirmed list-servers answers validation_logs", async () => {
     await start({ permissions: ["view", "operate"] });

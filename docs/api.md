@@ -243,7 +243,9 @@ Every answer reads the connection once and checks, right before Coolify is asked
 its address, token, Access token and TLS settings are still the same; otherwise it ends with
 `target-changed` (409). Before any line leaves the plugin, the connection's own token and Access secret are
 masked wherever they appear, and so are passwords in URLs, credential query parameters, secret-named
-fields (`DB_PASSWORD=…`, `"api_key": "…"`) and `Authorization` credentials.
+fields (`DB_PASSWORD=…`, `"api_key": "…"`) and `Authorization` credentials. A private key's body is
+masked; a snapshot that starts inside a key (a key's END line with no BEGIN before it) is masked from its
+start through that END line, and the lines after it are left as they are.
 
 Query (all optional):
 
@@ -326,7 +328,9 @@ connection's token can't read build logs (Coolify needs `read:sensitive` for the
 `truncated` set). `hidden` is Coolify's own flag for lines its UI hides unless debugging, like the commands
 it ran; the Deployments view hides them until you turn them on. Before any line leaves the plugin, its
 output and command are masked as container logs are: the connection's own token and Access secret, passwords
-in URLs, credential query parameters, secret-named fields and `Authorization` credentials. `final` turns true
+in URLs, credential query parameters, secret-named fields and `Authorization` credentials. A private key is
+masked across lines, and a log that starts inside one (its END with no BEGIN before it) is masked from the
+start through that END. `final` turns true
 once the deployment ended (finished, failed, cancelled or skipped); the Deployments view polls this route
 every 2 seconds while it is shown and stops then.
 
@@ -540,7 +544,8 @@ approval waits. Coolify needs a token with `write` and `deploy`.
 The preview's container logs through Coolify (`lines` 1 to 10,000, default 100). Needs **Operate Coolify
 resources** and an operate grant, and a token with `read:sensitive`. It answers `{ pullRequestId, text }`.
 The text is redacted as one stream before it leaves the plugin, so a private key whose lines are split
-still has its body masked, as are the connection's own token and Access secret, passwords in URLs,
+still has its body masked, and logs that start inside a key are masked from their start through its END
+line, as are the connection's own token and Access secret, passwords in URLs,
 credential query parameters, secret-named fields and `Authorization` credentials.
 
 Every preview call reads the connection once. After every step, and right before each request to Coolify,
@@ -744,7 +749,10 @@ Each operation needs what the same action needs in the app, whatever key or tool
   an operate grant and a confirm, through `coolify.api-call` or the console. Any other answer that holds a
   log or output field (a server's or database's `validation_logs`) is an ordinary read: that field comes
   back masked unless the call is confirmed by someone with **Operate Coolify resources** and an operate
-  grant.
+  grant. When a log or output field does come back, it is masked as container logs are: private keys
+  (a log that starts inside one is masked from its start through the key's END), the connection's own
+  token and Access secret, passwords in URLs, credential query parameters, secret-named fields and
+  `Authorization` credentials.
 - A token that can't read, or a logs read without `read:sensitive`, is refused before Coolify is asked
   (`token-ability`, 409). The connection is checked again right before each request is sent, after any
   wait for the request budget or a retry.
