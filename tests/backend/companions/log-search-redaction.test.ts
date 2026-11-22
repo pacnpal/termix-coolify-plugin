@@ -204,6 +204,27 @@ describe("Log Search hits are redacted", () => {
     ).toEqual(["[redacted]", "[redacted]", "[redacted]"]);
   });
 
+  it("doesn't take a certificate BEGIN as opening a private key END", async () => {
+    const { harness: h, companions, connectionId } = await start();
+    answerWith(companions, [
+      { message: SPLIT_KEY_BODY },
+      {
+        message:
+          "note -----BEGIN CERTIFICATE----- -----END RSA PRIVATE KEY-----",
+      },
+    ]);
+    const res = await h.request(
+      "GET",
+      `/connections/${connectionId}/log-search?uuid=app-web-uuid`,
+    );
+    expect(res.status).toBe(200);
+    expect(
+      (res.body as { results: { message: string }[] }).results.map(
+        (r) => r.message,
+      ),
+    ).toEqual(["[redacted]", "[redacted]"]);
+  });
+
   it("finds a lone END after complete blocks on the same hit", async () => {
     const { harness: h, companions, connectionId } = await start();
     const inline = (kind: string) =>
