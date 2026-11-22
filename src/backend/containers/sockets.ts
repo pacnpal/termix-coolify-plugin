@@ -89,7 +89,7 @@ function readSubscribe(message: Record<string, unknown>): Subscribe {
       ? rawId
       : typeof rawId === "string" && /^\d{1,15}$/.test(rawId)
         ? Number(rawId)
-        : NaN;
+        : Number.NaN;
   if (!Number.isSafeInteger(id) || id <= 0) {
     throw new ConnectionError("not-found", "Coolify connection not found");
   }

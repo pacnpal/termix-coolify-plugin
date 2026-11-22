@@ -21,6 +21,7 @@ import {
 import { resourceHealth } from "../../../src/shared/resource-health.js";
 import { healthyCoolify } from "../helpers/fake-coolify.js";
 import { resourceLists, SECRET } from "../helpers/resources.js";
+import { byText } from "../helpers/order.js";
 
 const pluginDir = fileURLToPath(new URL("../../..", import.meta.url));
 const manifest = manifestJson as unknown as PluginManifest;
@@ -415,7 +416,7 @@ describe("resource service", () => {
   it("no Coolify secret field survives into the resource DTOs or the cache", async () => {
     const rows = await resources.list(connectionId);
     for (const row of rows) {
-      expect(Object.keys(row).sort(), row.uuid).toEqual(RESOURCE_KEYS);
+      expect(Object.keys(row).sort(byText), row.uuid).toEqual(RESOURCE_KEYS);
     }
     const answers = [
       rows,

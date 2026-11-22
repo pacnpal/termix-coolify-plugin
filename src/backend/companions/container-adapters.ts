@@ -1,6 +1,7 @@
 import { posix } from "node:path";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import type { ResourceDto, StorageDto } from "../coolify/dto.js";
+import { trimTrailing } from "../text.js";
 import { CompanionError, COMPANION_PLUGINS, missing } from "./detect.js";
 
 // Container-level companion adapters: File Manager paths, Tunnels forwards
@@ -85,7 +86,7 @@ function normalized(value: string | null): string | null {
   if (!value || value.length > 4096 || CONTROL.test(value)) return null;
   if (!value.startsWith("/")) return null;
   if (value.split("/").some((part) => part === "..")) return null;
-  const path = posix.normalize(value).replace(/\/+$/, "");
+  const path = trimTrailing(posix.normalize(value), "/");
   return path === "" ? null : path;
 }
 
@@ -158,7 +159,7 @@ export function isContainerIp(text: string): boolean {
   // fc00::/7: the address's first byte, masked with 0xfe, is 0xfc. The first
   // hextet is empty for a leading "::" (its first byte is then 0).
   const first = v6.split(":")[0]!;
-  const byte = first === "" ? 0 : parseInt(first, 16) >> 8;
+  const byte = first === "" ? 0 : Number.parseInt(first, 16) >> 8;
   return (byte & 0xfe) === 0xfc;
 }
 

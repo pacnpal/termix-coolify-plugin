@@ -13,6 +13,7 @@ import {
   KEEP_AWAKE_REASON,
   STATUS_REFRESH_ID,
 } from "../../../src/backend/status/service.js";
+import { byText } from "../helpers/order.js";
 
 const TOKEN = "fake-token-status-pages";
 const connectionBody = {
@@ -455,8 +456,8 @@ describe("status page routes", () => {
     const publicPaths = harness.mock.httpRouters.flatMap(
       (o) => o?.public ?? [],
     );
-    expect(publicPaths.sort()).toEqual(
-      ["/status/:token", "/status/:token.json"].sort(),
+    expect(publicPaths.sort(byText)).toEqual(
+      ["/status/:token", "/status/:token.json"].sort(byText),
     );
     // Core's public rate limit (120 a minute per address) stays in force.
     expect(

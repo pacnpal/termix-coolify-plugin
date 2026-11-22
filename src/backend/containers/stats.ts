@@ -319,7 +319,7 @@ export function registerStatsSocket(
           ? raw
           : typeof raw === "string" && /^\d{1,15}$/.test(raw)
             ? Number(raw)
-            : NaN;
+            : Number.NaN;
       if (!Number.isSafeInteger(connectionId) || connectionId <= 0) {
         refuse({ error: "Coolify connection not found", cause: "not-found" });
         return;

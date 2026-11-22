@@ -20,6 +20,7 @@ import {
   mcpChangesRefused,
   toolName,
 } from "../../../src/backend/mcp/server.js";
+import { byText } from "../helpers/order.js";
 
 const TOKEN = "fake-token-mcp-test";
 const ACTIONS = manifest.contributes!.operations!.actions!;
@@ -115,19 +116,21 @@ describe("the MCP endpoint", () => {
       method: "tools/list",
     });
     const tools = (answer!.result as { tools: { name: string }[] }).tools;
-    const names = tools.map((t) => t.name).sort();
+    const names = tools.map((t) => t.name).sort(byText);
     const expected = [
       ...ACTIONS.map((a) => "coolify__" + a.id.slice("coolify.".length)),
       ...EXTRA,
     ]
       .map((n) => n.replace(/[.-]/g, "_"))
-      .sort();
+      .sort(byText);
     expect(names).toEqual(expected);
     expect(new Set(names).size).toBe(names.length);
     expect(toolName("coolify.connection-probe")).toBe(
       "coolify__connection_probe",
     );
-    expect(EXTRA_TOOLS.map((t) => t.name).sort()).toEqual([...EXTRA].sort());
+    expect(EXTRA_TOOLS.map((t) => t.name).sort(byText)).toEqual(
+      [...EXTRA].sort(byText),
+    );
   });
 
   it("read tool annotations set readOnlyHint, destructive set destructiveHint", async () => {

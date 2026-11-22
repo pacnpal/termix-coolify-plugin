@@ -3,6 +3,7 @@ import authz from "../../authz.json";
 import { healthyCoolify } from "./helpers/fake-coolify.js";
 import { manifest, OWNER, startPlugin } from "./helpers/plugin.js";
 import { served } from "./helpers/served.js";
+import { byText } from "./helpers/order.js";
 
 interface Entry {
   params?: Record<string, string | number>;
@@ -19,13 +20,17 @@ const captured = new Set(
 describe("authz.json", () => {
   it("has an entry for every route and no entry for a route that is gone", async () => {
     const { routes } = await served();
-    expect(routes).toEqual(keys.filter((k) => !k.startsWith("WS ")).sort());
+    expect(routes).toEqual(
+      keys.filter((k) => !k.startsWith("WS ")).sort(byText),
+    );
   });
 
   it("has an entry for every socket and no entry for a socket that is gone", async () => {
     const { sockets } = await served();
     expect(sockets).toContain("WS /plugin-ws/coolify/logs");
-    expect(sockets).toEqual(keys.filter((k) => k.startsWith("WS ")).sort());
+    expect(sockets).toEqual(
+      keys.filter((k) => k.startsWith("WS ")).sort(byText),
+    );
     for (const key of sockets) {
       // The checks are per message, so the entry must send one.
       expect(entries[key].send?.length, key).toBeGreaterThan(0);

@@ -187,6 +187,13 @@ aren't obvious from the code, and anything that has bitten you before.
   `authorize` also applies `tokenAllows` (`token-ability`, 409), and `send` passes `beforeFetch` so the
   request layer checks the revision again after its budget and retry waits, right before each fetch.
   The console drops late answers with request generations (reveal, operation list, connections).
+- Scanner hygiene (#84): trim a trailing run with `trimTrailing` (`src/backend/text.ts`), never `/x+$/`
+  (quadratic on a long run that isn't at the end); an unanchored `A.*B` or `x+y` regex rescans from every
+  start, so use index scans or a pattern that can only start once (`isTaskRunPath` in
+  `ops/api-generic.ts`). Every sort takes a compare function: `byText` (`tests/backend/helpers/order.ts`)
+  in tests, `byCodeUnit` (`scripts/registry-lib.mjs`) in the scripts, both the order `sort()` gives without one. Use
+  `Number.NaN` and `Number.parseInt`, not the globals. `tests/backend/linear-regex.test.ts` times each
+  rewritten site on a hostile input.
 - Redaction: `src/backend/redact.ts` is the one redactor for the generic API, the console and every MCP
   tool result. It masks secret keys (`SECRET_KEY`, including `*_key` and `*_db_url`, plus
   `SECRET_FIELDS`) and, in every other string at any depth, a URL's userinfo password and credential

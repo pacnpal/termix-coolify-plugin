@@ -20,6 +20,7 @@ import {
 } from "../helpers/plugin.js";
 import { withRunHistory } from "../helpers/run-history.js";
 import { expectKeyTailMasked, KEY_TAIL } from "../helpers/key-tail.js";
+import { byText } from "../helpers/order.js";
 
 const TOKEN = "fake-token-api-generic";
 const PRIVATE_KEY =
@@ -629,7 +630,7 @@ describe("generic Coolify API operations", () => {
     const expected = BASELINE.filter(
       (id) => !EXCLUDED_OPERATIONS.has(id) && !UNSUPPORTED_UPLOADS.has(id),
     );
-    expect([...ops].sort()).toEqual([...expected].sort());
+    expect([...ops].sort(byText)).toEqual([...expected].sort(byText));
   });
 
   it("a 404 from a 4.4.0 connection maps to unsupported-by-instance", async () => {
@@ -652,7 +653,7 @@ describe("generic Coolify API operations", () => {
   });
 
   it("refuses the upload import operations with a clear message", async () => {
-    expect([...UNSUPPORTED_UPLOADS].sort()).toEqual([
+    expect([...UNSUPPORTED_UPLOADS].sort(byText)).toEqual([
       "upload-database-import",
       "upload-service-database-import",
     ]);

@@ -29,6 +29,9 @@
 - A dry run of a deploy or rollback shows a resource or server name exactly as it is. A name holding `$&`,
   `$1` or `$$` was changed by the text it was put into, and one holding `{{server}}` or `{{image}}` was
   filled a second time
+- Trailing slashes are trimmed from the Termix address in status page links, from resource domains and
+  from storage paths in linear time, so a long run of slashes can no longer slow a request down.
+  Scheduled task runs are recognized the same way. Behaviour is otherwise unchanged
 
 ## 1.1.0
 

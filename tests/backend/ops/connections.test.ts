@@ -9,6 +9,7 @@ import {
   type PluginHarness,
 } from "../helpers/plugin.js";
 import { withRunHistory } from "../helpers/run-history.js";
+import { byText } from "../helpers/order.js";
 
 const TOKEN = "fake-token-ops-test";
 const NEW_TOKEN = "fake-token-ops-rotated";
@@ -86,8 +87,8 @@ describe("connection operations", () => {
   it("registers a handler for every declared action", async () => {
     const { harness } = await start();
     const ids = manifest.contributes!.operations!.actions!.map((a) => a.id);
-    expect([...harness.mock.operationHandlers.keys()].sort()).toEqual(
-      [...ids].sort(),
+    expect([...harness.mock.operationHandlers.keys()].sort(byText)).toEqual(
+      [...ids].sort(byText),
     );
   });
 

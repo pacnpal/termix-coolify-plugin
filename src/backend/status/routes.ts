@@ -19,7 +19,7 @@ export const STATUS_PAGE_CSP =
 
 function pageIdParam(req: Request): number {
   const raw = String(req.params.id ?? "");
-  const id = /^\d{1,15}$/.test(raw) ? Number(raw) : NaN;
+  const id = /^\d{1,15}$/.test(raw) ? Number(raw) : Number.NaN;
   if (!Number.isSafeInteger(id) || id <= 0) {
     throw new ConnectionError("not-found", "Status page not found");
   }

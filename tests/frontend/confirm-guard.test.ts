@@ -11,12 +11,65 @@ import { describe, expect, it } from "vitest";
 const ROOT = join(__dirname, "../../src/frontend");
 const HELPER = "confirm.ts";
 
+/**
+ * `text` without its block comments, each `/*` to the next star-slash, as
+ * `/\/\*[\s\S]*?\*\//g` removed them, by index scans: that pattern rescanned
+ * the rest of the text from every unclosed `/*`.
+ */
+function withoutBlockComments(text: string): string {
+  let out = "";
+  let from = 0;
+  for (;;) {
+    const open = text.indexOf("/*", from);
+    if (open < 0) break;
+    const close = text.indexOf("*/", open + 2);
+    if (close < 0) break;
+    out += text.slice(from, open);
+    from = close + 2;
+  }
+  return out + text.slice(from);
+}
+
+const SPACE = /\s*/y;
+
+/** Where the whitespace run starting at `at` ends. */
+function pastSpace(code: string, at: number): number {
+  SPACE.lastIndex = at;
+  SPACE.test(code);
+  return SPACE.lastIndex;
+}
+
+/** `\s*=\s*useConfirmFor\s*\(` starting exactly at `at`. */
+function boundTailAt(code: string, at: number): boolean {
+  let i = pastSpace(code, at);
+  if (code[i] !== "=") return false;
+  i = pastSpace(code, i + 1);
+  if (!code.startsWith("useConfirmFor", i)) return false;
+  return code[pastSpace(code, i + "useConfirmFor".length)] === "(";
+}
+
+/**
+ * A `{ ... confirm ... } = useConfirmFor(` destructuring, as
+ * `/\{[^}]*\bconfirm\b[^}]*\}\s*=\s*useConfirmFor\s*\(/` found it. Each
+ * brace group is read once, from the first `{` after the last `}` to the
+ * next `}`: a later `{` in the same group only sees less of it.
+ */
+function destructuresConfirm(code: string): boolean {
+  for (let open = code.indexOf("{"); open >= 0;) {
+    const close = code.indexOf("}", open + 1);
+    if (close < 0) return false;
+    if (/\bconfirm\b/.test(code.slice(open + 1, close))) {
+      if (boundTailAt(code, close + 1)) return true;
+    }
+    open = code.indexOf("{", close + 1);
+  }
+  return false;
+}
+
 /** What a file does wrong with confirms; empty when it uses the helper. */
 function confirmProblems(path: string, text: string): string[] {
   if (path === HELPER) return [];
-  const code = text
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+  const code = withoutBlockComments(text).replace(/(^|[^:])\/\/.*$/gm, "$1");
   const problems: string[] = [];
   if (/\buseConfirm\b/.test(code)) {
     problems.push(`${path}: useConfirm from the SDK; use useConfirmFor`);
@@ -26,7 +79,7 @@ function confirmProblems(path: string, text: string): string[] {
   }
   if (/(?<![\w.$])confirm\s*\(/.test(code)) {
     const bound =
-      /\{[^}]*\bconfirm\b[^}]*\}\s*=\s*useConfirmFor\s*\(/.test(code) ||
+      destructuresConfirm(code) ||
       /\bconfirm\s*=\s*useConfirmFor\s*\(/.test(code);
     if (!bound) {
       problems.push(`${path}: calls confirm( not bound from useConfirmFor`);
@@ -79,5 +132,23 @@ describe("confirm guard (#86)", () => {
       "async function go() { const ok = await confirm({ title: 'x' }); }",
     ].join("\n");
     expect(confirmProblems("views/Fine.tsx", fine)).toEqual([]);
+  });
+});
+
+describe("confirm guard scan", () => {
+  function linear(code: string): number {
+    const started = performance.now();
+    confirmProblems("views/Hostile.tsx", code);
+    return performance.now() - started;
+  }
+
+  it("stays linear on many unclosed block comments", () => {
+    expect(linear("/* ".repeat(40_000))).toBeLessThan(100);
+  });
+
+  it("stays linear on many braces before an unbound confirm(", () => {
+    expect(linear("r({".repeat(600) + "r(confirm(".repeat(600))).toBeLessThan(
+      100,
+    );
   });
 });

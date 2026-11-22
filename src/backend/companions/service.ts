@@ -10,6 +10,7 @@ import { dbClient, type Tables } from "../db.js";
 import type { Resources } from "../resources/service.js";
 import { isHostname } from "../../shared/domains.js";
 import type { Sync } from "../sync/service.js";
+import { trimTrailing } from "../text.js";
 import {
   backupsFailed,
   databaseLogins,
@@ -127,7 +128,7 @@ function placeOf(text: string): Place | null {
     if (!url.hostname) return null;
     return {
       host: canonicalHost(url.hostname),
-      path: url.pathname.replace(/\/+$/, ""),
+      path: trimTrailing(url.pathname, "/"),
     };
   } catch {
     // Not a URL; not a place the resource answers on.

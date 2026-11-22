@@ -9,6 +9,7 @@ import {
   startWithConnection,
   syncCoolify,
 } from "./fixtures.js";
+import { byText } from "../helpers/order.js";
 
 // Obviously fake Cloudflare Access service token. Tests scan for both values.
 const FAKE_ACCESS = {
@@ -498,7 +499,7 @@ describe("a re-sync turns off tunnel settings that no longer apply", () => {
       cloudflareTunnelClientSecret: "",
     });
     // Only the tunnel keys and the plugin's own link settings are written.
-    expect(Object.keys(input.pluginSettings ?? {}).sort()).toEqual([
+    expect(Object.keys(input.pluginSettings ?? {}).sort(byText)).toEqual([
       "coolify",
       "ssh-terminal",
     ]);

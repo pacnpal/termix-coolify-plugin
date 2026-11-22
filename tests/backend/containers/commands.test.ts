@@ -5,6 +5,7 @@ import {
   engineOf,
   shellCommand,
 } from "../../../src/backend/containers/commands.js";
+import { byText } from "../helpers/order.js";
 
 /** Values a container's environment could hold; none may reach a command. */
 const FIXTURE_ENV = {
@@ -65,7 +66,7 @@ describe("container shell commands", () => {
 
   it("no database console command contains a password, for any engine", () => {
     const engines = Object.keys(DB_CONSOLES);
-    expect(engines.sort()).toEqual(
+    expect(engines.sort(byText)).toEqual(
       [
         "clickhouse",
         "dragonfly",
@@ -76,7 +77,7 @@ describe("container shell commands", () => {
         "postgresql",
         "redis",
         "sqlite",
-      ].sort(),
+      ].sort(byText),
     );
     for (const engine of engines) {
       for (const sudo of [false, true]) {

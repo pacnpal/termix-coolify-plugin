@@ -648,7 +648,7 @@ describe("buildIndex", () => {
         ],
         [
           "a tag whose version the .tmxplug name doesn't carry",
-          /file name.*version/,
+          /^(?:(?!file name).)*file name.*version/m,
           (keys) => fakeRelease("1.0.0", { keys, tag: "v1.0.1" }),
         ],
         [

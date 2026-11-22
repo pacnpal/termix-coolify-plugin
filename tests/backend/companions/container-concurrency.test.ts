@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { OTHER, OWNER, type PluginHarness } from "../helpers/plugin.js";
 import { grant } from "./fixtures.js";
 import { fakeDockerHost, startCompanions } from "./container-fixtures.js";
+import { byText } from "../helpers/order.js";
 
 let harness: PluginHarness | null = null;
 
@@ -102,10 +103,10 @@ describe("container companions: concurrent opens", () => {
     const two = await Promise.all(
       [OWNER, OTHER].map((user) => open(h, connectionId, SEVEN[1]!, user)),
     );
-    expect(two.map((a) => a.status).sort()).toEqual([200, 409]);
+    expect(two.map((a) => a.status).sort(byText)).toEqual([200, 409]);
     expect(two.find((a) => a.status === 409)!.body.cause).toBe("tunnel-in-use");
-    expect([...calls.live.keys()].sort()).toEqual(
-      [SEVEN[0]!, SEVEN[1]!].map((u) => `web:7:coolify-${u}`).sort(),
+    expect([...calls.live.keys()].sort(byText)).toEqual(
+      [SEVEN[0]!, SEVEN[1]!].map((u) => `web:7:coolify-${u}`).sort(byText),
     );
   });
 });

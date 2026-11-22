@@ -31,7 +31,9 @@ const text = (value: unknown) => (typeof value === "string" ? value : "");
 function recordIdOf(params: Record<string, unknown>): number {
   const raw = params.recordId;
   if (typeof raw === "number") return raw;
-  return typeof raw === "string" && /^\d{1,15}$/.test(raw) ? Number(raw) : NaN;
+  return typeof raw === "string" && /^\d{1,15}$/.test(raw)
+    ? Number(raw)
+    : Number.NaN;
 }
 
 function count(n: number, word: string): string {
