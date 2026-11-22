@@ -269,6 +269,36 @@ describe("build log view", () => {
     );
   });
 
+  it("keeps the hidden-lines toggle with the deployment it was turned on for", async () => {
+    const api = deploymentApi({
+      "dep-a": async () =>
+        detail(
+          "dep-a",
+          [line(1, "a plain"), line(2, "a hidden", true)],
+          "finished",
+        ),
+      "dep-b": async () =>
+        detail(
+          "dep-b",
+          [line(1, "b plain"), line(2, "b hidden", true)],
+          "finished",
+        ),
+    });
+    await renderHarness(api);
+    await screen.findByText("a plain");
+    fireEvent.click(screen.getByRole("button", { name: D.log.showHidden }));
+    expect(await screen.findByText("a hidden")).toBeTruthy();
+
+    act(() => controls.setDeployment("dep-b"));
+    expect(await screen.findByText("b plain")).toBeTruthy();
+    expect(screen.queryByText("b hidden")).toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: D.log.showHidden })
+        .getAttribute("aria-pressed"),
+    ).toBe("false");
+  });
+
   it("says when the token can't read build logs", async () => {
     const api = deploymentApi({
       "dep-a": async () => ({
@@ -436,12 +466,20 @@ describe("deployment history", () => {
   });
 
   it("shows the history without operate, but opens no build log", async () => {
-    await openDeployments(
-      historyApi(() => ({ rows: [], count: 0, skip: 0, take: 10 })),
-      ["coolify.view"],
-    );
-    expect(await screen.findByText(D.empty)).toBeTruthy();
-    // Without operate, a row doesn't open a build log.
+    const api = historyApi(() => ({
+      rows: [deployment("dep-0", "finished")],
+      count: 1,
+      skip: 0,
+      take: 10,
+    }));
+    await openDeployments(api, ["coolify.view"]);
     expect(screen.queryByText(D.noLogAccess)).toBeTruthy();
+    // Without operate, a row doesn't open a build log.
+    fireEvent.click(await screen.findByText("Commit of dep-0"));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(
+      api.get.mock.calls.filter(([url]) => DEPLOYMENT.test(String(url))),
+    ).toEqual([]);
+    expect(screen.getByText("Commit of dep-0")).toBeTruthy();
   });
 });

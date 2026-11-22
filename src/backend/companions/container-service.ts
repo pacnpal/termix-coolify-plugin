@@ -253,7 +253,6 @@ export function createContainerCompanions(
     snap: Snapshot,
     level: "view" | "operate" = "operate",
   ): Promise<void> {
-    await containers.assertSnapshotHolds(connectionId, snap);
     if (!(await ctx.rbac.has(level).catch(() => false))) {
       throw new ConnectionError("forbidden", `This needs coolify.${level}`);
     }
@@ -267,6 +266,8 @@ export function createContainerCompanions(
         "Your grant on this connection doesn't allow this",
       );
     }
+    // Last, so nothing is awaited between this check and the guarded call.
+    await containers.assertSnapshotHolds(connectionId, snap);
   }
 
   /** The container's internal address, from docker inspect over SSH. */
