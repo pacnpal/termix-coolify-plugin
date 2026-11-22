@@ -61,7 +61,7 @@ Adding, changing and removing connections needs **Configure Coolify**; listing a
 ## Overview and resources
 
 The Coolify tab has its sections on the left (a select at the top on a phone): **Overview**, **Resources**,
-**Servers** (with **Configure Coolify**, see below) and **Connections**. With no connection yet it opens on
+**Deployments**, **Servers** (with **Configure Coolify**, see below) and **Connections**. With no connection yet it opens on
 Connections. With more than one, pick the connection in the section's header.
 
 **Overview** counts the connection's resources by status:
@@ -73,7 +73,8 @@ Connections. With more than one, pick the connection in the section's header.
 - **Deploying**: starting or building.
 
 Service parts aren't counted on their own; their service's status covers them. Choose a tile to open the
-Resources list filtered to that status.
+Resources list filtered to that status. Below the tiles, **Deployments in progress** lists what Coolify has
+queued or running on the connection, from the same read as the Deployments section.
 
 **Resources** lists every application, service and database, with each service's parts (its containers,
 like n8n's worker or its Postgres) right under it. Each row shows the status, the Coolify server, the project
@@ -272,6 +273,23 @@ connection's token also needs `read:sensitive`; without it the view says Coolify
 The actions `coolify.deployment-list`, `coolify.deployment-get` (the build log, with `confirm: true`) and
 `coolify.deployment-cancel` do the same from Operations Center, Automations, the CLI, the Termix API and
 MCP. See [the API](api.md).
+
+### The Deployments section
+
+The tab's **Deployments** section shows the whole connection: what Coolify has **queued and running** now,
+and the **recent** ended deployments of its ten most recently deployed applications. Only deployments of the
+connection's own applications are shown; one of another application in the same Coolify team never is. The
+list is one read, kept 10 seconds and shared with the Overview, and read again every 10 seconds only while
+the tab shows the Overview or this section. With **Operate Coolify resources** and operate access, a row
+opens its build log, with **Cancel deployment** while it runs, as above.
+
+**Deploy by tag** deploys every application and service on the connection that carries a Coolify tag. It
+takes the tag, **Force rebuild**, and optionally a **Pull request** (that pull request's preview; services
+have no previews and are left out) with its **Docker tag** (for a Docker image preview). **Review and
+deploy** lists the resources it will deploy and asks first; only those are deployed, and if the tag hits
+other resources by then nothing is deployed and you're asked to review again. It needs **Operate Coolify
+resources** and operate access. The action `coolify.deploy-by-tag` does the same (a dry run lists the
+resources), and `coolify.deployment-queue` reads the queue.
 
 ## Metrics and traffic
 

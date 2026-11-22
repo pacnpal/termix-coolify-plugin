@@ -3,7 +3,7 @@ import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { idParam, sendError } from "../connections/routes.js";
 import { ConnectionError } from "../connections/service.js";
 import { failedOutcome, uuidParam } from "../resources/routes.js";
-import { readTagDeploy, TargetsChangedError } from "./by-tag.js";
+import { readTagDeploy, sameTargets, TargetsChangedError } from "./by-tag.js";
 import { queueBody, refreshFlag } from "./queue.js";
 import { DeploymentError, readPaging, type Deployments } from "./service.js";
 
@@ -438,6 +438,16 @@ export function registerDeploymentRoutes(
       ) as Record<string, unknown>;
       // Checked here too, so a bad body is a 400 before a run is recorded.
       const request = readTagDeploy(body);
+      // Refused here, before the action: through core, a refusal thrown
+      // inside the action can come back as a plain error (a 502). The action
+      // checks all of it again before Coolify is asked to deploy.
+      await deployments.authorize(id, "operate");
+      if (request.targets) {
+        const found = await deployments.tagTargets(id, request);
+        if (!sameTargets(request.targets, found.targets)) {
+          throw new TargetsChangedError();
+        }
+      }
       const outcome = await ctx.operations.run("coolify.deploy-by-tag", {
         input: {
           connectionId: String(id),

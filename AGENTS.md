@@ -629,3 +629,14 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   state, `notCoolifyHost`, with no connection read, since only the hostless tab lists every connection's
   resources). `files.openHost` and `files.openEditor` are File
   Manager frontend actions run with `invokeAction`.
+- Deployments (1.1): `src/backend/deployments/` (service, log, routes, queue, by-tag) and
+  `src/backend/ops/deployments.ts`. `deployments.queue(connectionId)` is the one connection-wide read of
+  Coolify's queue (`GET /deployments`) plus the recent history of the ten most recently deployed
+  applications; it is cached 10 seconds in memory (`queue.ts`), keyed by revision and an invalidate
+  generation like the resources cache, shared by the Deployments section, the Overview, the
+  `coolify.deployment-queue` action and anything later (the sidebar panel, rail badge). Rows whose link
+  names no application of the connection are dropped. Cancel and deploy by tag invalidate it. In the
+  frontend, `useDeploymentQueue` is held by CoolifyTab and polls only while the tab shows Overview or
+  Deployments. Deploy by tag finds the tag's targets itself (`/applications?tag=` and each service's tags)
+  and deploys them by uuid: Coolify's own `tag` parameter refuses `pr` and `docker_tag`, and deploying by
+  uuid deploys exactly what the confirm listed (`targets`, checked again before Coolify is asked).
