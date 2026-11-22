@@ -29,6 +29,28 @@ See [CHANGELOG.md](CHANGELOG.md) for what is in each release, and [docs/index.md
 
 <br />
 
+## Install from this repo's registry
+
+This repo is its own Termix registry, published by its owner. In Termix, open **Plugins**, **Registries**,
+**Add registry**, and paste:
+
+```
+https://raw.githubusercontent.com/pacnpal/termix-coolify-plugin/registry/index.json
+```
+
+Choose **Check** and compare the key id Termix shows with the one below before you choose **Trust and add**.
+Coolify for Termix then installs and updates from it.
+
+**Key id:** not published yet. The owner adds it here, with the public key in `registry/public-key.txt`,
+before the first signed release. Until then the registry URL serves nothing.
+
+The key id is the first 16 hex characters of the sha256 of the raw public key; `npx termix-plugin keygen`
+prints it, and Termix shows the same id. If the key ever changes, Termix stops updating from the registry
+until you remove it and add it again. See [docs/registry.md](docs/registry.md) for how releases reach the
+registry, key rotation and what to do when the key changes.
+
+<br />
+
 ## Development
 
 You need Node 24 and a Termix server you are an admin on. The Termix plugin guide ships with the SDK, at

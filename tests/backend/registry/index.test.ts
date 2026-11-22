@@ -1,0 +1,673 @@
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import {
+  REGISTRY_ID,
+  REGISTRY_NAME,
+  buildIndex,
+  downloadReleases,
+  keepTimestamp,
+  keyIdOf,
+  listReleases,
+  parseFirstVersion,
+  parsePublicKey,
+  placeReleases,
+  readTmxplugFile,
+  schemaProblems,
+  unchangedSince,
+  verifySignature,
+} from "../../../scripts/registry-lib.mjs";
+import {
+  type Built,
+  type KeyPair,
+  REPOSITORY,
+  ROOT,
+  fakeDownload,
+  fakeRelease,
+  manifestFor,
+  packPlugin,
+  provenanceFor,
+  sha256Hex,
+  sign,
+  signWithCli,
+  testKeyPair,
+  verifiesWithCli,
+  withTemp,
+} from "./fixtures";
+
+const UPDATED_AT = "2026-11-22T12:00:00.000Z";
+
+/** Builds the index the way the script does: download what is complete, then build. */
+async function indexOf(built: Built[], publicKey: string) {
+  const { download } = fakeDownload(built);
+  const { ready } = await downloadReleases(
+    built.map((one) => one.release),
+    download,
+  );
+  return buildIndex({
+    releases: ready,
+    publicKey,
+    repository: REPOSITORY,
+    updatedAt: UPDATED_AT,
+  });
+}
+
+describe("parsePublicKey", () => {
+  it("reads one line of base64 and gives the key id Termix shows", () => {
+    const keys = testKeyPair();
+    const parsed = parsePublicKey(`${keys.publicKey}\n`);
+    expect(parsed.publicKey).toBe(keys.publicKey);
+    expect(parsed.keyId).toMatch(/^[0-9a-f]{16}$/);
+    expect(parsed.keyId).toBe(keyIdOf(keys.publicKey));
+  });
+
+  it("refuses anything that is not a single 32 byte public key", () => {
+    const keys = testKeyPair();
+    for (const bad of [
+      "",
+      "\n",
+      `${keys.publicKey}\n${keys.publicKey}`,
+      keys.privateKey,
+      keys.publicKey.slice(0, 40),
+      "not base64 at all!",
+      "-----BEGIN PUBLIC KEY-----",
+    ]) {
+      expect(() => parsePublicKey(bad), JSON.stringify(bad)).toThrow(
+        /public key/,
+      );
+    }
+  });
+});
+
+describe("verifySignature", () => {
+  it("accepts what termix-plugin sign writes and agrees with termix-plugin verify", async () => {
+    const keys = testKeyPair();
+    const other = testKeyPair();
+    const file = await packPlugin(
+      manifestFor("1.0.0"),
+      "# Changelog\n\n## 1.0.0\n\n### Added\n\n- One\n",
+    );
+    const sig = signWithCli(file, keys.privateKey);
+    expect(sig).toBe(sign(file, keys.privateKey));
+
+    expect(verifySignature(file, sig, keys.publicKey)).toBe(true);
+    expect(verifiesWithCli(file, sig, keys.publicKey)).toBe(true);
+
+    expect(verifySignature(file, sig, other.publicKey)).toBe(false);
+    expect(verifiesWithCli(file, sig, other.publicKey)).toBe(false);
+
+    const tampered = Buffer.concat([file, Buffer.from([0])]);
+    expect(verifySignature(tampered, sig, keys.publicKey)).toBe(false);
+    expect(verifiesWithCli(tampered, sig, keys.publicKey)).toBe(false);
+  });
+
+  it("refuses an envelope or a malformed signature", async () => {
+    const keys = testKeyPair();
+    const file = await packPlugin(manifestFor("1.0.0"));
+    const sig = sign(file, keys.privateKey).trim();
+    expect(
+      verifySignature(
+        file,
+        JSON.stringify({ keyId: "0123456789abcdef", sig }),
+        keys.publicKey,
+      ),
+    ).toBe(false);
+    expect(verifySignature(file, sig.slice(0, 40), keys.publicKey)).toBe(false);
+    expect(verifySignature(file, "", keys.publicKey)).toBe(false);
+  });
+});
+
+describe("readTmxplugFile", () => {
+  it("reads the manifest and changelog out of a .tmxplug the SDK packed", async () => {
+    const file = await packPlugin(manifestFor("1.2.3"), "# Changelog\n");
+    expect(
+      JSON.parse(readTmxplugFile(file, "manifest.json")!.toString("utf8"))
+        .version,
+    ).toBe("1.2.3");
+    expect(readTmxplugFile(file, "CHANGELOG.md")!.toString("utf8")).toBe(
+      "# Changelog\n",
+    );
+    expect(readTmxplugFile(file, "missing.json")).toBeNull();
+  });
+});
+
+describe("placeReleases", () => {
+  const entry = (version: string, termix: string) => ({
+    version,
+    engine: { api: "^2.7.0", termix },
+  });
+
+  it("gates releases Termix 26.10.2 can't run, lists betas only while newer than stable", () => {
+    const placed = placeReleases({
+      id: "coolify",
+      versions: [
+        entry("0.9.0", ">=26.0.0"),
+        entry("1.0.0", ">=26.11.2-0"),
+        entry("0.8.0", ">=26.0.0"),
+        entry("1.2.0-beta.1", ">=26.0.0"),
+        entry("1.1.0-beta.1", ">=26.11.2-0"),
+        entry("0.9.0-beta.3", ">=26.0.0"),
+      ],
+    });
+    expect(placed.versions.map((r) => r.version)).toEqual(["0.9.0", "0.8.0"]);
+    expect(placed.prereleases.map((r) => r.version)).toEqual(["1.2.0-beta.1"]);
+    expect(placed.gated.map((r) => r.version)).toEqual([
+      "1.1.0-beta.1",
+      "1.0.0",
+    ]);
+  });
+
+  it("leaves out empty prereleases and gated lists", () => {
+    const placed = placeReleases({
+      id: "coolify",
+      versions: [entry("1.0.0", ">=26.0.0")],
+    });
+    expect(placed).toEqual({
+      id: "coolify",
+      versions: [entry("1.0.0", ">=26.0.0")],
+    });
+  });
+});
+
+describe("downloadReleases", () => {
+  it("downloads only published releases with a .tmxplug, .sig and provenance bundle", async () => {
+    const keys = testKeyPair();
+    const complete = await fakeRelease("1.0.0", { keys });
+    const draft = await fakeRelease("1.1.0", { keys, draft: true });
+    const unsigned = await fakeRelease("0.9.0", { keys, omit: ["sig"] });
+    const noProvenance = await fakeRelease("0.8.0", {
+      keys,
+      omit: ["provenance"],
+    });
+    const { download, asked } = fakeDownload([
+      complete,
+      draft,
+      unsigned,
+      noProvenance,
+    ]);
+
+    const { ready, skipped } = await downloadReleases(
+      [complete, draft, unsigned, noProvenance].map((one) => one.release),
+      download,
+    );
+
+    expect(ready.map((one) => one.release.tag_name)).toEqual(["v1.0.0"]);
+    expect(ready[0].files.artifact.equals(complete.artifact)).toBe(true);
+    expect(ready[0].files.sig).toBe(sign(complete.artifact, keys.privateKey));
+    expect(skipped.map((one) => one.tag)).toEqual([
+      "v1.1.0",
+      "v0.9.0",
+      "v0.8.0",
+    ]);
+    expect(asked.every((url) => url.includes("/v1.0.0/"))).toBe(true);
+  });
+});
+
+describe("a rotated key (registry/first-version.txt)", () => {
+  it("never reads releases older than the first version the current key signed", async () => {
+    const oldKeys = testKeyPair();
+    const keys = testKeyPair();
+    const before = await fakeRelease("1.0.0", { keys: oldKeys });
+    const beta = await fakeRelease("1.1.0-beta.1", { keys: oldKeys });
+    const after = await fakeRelease("1.1.0", { keys });
+    const all = [before, beta, after];
+    const { download, asked } = fakeDownload(all);
+
+    // Without a cutoff the old key's releases refuse the whole index.
+    const unfenced = await downloadReleases(
+      all.map((one) => one.release),
+      download,
+    );
+    expect(() =>
+      buildIndex({
+        releases: unfenced.ready,
+        publicKey: keys.publicKey,
+        repository: REPOSITORY,
+        updatedAt: UPDATED_AT,
+      }),
+    ).toThrow(/signature/);
+
+    asked.length = 0;
+    const { ready, skipped } = await downloadReleases(
+      all.map((one) => one.release),
+      download,
+      { since: "1.1.0" },
+    );
+    expect(ready.map((one) => one.release.tag_name)).toEqual(["v1.1.0"]);
+    expect(skipped.map((one) => one.tag)).toEqual(["v1.0.0", "v1.1.0-beta.1"]);
+    expect(skipped[0].reason).toMatch(/1\.1\.0/);
+    expect(asked.every((url) => url.includes("/v1.1.0/"))).toBe(true);
+
+    const index = buildIndex({
+      releases: ready,
+      publicKey: keys.publicKey,
+      repository: REPOSITORY,
+      updatedAt: UPDATED_AT,
+    });
+    expect(index.plugins[0].gated.map((r) => r.version)).toEqual(["1.1.0"]);
+    expect(
+      unchangedSince(
+        index,
+        all.map((one) => one.release),
+        keys.publicKey,
+        { since: "1.1.0" },
+      ),
+    ).toBe(true);
+    expect(
+      unchangedSince(
+        index,
+        all.map((one) => one.release),
+        keys.publicKey,
+      ),
+    ).toBe(false);
+  });
+
+  it("reads first-version.txt as one semver version, or nothing when it is absent", () => {
+    expect(parseFirstVersion(undefined)).toBeNull();
+    expect(parseFirstVersion("1.1.0\n")).toBe("1.1.0");
+    expect(() => parseFirstVersion("v1.1")).toThrow(/first-version/);
+    expect(() => parseFirstVersion("1.1.0\n1.2.0")).toThrow(/first-version/);
+  });
+});
+
+describe("listReleases", () => {
+  it("reads every page of releases", async () => {
+    const pages = [
+      Array.from({ length: 100 }, (_, i) => ({ tag_name: `v0.0.${i}` })),
+      [{ tag_name: "v1.0.0" }],
+    ];
+    const asked: string[] = [];
+    const releases = await listReleases(async (url: string) => {
+      asked.push(url);
+      return pages[asked.length - 1] ?? [];
+    }, "pacnpal/termix-coolify-plugin");
+    expect(releases).toHaveLength(101);
+    expect(asked).toEqual([
+      "/repos/pacnpal/termix-coolify-plugin/releases?per_page=100&page=1",
+      "/repos/pacnpal/termix-coolify-plugin/releases?per_page=100&page=2",
+    ]);
+  });
+});
+
+describe("buildIndex", () => {
+  it("lists each signed release with what the official registry fills in", async () => {
+    const keys = testKeyPair();
+    const stable = await fakeRelease("1.0.0", {
+      keys,
+      publishedAt: "2026-11-20T10:00:00Z",
+    });
+    const index = await indexOf([stable], keys.publicKey);
+
+    expect(index).toMatchObject({
+      registry: REGISTRY_ID,
+      name: REGISTRY_NAME,
+      apiVersion: 1,
+      publicKey: keys.publicKey,
+      updatedAt: UPDATED_AT,
+    });
+    expect(REGISTRY_ID).toBe("pacnpal-coolify");
+    expect(REGISTRY_NAME).toBe("Coolify for Termix (pacnpal)");
+    expect(index.plugins).toHaveLength(1);
+    const [plugin] = index.plugins;
+    expect(plugin).toMatchObject({
+      id: "coolify",
+      name: "Coolify for Termix",
+      description: "A test build of the plugin.",
+      author: "pacnpal",
+      category: "Infrastructure",
+      repository: REPOSITORY,
+      icon: "Rocket",
+      features: ["Connect Coolify", "Open shells"],
+      docs: `${REPOSITORY}/tree/main/docs`,
+      contributes: ["commands", "operations", "tabs"],
+      versions: [],
+    });
+    // engine.termix >=26.11.2-0: Termix 26.10.2 can't run it, so it is gated.
+    expect(plugin.gated).toHaveLength(1);
+    const [version] = plugin.gated;
+    const url = `${REPOSITORY}/releases/download/v1.0.0/coolify-1.0.0.tmxplug`;
+    expect(version).toEqual({
+      version: "1.0.0",
+      api: "2",
+      url,
+      sha256: sha256Hex(stable.artifact),
+      signature: sign(stable.artifact, keys.privateKey).trim(),
+      size: stable.artifact.length,
+      capabilities: ["db:own", "network:outbound"],
+      engine: { api: "^2.7.0", termix: ">=26.11.2-0" },
+      releaseNotesUrl: `${REPOSITORY}/releases/tag/v1.0.0`,
+      notes: "### Added\n\n- Notes for 1.0.0",
+      provenance: { url: `${url}.sigstore.json` },
+      publishedAt: "2026-11-20T10:00:00.000Z",
+    });
+  });
+
+  it("sorts stable, beta and gated releases like the official registry", async () => {
+    const keys = testKeyPair();
+    const older = { engine: { termix: ">=26.0.0", api: "^2.7.0" } };
+    const built = await Promise.all([
+      fakeRelease("0.9.0", { keys, manifest: manifestFor("0.9.0", older) }),
+      fakeRelease("1.0.0", { keys }),
+      fakeRelease("1.1.0-beta.2", { keys }),
+      fakeRelease("1.2.0-beta.1", {
+        keys,
+        manifest: manifestFor("1.2.0-beta.1", older),
+      }),
+      fakeRelease("0.9.0-beta.1", {
+        keys,
+        manifest: manifestFor("0.9.0-beta.1", older),
+      }),
+    ]);
+    const [plugin] = (await indexOf(built, keys.publicKey)).plugins;
+    expect(plugin.versions.map((r) => r.version)).toEqual(["0.9.0"]);
+    expect(plugin.prereleases.map((r) => r.version)).toEqual(["1.2.0-beta.1"]);
+    expect(plugin.gated.map((r) => r.version)).toEqual([
+      "1.1.0-beta.2",
+      "1.0.0",
+    ]);
+  });
+
+  it("takes the listing from the newest stable release, not a beta", async () => {
+    const keys = testKeyPair();
+    const built = await Promise.all([
+      fakeRelease("1.0.0", {
+        keys,
+        manifest: manifestFor("1.0.0", { description: "Stable text." }),
+      }),
+      fakeRelease("1.1.0-beta.1", {
+        keys,
+        manifest: manifestFor("1.1.0-beta.1", { description: "Beta text." }),
+      }),
+    ]);
+    const [plugin] = (await indexOf(built, keys.publicKey)).plugins;
+    expect(plugin.description).toBe("Stable text.");
+  });
+
+  it("writes an empty registry when nothing is released yet", async () => {
+    const keys = testKeyPair();
+    const index = await indexOf([], keys.publicKey);
+    expect(index.plugins).toEqual([]);
+    expect(schemaProblems(index)).toEqual([]);
+  });
+
+  describe("refuses the whole index", () => {
+    const refusals: Array<[string, RegExp, (keys: KeyPair) => Promise<Built>]> =
+      [
+        [
+          "a release signed by another key",
+          /signature/,
+          (keys) =>
+            fakeRelease("1.0.0", {
+              keys: { ...testKeyPair(), publicKey: keys.publicKey },
+            }),
+        ],
+        [
+          "a file changed after signing",
+          /signature/,
+          (keys) =>
+            fakeRelease("1.0.0", {
+              keys,
+              artifact: (b) => Buffer.concat([b, Buffer.from([1])]),
+            }),
+        ],
+        [
+          "a chain envelope in the .sig",
+          /signature/,
+          (keys) =>
+            fakeRelease("1.0.0", {
+              keys,
+              sig: '{"keyId":"0123456789abcdef","sig":"x"}',
+            }),
+        ],
+        [
+          "a tag that is not the manifest version",
+          /version/,
+          (keys) => fakeRelease("1.0.0", { keys, tag: "v1.0.1" }),
+        ],
+        [
+          "a file not named <id>-<version>.tmxplug",
+          /file name/,
+          (keys) =>
+            fakeRelease("1.0.0", { keys, fileName: "renamed-1.0.0.tmxplug" }),
+        ],
+        [
+          "a manifest from another repository",
+          /repository/,
+          (keys) =>
+            fakeRelease("1.0.0", {
+              keys,
+              manifest: manifestFor("1.0.0", {
+                repository: "https://github.com/someone/else",
+              }),
+            }),
+        ],
+        [
+          "a provenance bundle for another file",
+          /provenance/,
+          (keys) =>
+            fakeRelease("1.0.0", {
+              keys,
+              provenance: provenanceFor(
+                "coolify-1.0.0.tmxplug",
+                "0".repeat(64),
+              ),
+            }),
+        ],
+        [
+          "a provenance bundle that is not JSON",
+          /provenance/,
+          (keys) => fakeRelease("1.0.0", { keys, provenance: "nope" }),
+        ],
+        [
+          "a manifest without engine ranges",
+          /engine/,
+          (keys) =>
+            fakeRelease("1.0.0", {
+              keys,
+              manifest: manifestFor("1.0.0", { engine: undefined }),
+            }),
+        ],
+        [
+          "two releases of the same version",
+          /twice/,
+          (keys) => fakeRelease("0.9.0", { keys }),
+        ],
+      ];
+
+    for (const [name, message, make] of refusals) {
+      it(name, async () => {
+        const keys = testKeyPair();
+        const good = await fakeRelease("0.9.0", { keys });
+        // The good release alone builds, so the refusal is the bad one's.
+        await expect(indexOf([good], keys.publicKey)).resolves.toBeTruthy();
+        const bad = await make(keys);
+        await expect(indexOf([good, bad], keys.publicKey)).rejects.toThrow(
+          message,
+        );
+      });
+    }
+
+    it("a release of another plugin id", async () => {
+      const keys = testKeyPair();
+      const good = await fakeRelease("1.0.0", { keys });
+      const other = await fakeRelease("1.1.0", {
+        keys,
+        manifest: manifestFor("1.1.0", { id: "other" }),
+      });
+      await expect(indexOf([good], keys.publicKey)).resolves.toBeTruthy();
+      await expect(indexOf([good, other], keys.publicKey)).rejects.toThrow(
+        /plugin id/,
+      );
+    });
+
+    it("an invalid registry key", async () => {
+      const keys = testKeyPair();
+      const good = await fakeRelease("1.0.0", { keys });
+      await expect(indexOf([good], keys.privateKey)).rejects.toThrow(
+        /public key/,
+      );
+    });
+  });
+});
+
+describe("schemaProblems", () => {
+  it("passes a built index and fails a broken one against the vendored schema", async () => {
+    const keys = testKeyPair();
+    const built = await Promise.all([
+      fakeRelease("1.0.0", { keys }),
+      fakeRelease("1.1.0-beta.1", { keys }),
+      fakeRelease("0.9.0", {
+        keys,
+        manifest: manifestFor("0.9.0", {
+          engine: { termix: ">=26.0.0", api: "^2.7.0" },
+        }),
+      }),
+    ]);
+    const index = await indexOf(built, keys.publicKey);
+    expect(schemaProblems(index)).toEqual([]);
+
+    const broken = structuredClone(index);
+    broken.plugins[0].versions[0].sha256 = "not a digest";
+    delete (broken as { registry?: string }).registry;
+    expect(schemaProblems(broken).length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("keepTimestamp", () => {
+  it("keeps the published updatedAt when nothing else changed", async () => {
+    const keys = testKeyPair();
+    const index = await indexOf(
+      [await fakeRelease("1.0.0", { keys })],
+      keys.publicKey,
+    );
+    const previous = {
+      ...structuredClone(index),
+      updatedAt: "2026-11-01T00:00:00.000Z",
+    };
+    expect(keepTimestamp(index, previous).updatedAt).toBe(
+      "2026-11-01T00:00:00.000Z",
+    );
+    expect(keepTimestamp(index, null).updatedAt).toBe(UPDATED_AT);
+
+    const changed = structuredClone(previous);
+    changed.plugins[0].gated[0].notes = "Older notes";
+    expect(keepTimestamp(index, changed).updatedAt).toBe(UPDATED_AT);
+  });
+});
+
+describe("unchangedSince", () => {
+  async function published() {
+    const keys = testKeyPair();
+    const older = { engine: { termix: ">=26.0.0", api: "^2.7.0" } };
+    const built = await Promise.all([
+      fakeRelease("1.0.0", { keys }),
+      fakeRelease("1.1.0-beta.1", { keys }),
+      // A beta stable has passed: never listed, so it doesn't count as a change.
+      fakeRelease("0.9.0-beta.1", {
+        keys,
+        manifest: manifestFor("0.9.0-beta.1", older),
+      }),
+      fakeRelease("0.8.0", { keys, omit: ["sig"] }),
+    ]);
+    const index = await indexOf(built, keys.publicKey);
+    return { keys, built, index, releases: built.map((one) => one.release) };
+  }
+
+  it("is true while every listed file still has its sha256 and nothing was added or removed", async () => {
+    const { keys, index, releases } = await published();
+    expect(unchangedSince(index, releases, keys.publicKey)).toBe(true);
+  });
+
+  it("is false after any change that needs a full read", async () => {
+    const { keys, built, index, releases } = await published();
+    const added = await fakeRelease("1.2.0", { keys });
+    expect(
+      unchangedSince(index, [...releases, added.release], keys.publicKey),
+    ).toBe(false);
+    expect(unchangedSince(index, releases.slice(1), keys.publicKey)).toBe(
+      false,
+    );
+    expect(unchangedSince(index, releases, testKeyPair().publicKey)).toBe(
+      false,
+    );
+    expect(unchangedSince(null, releases, keys.publicKey)).toBe(false);
+
+    const replaced = structuredClone(releases);
+    replaced[0].assets[0].digest = `sha256:${"1".repeat(64)}`;
+    expect(unchangedSince(index, replaced, keys.publicKey)).toBe(false);
+
+    const noDigest = structuredClone(releases);
+    delete noDigest[0].assets[0].digest;
+    expect(unchangedSince(index, noDigest, keys.publicKey)).toBe(false);
+
+    const drafted = structuredClone(releases);
+    drafted[0].draft = true;
+    expect(unchangedSince(index, drafted, keys.publicKey)).toBe(false);
+    expect(built).toHaveLength(4);
+  });
+});
+
+describe("scripts/registry-index.mjs", () => {
+  const run = (args: string[]) =>
+    spawnSync(
+      process.execPath,
+      [path.join(ROOT, "scripts", "registry-index.mjs"), ...args],
+      {
+        cwd: ROOT,
+        encoding: "utf8",
+        // No network: the key is checked before anything is fetched.
+        env: { ...process.env, GH_TOKEN: "", GITHUB_TOKEN: "" },
+      },
+    );
+
+  it("refuses to write an index without a valid public key", () => {
+    const keys = testKeyPair();
+    withTemp((dir) => {
+      const out = path.join(dir, "index.json");
+      const missing = run([
+        "--repo",
+        "pacnpal/termix-coolify-plugin",
+        "--key",
+        path.join(dir, "none.txt"),
+        "--out",
+        out,
+      ]);
+      expect(missing.status).not.toBe(0);
+      expect(missing.stderr).toMatch(/public key/i);
+
+      const keyFile = path.join(dir, "public-key.txt");
+      fs.writeFileSync(keyFile, `${keys.privateKey}\n`);
+      const invalid = run([
+        "--repo",
+        "pacnpal/termix-coolify-plugin",
+        "--key",
+        keyFile,
+        "--out",
+        out,
+      ]);
+      expect(invalid.status).not.toBe(0);
+      expect(invalid.stderr).toMatch(/public key/i);
+      expect(invalid.stdout + invalid.stderr).not.toContain(keys.privateKey);
+
+      expect(fs.existsSync(out)).toBe(false);
+    });
+  });
+});
+
+describe("registry/", () => {
+  const file = (name: string) => path.join(ROOT, "registry", name);
+
+  it("public-key.txt is a valid public key whenever it is committed", () => {
+    if (!fs.existsSync(file("public-key.txt"))) return;
+    expect(() =>
+      parsePublicKey(fs.readFileSync(file("public-key.txt"), "utf8")),
+    ).not.toThrow();
+  });
+
+  it("first-version.txt is one version whenever it is committed", () => {
+    if (!fs.existsSync(file("first-version.txt"))) return;
+    expect(
+      parseFirstVersion(fs.readFileSync(file("first-version.txt"), "utf8")),
+    ).not.toBeNull();
+  });
+});

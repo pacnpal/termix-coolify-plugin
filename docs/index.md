@@ -631,6 +631,7 @@ what. See [Permissions](permissions.md).
 - [Troubleshooting](troubleshooting.md)
 - [API and MCP reference](api.md)
 - [Coolify API coverage](coverage.md)
+- [This repo's registry](registry.md): install and update from it, and how releases reach it
 
 ## Coolify versions
 

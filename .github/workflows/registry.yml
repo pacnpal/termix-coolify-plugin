@@ -1,0 +1,118 @@
+name: Registry
+
+# Rebuilds index.json from this repo's signed releases and pushes it to the
+# orphan registry branch, which Termix reads from
+# https://raw.githubusercontent.com/pacnpal/termix-coolify-plugin/registry/index.json
+# See docs/registry.md. It refuses to publish without registry/public-key.txt
+# on the default branch, and writes nothing unless every release verifies.
+#
+# The Release workflow publishes (and deletes passed betas) with the workflow
+# token, and GitHub starts no workflow for events that token causes. So this
+# also runs every hour: it reads the asset digests from the API and stops when
+# the published index still holds, without downloading anything. A release
+# published, edited or deleted by hand starts it right away, and running it by
+# hand re-reads and re-verifies every release.
+
+on:
+  release:
+    types: [published, edited, deleted]
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: registry-index
+  cancel-in-progress: false
+
+jobs:
+  index:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      # The script, key and lockfile on main, whatever ref started the run.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      # Until the owner adds the key, the hourly run stops quietly. A release or
+      # a run by hand goes on, and the script refuses with the reason.
+      - name: Registry key
+        id: key
+        run: |
+          if [ -f registry/public-key.txt ] || [ "$GITHUB_EVENT_NAME" != "schedule" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::registry/public-key.txt is not on main yet, so there is nothing to publish. See docs/registry.md."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.key.outputs.skip != 'true'
+        with:
+          node-version-file: ".nvmrc"
+          package-manager-cache: false
+
+      - name: Install
+        if: steps.key.outputs.skip != 'true'
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Read the published index
+        if: steps.key.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dir="$RUNNER_TEMP/registry-branch"
+          url="https://github.com/$GITHUB_REPOSITORY.git"
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          # A new repo whose unborn branch is registry: with no fetch, its first
+          # commit starts the orphan branch.
+          git init -q -b registry "$dir"
+          set +e
+          git -c http.extraheader="$auth" ls-remote --exit-code --heads "$url" registry > /dev/null
+          found=$?
+          set -e
+          if [ "$found" -eq 0 ]; then
+            git -C "$dir" -c http.extraheader="$auth" fetch -q --depth 1 "$url" registry
+            git -C "$dir" reset -q --hard FETCH_HEAD
+          elif [ "$found" -eq 2 ]; then
+            echo "No registry branch yet, it will be created."
+          else
+            echo "Could not read the registry branch."
+            exit 1
+          fi
+
+      - name: Build the index
+        if: steps.key.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          args=(--repo "$GITHUB_REPOSITORY" --previous "$RUNNER_TEMP/registry-branch/index.json" --out "$RUNNER_TEMP/index.json")
+          # By hand: download and verify every release again.
+          if [ "$GITHUB_EVENT_NAME" != "workflow_dispatch" ]; then args+=(--if-changed); fi
+          node scripts/registry-index.mjs "${args[@]}"
+
+      - name: Push to the registry branch
+        if: steps.key.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dir="$RUNNER_TEMP/registry-branch"
+          url="https://github.com/$GITHUB_REPOSITORY.git"
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          cp "$RUNNER_TEMP/index.json" "$dir/index.json"
+          cd "$dir"
+          git add index.json
+          if git diff --cached --quiet; then
+            echo "index.json is already up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -q -m "chore(registry): update index.json"
+          # Never forced: a push that isn't a fast-forward fails, and the next run starts over.
+          git -c http.extraheader="$auth" push -q "$url" HEAD:refs/heads/registry
+          echo "Published https://raw.githubusercontent.com/$GITHUB_REPOSITORY/registry/index.json"
