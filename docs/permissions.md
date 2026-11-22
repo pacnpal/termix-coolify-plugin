@@ -74,8 +74,8 @@ sensitive outputs (tokens, log text, command output, one-time links) never reach
 Opening a container shell or database console on a Linked host adds "Opened shell in <app>" to your Termix
 recent activity. Every deploy Coolify starts adds "Deployed <app>": deploy, deploy by tag (one entry per
 resource it started), rollback (it deploys an earlier image) and a pull request preview, which reads
-"Deployed <app> (pull request #<n>)". A run that waits on the deploy adds it only if the deploy doesn't
-fail. This happens however the action was run, and only after Coolify accepted it, only for a resource
+"Deployed <app> (pull request #<n>)". The entry is recorded once Coolify accepts the deploy, whether it
+later finishes or fails. This happens however the action was run, and only after Coolify accepted it, only for a resource
 whose server is a Linked host you can connect to, and only once per resource. Termix checks that access
 again before it keeps the entry, and keeps it only when a plugin provides the recent activity list. Calls
 made through the full Coolify API (`coolify.api-call` and the API console) add no entry: they are

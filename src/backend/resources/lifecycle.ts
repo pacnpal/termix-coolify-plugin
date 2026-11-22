@@ -262,11 +262,12 @@ export function createLifecycle(ctx: PluginContext, deps: LifecycleDeps) {
       } finally {
         await resources.invalidate(connectionId);
       }
-      // The shared post-start hook: a waited deploy only once the run
-      // didn't fail.
-      const started = () =>
-        deployed(connectionId, [
+      // The shared post-start hook, once Coolify accepted the deploy,
+      // whatever a wait finds later (as for deploy by tag and rollback).
+      if (verb === "deploy") {
+        await deployed(connectionId, [
           {
+            uuid: resource.uuid,
             name: resource.name,
             kind: resource.kind,
             deploymentUuid: result.deploymentUuid,
@@ -274,8 +275,8 @@ export function createLifecycle(ctx: PluginContext, deps: LifecycleDeps) {
             serverUuid: resource.serverUuid,
           },
         ]);
+      }
       if (verb !== "deploy" || !opts.wait || !result.deploymentUuid) {
-        if (verb === "deploy") await started();
         return result;
       }
       let status: string;
@@ -299,7 +300,6 @@ export function createLifecycle(ctx: PluginContext, deps: LifecycleDeps) {
         );
       }
       if (failed) throw new DeploymentFailedError(resource.name, status);
-      await started();
       return { ...result, status };
     },
   };

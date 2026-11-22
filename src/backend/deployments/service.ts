@@ -300,7 +300,7 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
     snap: Snapshot,
     req: { tag: string; pullRequestId?: number },
     signal?: AbortSignal,
-  ): Promise<TagTargets> {
+  ): Promise<TagTargets & { servers: Map<string, string | null> }> {
     const guard = async () => {
       await holds(connectionId, snap, "operate");
       signal?.throwIfAborted();
@@ -336,13 +336,17 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
     const withPr = req.pullRequestId !== undefined;
     const byName = (a: ResourceDto, b: ResourceDto) =>
       a.name.localeCompare(b.name);
+    const chosen = [
+      ...[...apps.values()].sort(byName),
+      ...(withPr ? [] : tagServices.sort(byName)),
+    ];
     return {
       tag: req.tag,
-      targets: [
-        ...[...apps.values()].sort(byName),
-        ...(withPr ? [] : tagServices.sort(byName)),
-      ].map(toTarget),
+      targets: chosen.map(toTarget),
       skippedServices: withPr ? tagServices.length : 0,
+      // Each target's server, from this same read: recent activity's Linked
+      // host lookup, so nothing more is read before the deploy.
+      servers: new Map(chosen.map((r) => [r.uuid, r.serverUuid])),
     };
   }
 
@@ -356,7 +360,13 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
       pullRequestId: readPullRequest(input.pullRequestId),
     };
     const snap = await open(connectionId, "operate");
-    return findTargets(connectionId, snap, req, signal);
+    const { tag, targets, skippedServices } = await findTargets(
+      connectionId,
+      snap,
+      req,
+      signal,
+    );
+    return { tag, targets, skippedServices };
   }
 
   return {
@@ -465,6 +475,7 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
       // entry for a target that then changed stays (Coolify did deploy).
       await deployed(connectionId, [
         {
+          uuid: app.uuid,
           name: app.name,
           kind: app.kind,
           deploymentUuid: answer.deploymentUuid,
@@ -536,7 +547,12 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
     ): Promise<TagDeployResult> {
       const snap = await open(connectionId, "operate");
       signal?.throwIfAborted();
-      const found = await findTargets(connectionId, snap, req, signal);
+      const { servers, ...found } = await findTargets(
+        connectionId,
+        snap,
+        req,
+        signal,
+      );
       if (!found.targets.length) {
         throw new ConnectionError(
           "not-found",
@@ -546,12 +562,6 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
       if (req.targets && !sameTargets(req.targets, found.targets)) {
         throw new TargetsChangedError();
       }
-      await holds(connectionId, snap, "operate");
-      signal?.throwIfAborted();
-      // The targets' servers, from the list findTargets just read (cached).
-      const own = new Map(
-        (await resources.list(connectionId)).map((r) => [r.uuid, r]),
-      );
       await holds(connectionId, snap, "operate");
       signal?.throwIfAborted();
       let deployments;
@@ -582,10 +592,11 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
           if (!row) return [];
           return [
             {
+              uuid: t.uuid,
               name: t.name,
               kind: t.kind,
               deploymentUuid: row.deploymentUuid,
-              serverUuid: own.get(t.uuid)?.serverUuid ?? null,
+              serverUuid: servers.get(t.uuid) ?? null,
               pullRequestId: req.pullRequestId,
             },
           ];

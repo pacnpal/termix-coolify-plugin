@@ -205,7 +205,7 @@ describe("recent activity: deploys", () => {
     expect(h.mock.activities).toEqual([]);
   });
 
-  it("records nothing for a waited deploy that ends failed", async () => {
+  it("records once Coolify accepts a waited deploy, even if it then fails", async () => {
     const { harness: h } = await deploys({
       overrides: {
         "GET /deployments/dep-uuid": {
@@ -220,7 +220,9 @@ describe("recent activity: deploys", () => {
         input: { wait: true },
       }),
     ).rejects.toMatchObject({ code: "deployment-failed" });
-    expect(h.mock.activities).toEqual([]);
+    expect(h.mock.activities).toEqual([
+      { hostId: HOST_ID, type: "coolify_deploy", hostName: "Deployed web" },
+    ]);
   });
 
   it("records nothing for a resource whose server has no Linked host", async () => {
@@ -351,6 +353,55 @@ describe("recent activity: every other deploy path", () => {
     expect(h.mock.activities).toEqual([
       { hostId: HOST_ID, type: "coolify_deploy", hostName: "Deployed web" },
     ]);
+  });
+
+  it("deploy by tag records each of two same-name resources on one host", async () => {
+    const services = (resourceLists()["GET /services"] as { json: unknown[] })
+      .json as Record<string, unknown>[];
+    const { harness: h, run } = await byTag({
+      "GET /services": {
+        json: services.map((s) => ({ ...s, name: "web" })),
+      },
+    });
+    await run();
+    expect(h.mock.activities).toEqual([
+      { hostId: HOST_ID, type: "coolify_deploy", hostName: "Deployed web" },
+      { hostId: HOST_ID, type: "coolify_deploy", hostName: "Deployed web" },
+    ]);
+  });
+
+  it("deploy by tag sends the same deploy when the resource list can't be read again", async () => {
+    const tagged = tagAnswers(applications);
+    let broken = false;
+    const lists = tagged["GET /applications"] as (url: string) => Response;
+    const {
+      harness: h,
+      fake,
+      id,
+      run,
+    } = await byTag({
+      // Coolify's last answer while the targets are found: from then on the
+      // cached resource list is gone and Coolify can't list applications.
+      "GET /services/svc-n8n-uuid/tags": () => {
+        broken = true;
+        h.db.sqlite.prepare("DELETE FROM p_coolify_cache").run();
+        return new Response(JSON.stringify([{ uuid: "t", name: "prod" }]), {
+          headers: { "content-type": "application/json" },
+        });
+      },
+      "GET /applications": (url: string) =>
+        broken && new URL(url).searchParams.get("tag") === null
+          ? new Response(JSON.stringify({ message: "no" }), { status: 500 })
+          : lists(url),
+    });
+    const outcome = await run();
+    expect(outcome.status).toBe("success");
+    const sent = changes(fake);
+    expect(sent.map((c) => c.path)).toEqual(["/deploy"]);
+    expect(new URL(sent[0].url).searchParams.get("uuid")).toBe(
+      "app-web-uuid,svc-n8n-uuid",
+    );
+    expect(id).toBeGreaterThan(0);
   });
 
   it("deploy by tag with a pull request names the pull request", async () => {

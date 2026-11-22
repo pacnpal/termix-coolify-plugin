@@ -518,6 +518,7 @@ export function createPreviews(ctx: PluginContext, deps: PreviewsDeps) {
       // check and the answer; an entry for a target that then changed stays.
       await deployments.deployed(connectionId, [
         {
+          uuid: app.uuid,
           name: app.name,
           kind: app.kind,
           deploymentUuid: answer.deploymentUuid,

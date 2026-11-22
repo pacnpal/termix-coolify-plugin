@@ -8,6 +8,21 @@ function errorName(err: unknown): string {
 }
 
 /**
+ * Fills `{{key}}` placeholders in one pass. A callback, so `$&`, `$1` or a
+ * placeholder inside an inserted value is kept as it is, never read again.
+ */
+export function fill(
+  template: string,
+  values: Record<string, string | number>,
+): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (match, key: string) =>
+    Object.prototype.hasOwnProperty.call(values, key)
+      ? String(values[key])
+      : match,
+  );
+}
+
+/**
  * Adds a Termix recent-activity entry for the actor on a Linked host, with
  * its text already in words. Only a host the actor can connect to gets one
  * (core checks that too). A failure is logged by its error name only, never
@@ -35,16 +50,13 @@ export async function recordShell(
   name: string,
 ): Promise<void> {
   if (!hostId) return;
-  await record(
-    ctx,
-    hostId,
-    "shell",
-    en.activity.shell.replace("{{name}}", name),
-  );
+  await record(ctx, hostId, "shell", fill(en.activity.shell, { name }));
 }
 
 /** One resource a deploy path asked Coolify to deploy, and Coolify's answer. */
 export interface DeployStart {
+  /** The resource's uuid: one entry per resource, whatever its name. */
+  uuid: string;
   name: string;
   kind: string;
   /** The deployment Coolify queued, if it named one. */
@@ -70,20 +82,21 @@ export function deployStarted(
 }
 
 function deployText(start: DeployStart): string {
-  const text = en.activity.deploy.replace("{{name}}", start.name);
   return start.pullRequestId === undefined
-    ? text
-    : en.activity.deployPreview
-        .replace("{{name}}", start.name)
-        .replace("{{pullRequestId}}", String(start.pullRequestId));
+    ? fill(en.activity.deploy, { name: start.name })
+    : fill(en.activity.deployPreview, {
+        name: start.name,
+        pullRequestId: start.pullRequestId,
+      });
 }
 
 /**
  * The one post-start hook every deploy path calls (lifecycle, deploy by
- * tag, rollback and previews), after Coolify accepted the request:
- * "Deployed <name>" in the actor's recent activity, once per resource
- * Coolify started, on its Linked host. Resources with no Linked host, or one
- * the actor can't connect to, get none. Never throws.
+ * tag, rollback and previews) once Coolify accepted the request, whatever
+ * the deployment's outcome later: "Deployed <name>" in the actor's recent
+ * activity, once per resource (host, kind and uuid) Coolify started, on its
+ * Linked host. Resources with no Linked host, or one the actor can't
+ * connect to, get none. Never throws.
  */
 export function createDeployActivity(
   ctx: PluginContext,
@@ -106,11 +119,10 @@ export function createDeployActivity(
         continue;
       }
       if (!hostId) continue;
-      const text = deployText(start);
-      const key = `${hostId}\n${text}`;
+      const key = `${hostId}:${start.kind}:${start.uuid}`;
       if (done.has(key)) continue;
       done.add(key);
-      await record(ctx, hostId, "deploy", text);
+      await record(ctx, hostId, "deploy", deployText(start));
     }
   };
 }

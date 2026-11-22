@@ -342,9 +342,11 @@ the action `coolify.attention` share one cached read per connection, so they add
 
 Termix's own recent activity list shows what you did on a Linked host: "Opened shell in <app>" for a
 container shell or database console, and "Deployed <app>" for every deploy Coolify starts there, however
-you started it: deploy, deploy by tag (one entry per resource), rollback, or a pull request preview
-("Deployed <app> (pull request #<n>)"). Resources on a server with no Linked host, or on a host you can't
-connect to, add nothing, and an entry opens the Coolify tab. See [Permissions](permissions.md#recent-activity).
+you started it: deploy, deploy by tag (one entry per resource, even when two share a name), rollback, or a
+pull request preview ("Deployed <app> (pull request #<n>)"). The entry is recorded once Coolify accepts
+the deploy, so a deploy that later fails, even one a run waited on, still has its entry. Resources on a
+server with no Linked host, or on a host you can't connect to, add nothing, and an entry opens the Coolify
+tab. See [Permissions](permissions.md#recent-activity).
 
 ### Rollback
 
