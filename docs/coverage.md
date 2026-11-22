@@ -159,13 +159,13 @@ run `npm run gen:coolify` and add the new rows.
 
 ## Deployments
 
-| Operation                    | Status | Where or why                                                                                                                   |
-| ---------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| cancel-deployment-by-uuid    | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.1 Observe (Deployments section). |
-| deploy-by-tag-or-uuid        | used   | Task 4 `deploy()`, Tasks 11 and 12 (deploy and force rebuild).                                                                 |
-| get-deployment-by-uuid       | used   | Task 4 `deployment()`, Task 12 (deploy with `wait` reports finished or failed).                                                |
-| list-deployments             | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.1 Observe (Deployments section). |
-| list-deployments-by-app-uuid | used   | Task 4 `deployments()`.                                                                                                        |
+| Operation                    | Status | Where or why                                                                                                                                                |
+| ---------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| cancel-deployment-by-uuid    | used   | 1.1 `cancelDeployment()`: `coolify.deployment-cancel` and the resource Deployments tab.                                                                     |
+| deploy-by-tag-or-uuid        | used   | Task 4 `deploy()`, Tasks 11 and 12 (deploy and force rebuild).                                                                                              |
+| get-deployment-by-uuid       | used   | Task 4 `deployment()`, Task 12 (deploy with `wait` reports finished or failed); 1.1 `deploymentWithLog()`: `coolify.deployment-get` and the live build log. |
+| list-deployments             | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.1 Observe (Deployments section).                              |
+| list-deployments-by-app-uuid | used   | 1.1 `deploymentPage()`: `coolify.deployment-list` and the resource Deployments tab history.                                                                 |
 
 ## Destinations
 

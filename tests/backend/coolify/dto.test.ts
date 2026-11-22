@@ -214,9 +214,41 @@ describe("Coolify DTO strippers", () => {
       resourceUuid: "app-web-uuid",
       status: "finished",
       commit: "abc1234",
+      commitMessage: null,
+      pullRequestId: 0,
+      rollback: false,
+      serverName: null,
       createdAt: "2026-11-18T09:00:00.000000Z",
+      updatedAt: "2026-11-18T09:03:00.000000Z",
       finishedAt: "2026-11-18T09:03:00.000000Z",
     });
+  });
+
+  it("toDeployment reads the application's uuid from the deployment's link", () => {
+    const dto = toDeployment({
+      deployment_uuid: "dep-9",
+      application_id: "11",
+      deployment_url:
+        "/project/p/environment/e/application/app-web-uuid/deployment/dep-9",
+      commit_message: "Fix the header",
+      pull_request_id: 4,
+      rollback: true,
+      server_name: "vps1",
+    });
+    expect(dto).toMatchObject({
+      resourceUuid: "app-web-uuid",
+      commitMessage: "Fix the header",
+      pullRequestId: 4,
+      rollback: true,
+      serverName: "vps1",
+    });
+    // A link to another deployment says nothing about this one.
+    expect(
+      toDeployment({
+        deployment_uuid: "dep-9",
+        deployment_url: "/project/p/environment/e/application/a/deployment/x",
+      }).resourceUuid,
+    ).toBeNull();
   });
 
   it("tolerates missing and unknown fields", () => {

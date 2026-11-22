@@ -109,6 +109,56 @@ export interface LifecycleAnswer {
   status?: "pending";
 }
 
+/** One deployment of an application, without its build log. */
+export interface Deployment {
+  uuid: string;
+  resourceUuid: string | null;
+  status: string;
+  commit: string | null;
+  commitMessage: string | null;
+  /** 0 unless it is a preview deployment. */
+  pullRequestId: number;
+  rollback: boolean;
+  serverName: string | null;
+  createdAt: string;
+  updatedAt: string | null;
+  finishedAt: string | null;
+}
+
+/** A page of an application's deployments, newest first. */
+export interface DeploymentPage {
+  rows: Deployment[];
+  /** Coolify's total, or null when it doesn't send one. */
+  count: number | null;
+  skip: number;
+  take: number;
+}
+
+/** One redacted build log line; `hidden` is Coolify's own flag. */
+export interface BuildLogLine {
+  order: number;
+  timestamp: string | null;
+  stream: "stdout" | "stderr";
+  hidden: boolean;
+  command: string | null;
+  output: string;
+}
+
+/** One deployment and its build log (null when the token can't read it). */
+export interface DeploymentDetail {
+  deployment: Deployment;
+  log: { lines: BuildLogLine[]; truncated: boolean } | null;
+  /** The deployment ended: nothing more will change. */
+  final: boolean;
+  cancellable: boolean;
+}
+
+/** What cancel answers; status "pending" waits for an approval. */
+export interface CancelAnswer {
+  status: string | null;
+  pending: boolean;
+}
+
 /** GET /mcp: where the plugin's MCP endpoint is. */
 export interface McpInfo {
   endpoint: string;
@@ -634,6 +684,67 @@ export function createApi(api: PluginApiClient) {
         deploymentUuid:
           typeof data?.deploymentUuid === "string" ? data.deploymentUuid : null,
         status: data?.status === "pending" ? "pending" : undefined,
+      };
+    },
+    /** A page of an application's deployments, newest first. */
+    async listDeployments(
+      id: number,
+      uuid: string,
+      page: { skip: number; take: number },
+    ): Promise<DeploymentPage> {
+      const params = new URLSearchParams({
+        skip: String(page.skip),
+        take: String(page.take),
+      });
+      const data = (
+        await api.get<Partial<DeploymentPage>>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/deployments?${params}`,
+        )
+      ).data;
+      return {
+        rows: Array.isArray(data?.rows) ? data.rows : [],
+        count: typeof data?.count === "number" ? data.count : null,
+        skip: page.skip,
+        take: page.take,
+      };
+    },
+    /** One deployment with its redacted build log. */
+    async getDeployment(
+      id: number,
+      uuid: string,
+      deploymentUuid: string,
+    ): Promise<DeploymentDetail> {
+      const data = (
+        await api.get<DeploymentDetail>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/deployments/${encodeURIComponent(deploymentUuid)}`,
+        )
+      ).data;
+      const log = data?.log;
+      return {
+        deployment: data.deployment,
+        log:
+          log && Array.isArray(log.lines)
+            ? { lines: log.lines, truncated: log.truncated === true }
+            : null,
+        final: data?.final === true,
+        cancellable: data?.cancellable === true,
+      };
+    },
+    /** Cancels a queued or running deployment; the backend runs it as an action. */
+    async cancelDeployment(
+      id: number,
+      uuid: string,
+      deploymentUuid: string,
+    ): Promise<CancelAnswer> {
+      const data = (
+        await api.post<{ status?: unknown }>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/deployments/${encodeURIComponent(deploymentUuid)}/cancel`,
+          {},
+        )
+      ).data;
+      return {
+        status: typeof data?.status === "string" ? data.status : null,
+        pending: data?.status === "pending",
       };
     },
     async listStatusPages(connectionId: number): Promise<StatusPageList> {

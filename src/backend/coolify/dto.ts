@@ -69,7 +69,13 @@ export interface DeploymentDto {
   resourceUuid: string | null;
   status: string;
   commit: string | null;
+  commitMessage: string | null;
+  /** The pull request a preview deployment is for; 0 when it isn't one. */
+  pullRequestId: number;
+  rollback: boolean;
+  serverName: string | null;
   createdAt: string;
+  updatedAt: string | null;
   finishedAt: string | null;
 }
 
@@ -400,20 +406,57 @@ export function toPart(
     : resource(raw, kind, { parentUuid, engine: strOrNull(raw.image) });
 }
 
+const DEPLOYMENT_LINK =
+  /\/application\/([A-Za-z0-9_-]{1,64})\/deployment\/([A-Za-z0-9_-]{1,64})$/;
+
 /**
- * One deployment. `appUuid` is the application it was listed for, when known;
- * `application_id` is a database id, never a uuid, so it is not used.
+ * The application's uuid in a deployment's link (`deployment_url`, like
+ * `/project/…/application/<app uuid>/deployment/<deployment uuid>`), when
+ * the link is to this same deployment.
+ */
+function applicationOfLink(link: unknown, uuid: string): string | null {
+  if (typeof link !== "string") return null;
+  const match = DEPLOYMENT_LINK.exec(link.split(/[?#]/)[0] ?? "");
+  return match && match[2] === uuid ? match[1] : null;
+}
+
+/**
+ * One deployment, without its build log. `appUuid` is the application it
+ * was listed for, when known. `application_id` is a database id, never a
+ * uuid, so it is not used; Coolify's answer for one deployment names its
+ * application only in its link.
  */
 export function toDeployment(input: unknown, appUuid?: string): DeploymentDto {
   const raw = obj(input);
+  const uuid = str(raw.deployment_uuid ?? raw.uuid);
   return {
-    uuid: str(raw.deployment_uuid ?? raw.uuid),
-    resourceUuid: strOrNull(raw.application_uuid) ?? appUuid ?? null,
+    uuid,
+    resourceUuid:
+      strOrNull(raw.application_uuid) ??
+      applicationOfLink(raw.deployment_url, uuid) ??
+      appUuid ??
+      null,
     status: str(raw.status, "unknown"),
     commit: strOrNull(raw.commit),
+    commitMessage: strOrNull(raw.commit_message),
+    pullRequestId: num(raw.pull_request_id) ?? 0,
+    rollback: bool(raw.rollback),
+    serverName: strOrNull(raw.server_name),
     createdAt: str(raw.created_at),
+    updatedAt: strOrNull(raw.updated_at),
     finishedAt: strOrNull(raw.finished_at),
   };
+}
+
+/**
+ * A deployment's raw build log (Coolify's JSON lines in one string), or null
+ * when the answer has none: Coolify leaves it out for a token without
+ * read:sensitive. It holds secrets: deployments/log.ts redacts it before it
+ * goes anywhere.
+ */
+export function toDeploymentLog(input: unknown): string | null {
+  const logs = obj(input).logs;
+  return typeof logs === "string" ? logs : null;
 }
 
 export function toTeam(input: unknown): TeamDto {

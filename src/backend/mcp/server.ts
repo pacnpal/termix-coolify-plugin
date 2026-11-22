@@ -12,6 +12,7 @@ import en from "../../../locales/en.json";
 import { redact } from "../redact.js";
 import { handoffIdOf, takeOnceUrl } from "../status/service.js";
 import { takeExecOutput, takeLogText } from "../ops/containers.js";
+import { takeBuildLogText } from "../ops/deployments.js";
 import { takeWebUiUrl } from "../ops/container-companions.js";
 
 /** The MCP protocol version this endpoint speaks when a client asks for another. */
@@ -493,6 +494,19 @@ function actionResult(
     // The text was redacted by redactLog and dropped from run history; the
     // caller who ran it gets it here, once.
     const text = takeLogText(
+      ctx.currentActor() ?? "",
+      (outcome.data as { handoffId?: unknown }).handoffId,
+    );
+    if (text !== null) data = { ...(data as object), text };
+  }
+  if (
+    action.id === "coolify.deployment-get" &&
+    data &&
+    typeof data === "object"
+  ) {
+    // The build log was redacted and dropped from run history; the caller
+    // who ran it gets it here, once.
+    const text = takeBuildLogText(
       ctx.currentActor() ?? "",
       (outcome.data as { handoffId?: unknown }).handoffId,
     );

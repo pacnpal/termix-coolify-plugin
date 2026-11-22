@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.0
+
+### Added
+
+- A Deployments tab on an application: its deployment history, a page at a time, with status, commit,
+  pull request and times
+- A deployment's build log, live while the deployment runs: refreshed every 2 seconds while it is shown,
+  stopping once the deployment ends. Lines Coolify hides by default stay hidden until you turn them on.
+  Secrets are masked in every line, as in container logs
+- Cancel a queued or running deployment, after a confirm
+- Actions `coolify.deployment-list`, `coolify.deployment-get` and `coolify.deployment-cancel`, so the
+  history, build logs (redacted, needing `confirm: true`) and cancel work from Operations Center,
+  Automations, the CLI, the Termix API and MCP
+
 ## 1.0.0
 
 ### Added

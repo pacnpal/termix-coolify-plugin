@@ -375,6 +375,33 @@
       "url": {
         "label": "Web UI link",
         "description": "A one-time link that signs you in to the container's web UI. It is never kept in run history."
+      },
+      "deploymentUuid": {
+        "label": "Deployment",
+        "description": "The uuid of a Coolify deployment."
+      },
+      "appUuid": {
+        "label": "Application",
+        "description": "The uuid of an application. Only applications have deployments.",
+        "optional": "The uuid of the application the deployment belongs to. Leave it empty to accept any of the connection's applications."
+      },
+      "skip": {
+        "label": "Skip",
+        "description": "How many of the newest deployments to skip."
+      },
+      "take": {
+        "label": "How many",
+        "description": "How many deployments to list, up to 50."
+      },
+      "showHidden": {
+        "label": "Show hidden lines",
+        "description": "Include the lines Coolify hides by default, like the commands it ran."
+      },
+      "deploymentFinal": {
+        "label": "Ended"
+      },
+      "buildLog": {
+        "label": "Build log"
       }
     },
     "listConnections": {
@@ -617,6 +644,18 @@
     "enableMetrics": {
       "title": "Turn on server metrics",
       "description": "Turns metrics on in a Coolify server's Sentinel settings. Needs configure access to the connection and confirm."
+    },
+    "deploymentList": {
+      "title": "Coolify deployment history",
+      "description": "An application's deployments, newest first, a page at a time (skip and take, up to 50). Rows carry the status, commit and times, never the build log."
+    },
+    "deploymentGet": {
+      "title": "Coolify deployment and build log",
+      "description": "One deployment and its build log, redacted. Lines Coolify marks hidden are left out unless showHidden is true. The log needs read:sensitive on the token, and confirm: true, since build logs can hold secrets."
+    },
+    "deploymentCancel": {
+      "title": "Cancel a Coolify deployment",
+      "description": "Cancels a queued or running deployment. One that already ended can't be cancelled."
     }
   },
   "connections": {
@@ -839,7 +878,8 @@
       "shell": "Shell",
       "logs": "Logs",
       "stats": "Stats",
-      "traffic": "Traffic"
+      "traffic": "Traffic",
+      "deployments": "Deployments"
     },
     "fields": {
       "type": "Type",
@@ -1356,5 +1396,46 @@
       "tooManyTunnels": "You already have 5 forwards open. Stop one first.",
       "tunnelInUse": "Someone else is forwarding this resource right now."
     }
+  },
+  "deployments": {
+    "loading": "Loading deployments…",
+    "empty": "No deployments yet.",
+    "failed": "The deployments could not be read.",
+    "retry": "Try again",
+    "back": "All deployments",
+    "preview": "Pull request #{{id}}",
+    "rollback": "Rollback",
+    "noLogAccess": "Opening a build log needs the Operate Coolify permission and operate access to this connection.",
+    "status": {
+      "queued": "Queued",
+      "in_progress": "In progress",
+      "finished": "Finished",
+      "failed": "Failed",
+      "cancelled-by-user": "Cancelled",
+      "skipped": "Skipped"
+    },
+    "log": {
+      "title": "Build log",
+      "loading": "Loading the build log…",
+      "empty": "No log lines yet.",
+      "live": "Live: refreshing every 2 seconds",
+      "ended": "Deployment ended",
+      "showHidden": "Show hidden lines",
+      "hiddenCount": "{{count}} hidden",
+      "truncated": "Only the last {{count}} lines are shown.",
+      "noAccess": "This connection's token can't read build logs. Coolify needs the read:sensitive ability for them.",
+      "failed": "The build log could not be read.",
+      "retry": "Try again"
+    },
+    "cancel": "Cancel deployment",
+    "cancelConfirm": {
+      "title": "Cancel this deployment?",
+      "description": "Coolify stops the build or deploy where it is. The application keeps running its last finished deployment.",
+      "confirm": "Cancel deployment"
+    },
+    "cancelled": "Deployment cancelled.",
+    "cancelPending": "Waiting for approval to cancel the deployment.",
+    "cancelFailed": "The deployment could not be cancelled.",
+    "refresh": "Refresh deployments"
   }
 }

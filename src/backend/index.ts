@@ -19,6 +19,8 @@ import { provideClient } from "./service.js";
 import { createContainers } from "./containers/service.js";
 import { registerContainerRoutes } from "./containers/routes.js";
 import { createLogs } from "./containers/logs.js";
+import { createDeployments } from "./deployments/service.js";
+import { registerDeploymentRoutes } from "./deployments/routes.js";
 import { createExec } from "./containers/exec.js";
 import { registerLogSocket } from "./containers/sockets.js";
 import { registerStatsSocket } from "./containers/stats.js";
@@ -51,6 +53,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
   const lifecycle = createLifecycle(ctx, { connections, resources, sync });
   const containers = createContainers(ctx, { connections, lifecycle, sync });
   const logs = createLogs(ctx, { connections, containers });
+  const deployments = createDeployments(ctx, { connections, resources });
   const servers = createServerStatuses(ctx, { tables, connections });
   const exec = createExec(ctx, {
     connections,
@@ -95,6 +98,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
   registerResourceRoutes(router, ctx, resources);
   registerSyncRoutes(router, ctx, sync);
   registerLifecycleRoutes(router, ctx, lifecycle);
+  registerDeploymentRoutes(router, ctx, deployments);
   registerContainerRoutes(router, ctx, containers, logs);
   registerLogSocket(ctx, { logs });
   registerStatsSocket(ctx, { connections, containers });
@@ -111,6 +115,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
     sync,
     resources,
     lifecycle,
+    deployments,
     containers,
     logs,
     exec,

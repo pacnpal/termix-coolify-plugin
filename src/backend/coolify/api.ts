@@ -5,6 +5,7 @@ import {
   toApplication,
   toDatabase,
   toDeployment,
+  toDeploymentLog,
   toKey,
   toPart,
   toProject,
@@ -145,6 +146,33 @@ export function createCoolifyApi(http: CoolifyHttp) {
     opts?: Parameters<CoolifyHttp["request"]>[2],
   ): Promise<T> {
     return http.request<T>(target.method, target.path, opts);
+  }
+
+  /**
+   * One page of an application's deployments, newest first, and Coolify's
+   * total when it sends one. The build logs Coolify sends with each row are
+   * dropped.
+   */
+  async function deploymentPage(
+    appUuid: string,
+    opts: { skip: number; take: number; beforeFetch?: () => Promise<void> },
+  ): Promise<{ count: number | null; rows: DeploymentDto[] }> {
+    const body = await call(
+      op("list-deployments-by-app-uuid", { uuid: appUuid }),
+      {
+        query: { skip: opts.skip, take: opts.take },
+        beforeFetch: opts.beforeFetch,
+      },
+    );
+    const count =
+      body && typeof body === "object" && !Array.isArray(body)
+        ? (body as { count?: unknown }).count
+        : undefined;
+    return {
+      count:
+        typeof count === "number" && Number.isSafeInteger(count) ? count : null,
+      rows: rows(body, "deployments").map((d) => toDeployment(d, appUuid)),
+    };
   }
 
   return {
@@ -330,15 +358,44 @@ export function createCoolifyApi(http: CoolifyHttp) {
       appUuid: string,
       opts: { skip: number; take: number },
     ): Promise<DeploymentDto[]> {
-      const body = await call(
-        op("list-deployments-by-app-uuid", { uuid: appUuid }),
-        { query: { skip: opts.skip, take: opts.take } },
-      );
-      return rows(body, "deployments").map((d) => toDeployment(d, appUuid));
+      return (await deploymentPage(appUuid, opts)).rows;
     },
+
+    deploymentPage,
 
     async deployment(uuid: string): Promise<DeploymentDto> {
       return toDeployment(await call(op("get-deployment-by-uuid", { uuid })));
+    },
+
+    /**
+     * One deployment and its raw build log, null when the token can't read
+     * it. The log holds secrets: deployments/log.ts redacts it before it
+     * goes anywhere.
+     */
+    async deploymentWithLog(
+      uuid: string,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<{ deployment: DeploymentDto; log: string | null }> {
+      const body = await call(op("get-deployment-by-uuid", { uuid }), {
+        beforeFetch: opts.beforeFetch,
+      });
+      return { deployment: toDeployment(body), log: toDeploymentLog(body) };
+    },
+
+    /** Cancels a queued or running deployment; its new status, when Coolify says. */
+    async cancelDeployment(
+      uuid: string,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<{ status: string | null }> {
+      const body = await call<unknown>(
+        op("cancel-deployment-by-uuid", { uuid }),
+        { beforeFetch: opts.beforeFetch },
+      );
+      const status =
+        body && typeof body === "object"
+          ? (body as { status?: unknown }).status
+          : undefined;
+      return { status: typeof status === "string" ? status : null };
     },
 
     async patchSentinel(

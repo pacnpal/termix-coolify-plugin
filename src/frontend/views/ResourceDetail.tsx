@@ -17,6 +17,7 @@ import {
 import type { Resource } from "../api";
 import { resourceHealth } from "../../shared/resource-health";
 import { CompanionActions } from "./CompanionActions";
+import { DeploymentsTab } from "./DeploymentsTab";
 import { ContainerCompanions } from "./ContainerCompanions";
 import { LogsView } from "./LogsView";
 import { StatsTab } from "./StatsTab";
@@ -45,6 +46,7 @@ export const DETAIL_TABS = [
   "overview",
   "shell",
   "logs",
+  "deployments",
   "stats",
   "traffic",
 ] as const;
@@ -71,7 +73,13 @@ const OPERATE_TABS: ReadonlySet<DetailTab> = new Set([
   "traffic",
 ]);
 
-/** The tabs a resource shows: Traffic is for applications. */
+/** Views only applications have: Coolify deploys nothing else on its own. */
+const APPLICATION_TABS: ReadonlySet<DetailTab> = new Set([
+  "deployments",
+  "traffic",
+]);
+
+/** The tabs a resource shows: Deployments and Traffic are for applications. */
 export function detailTabs(
   resource: Resource | null,
   canOperate: boolean,
@@ -79,7 +87,7 @@ export function detailTabs(
   return DETAIL_TABS.filter(
     (id) =>
       (canOperate || !OPERATE_TABS.has(id)) &&
-      (id !== "traffic" || resource?.kind === "application"),
+      (!APPLICATION_TABS.has(id) || resource?.kind === "application"),
   );
 }
 
@@ -332,6 +340,18 @@ export function ResourceDetail({
             key={`${connectionId}:${resource.uuid}:${revision ?? ""}`}
             connectionId={connectionId}
             resource={resource}
+            isVisible={isVisible}
+          />
+        );
+        break;
+      case "deployments":
+        // Keyed like logs: a changed target starts empty and stops polling.
+        body = (
+          <DeploymentsTab
+            key={`${connectionId}:${resource.uuid}:${revision ?? ""}`}
+            connectionId={connectionId}
+            resource={resource}
+            canOperate={canOperate}
             isVisible={isVisible}
           />
         );

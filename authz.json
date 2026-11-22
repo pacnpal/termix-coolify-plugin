@@ -232,6 +232,53 @@
       "allowed": "any",
       "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify (the resource can't be read); there is no reachable Coolify in the authz run."
     },
+    "GET /plugin-api/coolify/connections/:id/resources/:uuid/deployments": {
+      "access": "user",
+      "permission": "coolify.view",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-resource-uuid"
+      },
+      "query": {
+        "take": "5"
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify (the application can't be read); there is no reachable Coolify in the authz run."
+    },
+    "GET /plugin-api/coolify/connections/:id/resources/:uuid/deployments/:deploymentUuid": {
+      "access": "user",
+      "permission": "coolify.operate",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-resource-uuid",
+        "deploymentUuid": "=authz-deployment-uuid"
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify (the application can't be read); there is no reachable Coolify in the authz run."
+    },
+    "POST /plugin-api/coolify/connections/:id/resources/:uuid/deployments/:deploymentUuid/cancel": {
+      "access": "user",
+      "permission": "coolify.operate",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection",
+        "uuid": "=authz-resource-uuid",
+        "deploymentUuid": "=authz-deployment-uuid"
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify (the application can't be read); there is no reachable Coolify in the authz run."
+    },
     "POST /plugin-api/coolify/connections/:id/resources/:uuid/shell": {
       "access": "user",
       "permission": "coolify.operate",
