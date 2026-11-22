@@ -1,5 +1,7 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
+import en from "../../../locales/en.json";
 import {
+  isCoolifyDeploymentStatus,
   isFinalDeployment,
   isSkippedDeployment,
   isSuccessfulDeployment,
@@ -89,24 +91,57 @@ const UUID = /^[A-Za-z0-9_-]{1,64}$/;
 const POLL_MS = 5_000;
 const MAX_WAIT_MS = 30 * 60_000;
 
+/** A wait that reached its limit while the deployment had not ended. */
+export interface WaitTimeout {
+  /** How long the run waited, in whole minutes. */
+  minutes: number;
+  /** The plugin's own route for the deployment, or null when there is none. */
+  link: string | null;
+}
+
+/** A deployment's last status in words (locales), never Coolify's text. */
+function statusWords(status: string): string {
+  const words = en.deployments.status as Record<string, string>;
+  return isCoolifyDeploymentStatus(status)
+    ? words[status].toLowerCase()
+    : "unfinished";
+}
+
+function waitTimeoutMessage(
+  name: string,
+  status: string,
+  { minutes, link }: WaitTimeout,
+): string {
+  const time = `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  return (
+    `The deployment of ${name} was still ${statusWords(status)} after ${time}, ` +
+    `so the run stopped waiting; the deployment has not ended. ` +
+    (link ? `Follow it at ${link}` : "Follow it in Coolify")
+  );
+}
+
 /**
- * A deploy that was waited on and ended without a successful build: a failed
- * run. A deployment Coolify skipped has its own cause, `skipped`, and says so
- * in words; failed and cancelled ones are `deployment-failed`.
+ * A deploy that was waited on and did not end with a successful build: a
+ * failed run. A deployment Coolify skipped has its own cause, `skipped`, and
+ * says so in words; failed and cancelled ones are `deployment-failed`. A wait
+ * that reached its limit while the deployment still ran is `wait-timeout`,
+ * with the last status in words and a link to the deployment.
  */
 export class DeploymentFailedError extends Error {
-  readonly code: "deployment-failed" | "skipped";
+  readonly code: "deployment-failed" | "skipped" | "wait-timeout";
   readonly status: string;
 
-  constructor(name: string, status: string) {
-    const skipped = isSkippedDeployment(status);
-    super(
-      skipped
-        ? `Coolify skipped the deployment of ${name}, so no new build ran`
-        : `The deployment of ${name} ended as ${status}`,
-    );
+  constructor(name: string, status: string, timedOut?: WaitTimeout) {
+    const skipped = !timedOut && isSkippedDeployment(status);
+    let message: string;
+    if (timedOut) message = waitTimeoutMessage(name, status, timedOut);
+    else if (skipped) {
+      message = `Coolify skipped the deployment of ${name}, so no new build ran`;
+    } else message = `The deployment of ${name} ended as ${status}`;
+    super(message);
     this.name = "DeploymentFailedError";
-    this.code = skipped ? "skipped" : "deployment-failed";
+    if (timedOut) this.code = "wait-timeout";
+    else this.code = skipped ? "skipped" : "deployment-failed";
     this.status = status;
   }
 }
@@ -194,6 +229,29 @@ export function createLifecycle(ctx: PluginContext, deps: LifecycleDeps) {
     return found;
   }
 
+  /**
+   * The plugin's own route for a deployment (GET answers its status and
+   * build log). It serves applications only, and is built from checked ids
+   * only, never from Coolify's text.
+   */
+  function deploymentLink(
+    connectionId: number,
+    resource: ResourceDto,
+    deploymentUuid: string,
+  ): string | null {
+    if (resource.kind !== "application") return null;
+    if (!UUID.test(resource.uuid) || !UUID.test(deploymentUuid)) return null;
+    return (
+      `/plugin-api/${ctx.pluginId}/connections/${connectionId}` +
+      `/resources/${resource.uuid}/deployments/${deploymentUuid}`
+    );
+  }
+
+  /**
+   * Polls the deployment until it ends or the wait reaches its limit, and
+   * answers its last status. A status that isn't final means the limit was
+   * reached: `run` fails that with `wait-timeout`.
+   */
   async function waitFor(
     api: CoolifyApi,
     deploymentUuid: string,
@@ -247,7 +305,10 @@ export function createLifecycle(ctx: PluginContext, deps: LifecycleDeps) {
      * follows the deployment until it reaches any final status
      * (shared/deployment-status.ts) and emits deployment-finished for a
      * successful build, or deployment-failed and then throws
-     * DeploymentFailedError (cause `skipped` when Coolify skipped it). The cached
+     * DeploymentFailedError (cause `skipped` when Coolify skipped it). A
+     * deployment still running when the wait reaches its limit (30 minutes)
+     * emits nothing and throws DeploymentFailedError with cause
+     * `wait-timeout`, its last status in words and a link to it. The cached
      * resource list, and any fetch still running for it, is dropped once
      * Coolify was asked, even when it refused (a timeout may still have
      * changed something), and again when a waited deploy ends, so the next
@@ -298,23 +359,28 @@ export function createLifecycle(ctx: PluginContext, deps: LifecycleDeps) {
       } finally {
         await resources.invalidate(connectionId);
       }
+      // A wait that reached its limit is a failed run of its own, with no
+      // event: the deployment itself has not ended.
+      if (!isFinalDeployment(status)) {
+        throw new DeploymentFailedError(resource.name, status, {
+          minutes: Math.max(1, Math.round(maxWaitMs / 60_000)),
+          link: deploymentLink(connectionId, resource, result.deploymentUuid),
+        });
+      }
       // Every final status emits one event: finished for a successful
       // build, failed for the rest (failed, cancelled, skipped).
-      const final = isFinalDeployment(status);
-      const failed = final && !isSuccessfulDeployment(status);
-      if (final) {
-        await ctx.operations.emit(
-          failed ? "coolify.deployment-failed" : "coolify.deployment-finished",
-          {
-            connectionId,
-            uuid: resource.uuid,
-            name: resource.name,
-            deploymentUuid: result.deploymentUuid,
-            status,
-          },
-          opts.hostId ? { hostId: opts.hostId } : undefined,
-        );
-      }
+      const failed = !isSuccessfulDeployment(status);
+      await ctx.operations.emit(
+        failed ? "coolify.deployment-failed" : "coolify.deployment-finished",
+        {
+          connectionId,
+          uuid: resource.uuid,
+          name: resource.name,
+          deploymentUuid: result.deploymentUuid,
+          status,
+        },
+        opts.hostId ? { hostId: opts.hostId } : undefined,
+      );
       if (failed) throw new DeploymentFailedError(resource.name, status);
       return { ...result, status };
     },

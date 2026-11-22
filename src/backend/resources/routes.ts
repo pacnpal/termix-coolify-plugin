@@ -14,7 +14,11 @@ import {
 } from "../coolify/http.js";
 import { countResources } from "../../shared/resource-health.js";
 import type { ServerStatuses } from "../ops/signals.js";
-import type { Lifecycle, LifecycleVerb } from "./lifecycle.js";
+import {
+  DeploymentFailedError,
+  type Lifecycle,
+  type LifecycleVerb,
+} from "./lifecycle.js";
 import type { Resources } from "./service.js";
 
 const UUID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -155,6 +159,30 @@ const REFUSALS: Record<string, number> = {
 };
 
 /**
+ * A waited deploy that was still running when its wait reached the limit:
+ * the run reached Coolify and the deployment goes on, so it is neither a
+ * refusal nor a run that did not happen.
+ */
+const WAIT_TIMEOUT = {
+  status: 504,
+  body: {
+    error: "The deployment was still running when the wait ended",
+    cause: "wait-timeout",
+  },
+};
+
+/**
+ * A failed run as core reports it, from what a run threw: a timed-out wait
+ * keeps its cause. Anything else is thrown on, to the route's own mapping.
+ */
+function thrownOutcome(err: unknown): PluginOperationOutcome {
+  if (err instanceof DeploymentFailedError && err.code === "wait-timeout") {
+    return { runId: null, status: "failed", errorCode: err.code };
+  }
+  throw err;
+}
+
+/**
  * The answer for an operation run that did not succeed, when core reports it
  * as an outcome rather than a throw. Only fixed texts go out.
  */
@@ -176,6 +204,7 @@ export function failedOutcome(
     /fail|error|denied|refused|reject|cancel|timeout/i.test(outcome.status);
   if (!failed) return null;
   const code = String(outcome.errorCode ?? "");
+  if (code === "wait-timeout") return WAIT_TIMEOUT;
   if (code in CAUSE_MESSAGES) {
     return toRouteError(new CoolifyError(code as CoolifyCause, 0));
   }
@@ -346,7 +375,9 @@ export function registerLifecycleRoutes(
       if (verb === "stop" || actionId === "coolify.resource-action") {
         options.confirmed = true;
       }
-      const outcome = await ctx.operations.run(actionId, options);
+      const outcome = await ctx.operations
+        .run(actionId, options)
+        .catch(thrownOutcome);
       const failure = failedOutcome(outcome);
       if (failure) {
         res.status(failure.status).json(failure.body);
@@ -521,6 +552,10 @@ export function registerLifecycleRoutes(
    *         description: No such resource on this connection, or another user's
    *       502:
    *         description: Coolify failed, with a cause such as forbidden-ability
+   *       504:
+   *         description: >-
+   *           cause wait-timeout: a run that waited on the deployment reached
+   *           its 30 minute limit while the deployment was still running
    */
   router.post(
     "/connections/:id/resources/:uuid/deploy",

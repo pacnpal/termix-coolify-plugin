@@ -163,6 +163,74 @@ describe("lifecycle routes", () => {
     expect(changes(fake)).toEqual([]);
   });
 
+  describe("a deploy whose wait ran past the 30 minute limit", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const timedOut = {
+      status: 504,
+      body: {
+        error: "The deployment was still running when the wait ended",
+        cause: "wait-timeout",
+      },
+    };
+
+    it("answers 504 with cause wait-timeout when the run throws it", async () => {
+      const started = await startLifecycle({
+        overrides: {
+          "GET /deployments/dep-uuid": {
+            json: { deployment_uuid: "dep-uuid", status: "in_progress" },
+          },
+        },
+      });
+      harness = started.harness;
+      const ops = harness.mock.ctx.operations;
+      // The route never asks to wait, and its HTTP client can't run on a
+      // fake clock: the real timed-out failure of a waited run (as an
+      // automation's would end) is taken first, then the route gets it.
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+      const failure = ops
+        .run("coolify.resource-deploy", {
+          input: {
+            connectionId: String(started.id),
+            uuid: "app-web-uuid",
+            wait: true,
+          },
+        })
+        .catch((e: unknown) => e);
+      await vi.advanceTimersByTimeAsync(31 * 60_000);
+      vi.useRealTimers();
+      const thrown = await failure;
+      expect(thrown).toMatchObject({ code: "wait-timeout" });
+      vi.spyOn(ops, "run").mockRejectedValueOnce(thrown);
+      const answer = await harness.request(
+        "POST",
+        path(started.id, "app-web-uuid", "deploy"),
+        {},
+      );
+      expect(answer).toEqual(timedOut);
+      expect(harness.mock.operationEvents).toEqual([]);
+    });
+
+    it("answers 504 with cause wait-timeout when core reports it as a failed outcome", async () => {
+      const { harness, fake, id, run } = await start();
+      run.mockResolvedValueOnce({
+        runId: "run-1",
+        status: "failed",
+        error: "The deployment of web was still in progress after 30 minutes",
+        errorCode: "wait-timeout",
+      });
+      const answer = await harness.request(
+        "POST",
+        path(id, "app-web-uuid", "deploy"),
+        {},
+      );
+      expect(answer).toEqual(timedOut);
+      expect(changes(fake)).toEqual([]);
+    });
+  });
+
   it("refuses a force that is not true or false", async () => {
     const { harness, fake, id } = await start();
     const answer = await harness.request(

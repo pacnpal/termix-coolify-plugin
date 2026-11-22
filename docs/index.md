@@ -120,7 +120,9 @@ The same actions work from the CLI, Automations and the phone app. `coolify.depl
 `coolify.deployment-finished` or `coolify.deployment-failed` event. Only a finished build succeeds. A
 deployment that fails or is cancelled fails the run (`deployment-failed`), and one Coolify skips ends it at
 once as a failed run with the cause `skipped` ("Coolify skipped the deployment of <name>, so no new build
-ran"). A dry run of a deploy
+ran"). The wait lasts at most 30 minutes: a deployment still running then fails the run with the cause
+`wait-timeout`, its last status in words and a link to it, and sends neither event, since the deployment
+hasn't ended. A dry run of a deploy
 says what it would deploy, and on which server. Deploy and restart are offered to the assistant and MCP; start
 and stop aren't.
 

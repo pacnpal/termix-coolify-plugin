@@ -395,7 +395,12 @@ aren't obvious from the code, and anything that has bitten you before.
   `src/shared/deployment-status.ts` (`isFinalDeployment`; Coolify's `isFinal()` counts `skipped`). Only
   `isSuccessfulDeployment` (finished, or the older success) emits deployment-finished; every other final
   status emits deployment-failed and throws `DeploymentFailedError`, whose code is `skipped` (with its own
-  message in words) for a skipped deployment and `deployment-failed` otherwise. Recent activity is
+  message in words) for a skipped deployment and `deployment-failed` otherwise. `waitFor` is the only
+  deployment wait (deploy by tag, rollback and previews don't wait); it answers the last status when it
+  reaches `MAX_WAIT_MS` (30 minutes, timed with `Date.now` and `setTimeout`, so vitest fake timers drive
+  it). A status that isn't final then throws `DeploymentFailedError` with code `wait-timeout` (last status
+  in words, the plugin's own deployment route as the link, applications only) and emits no event. The
+  lifecycle routes map it, thrown or as core's outcome, to 504 `wait-timeout`. Recent activity is
   recorded once, at accept, before the wait. That module is the one reading of a deployment status
   (final, cancellable, succeeded, failed, skipped, Coolify's own spellings);
   `tests/backend/deployment-status-guard.test.ts` fails on a `status === "<spelling>"` comparison or a
