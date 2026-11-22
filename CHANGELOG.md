@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.0
+
+### Added
+
+- Termix's recent activity shows "Opened shell in <app>" when a container shell or database console opens
+  on a Linked host, and "Deployed <app>" when a deploy starts (a run that waits adds it only if the deploy
+  doesn't fail), from the UI, the operations API, the CLI, Automations and MCP alike. Only a Linked host you
+  can connect to gets an entry, and only after the action worked; a failure to record one never fails the
+  shell or deploy. An entry opens the Coolify tab
+
 ## 1.0.0
 
 ### Added

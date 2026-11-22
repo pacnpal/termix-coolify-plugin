@@ -1356,5 +1356,9 @@
       "tooManyTunnels": "You already have 5 forwards open. Stop one first.",
       "tunnelInUse": "Someone else is forwarding this resource right now."
     }
+  },
+  "activity": {
+    "shell": "Opened shell in {{name}}",
+    "deploy": "Deployed {{name}}"
   }
 }

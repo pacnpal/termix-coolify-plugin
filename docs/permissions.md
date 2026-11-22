@@ -62,3 +62,16 @@ whatever the switch says.
 Every action runs through Termix's operations, so approval rules, run history and the audit log apply to the
 UI, the operations API, the CLI, Automations, MCP and the `coolify.client` service alike. Secret inputs and
 sensitive outputs (tokens, log text, command output, one-time links) never reach run history.
+
+## Recent activity
+
+Opening a container shell or database console on a Linked host adds "Opened shell in <app>" to your Termix
+recent activity, and a deploy that starts adds "Deployed <app>" (a run that waits on the deploy adds it
+only if the deploy doesn't fail). This happens however the action was run, and only after it worked, only for a Linked host you
+can connect to, and only once per action. Termix checks that access again before it keeps the entry, and
+keeps it only when a plugin provides the recent activity list.
+
+The plugin adds entries with `ctx.hosts.recordActivity`, which needs the `hosts:read` capability it already
+has. It does not ask for `hosts:activity-provide`: that capability is for the one plugin that stores
+everyone's recent activity, which this plugin isn't. If an entry can't be added, the shell or deploy still
+works and the plugin logs only the error's name.

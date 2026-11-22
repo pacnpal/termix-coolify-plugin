@@ -1,4 +1,5 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
+import { recordActivity } from "../activity.js";
 import type { CoolifyApi } from "../coolify/api.js";
 import type { ResourceDto } from "../coolify/dto.js";
 import { CoolifyError } from "../coolify/http.js";
@@ -259,7 +260,13 @@ export function createLifecycle(ctx: PluginContext, deps: LifecycleDeps) {
       } finally {
         await resources.invalidate(connectionId);
       }
-      if (verb !== "deploy" || !opts.wait || !result.deploymentUuid) {
+      // A deploy that started is "Deployed <name>" in the Linked host's
+      // recent activity; a waited one only once the run didn't fail.
+      const started = verb === "deploy" && Boolean(result.deploymentUuid);
+      if (!started || !opts.wait) {
+        if (started) {
+          await recordActivity(ctx, opts.hostId, "deploy", resource.name);
+        }
         return result;
       }
       let status: string;
@@ -283,6 +290,7 @@ export function createLifecycle(ctx: PluginContext, deps: LifecycleDeps) {
         );
       }
       if (failed) throw new DeploymentFailedError(resource.name, status);
+      await recordActivity(ctx, opts.hostId, "deploy", resource.name);
       return { ...result, status };
     },
   };

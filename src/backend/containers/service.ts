@@ -1,4 +1,5 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
+import { recordActivity } from "../activity.js";
 import type { ResourceDto } from "../coolify/dto.js";
 import { ConnectionError, type Connections } from "../connections/service.js";
 import type { Lifecycle } from "../resources/lifecycle.js";
@@ -382,6 +383,8 @@ export function createContainers(ctx: PluginContext, deps: ContainersDeps) {
         fingerprints: hostKeys,
       };
       if (request.console === "db" && !engine) answer.note = "no-console";
+      // The route and coolify.shell-command both land here, once per open.
+      await recordActivity(ctx, hostId, "shell", res.name);
       return answer;
     },
   };

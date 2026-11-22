@@ -1,3 +1,4 @@
+import type { MockContextOptions } from "@termix-ssh/plugin-sdk/testing";
 import {
   fakeCoolify,
   healthyCoolify,
@@ -63,6 +64,8 @@ export async function startLifecycle(
     overrides?: Record<string, FakeAnswer>;
     settings?: Record<string, unknown>;
     serve?: boolean;
+    /** Hosts ctx.hosts.get and checkAccess answer with. */
+    hosts?: MockContextOptions["hosts"];
   } = {},
 ): Promise<{
   harness: PluginHarness;
@@ -79,6 +82,7 @@ export async function startLifecycle(
     permissions: options.permissions,
     settings: options.settings,
     serve: options.serve,
+    hosts: options.hosts,
   });
   const created = await harness.mock.ctx.operations.run(
     "coolify.connection-create",
