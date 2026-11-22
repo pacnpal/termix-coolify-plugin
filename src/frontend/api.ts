@@ -401,6 +401,16 @@ export interface ApiCallAnswer {
   masked: JsonPointer[];
 }
 
+/**
+ * What the Linked host dot needs of a connection's servers: reachability
+ * (null when the token can't read servers) and degraded resources by server
+ * uuid (null when resources can't be read).
+ */
+export interface ServerHealth {
+  servers: { uuid: string; reachable: boolean; usable: boolean }[] | null;
+  degraded: Record<string, number> | null;
+}
+
 /** A Coolify server as host sync shows it. Never carries a key. */
 export interface SyncServer {
   uuid: string;
@@ -1150,6 +1160,20 @@ export function createApi(api: PluginApiClient) {
       return typeof data?.endpoint === "string"
         ? { endpoint: data.endpoint }
         : null;
+    },
+    /** Read from the backend's shared server and resource caches. */
+    async serverHealth(id: number): Promise<ServerHealth> {
+      const data = (
+        await api.get<Partial<ServerHealth>>(`/connections/${id}/server-health`)
+      ).data;
+      const degraded = data?.degraded;
+      return {
+        servers: Array.isArray(data?.servers) ? data.servers : null,
+        degraded:
+          degraded && typeof degraded === "object" && !Array.isArray(degraded)
+            ? degraded
+            : null,
+      };
     },
     async syncPreview(id: number): Promise<SyncRow[]> {
       const rows = (await api.get<SyncRow[]>(`/connections/${id}/servers`))

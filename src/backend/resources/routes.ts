@@ -13,6 +13,7 @@ import {
   type CoolifyCause,
 } from "../coolify/http.js";
 import { countResources } from "../../shared/resource-health.js";
+import type { ServerStatuses } from "../ops/signals.js";
 import type { Lifecycle, LifecycleVerb } from "./lifecycle.js";
 import type { Resources } from "./service.js";
 
@@ -204,6 +205,101 @@ function forceOf(body: unknown): boolean {
     throw new ConnectionError("invalid-input", "force must be true or false");
   }
   return force;
+}
+
+/**
+ * Each server's reachability and degraded resource count, for the status dot
+ * on Linked host rows. Both come from the shared caches the status signals
+ * read (servers a minute, resources 20 seconds), so every host row of a
+ * connection costs one request here and at most one Coolify read per list.
+ * `servers` is null when the token can't read servers (a scoped token);
+ * `degraded` is null when the resources can't be read. When neither can,
+ * the resources error answers (404 for another user's connection).
+ */
+export function registerServerHealthRoutes(
+  router: Router,
+  ctx: PluginContext,
+  deps: {
+    resources: Pick<Resources, "load">;
+    servers: Pick<ServerStatuses, "list">;
+  },
+): void {
+  const view = ctx.rbac.require("view") as never;
+
+  /**
+   * @openapi
+   * /plugin-api/coolify/connections/{id}/server-health:
+   *   get:
+   *     summary: Each Coolify server's reachability and degraded count
+   *     description: >-
+   *       For the status dot on Linked host rows. Reads the cached server
+   *       statuses (a minute) and resources (20 seconds), so one request
+   *       serves every host of the connection. servers is null when the token
+   *       can't read servers; degraded (resources by server uuid, Parts left
+   *       out, exited never degraded) is null when resources can't be read.
+   *       No addresses, keys or tokens.
+   *     tags:
+   *       - Coolify
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     responses:
+   *       200:
+   *         description: >-
+   *           { servers: [{ uuid, reachable, usable }] or null,
+   *           degraded: { serverUuid: count } or null }
+   *       403:
+   *         description: Missing coolify.view
+   *       404:
+   *         description: No such connection, or another user's
+   *       502:
+   *         description: Coolify failed, with a cause
+   */
+  router.get(
+    "/connections/:id/server-health",
+    view,
+    safe(ctx, async (req, res) => {
+      const id = idParam(req);
+      // Each checks the actor's access to the connection before reading Coolify.
+      const [list, servers] = await Promise.allSettled([
+        deps.resources.load(id),
+        deps.servers.list(id),
+      ]);
+      if (list.status === "rejected" && servers.status === "rejected") {
+        throw list.reason;
+      }
+      let degraded: Record<string, number> | null = null;
+      if (list.status === "fulfilled") {
+        const byServer = new Map<string, typeof list.value.rows>();
+        for (const row of list.value.rows) {
+          if (!row.serverUuid) continue;
+          const rows = byServer.get(row.serverUuid) ?? [];
+          rows.push(row);
+          byServer.set(row.serverUuid, rows);
+        }
+        degraded = Object.fromEntries(
+          [...byServer].map(([uuid, rows]) => [
+            uuid,
+            countResources(rows).degraded,
+          ]),
+        );
+      }
+      res.json({
+        servers:
+          servers.status === "fulfilled"
+            ? servers.value.map((s) => ({
+                uuid: s.uuid,
+                reachable: s.reachable,
+                usable: s.usable,
+              }))
+            : null,
+        degraded,
+      });
+    }),
+  );
 }
 
 /**

@@ -987,6 +987,10 @@
     "noMatch": {
       "title": "Nothing matches",
       "hint": "Change the search or the filters."
+    },
+    "serverFilter": {
+      "label": "Server: {{server}}",
+      "clear": "Show every server"
     }
   },
   "detail": {
@@ -1093,10 +1097,14 @@
     "label": "Coolify",
     "tooltip": "Linked to a Coolify server"
   },
+  "hostAction": {
+    "title": "Coolify"
+  },
   "hostDot": {
     "unreachable": "Coolify can't reach this server",
     "degraded": "Coolify reports this server as not usable",
-    "gone": "This server is gone from Coolify"
+    "gone": "This server is gone from Coolify",
+    "resourcesDegraded": "Degraded Coolify resources on this server: {{count}}"
   },
   "hostMenu": {
     "resources": "Coolify resources",

@@ -16,6 +16,7 @@ import { createLifecycle } from "./resources/lifecycle.js";
 import {
   registerLifecycleRoutes,
   registerResourceRoutes,
+  registerServerHealthRoutes,
 } from "./resources/routes.js";
 import { registerMcpRoutes } from "./mcp/routes.js";
 import { provideClient } from "./service.js";
@@ -119,6 +120,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
   router.use(rememberBaseUrlMiddleware(ctx) as never);
   registerConnectionRoutes(router, ctx, connections);
   registerResourceRoutes(router, ctx, resources);
+  registerServerHealthRoutes(router, ctx, { resources, servers });
   registerSyncRoutes(router, ctx, sync);
   registerLifecycleRoutes(router, ctx, lifecycle);
   registerDeploymentRoutes(router, ctx, deployments);

@@ -15,7 +15,7 @@ import type {
 } from "@termix-ssh/plugin-sdk/frontend";
 import { ACTIVITY_TYPES } from "../shared/activity";
 import { createApi } from "./api";
-import { forgetPreview, linkOf, useLinkedRow } from "./linked";
+import { forgetPreview, linkOf, useHostProblem } from "./linked";
 import { keepSocketTarget } from "./socket";
 import { registerToolbarStatus } from "./toolbar-status";
 import { ActivityPanel } from "./views/ActivityPanel";
@@ -34,6 +34,30 @@ const IMPORT_ACTION = "coolify.import-from-coolify";
 const isLinked = (host: PluginHostRecord) => linkOf(host) !== null;
 
 export function activate(app: TermixApp): void {
+  /**
+   * A Linked host's dot: alarm when Coolify can't reach its server, warn
+   * when the server is gone, not usable or runs a degraded resource. An
+   * ordinary host gets none and makes no request.
+   */
+  function useHostDot(host: PluginHostRecord): HostDot | null {
+    const problem = useHostProblem(linkOf(host));
+    switch (problem?.kind) {
+      case "unreachable":
+        return { tone: "bad", label: app.t("hostDot.unreachable") };
+      case "gone":
+        return { tone: "warn", label: app.t("hostDot.gone") };
+      case "unusable":
+        return { tone: "warn", label: app.t("hostDot.degraded") };
+      case "degraded":
+        return {
+          tone: "warn",
+          label: app.t("hostDot.resourcesDegraded", { count: problem.count }),
+        };
+      default:
+        return null;
+    }
+  }
+
   // The Logs view's live follow opens /plugin-ws/coolify/logs through it.
   keepSocketTarget(app);
   // The badge counts running deployments plus recent failures; it reads the
@@ -93,8 +117,8 @@ export function activate(app: TermixApp): void {
     section: "setup",
   });
 
-  // Linked hosts: a card on the host page, a badge and a status dot on the
-  // row, and Resources, Sync and Unlink in its menu.
+  // Linked hosts: a card on the host page, a badge, a status dot and a
+  // Coolify button on the row, and Resources, Sync and Unlink in its menu.
   app.registerHostSection({
     id: "coolify",
     titleKey: "hostSection.title",
@@ -112,19 +136,19 @@ export function activate(app: TermixApp): void {
             tooltip: app.t("hostBadge.tooltip"),
           }
         : null,
-    useDot: (host): HostDot | null => {
-      const row = useLinkedRow(linkOf(host));
-      if (!row) return null;
-      if (row.status === "gone") {
-        return { tone: "warn", label: app.t("hostDot.gone") };
-      }
-      if (!row.server.reachable) {
-        return { tone: "bad", label: app.t("hostDot.unreachable") };
-      }
-      if (!row.server.usable) {
-        return { tone: "warn", label: app.t("hostDot.degraded") };
-      }
-      return null;
+    // The one host dot path: the layout merges every plugin's dots into one.
+    useDot: useHostDot,
+  });
+  // "Coolify" on a Linked host: the Resources list filtered to its server.
+  app.registerHostAction({
+    id: "coolify.open",
+    titleKey: "hostAction.title",
+    icon: Rocket,
+    kind: "open",
+    when: isLinked,
+    run: (host, shell) => {
+      const link = linkOf(host);
+      if (link) openCoolify(shell, "resources", link);
     },
   });
   app.registerHostContextMenuItem({

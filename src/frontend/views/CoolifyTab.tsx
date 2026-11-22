@@ -85,6 +85,8 @@ interface OpenRequest extends PickIntent {
   uuid: string | null;
   /** On Deployments: the build log that opens, with operate. */
   deployment: { resourceUuid: string; deploymentUuid: string } | null;
+  /** On Resources: one Coolify server's resources only (a Linked host). */
+  serverUuid: string | null;
 }
 
 const UUID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -97,6 +99,8 @@ const uuidOf = (value: unknown): string | null =>
  * palette) opens the Servers section, where host sync lives. On Resources,
  * `open: "shell"` makes the next pick open a shell and `tab` names the view
  * the next picked resource opens on (the palette's Open shell and Logs).
+ * `serverUuid` with a connection (a Linked host's Coolify action or menu)
+ * filters Resources to that server until the filter is cleared.
  */
 function requestOf(
   data: Record<string, unknown> | undefined,
@@ -110,6 +114,10 @@ function requestOf(
   return {
     section: raw as Section,
     connectionId,
+    serverUuid:
+      raw === "resources" && connectionId !== null
+        ? uuidOf(data?.serverUuid)
+        : null,
     open: raw === "resources" && data?.open === "shell" ? "shell" : null,
     detailTab:
       raw === "resources" && typeof data?.tab === "string" ? data.tab : null,
@@ -188,6 +196,7 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
   const [section, setSection] = useState<Section | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [health, setHealth] = useState<HealthFilter>("all");
+  const [server, setServer] = useState<string | null>(null);
   const [openUuid, setOpenUuid] = useState<string | null>(null);
   const [intent, setIntent] = useState<PickIntent>(NO_INTENT);
   const [openDeployment, setOpenDeployment] = useState<OpenDeployment | null>(
@@ -227,6 +236,7 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
     setSection(asked.section);
     setOpenUuid(asked.uuid);
     setIntent({ open: asked.open, detailTab: asked.detailTab });
+    setServer(asked.serverUuid);
     if (asked.connectionId !== null) setSelectedId(asked.connectionId);
     setOpenDeployment(
       asked.deployment && asked.connectionId !== null
@@ -294,6 +304,7 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
     (c: Connection) => {
       setSelectedId(c.id);
       setOpenUuid(null);
+      setServer(null);
       setSection("servers");
       void loadConnections();
     },
@@ -320,6 +331,8 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
           setSelectedId(Number(id));
           setOpenUuid(null);
           setOpenDeployment(null);
+          // A server belongs to one connection.
+          setServer(null);
         }}
         options={connections.map((c) => ({
           value: String(c.id),
@@ -399,7 +412,9 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
         }
         onShowDeployments={() => setSection("deployments")}
         onShowResources={(h: ResourceHealth) => {
+          // The Overview counts every server, so its list shows them all.
           setHealth(h);
+          setServer(null);
           setSection("resources");
         }}
       />
@@ -426,6 +441,8 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
         health={health}
         onHealth={setHealth}
         onOpen={pick}
+        server={server}
+        onClearServer={() => setServer(null)}
       />
     );
   }

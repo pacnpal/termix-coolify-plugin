@@ -483,8 +483,12 @@ Syncing again updates the same hosts in place, so pins, shares and history stay.
 Coolify is shown as **Gone from Coolify** and is never deleted for you: choose **Keep as normal host** or
 **Remove host**.
 
-Linked hosts are read only while Coolify manages them. They show a **Coolify** badge, a status dot when
-Coolify can't reach the server, and a Coolify card on the host page with **Resources**, **Sync from
+Linked hosts are read only while Coolify manages them. They show a **Coolify** badge, a **Coolify** button
+and a status dot. The dot is red when Coolify can't reach the server, and amber when the server is gone
+from Coolify, not usable, or runs a degraded resource (an exited resource counts as stopped, not degraded).
+Every Linked host of a connection shares one status read, served from the plugin's own short caches, and an
+ordinary host makes none. The **Coolify** button opens the Resources list filtered to that server; clear
+the filter to see every server. A Coolify card on the host page has **Resources**, **Sync from
 Coolify** and **Unlink**, which are also in the host's menu. **Unlink** makes the host an ordinary, editable
 host and keeps it. If you delete a Linked host yourself, the plugin forgets the link but keeps its address
 and credential choice, so the next sync creates it again. Removing a connection unlinks its hosts, or
