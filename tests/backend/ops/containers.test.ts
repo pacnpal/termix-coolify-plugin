@@ -8,10 +8,12 @@ import {
 } from "../helpers/plugin.js";
 import { SECRET } from "../helpers/resources.js";
 import { withRunHistory } from "../helpers/run-history.js";
+import { expectKeyTailMasked } from "../helpers/key-tail.js";
 import {
   fakeDocker,
   HOST_ID,
-  KEY_TAIL_LOG,
+  LOG_SOURCES,
+  serveKeyTail,
   setSensitive,
   startShell,
 } from "../containers/fixtures.js";
@@ -228,26 +230,21 @@ describe("logs-tail operation", () => {
     }
   });
 
-  it("logs-tail shows no key body when the tail starts inside a key, from Coolify or SSH", async () => {
-    const { runs, id, harness: h, fake, connectionId } = await start();
-    fake.set("GET /applications/app-web-uuid/logs", {
-      json: { logs: KEY_TAIL_LOG },
-    });
-    fakeDocker(h, { ps: [WEB], logs: KEY_TAIL_LOG });
-    for (const sensitive of [true, false]) {
-      setSensitive(h, connectionId, sensitive);
-      const outcome = await runs.run("coolify.logs-tail", {
-        connectionId: id,
+  it.each(LOG_SOURCES)(
+    "logs-tail from %s shows no key body when the tail starts inside a key",
+    async (source, sensitive) => {
+      const started = await start();
+      serveKeyTail(started, sensitive);
+      const outcome = await started.runs.run("coolify.logs-tail", {
+        connectionId: started.id,
         uuid: "app-web-uuid",
-        lines: 4,
         confirm: true,
       });
       const data = outcome.data as { source: string; text: string };
-      expect(data.source).toBe(sensitive ? "coolify" : "ssh");
-      expect(data.text).not.toContain("fake-snapshot-key-body");
-      expect(data.text).toContain("after the key");
-    }
-  });
+      expect(data.source).toBe(source);
+      expectKeyTailMasked(data.text);
+    },
+  );
 
   it("logs-tail reads nothing without confirm: true (MCP and ops alike)", async () => {
     const { runs, id, harness: h, fake, connectionId } = await start();

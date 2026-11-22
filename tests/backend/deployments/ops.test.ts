@@ -4,8 +4,10 @@ import {
   deploymentRaw,
   KEY_BODY,
   keyEntries,
-  keyTailEntries,
+  keyTailDeployment,
 } from "../helpers/deployments.js";
+import type { FakeAnswer } from "../helpers/fake-coolify.js";
+import { expectKeyTailMasked } from "../helpers/key-tail.js";
 import { changes, startLifecycle } from "../helpers/lifecycle.js";
 import {
   declaredAction as action,
@@ -101,11 +103,22 @@ describe("deployment operations", () => {
     expect(history).not.toContain("fake-build-pass");
   });
 
-  it("coolify.deployment-get masks a private key printed across several entries", async () => {
+  it.each([
+    [
+      "a private key printed across several entries",
+      (): [string, FakeAnswer] => [
+        "GET /deployments/dep-done",
+        {
+          json: deploymentRaw("dep-done", "finished", {
+            entries: keyEntries(1),
+          }),
+        },
+      ],
+    ],
+    ["a build log that starts inside a private key", keyTailDeployment],
+  ])("coolify.deployment-get masks %s", async (_name, answer) => {
     const { harness, fake, id } = await start();
-    fake.set("GET /deployments/dep-done", {
-      json: deploymentRaw("dep-done", "finished", { entries: keyEntries(1) }),
-    });
+    fake.set(...answer());
     const outcome = await harness.mock.ctx.operations.run(
       "coolify.deployment-get",
       {
@@ -117,30 +130,8 @@ describe("deployment operations", () => {
         },
       },
     );
-    const text = (outcome.data as { text: string }).text;
-    expect(text).toContain("after the key");
-    expect(JSON.stringify(outcome)).not.toContain(KEY_BODY);
-  });
-
-  it("coolify.deployment-get masks a build log that starts inside a private key", async () => {
-    const { harness, fake, id } = await start();
-    fake.set("GET /deployments/dep-done", {
-      json: deploymentRaw("dep-done", "finished", {
-        entries: keyTailEntries(1),
-      }),
-    });
-    const outcome = await harness.mock.ctx.operations.run(
-      "coolify.deployment-get",
-      {
-        input: {
-          connectionId: String(id),
-          deploymentUuid: "dep-done",
-          showHidden: true,
-          confirm: true,
-        },
-      },
-    );
-    expect((outcome.data as { text: string }).text).toContain("after the key");
+    expectKeyTailMasked((outcome.data as { text: string }).text);
+    expectKeyTailMasked(outcome);
     expect(JSON.stringify(outcome)).not.toContain(KEY_BODY);
   });
 

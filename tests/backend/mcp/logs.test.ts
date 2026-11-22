@@ -8,11 +8,13 @@ import { OWNER, type PluginHarness } from "../helpers/plugin.js";
 import { withRunHistory } from "../helpers/run-history.js";
 import { handleMcp } from "../../../src/backend/mcp/server.js";
 import {
-  fakeDocker,
-  KEY_TAIL_LOG,
+  LOG_SOURCES,
+  serveKeyTail,
   setSensitive,
   startShell,
 } from "../containers/fixtures.js";
+import { expectKeyTailMasked } from "../helpers/key-tail.js";
+import { callTool } from "../helpers/mcp.js";
 
 type Run = (
   actionId: string,
@@ -82,86 +84,53 @@ describe("logs over MCP", () => {
     expect(history).not.toContain("fake-mcp-pass");
   });
 
-  it("coolify__logs_tail shows no key body when the tail starts inside a key, from Coolify or SSH", async () => {
-    const started = await startShell();
-    harness = started.harness;
-    const { fake, connectionId } = started;
-    fake.set("GET /applications/app-web-uuid/logs", {
-      json: { logs: KEY_TAIL_LOG },
-    });
-    fakeDocker(harness, {
-      ps: [[/applicationUuid=app-web-uuid/, "web-abc|running||\n"]],
-      logs: KEY_TAIL_LOG,
-    });
-    const runs = withRunHistory(harness.mock);
-    const ctx = withRun(harness.mock.ctx, (id, options) =>
-      runs.run(id, options?.input ?? {}),
-    );
-    harness.mock.setActor(OWNER);
-    for (const sensitive of [true, false]) {
-      setSensitive(harness, connectionId, sensitive);
-      const answer = await handleMcp(ctx, {
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/call",
-        params: {
-          name: "coolify__logs_tail",
-          arguments: {
-            connectionId: String(connectionId),
-            uuid: "app-web-uuid",
-            lines: 4,
-            confirm: true,
-          },
-        },
+  it.each(LOG_SOURCES)(
+    "coolify__logs_tail from %s shows no key body when the tail starts inside a key",
+    async (source, sensitive) => {
+      const started = await startShell();
+      serveKeyTail(started, sensitive);
+      const shown = await toolText(started, "coolify__logs_tail", {
+        uuid: "app-web-uuid",
+        confirm: true,
       });
-      const result = answer?.result as {
-        isError: boolean;
-        content: { text: string }[];
-      };
-      expect(result.isError).toBe(false);
-      const shown = result.content.map((c) => c.text).join("\n");
-      expect(shown).toContain(sensitive ? "coolify" : "ssh");
-      expect(shown).toContain("after the key");
-      expect(shown).not.toContain("fake-snapshot-key-body");
-    }
-  });
+      expect(shown).toContain(`"source":"${source}"`);
+      expectKeyTailMasked(shown);
+    },
+  );
 });
+
+/**
+ * One tool call on `started`'s connection through core's run history, as the
+ * owner; its text, after checking it isn't an error.
+ */
+async function toolText(
+  started: Awaited<ReturnType<typeof startShell>>,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<string> {
+  harness = started.harness;
+  const runs = withRunHistory(harness.mock);
+  const ctx = withRun(harness.mock.ctx, (id, options) =>
+    runs.run(id, options?.input ?? {}),
+  );
+  harness.mock.setActor(OWNER);
+  const result = await callTool(ctx, name, {
+    connectionId: String(started.connectionId),
+    ...args,
+  });
+  expect(result.isError).toBe(false);
+  return result.content.map((c) => c.text).join("\n");
+}
 
 describe("Coolify's /logs through the generic API over MCP", () => {
   it("coolify__api_call of a logs read shows no key body when the tail starts inside a key", async () => {
     const started = await startShell({ settings: { allowMcpChanges: true } });
-    harness = started.harness;
-    const { fake, connectionId } = started;
-    setSensitive(harness, connectionId, true);
-    fake.set("GET /applications/app-web-uuid/logs", {
-      json: { logs: KEY_TAIL_LOG },
+    serveKeyTail(started, true);
+    const shown = await toolText(started, "coolify__api_call", {
+      operationId: "get-application-logs-by-uuid",
+      params: JSON.stringify({ uuid: "app-web-uuid" }),
+      confirmed: true,
     });
-    const runs = withRunHistory(harness.mock);
-    const ctx = withRun(harness.mock.ctx, (id, options) =>
-      runs.run(id, options?.input ?? {}),
-    );
-    harness.mock.setActor(OWNER);
-    const answer = await handleMcp(ctx, {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/call",
-      params: {
-        name: "coolify__api_call",
-        arguments: {
-          connectionId: String(connectionId),
-          operationId: "get-application-logs-by-uuid",
-          params: JSON.stringify({ uuid: "app-web-uuid" }),
-          confirmed: true,
-        },
-      },
-    });
-    const result = answer?.result as {
-      isError: boolean;
-      content: { text: string }[];
-    };
-    expect(result.isError).toBe(false);
-    const shown = result.content.map((c) => c.text).join("\n");
-    expect(shown).toContain("after the key");
-    expect(shown).not.toContain("fake-snapshot-key-body");
+    expectKeyTailMasked(shown);
   });
 });

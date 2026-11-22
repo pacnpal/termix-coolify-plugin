@@ -12,11 +12,12 @@ import { resourceLists } from "../helpers/resources.js";
 import {
   dropGrant,
   duringResourceRead,
-  KEY_TAIL_LOGS,
+  keyTailPreviewLogs,
   moveTarget,
   PREVIEW_CHANGES,
   previewAnswers,
 } from "../helpers/previews.js";
+import { expectKeyTailMasked } from "../helpers/key-tail.js";
 
 let harness: PluginHarness | null = null;
 
@@ -371,14 +372,11 @@ describe("a preview's container logs", () => {
   });
 
   it("masks logs that start inside a private key", async () => {
-    const { harness, id } = await start(undefined, KEY_TAIL_LOGS);
-    const answer = await harness.request(
-      "GET",
-      `${web(id)}/previews/42/logs?lines=3`,
-    );
+    const { harness, fake, id } = await start();
+    fake.set(...keyTailPreviewLogs());
+    const answer = await harness.request("GET", `${web(id)}/previews/42/logs`);
     expect(answer.status).toBe(200);
-    expect(answer.body.text).not.toContain("fake-preview-key-body");
-    expect(answer.body.text).toContain("preview ready");
+    expectKeyTailMasked(answer.body.text);
   });
 
   it("needs coolify.operate and an operate grant", async () => {

@@ -7,7 +7,8 @@ import {
   startLifecycle,
 } from "../helpers/lifecycle.js";
 import { OWNER, type PluginHarness } from "../helpers/plugin.js";
-import { KEY_TAIL_LOGS, previewAnswers } from "../helpers/previews.js";
+import { expectKeyTailMasked } from "../helpers/key-tail.js";
+import { keyTailPreviewLogs, previewAnswers } from "../helpers/previews.js";
 import { withRunHistory } from "../helpers/run-history.js";
 import { callTool, withRun } from "../helpers/mcp.js";
 
@@ -29,21 +30,26 @@ async function start() {
   return started;
 }
 
+/** coolify__preview_logs of PR 42 through core's run history: what it showed. */
+async function previewLogsOverMcp(h: PluginHarness, id: number) {
+  const runs = withRunHistory(h.mock);
+  const ctx = withRun(h.mock.ctx, (actionId, options) =>
+    runs.run(actionId, options?.input ?? {}),
+  );
+  const result = await callTool(ctx, "coolify__preview_logs", {
+    connectionId: String(id),
+    uuid: "app-web-uuid",
+    pullRequestId: 42,
+    confirm: true,
+  });
+  expect(result.isError).toBe(false);
+  return { runs, shown: result.content.map((c) => c.text).join("\n") };
+}
+
 describe("previews over MCP", () => {
   it("coolify__preview_logs answers the redacted logs once and the run keeps none of it", async () => {
     const { harness, id } = await start();
-    const runs = withRunHistory(harness.mock);
-    const ctx = withRun(harness.mock.ctx, (actionId, options) =>
-      runs.run(actionId, options?.input ?? {}),
-    );
-    const result = await callTool(ctx, "coolify__preview_logs", {
-      connectionId: String(id),
-      uuid: "app-web-uuid",
-      pullRequestId: 42,
-      confirm: true,
-    });
-    expect(result.isError).toBe(false);
-    const shown = result.content.map((c) => c.text).join("\n");
+    const { runs, shown } = await previewLogsOverMcp(harness, id);
     expect(shown).toContain("preview listening on 3000");
     expect(shown).toContain("preview ready");
     expect(shown).not.toContain("fake-preview-pass");
@@ -57,23 +63,8 @@ describe("previews over MCP", () => {
 
   it("coolify__preview_logs masks logs that start inside a private key", async () => {
     const { harness, fake, id } = await start();
-    for (const [route, answer] of Object.entries(KEY_TAIL_LOGS)) {
-      fake.set(route, answer);
-    }
-    const runs = withRunHistory(harness.mock);
-    const ctx = withRun(harness.mock.ctx, (actionId, options) =>
-      runs.run(actionId, options?.input ?? {}),
-    );
-    const result = await callTool(ctx, "coolify__preview_logs", {
-      connectionId: String(id),
-      uuid: "app-web-uuid",
-      pullRequestId: 42,
-      confirm: true,
-    });
-    expect(result.isError).toBe(false);
-    const shown = result.content.map((c) => c.text).join("\n");
-    expect(shown).toContain("preview ready");
-    expect(shown).not.toContain("fake-preview-key-body");
+    fake.set(...keyTailPreviewLogs());
+    expectKeyTailMasked((await previewLogsOverMcp(harness, id)).shown);
   });
 
   it("create and domain changes need confirmed: true, before core is asked", async () => {

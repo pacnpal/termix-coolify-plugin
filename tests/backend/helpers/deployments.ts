@@ -2,6 +2,7 @@ import { expect, vi } from "vitest";
 import type { fakeCoolify, FakeAnswer } from "./fake-coolify.js";
 import { grant } from "./lifecycle.js";
 import { OTHER, type PluginHarness } from "./plugin.js";
+import { KEY_TAIL } from "./key-tail.js";
 
 /**
  * ctx.operations.run as core answers it across the plugin process boundary:
@@ -161,12 +162,21 @@ export function keyEntries(from: number) {
   ];
 }
 
-/**
- * keyEntries cut inside the key, as a log read from its tail would be: the
- * body and END with no BEGIN before them.
- */
+/** KEY_TAIL's lines as build log entries, the first at `from`. */
 export function keyTailEntries(from: number) {
-  return keyEntries(from - 1).slice(1);
+  return KEY_TAIL.lines.map((line, i) => logEntry(from + i, line));
+}
+
+/** web's dep-done with a build log that starts inside a key: `fake.set(...it)`. */
+export function keyTailDeployment(): [string, FakeAnswer] {
+  return [
+    "GET /deployments/dep-done",
+    {
+      json: deploymentRaw("dep-done", "finished", {
+        entries: keyTailEntries(1),
+      }),
+    },
+  ];
 }
 
 /** web's rollback images as Coolify lists them: the current one and two older. */

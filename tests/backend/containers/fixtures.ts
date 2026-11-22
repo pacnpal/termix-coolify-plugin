@@ -5,22 +5,11 @@ import type {
   PluginSshExecResult,
 } from "@termix-ssh/plugin-sdk/backend";
 import { healthyCoolify } from "../helpers/fake-coolify.js";
+import { KEY_TAIL } from "../helpers/key-tail.js";
 import { OWNER, startPlugin, type PluginHarness } from "../helpers/plugin.js";
 import { resourceLists } from "../helpers/resources.js";
 
 export const HOST_ID = 7;
-
-/**
- * A log read from its tail (docker logs --tail, Coolify's ?lines=), cut
- * inside a private key: its body and END with no BEGIN before them.
- */
-export const KEY_TAIL_LOG = [
-  "fake-snapshot-key-body-one",
-  "fake-snapshot-key-body-two",
-  "-----END OPENSSH PRIVATE KEY-----",
-  "after the key",
-  "",
-].join("\n");
 export const FINGERPRINT = "SHA256:fake-host-key-fingerprint";
 
 /** The Linked host of srv-vps1-uuid, as ctx.hosts serves it. */
@@ -238,6 +227,30 @@ export function setSensitive(
   harness.db.sqlite
     .prepare("UPDATE p_coolify_connections SET abilities = ? WHERE id = ?")
     .run(JSON.stringify(stored), connectionId);
+}
+
+/** Where a logs snapshot comes from, by whether the token has read:sensitive. */
+export const LOG_SOURCES = [
+  ["coolify", true],
+  ["ssh", false],
+] as const;
+
+/**
+ * web's logs read from their tail, cut inside a key (KEY_TAIL), from Coolify
+ * and over SSH alike, with the token's read:sensitive set to `sensitive`.
+ */
+export function serveKeyTail(
+  started: Awaited<ReturnType<typeof startShell>>,
+  sensitive: boolean,
+) {
+  started.fake.set("GET /applications/app-web-uuid/logs", {
+    json: { logs: KEY_TAIL.text },
+  });
+  setSensitive(started.harness, started.connectionId, sensitive);
+  return fakeDocker(started.harness, {
+    ps: [[/applicationUuid=app-web-uuid/, "web-abc|running||\n"]],
+    logs: KEY_TAIL.text,
+  });
 }
 
 /** A plugin with one connection whose server srv-vps1-uuid has a Linked host. */

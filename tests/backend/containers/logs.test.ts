@@ -1,12 +1,14 @@
 import { EventEmitter } from "node:events";
 import { REDACTED_VALUE } from "@termix-ssh/plugin-sdk/operations";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { expectKeyTailMasked, KEY_TAIL } from "../helpers/key-tail.js";
 import { OTHER, OWNER, type PluginHarness } from "../helpers/plugin.js";
 import { resourceLists } from "../helpers/resources.js";
 import {
   fakeDocker,
   HOST_ID,
-  KEY_TAIL_LOG,
+  LOG_SOURCES,
+  serveKeyTail,
   setSensitive,
   startShell,
 } from "./fixtures.js";
@@ -687,24 +689,20 @@ describe("logs snapshot route", () => {
     expectMasked(res.body.text);
   });
 
-  it("a snapshot that starts inside a private key shows none of its body, from Coolify or SSH", async () => {
-    const { harness: h, fake, connectionId } = await start();
-    fake.set("GET /applications/app-web-uuid/logs", {
-      json: { logs: KEY_TAIL_LOG },
-    });
-    fakeDocker(h, { ps: [WEB_RUNNING], logs: KEY_TAIL_LOG });
-    for (const sensitive of [true, false]) {
-      setSensitive(h, connectionId, sensitive);
-      const res = await h.request(
+  it.each(LOG_SOURCES)(
+    "a snapshot from %s that starts inside a private key shows none of its body",
+    async (source, sensitive) => {
+      const started = await start();
+      serveKeyTail(started, sensitive);
+      const res = await started.harness.request(
         "GET",
-        logsPath(connectionId, "app-web-uuid", "?lines=4"),
+        logsPath(started.connectionId, "app-web-uuid"),
       );
       expect(res.status).toBe(200);
-      expect(res.body.source).toBe(sensitive ? "coolify" : "ssh");
-      expect(res.body.text).not.toContain("fake-snapshot-key-body");
-      expect(res.body.text).toContain("after the key");
-    }
-  });
+      expect(res.body.source).toBe(source);
+      expectKeyTailMasked(res.body.text);
+    },
+  );
 
   it("a target change before Coolify's logs call reads nothing", async () => {
     const { harness: h, fake, connectionId } = await start();
@@ -1173,31 +1171,29 @@ describe("logs follow socket", () => {
     );
   });
 
-  it("a follow that starts inside a private key sends none of its body", async () => {
-    const wide = `FAKEFOLLOWBODY${"B".repeat(50)}`;
-    for (const chunks of [
-      // The whole tail in one chunk.
-      [KEY_TAIL_LOG],
-      // PEM-wide body lines, a line a chunk, as docker logs -f writes them.
-      [`${wide}\n`, `${wide}\n`, "FAKEFOLLOWEND==\n", KEY_TAIL_LOG.slice(-48)],
-    ]) {
+  const wide = `FAKEFOLLOWBODY${"B".repeat(50)}\n`;
+  it.each([
+    ["the whole tail in one chunk", [KEY_TAIL.text]],
+    [
+      "PEM-wide body lines, a line a chunk, as docker logs -f writes them",
+      [wide, wide, "FAKEFOLLOWEND==\n", `${KEY_TAIL.end}\n${KEY_TAIL.after}\n`],
+    ],
+  ])(
+    "a follow that starts inside a private key sends none of it: %s",
+    async (_name, chunks) => {
       const { ssh, socket } = await following();
       for (const chunk of chunks) {
         ssh.execs[0].stream.emit("data", Buffer.from(chunk));
       }
-      await vi.waitFor(() =>
-        expect(
-          sentOf(socket, "lines").flatMap((m) => m.lines as string[]),
-        ).toContain("after the key"),
-      );
-      const sent = sentOf(socket, "lines")
-        .flatMap((m) => m.lines as string[])
-        .join("\n");
-      expect(sent).not.toMatch(/fake-snapshot-key-body|FAKEFOLLOW/);
-      await harness?.close();
-      harness = null;
-    }
-  });
+      const sent = () =>
+        sentOf(socket, "lines")
+          .flatMap((m) => m.lines as string[])
+          .join("\n");
+      await vi.waitFor(() => expect(sent()).toContain(KEY_TAIL.after));
+      expectKeyTailMasked(sent());
+      expect(sent()).not.toContain("FAKEFOLLOW");
+    },
+  );
 
   it("masks the token when it straddles the long-line split", async () => {
     const { ssh, socket } = await following();

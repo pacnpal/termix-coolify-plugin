@@ -14,6 +14,7 @@ import {
   keyTailEntries,
   logEntry,
 } from "../helpers/deployments.js";
+import { expectKeyTailMasked, KEY_TAIL } from "../helpers/key-tail.js";
 
 describe("build log parsing", () => {
   it("reads Coolify's JSON lines in order, keeping the hidden flag", () => {
@@ -117,19 +118,13 @@ describe("private keys across build log lines", () => {
   });
 
   it("masks a log that starts inside a key, from its start through the END", () => {
-    const entries = [
-      logEntry(1, `${KEY_BODY}-cut-first`),
-      ...keyTailEntries(2),
-    ];
-    for (const raw of [
-      JSON.stringify(entries),
-      entries.map((e) => e.output).join("\n"),
-    ]) {
+    const entries = keyTailEntries(1);
+    for (const raw of [JSON.stringify(entries), KEY_TAIL.text]) {
       const log = buildLog(raw, []);
-      expect(leaks(log)).toBe(false);
+      expectKeyTailMasked(log);
       const outputs = log.lines.map((l) => l.output);
-      expect(outputs).toContain("after the key");
-      expect(outputs).toContain("[redacted]-----END OPENSSH PRIVATE KEY-----");
+      expect(outputs).toContain(KEY_TAIL.after);
+      expect(outputs).toContain(`[redacted]${KEY_TAIL.end}`);
     }
   });
 
