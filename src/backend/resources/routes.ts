@@ -150,6 +150,7 @@ const REFUSALS: Record<string, number> = {
   "not-linked": 404,
   "target-changed": 409,
   "deployment-ended": 409,
+  "targets-changed": 409,
 };
 
 /**
