@@ -94,3 +94,45 @@ export function deploymentAnswers(): Record<string, FakeAnswer> {
     },
   };
 }
+
+/** web's rollback images as Coolify lists them: the current one and two older. */
+export function rollbackImagesRaw() {
+  return {
+    current: "abc1234",
+    images: [
+      {
+        tag: "abc1234",
+        created_at: "2026-11-19T10:00:00.000000Z",
+        is_current: true,
+        source: "local",
+      },
+      {
+        tag: "0ld3r00",
+        created_at: "2026-11-18T09:00:00.000000Z",
+        is_current: false,
+        source: "local",
+      },
+      {
+        tag: "0ld3st0",
+        created_at: "2026-11-17T08:00:00.000000Z",
+        is_current: false,
+        source: "registry",
+      },
+    ],
+  };
+}
+
+/** Coolify's answers for web's rollback images and a rollback to one of them. */
+export function rollbackAnswers(): Record<string, FakeAnswer> {
+  return {
+    "GET /applications/app-web-uuid/rollback-images": {
+      json: rollbackImagesRaw(),
+    },
+    "POST /applications/app-web-uuid/rollback": {
+      json: {
+        message: "Rollback deployment queued.",
+        deployment_uuid: "dep-rollback",
+      },
+    },
+  };
+}

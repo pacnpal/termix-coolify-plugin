@@ -273,6 +273,24 @@ The actions `coolify.deployment-list`, `coolify.deployment-get` (the build log, 
 `coolify.deployment-cancel` do the same from Operations Center, Automations, the CLI, the Termix API and
 MCP. See [the API](api.md).
 
+### Rollback
+
+**Roll back** in the Deployments view lists the images Coolify can roll the application back to (on its
+server, and in the registry when a registry image is set), marks the one running now, and rolls back to the
+one you pick after a confirm that names its image tag. Coolify then queues a rollback deployment, which shows
+in the history. It needs **Operate Coolify resources** and a connection you own or a Grant at operate or
+configure; services and databases have no rollback.
+
+- The image must still be in Coolify's list when you confirm; the connection and your Grant are checked
+  again right before Coolify is asked.
+- Moving to another application, or closing the view, while the confirm is open sends nothing.
+
+`coolify.rollback` (on a Linked host's application) and `coolify.resource-rollback` (by connection and uuid)
+do the same from Operations Center, Automations, the CLI, the Termix API and MCP, with the image picked from
+`coolify.rollback-images` or `coolify.resource-rollback-images`. They are destructive, so Termix confirms
+them, and the confirm names the tag. A rollback is also the **undo** of a deploy: deploying an application
+records the image it ran before, and undoing the run in Operations Center rolls back to it.
+
 ## Metrics and traffic
 
 Coolify keeps no metric history itself: Sentinel, its agent on each server, does. The plugin reads it the way

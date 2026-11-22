@@ -630,7 +630,8 @@
           "surfaces": {
             "assistant": true,
             "mcp": true
-          }
+          },
+          "undo": "coolify.rollback"
         },
         {
           "id": "coolify.start",
@@ -738,7 +739,8 @@
           "surfaces": {
             "assistant": true,
             "mcp": true
-          }
+          },
+          "undo": "coolify.resource-rollback"
         },
         {
           "id": "coolify.resource-restart",
@@ -969,6 +971,120 @@
           "surfaces": {
             "assistant": false,
             "mcp": false
+          }
+        },
+        {
+          "id": "coolify.rollback-images",
+          "titleKey": "ops.rollbackImages.title",
+          "descriptionKey": "ops.rollbackImages.description",
+          "icon": "History",
+          "scope": "resource",
+          "resource": "coolify.resource",
+          "risk": "read",
+          "permission": "view",
+          "hostAccess": "connect",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.rollback",
+          "titleKey": "ops.rollback.title",
+          "descriptionKey": "ops.rollback.description",
+          "icon": "Undo2",
+          "scope": "resource",
+          "resource": "coolify.resource",
+          "inputs": [
+            {
+              "key": "image",
+              "type": "select",
+              "labelKey": "ops.fields.image.label",
+              "descriptionKey": "ops.fields.image.description",
+              "optionsFrom": "coolify.rollback-images",
+              "required": true
+            }
+          ],
+          "risk": "destructive",
+          "permission": "operate",
+          "hostAccess": "edit",
+          "dryRun": "describe",
+          "check": "coolify.rollback-images",
+          "surfaces": {
+            "assistant": false,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.resource-rollback-images",
+          "titleKey": "ops.resourceRollbackImages.title",
+          "descriptionKey": "ops.resourceRollbackImages.description",
+          "icon": "History",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.appUuid.label",
+              "descriptionKey": "ops.fields.appUuid.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.resource-rollback",
+          "titleKey": "ops.resourceRollback.title",
+          "descriptionKey": "ops.resourceRollback.description",
+          "icon": "Undo2",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.appUuid.label",
+              "descriptionKey": "ops.fields.appUuid.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            },
+            {
+              "key": "image",
+              "type": "select",
+              "labelKey": "ops.fields.image.label",
+              "descriptionKey": "ops.fields.image.description",
+              "optionsFrom": "coolify.resource-rollback-images",
+              "required": true
+            }
+          ],
+          "risk": "destructive",
+          "permission": "operate",
+          "dryRun": "describe",
+          "check": "coolify.resource-rollback-images",
+          "surfaces": {
+            "assistant": false,
+            "mcp": true
           }
         },
         {

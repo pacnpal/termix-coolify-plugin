@@ -10,6 +10,7 @@ import type {
   LifecycleOutcome,
   LifecycleVerb,
 } from "../resources/lifecycle.js";
+import type { Deployments } from "../deployments/service.js";
 import type { Resources } from "../resources/service.js";
 import type { Sync } from "../sync/service.js";
 import { connectionIdInput } from "./connections.js";
@@ -80,9 +81,40 @@ function resourceRow(r: ResourceDto) {
  */
 export function registerLifecycleOperations(
   ctx: PluginContext,
-  deps: { lifecycle: Lifecycle; resources: Resources; sync: Sync },
+  deps: {
+    lifecycle: Lifecycle;
+    resources: Resources;
+    sync: Sync;
+    deployments: Pick<Deployments, "rollbackImages">;
+  },
 ): void {
-  const { lifecycle, resources, sync } = deps;
+  const { lifecycle, resources, sync, deployments } = deps;
+
+  /**
+   * The image an application runs before a deploy, so the run's undo (a
+   * rollback) can bring it back. Null for anything but an application, when
+   * nothing runs, or when the list can't be read: the deploy goes ahead
+   * without an undo. The rollback checks the image is still listed before
+   * it acts.
+   */
+  async function imageBefore(
+    connectionId: number,
+    resource: ResourceDto,
+    signal: AbortSignal,
+  ): Promise<string | null> {
+    if (resource.kind !== "application") return null;
+    try {
+      const { current, images } = await deployments.rollbackImages(
+        connectionId,
+        resource.uuid,
+        { signal },
+      );
+      return current && images.some((i) => i.tag === current) ? current : null;
+    } catch {
+      signal.throwIfAborted();
+      return null;
+    }
+  }
 
   ctx.operations.register("coolify.list-resources", {
     run: async (_input, { hostId }) => {
@@ -108,13 +140,20 @@ export function registerLifecycleOperations(
         c.hostId,
         c.resourceKey,
       );
+      const image =
+        verb === "deploy"
+          ? await imageBefore(connectionId, resource, c.signal)
+          : null;
       const outcome = await lifecycle.run(connectionId, resource, verb, {
         force: input.force === true,
         wait: input.wait === true,
         signal: c.signal,
         hostId: c.hostId,
       });
-      return result(verb, resource, outcome);
+      return {
+        ...result(verb, resource, outcome),
+        ...(image && { undoInput: { image } }),
+      };
     },
   });
 
@@ -139,13 +178,26 @@ export function registerLifecycleOperations(
     const connectionId = connectionIdInput(input);
     const resource = await lifecycle.authorize(connectionId, text(input.uuid));
     const hostId = await lifecycle.hostOf(connectionId, resource);
+    const image =
+      verb === "deploy"
+        ? await imageBefore(connectionId, resource, c.signal)
+        : null;
     const outcome = await lifecycle.run(connectionId, resource, verb, {
       force: input.force === true,
       wait: input.wait === true,
       signal: c.signal,
       hostId: hostId ?? undefined,
     });
-    return result(verb, resource, outcome);
+    return {
+      ...result(verb, resource, outcome),
+      ...(image && {
+        undoInput: {
+          connectionId: String(connectionId),
+          uuid: resource.uuid,
+          image,
+        },
+      }),
+    };
   }
 
   ctx.operations.register("coolify.resource-deploy", {

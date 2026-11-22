@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { History, TriangleAlert } from "lucide-react";
+import { History, TriangleAlert, Undo2 } from "lucide-react";
 import { usePluginApi, useTranslation } from "@termix-ssh/plugin-sdk/frontend";
 import {
   BackButton,
@@ -20,6 +20,7 @@ import {
   type Resource,
 } from "../api";
 import { BuildLogView, DeploymentStatus } from "./BuildLogView";
+import { RollbackView } from "./RollbackView";
 import { formatTime } from "./resource-model";
 
 /** Rows a history page shows. */
@@ -72,6 +73,9 @@ export function DeploymentsTab({
   const [page, setPage] = useState(0);
   const [attempt, setAttempt] = useState(0);
   const [open, setOpen] = useState<string | null>(null);
+  // Rollback is for applications, and needs operate as the backend does.
+  const canRollback = canOperate && resource.kind === "application";
+  const [rollingBack, setRollingBack] = useState(false);
   // Each answer is stored with the page it is for, so another page never
   // shows it.
   const [state, setState] = useState<{ page: number; load: Load }>({
@@ -81,7 +85,7 @@ export function DeploymentsTab({
   const load: Load = state.page === page ? state.load : { kind: "loading" };
 
   useEffect(() => {
-    if (open) return;
+    if (open || rollingBack) return;
     let live = true;
     setState({ page, load: { kind: "loading" } });
     api
@@ -98,7 +102,31 @@ export function DeploymentsTab({
     return () => {
       live = false;
     };
-  }, [api, connectionId, resource.uuid, page, attempt, open]);
+  }, [api, connectionId, resource.uuid, page, attempt, open, rollingBack]);
+
+  if (rollingBack && canRollback) {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex items-center gap-2 border-b border-border">
+          <BackButton
+            onClick={() => setRollingBack(false)}
+            label={t("deployments.back")}
+          />
+        </div>
+        <div className="min-h-0 flex-1">
+          <RollbackView
+            connectionId={connectionId}
+            resource={resource}
+            onDone={() => {
+              setRollingBack(false);
+              setPage(0);
+              setAttempt((n) => n + 1);
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
 
   if (open) {
     return (
@@ -187,6 +215,16 @@ export function DeploymentsTab({
           loading={load.kind === "loading"}
           onClick={() => setAttempt((n) => n + 1)}
         />
+        {canRollback && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setRollingBack(true)}
+          >
+            <Undo2 className="size-3.5" />
+            {t("deployments.rollbackOpen")}
+          </Button>
+        )}
         {!canOperate && (
           <span className="text-xs text-muted-foreground">
             {t("deployments.noLogAccess")}

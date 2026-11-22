@@ -9,6 +9,7 @@ import {
   toKey,
   toPart,
   toProject,
+  toRollbackImages,
   toSentinelSettings,
   toServer,
   toService,
@@ -19,6 +20,7 @@ import {
   type ProjectDto,
   type ResourceDto,
   type ResourceKind,
+  type RollbackImagesDto,
   type SentinelSettingsDto,
   type ServerDto,
   type StorageDto,
@@ -380,6 +382,35 @@ export function createCoolifyApi(http: CoolifyHttp) {
         beforeFetch: opts.beforeFetch,
       });
       return { deployment: toDeployment(body), log: toDeploymentLog(body) };
+    },
+
+    /** The images an application can be rolled back to, and the current one. */
+    async rollbackImages(
+      appUuid: string,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<RollbackImagesDto> {
+      return toRollbackImages(
+        await call(op("list-application-rollback-images", { uuid: appUuid }), {
+          beforeFetch: opts.beforeFetch,
+        }),
+      );
+    },
+
+    /** Queues a rollback deployment to `tag`; its deployment uuid, when Coolify says. */
+    async rollback(
+      appUuid: string,
+      tag: string,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<{ deploymentUuid: string | null }> {
+      const body = await call<unknown>(
+        op("rollback-application-by-uuid", { uuid: appUuid }),
+        { body: { commit: tag }, beforeFetch: opts.beforeFetch },
+      );
+      const id =
+        body && typeof body === "object"
+          ? (body as { deployment_uuid?: unknown }).deployment_uuid
+          : undefined;
+      return { deploymentUuid: typeof id === "string" ? id : null };
     },
 
     /** Cancels a queued or running deployment; its new status, when Coolify says. */

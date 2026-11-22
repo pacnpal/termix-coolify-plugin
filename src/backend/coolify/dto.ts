@@ -459,6 +459,52 @@ export function toDeploymentLog(input: unknown): string | null {
   return typeof logs === "string" ? logs : null;
 }
 
+/** One image an application can be rolled back to. */
+export interface RollbackImageDto {
+  /** The image tag (a commit for a built app); what a rollback is sent. */
+  tag: string;
+  createdAt: string | null;
+  /** The image the application runs now. */
+  current: boolean;
+  /** On the server (`local`) or in the Docker registry (`registry`). */
+  source: "local" | "registry" | null;
+}
+
+export interface RollbackImagesDto {
+  /** The tag running now, or null when nothing is. */
+  current: string | null;
+  images: RollbackImageDto[];
+}
+
+/** A Docker image tag: what Coolify lists and what a rollback may name. */
+export const IMAGE_TAG = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/;
+
+/**
+ * An application's rollback images, in Coolify's order. Rows without a
+ * valid tag are dropped; `current` is kept only when it is a valid tag.
+ */
+export function toRollbackImages(input: unknown): RollbackImagesDto {
+  const raw = obj(input);
+  const images: RollbackImageDto[] = [];
+  for (const item of list(raw.images)) {
+    const row = obj(item);
+    const tag = str(row.tag);
+    if (!IMAGE_TAG.test(tag)) continue;
+    images.push({
+      tag,
+      createdAt: strOrNull(row.created_at),
+      current: bool(row.is_current),
+      source:
+        row.source === "local" || row.source === "registry" ? row.source : null,
+    });
+  }
+  const current = strOrNull(raw.current);
+  return {
+    current: current && IMAGE_TAG.test(current) ? current : null,
+    images,
+  };
+}
+
 export function toTeam(input: unknown): TeamDto {
   const raw = obj(input);
   return { id: str(raw.id), name: str(raw.name) };

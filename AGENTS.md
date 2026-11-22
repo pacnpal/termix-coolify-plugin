@@ -629,3 +629,11 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   state, `notCoolifyHost`, with no connection read, since only the hostless tab lists every connection's
   resources). `files.openHost` and `files.openEditor` are File
   Manager frontend actions run with `invokeAction`.
+- Rollback (1.1): `deployments/service.ts` `rollbackImages` (view) and `rollback` (operate), applications
+  only, through the same `open`/`holds` snapshot re-check as cancel; the image must be in Coolify's list as
+  read in that same call. `ops/rollback.ts` has both scopes; the rollbacks are destructive and in
+  `MCP_CONFIRM_REQUIRED`. `coolify.deploy` / `coolify.resource-deploy` declare them as `undo`: before an
+  application deploy, `imageBefore` in `ops/lifecycle.ts` reads the current image and returns it as
+  `undoInput` only when it is listed; a failed read never blocks the deploy. `PluginOperationOutcome` has
+  no `undoInput`, so tests read it from the handler's own result. `RollbackView` re-checks after the
+  confirm that it is still mounted and on the same application before it posts.
