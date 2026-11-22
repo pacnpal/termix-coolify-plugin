@@ -49,6 +49,9 @@ network** on. A name such as `coolify.lan` always needs `https`.
   without it.
 - **confirm-required**: pass `confirmed: true` (MCP, the operations API, the `coolify.client` service), or
   `confirm: true` where the action asks for it.
+- **wait-timeout**: a deploy with **wait** gave up after 30 minutes while the deployment was still running.
+  The deployment goes on in Coolify; follow it with the link in the message, `coolify.deployment-get` or
+  the Deployments section. No deployment event was sent.
 - A key scoped to `operations:read` runs only reads.
 - A tool answers with a run id and waits: an approval rule needs a person to approve it in Termix.
 - **unsupported-by-instance**: this Coolify is older than the one that added the operation. Update Coolify.
