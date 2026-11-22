@@ -1,6 +1,11 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { REDACTED_VALUE } from "@termix-ssh/plugin-sdk/operations";
-import { deploymentAnswers } from "../helpers/deployments.js";
+import {
+  deploymentAnswers,
+  deploymentRaw,
+  KEY_BODY,
+  keyEntries,
+} from "../helpers/deployments.js";
 import {
   changes,
   grant,
@@ -12,6 +17,7 @@ import { OTHER, type PluginHarness } from "../helpers/plugin.js";
 let harness: PluginHarness | null = null;
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await harness?.close();
   harness = null;
 });
@@ -137,6 +143,20 @@ describe("one deployment with its build log", () => {
     expect(JSON.stringify(answer.body)).not.toContain(LIFECYCLE_TOKEN);
   });
 
+  it("masks a private key printed across several log entries", async () => {
+    const { harness, fake, id } = await start();
+    fake.set("GET /deployments/dep-done", {
+      json: deploymentRaw("dep-done", "finished", { entries: keyEntries(1) }),
+    });
+    const answer = await harness.request(
+      "GET",
+      `${web(id)}/deployments/dep-done`,
+    );
+    expect(answer.status).toBe(200);
+    expect(JSON.stringify(answer.body)).not.toContain(KEY_BODY);
+    expect(JSON.stringify(answer.body)).toContain("after the key");
+  });
+
   it("answers log null when the token can't read build logs", async () => {
     const { harness, fake, id } = await start();
     fake.set("GET /deployments/dep-done", {
@@ -197,6 +217,45 @@ describe("one deployment with its build log", () => {
     );
     expect(viewGrant.status).toBe(403);
   });
+});
+
+/**
+ * ctx.operations.run as core answers it across the plugin process boundary:
+ * a handler's refusal comes back as a plain Error, its class and code lost.
+ */
+function coreLikeRun(harness: PluginHarness) {
+  const ops = harness.mock.ctx.operations;
+  const run = ops.run.bind(ops);
+  vi.spyOn(ops, "run").mockImplementation(async (id, options) => {
+    try {
+      return await run(id, options);
+    } catch (err) {
+      throw new Error((err as Error).message);
+    }
+  });
+}
+
+describe("cancel refuses before Coolify is asked", () => {
+  it.each([
+    ["another user", null, 404],
+    ["a view grant", "view", 403],
+  ] as const)(
+    "%s gets a refusal and Coolify gets no request",
+    async (_who, level, status) => {
+      const { harness, fake, id } = await start();
+      if (level) grant(harness, id, OTHER, level);
+      coreLikeRun(harness);
+      const before = fake.calls.length;
+      const answer = await harness.request(
+        "POST",
+        `${web(id)}/deployments/dep-run/cancel`,
+        undefined,
+        OTHER,
+      );
+      expect(answer.status).toBe(status);
+      expect(fake.calls.slice(before)).toEqual([]);
+    },
+  );
 });
 
 describe("cancelling a deployment", () => {

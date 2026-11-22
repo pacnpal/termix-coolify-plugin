@@ -1,4 +1,5 @@
-import { redactLog } from "../containers/logs.js";
+import { REDACTED_VALUE } from "@termix-ssh/plugin-sdk/operations";
+import { keyBlockCarry, type KeyBlockCarry } from "../containers/logs.js";
 
 /** One line of a deployment's build log, as the plugin passes it on. */
 export interface BuildLogLine {
@@ -83,20 +84,34 @@ export function parseBuildLog(raw: unknown): BuildLogLine[] {
 }
 
 /**
- * A raw build log parsed, cut to its last MAX_BUILD_LOG_LINES lines and
- * redacted as container logs are: the connection's own `secrets` anywhere,
- * URL passwords, credential query parameters, secret-named fields and
- * Authorization credentials, in every output and command.
+ * A text's lines through `keys`: a key body line is dropped, and a text
+ * that was only key body reads as masked.
+ */
+function redactText(text: string, keys: KeyBlockCarry): string {
+  const kept = text
+    .split(/\r?\n/)
+    .map((line) => keys.line(line))
+    .filter((line): line is string => line !== null);
+  return kept.length ? kept.join("\n") : REDACTED_VALUE;
+}
+
+/**
+ * A raw build log parsed, redacted as container logs are, then cut to its
+ * last MAX_BUILD_LOG_LINES lines. Every command and output, in log order,
+ * goes through one keyBlockCarry, so a private key whose BEGIN, body and
+ * END are separate entries (or lines of a plain log) is masked whole; the
+ * rest is redactLog's: the connection's own `secrets` anywhere, URL
+ * passwords, credential query parameters, secret-named fields and
+ * Authorization credentials. Redacting before the cut means a cut that
+ * drops a BEGIN can't let its body through.
  */
 export function buildLog(raw: unknown, secrets: readonly string[]): BuildLog {
-  const all = parseBuildLog(raw);
+  const keys = keyBlockCarry(secrets);
+  const all = parseBuildLog(raw).map((line) => {
+    const command =
+      line.command === null ? null : redactText(line.command, keys);
+    return { ...line, command, output: redactText(line.output, keys) };
+  });
   const kept = all.slice(-MAX_BUILD_LOG_LINES);
-  return {
-    truncated: kept.length < all.length,
-    lines: kept.map((line) => ({
-      ...line,
-      command: line.command === null ? null : redactLog(line.command, secrets),
-      output: redactLog(line.output, secrets),
-    })),
-  };
+  return { truncated: kept.length < all.length, lines: kept };
 }

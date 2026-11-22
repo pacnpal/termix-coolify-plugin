@@ -5,7 +5,12 @@ import type {
   PluginOperationOutcome,
 } from "@termix-ssh/plugin-sdk/backend";
 import { handleMcp } from "../../../src/backend/mcp/server.js";
-import { deploymentAnswers, logEntry } from "../helpers/deployments.js";
+import {
+  deploymentAnswers,
+  KEY_BODY,
+  keyEntries,
+  logEntry,
+} from "../helpers/deployments.js";
 import { LIFECYCLE_TOKEN, startLifecycle } from "../helpers/lifecycle.js";
 import { OWNER, type PluginHarness } from "../helpers/plugin.js";
 import { withRunHistory } from "../helpers/run-history.js";
@@ -53,7 +58,8 @@ describe("build logs over MCP", () => {
             3,
             `git clone https://x:${LIFECYCLE_TOKEN}@git.example.test`,
           ),
-          logEntry(4, "last mcp build line"),
+          ...keyEntries(5).map((e) => ({ ...e, hidden: false })),
+          logEntry(10, "last mcp build line"),
         ]),
       },
     });
@@ -86,6 +92,8 @@ describe("build logs over MCP", () => {
     expect(shown).toContain("last mcp build line");
     expect(shown).not.toContain("fake-mcp-build-pass");
     expect(shown).not.toContain(LIFECYCLE_TOKEN);
+    expect(shown).not.toContain(KEY_BODY);
+    expect(shown).toContain("after the key");
 
     expect(runs.history).toHaveLength(1);
     const history = JSON.stringify(runs.history);
