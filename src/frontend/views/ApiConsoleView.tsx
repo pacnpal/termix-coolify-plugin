@@ -124,8 +124,15 @@ function MaskedValues({
   // Every reveal and hide starts a new generation; only the current
   // reveal's answer is shown, so a late one never shows a secret.
   const generation = useRef(0);
+  // The answer the reveals were last reset for. Nothing is shown for the
+  // first one yet, so its first effect resets nothing: a Reveal clicked
+  // before that effect runs (the button is on screen from the first commit)
+  // must not be dropped.
+  const resetFor = useRef(answer);
 
   useEffect(() => {
+    if (resetFor.current === answer) return;
+    resetFor.current = answer;
     generation.current++;
     setShown(null);
   }, [answer]);

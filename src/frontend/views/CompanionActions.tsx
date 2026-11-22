@@ -141,14 +141,23 @@ function DnsRecords({
   const [fqdn, setFqdn] = useState(firstDomain);
   const [content, setContent] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // What the form and rows were last reset for. The state above starts out
+  // reset for the first render's target, so the first effect resets nothing:
+  // a click that lands before it runs (the button is on screen from the
+  // first commit) must not be undone.
+  const resetFor = useRef(`${target}\n${firstDomain}`);
 
   useEffect(() => {
     let live = true;
-    setRecords({ target, rows: [] });
-    setOpen(false);
-    setFqdn(firstDomain);
-    setContent("");
-    setError(null);
+    const key = `${target}\n${firstDomain}`;
+    if (resetFor.current !== key) {
+      resetFor.current = key;
+      setRecords({ target, rows: [] });
+      setOpen(false);
+      setFqdn(firstDomain);
+      setContent("");
+      setError(null);
+    }
     // A create or remove that lands first bumps listRead, so this older
     // answer can't undo it.
     const mine = ++listRead.current;

@@ -329,6 +329,34 @@ describe("API console", () => {
     expect(screen.getByText(reason)).toBeTruthy();
   });
 
+  it("a Reveal click that lands before the answer's first effect still shows the value", async () => {
+    const api = await openConsole(CONFIGURE);
+    await openOperation("list-envs-by-application-uuid");
+    fillUuid();
+    // Click Reveal the moment React commits the answer, before its effects
+    // have run.
+    const clicked = new Promise<void>((resolve) => {
+      const observer = new MutationObserver(() => {
+        const button = screen.queryByRole("button", { name: L.reveal });
+        if (!button) return;
+        observer.disconnect();
+        fireEvent.click(button);
+        resolve();
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+    fireEvent.click(screen.getByRole("button", { name: L.run }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: L.confirmLabel }),
+    );
+    await clicked;
+    expect(await screen.findByText(ENV_VALUE)).toBeTruthy();
+    expect(api.post).toHaveBeenCalledWith(
+      "/connections/1/api/reveal",
+      expect.objectContaining({ pointer: [0, "value"] }),
+    );
+  });
+
   it("an earlier reveal that finishes after a later reveal and hide shows nothing", async () => {
     const api = await openConsole(CONFIGURE);
     await runEnvs();
