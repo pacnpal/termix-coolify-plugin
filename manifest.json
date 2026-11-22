@@ -1,7 +1,7 @@
 {
   "id": "coolify",
   "name": "Coolify for Termix",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Coolify inside Termix: servers become hosts (tunnels included), one-click container shells, deploys, logs, variables, backups and alerts, and the full Coolify API.",
   "author": {
     "name": "pacnpal",
@@ -811,6 +811,157 @@
                 }
               ],
               "required": true
+            }
+          ],
+          "risk": "destructive",
+          "permission": "operate",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.deployment-list",
+          "titleKey": "ops.deploymentList.title",
+          "descriptionKey": "ops.deploymentList.description",
+          "icon": "History",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.appUuid.label",
+              "descriptionKey": "ops.fields.appUuid.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            },
+            {
+              "key": "skip",
+              "type": "number",
+              "labelKey": "ops.fields.skip.label",
+              "descriptionKey": "ops.fields.skip.description",
+              "min": 0,
+              "default": 0
+            },
+            {
+              "key": "take",
+              "type": "number",
+              "labelKey": "ops.fields.take.label",
+              "descriptionKey": "ops.fields.take.description",
+              "min": 1,
+              "max": 50,
+              "default": 10
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.deployment-get",
+          "titleKey": "ops.deploymentGet.title",
+          "descriptionKey": "ops.deploymentGet.description",
+          "icon": "ScrollText",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "deploymentUuid",
+              "type": "string",
+              "labelKey": "ops.fields.deploymentUuid.label",
+              "descriptionKey": "ops.fields.deploymentUuid.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.appUuid.label",
+              "descriptionKey": "ops.fields.appUuid.optional",
+              "pattern": "[A-Za-z0-9_-]{1,64}"
+            },
+            {
+              "key": "showHidden",
+              "type": "boolean",
+              "labelKey": "ops.fields.showHidden.label",
+              "descriptionKey": "ops.fields.showHidden.description",
+              "default": false
+            },
+            {
+              "key": "confirm",
+              "type": "boolean",
+              "labelKey": "ops.fields.confirmLogs.label",
+              "descriptionKey": "ops.fields.confirmLogs.description",
+              "required": true
+            }
+          ],
+          "outputs": [
+            {
+              "key": "final",
+              "type": "boolean",
+              "labelKey": "ops.fields.deploymentFinal.label"
+            },
+            {
+              "key": "text",
+              "type": "textarea",
+              "labelKey": "ops.fields.buildLog.label",
+              "sensitive": true
+            }
+          ],
+          "risk": "read",
+          "permission": "operate",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.deployment-cancel",
+          "titleKey": "ops.deploymentCancel.title",
+          "descriptionKey": "ops.deploymentCancel.description",
+          "icon": "CircleStop",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "deploymentUuid",
+              "type": "string",
+              "labelKey": "ops.fields.deploymentUuid.label",
+              "descriptionKey": "ops.fields.deploymentUuid.description",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.appUuid.label",
+              "descriptionKey": "ops.fields.appUuid.optional",
+              "pattern": "[A-Za-z0-9_-]{1,64}"
             }
           ],
           "risk": "destructive",
@@ -2205,7 +2356,7 @@
   "provides": [
     {
       "service": "coolify.client",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "permission": "coolify.view"
     }
   ],

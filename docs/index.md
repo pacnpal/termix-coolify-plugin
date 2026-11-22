@@ -250,6 +250,29 @@ only with `confirm: true`. Its text is a sensitive output, so run history never 
 caller gets the masked text in the answer. See
 [the API](api.md).
 
+## Deployments
+
+An application's **Deployments** view lists its deployments, newest first, ten at a time, with their status,
+commit message, commit, server and time, and whether one is a pull request preview or a rollback. Services
+and databases have no Deployments view: Coolify deploys only applications on their own. Anyone who can view
+the connection sees the history.
+
+Opening a deployment shows its build log. Build logs can hold secrets, so opening one needs what container
+logs need: **Operate Coolify resources** and a connection you own or a Grant at operate or configure. The
+connection's token also needs `read:sensitive`; without it the view says Coolify keeps the log to itself.
+
+- While the deployment runs, the log is read again every 2 seconds, only while the view is shown. It stops
+  once the deployment finished, failed, was cancelled or skipped, and when you hide or close the view.
+- Coolify marks some lines hidden, like the commands it ran. They stay hidden until you turn on **Show
+  hidden lines**.
+- Every line is masked as container logs are, and only the last 5,000 lines are shown.
+- Moving to another deployment starts empty: a line from the one you left is never shown.
+- **Cancel deployment** stops a queued or running deployment, after a confirm.
+
+The actions `coolify.deployment-list`, `coolify.deployment-get` (the build log, with `confirm: true`) and
+`coolify.deployment-cancel` do the same from Operations Center, Automations, the CLI, the Termix API and
+MCP. See [the API](api.md).
+
 ## Metrics and traffic
 
 Coolify keeps no metric history itself: Sentinel, its agent on each server, does. The plugin reads it the way

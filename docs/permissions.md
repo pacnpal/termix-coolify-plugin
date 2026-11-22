@@ -13,13 +13,13 @@ Coolify checks the API token's own abilities on top.
 
 Admins and users get all five by default. Admins can take any of them away per role.
 
-| Permission                       | Level      | What it allows                                                                                                                                     |
-| -------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **View Coolify**                 | view       | Open the plugin, read your connections, their resources, servers, sync previews, status pages, metrics over Coolify and companion reads            |
-| **Operate Coolify resources**    | operate    | Deploy, start, stop and restart, logs, shells and consoles, running commands, metrics and traffic over SSH, update checks and installs, tunnels    |
-| **Configure Coolify**            | configure  | Add, change and remove connections, sync servers into hosts and unlink them, DNS records, status pages, enabling metrics, revealing a masked value |
-| **Administer Coolify**           | administer | Rebooting a server, and the Coolify API operations that delete, create or transfer servers, provision cloud servers or change instance settings    |
-| **Use the Coolify MCP endpoint** | mcp        | Reach `/plugin-api/coolify/mcp`. Each tool still needs the permission of the action it runs                                                        |
+| Permission                       | Level      | What it allows                                                                                                                                                                         |
+| -------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **View Coolify**                 | view       | Open the plugin, read your connections, their resources, servers, sync previews, status pages, metrics over Coolify and companion reads                                                |
+| **Operate Coolify resources**    | operate    | Deploy, start, stop and restart, build logs and cancelling deployments, logs, shells and consoles, running commands, metrics and traffic over SSH, update checks and installs, tunnels |
+| **Configure Coolify**            | configure  | Add, change and remove connections, sync servers into hosts and unlink them, DNS records, status pages, enabling metrics, revealing a masked value                                     |
+| **Administer Coolify**           | administer | Rebooting a server, and the Coolify API operations that delete, create or transfer servers, provision cloud servers or change instance settings                                        |
+| **Use the Coolify MCP endpoint** | mcp        | Reach `/plugin-api/coolify/mcp`. Each tool still needs the permission of the action it runs                                                                                            |
 
 Through the full Coolify API (`coolify.api-read`, `coolify.api-call` and the API console), each Coolify
 operation needs the level its path and method call for: reads are view, reads that show logs or command
@@ -46,10 +46,11 @@ whatever the switch says.
 ## Confirms
 
 - **Destructive actions** (stop, `coolify.resource-action`, removing a connection, rebooting, removing a DNS
-  record, rotating or revoking a status page, `coolify.api-call`, `coolify.exec`) need a confirm: Termix asks
-  in the UI, the operations API takes `confirmed`, MCP takes `confirmed: true` in the tool's arguments, and
-  the `coolify.client` service takes `{ confirmed: true }`.
-- **Logs** (`coolify.logs-tail`) need `confirm: true`, since logs can hold secrets.
+  record, rotating or revoking a status page, `coolify.api-call`, `coolify.exec`, cancelling a deployment)
+  need a confirm: Termix asks in the UI, the operations API takes `confirmed`, MCP takes `confirmed: true` in
+  the tool's arguments, and the `coolify.client` service takes `{ confirmed: true }`.
+- **Logs** (`coolify.logs-tail`, and build logs through `coolify.deployment-get`) need `confirm: true`, since
+  logs can hold secrets.
 - **Server updates:** installing needs `confirm: true`; rebooting needs `confirmName`, the server's name.
 - **Enabling metrics** needs `confirm: true`, and over MCP `confirmed: true` as well.
 - **Running commands in containers** also needs the admin setting **Allow running commands in containers
