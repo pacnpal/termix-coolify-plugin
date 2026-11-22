@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PluginOperationContext } from "@termix-ssh/plugin-sdk/backend";
 import { handleMcp, toolName } from "../../../src/backend/mcp/server.js";
 import {
@@ -17,8 +17,48 @@ import {
 let harness: PluginHarness | null = null;
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await harness?.close();
   harness = null;
+});
+
+/**
+ * ctx.operations.run as core answers it across the plugin process boundary:
+ * a handler's refusal comes back as a plain Error, its class and code lost.
+ */
+function coreLikeRun(h: PluginHarness) {
+  const ops = h.mock.ctx.operations;
+  const run = ops.run.bind(ops);
+  vi.spyOn(ops, "run").mockImplementation(async (id, options) => {
+    try {
+      return await run(id, options);
+    } catch (err) {
+      throw new Error((err as Error).message);
+    }
+  });
+}
+
+describe("the rollback route refuses before Coolify is asked", () => {
+  it.each([
+    ["another user", null, 404],
+    ["a view grant", "view", 403],
+  ] as const)(
+    "%s gets a refusal and Coolify gets no request",
+    async (_who, level, status) => {
+      const { harness, fake, id } = await start();
+      if (level) grant(harness, id, OTHER, level);
+      coreLikeRun(harness);
+      const before = fake.calls.length;
+      const answer = await harness.request(
+        "POST",
+        `/connections/${id}/resources/app-web-uuid/rollback`,
+        { image: "0ld3r00" },
+        OTHER,
+      );
+      expect(answer.status).toBe(status);
+      expect(fake.calls.slice(before)).toEqual([]);
+    },
+  );
 });
 
 async function start(

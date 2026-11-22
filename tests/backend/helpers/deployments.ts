@@ -95,6 +95,23 @@ export function deploymentAnswers(): Record<string, FakeAnswer> {
   };
 }
 
+/** A fake private key's body: it must never leave the plugin. */
+export const KEY_BODY = "FAKEKEYBODY-not-a-real-key";
+
+/**
+ * A private key printed across several build log entries, as a build that
+ * cats a key file does: BEGIN, body and END each in an entry of its own.
+ */
+export function keyEntries(from: number) {
+  return [
+    logEntry(from, "-----BEGIN OPENSSH PRIVATE KEY-----"),
+    logEntry(from + 1, `${KEY_BODY}-line-1`),
+    logEntry(from + 2, `${KEY_BODY}-line-2`, { hidden: true }),
+    logEntry(from + 3, "-----END OPENSSH PRIVATE KEY-----"),
+    logEntry(from + 4, "after the key"),
+  ];
+}
+
 /** web's rollback images as Coolify lists them: the current one and two older. */
 export function rollbackImagesRaw() {
   return {

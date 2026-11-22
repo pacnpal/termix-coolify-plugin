@@ -8,7 +8,7 @@ import {
   isCancellableDeployment,
   isFinalDeployment,
 } from "../../../src/shared/deployment-status.js";
-import { logEntry } from "../helpers/deployments.js";
+import { KEY_BODY, keyEntries, logEntry } from "../helpers/deployments.js";
 
 describe("build log parsing", () => {
   it("reads Coolify's JSON lines in order, keeping the hidden flag", () => {
@@ -79,6 +79,52 @@ describe("build log parsing", () => {
     expect(cut.truncated).toBe(true);
     expect(cut.lines).toHaveLength(MAX_BUILD_LOG_LINES);
     expect(cut.lines[0].output).toBe("line 6");
+  });
+});
+
+describe("private keys across build log lines", () => {
+  const leaks = (log: unknown) => JSON.stringify(log).includes(KEY_BODY);
+
+  it("masks a key whose BEGIN, body and END are separate entries", () => {
+    const log = buildLog(JSON.stringify(keyEntries(1)), []);
+    expect(leaks(log)).toBe(false);
+    expect(log.lines.map((l) => l.output)).toContain("after the key");
+    expect(log.lines[0].output).toContain("BEGIN OPENSSH PRIVATE KEY");
+  });
+
+  it("masks a key opened in an entry's command and continued in its output", () => {
+    const entries = [
+      logEntry(1, `${KEY_BODY}-in-output`, {
+        command: "echo '-----BEGIN RSA PRIVATE KEY-----'",
+      }),
+      logEntry(2, "-----END RSA PRIVATE KEY-----"),
+    ];
+    expect(leaks(buildLog(JSON.stringify(entries), []))).toBe(false);
+  });
+
+  it("masks a key across lines of a log that isn't JSON", () => {
+    const raw = keyEntries(1)
+      .map((e) => e.output)
+      .join("\n");
+    const log = buildLog(raw, []);
+    expect(leaks(log)).toBe(false);
+    expect(log.lines.map((l) => l.output)).toContain("after the key");
+  });
+
+  it("masks a key's body when truncation cuts its BEGIN marker", () => {
+    const filler = Array.from({ length: MAX_BUILD_LOG_LINES }, (_, i) =>
+      logEntry(i + 10, `filler ${i}`),
+    );
+    // Five entries are cut: the BEGIN is the last of them, its body is kept.
+    const entries = [
+      ...Array.from({ length: 4 }, (_, i) => logEntry(i + 1, `old ${i}`)),
+      ...keyEntries(5).slice(0, 3),
+      ...filler.slice(0, MAX_BUILD_LOG_LINES - 2),
+    ];
+    const log = buildLog(JSON.stringify(entries), []);
+    expect(log.truncated).toBe(true);
+    expect(log.lines[0].output).not.toContain("BEGIN");
+    expect(leaks(log)).toBe(false);
   });
 });
 

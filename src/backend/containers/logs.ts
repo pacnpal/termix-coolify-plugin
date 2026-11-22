@@ -469,6 +469,46 @@ function safeCut(text: string, secrets: readonly string[], from: number) {
   return 0;
 }
 
+/** Redacts whole lines in order, carrying an open private key block. */
+export interface KeyBlockCarry {
+  /**
+   * The END marker of a private key block an earlier line left open, or
+   * null. Every line up to it is the key's body.
+   */
+  keyEnd: string | null;
+  /**
+   * One whole line, redacted (redactLog), or null when it is the body of a
+   * key block an earlier line opened: such a line is dropped. A line that
+   * holds the END keeps it and what follows.
+   */
+  line(raw: string): string | null;
+}
+
+/**
+ * The cross-line half of log redaction. redactLog masks a key block inside
+ * the text it is given; a block whose BEGIN, body and END arrive as separate
+ * lines (or log entries) needs this state, kept for the whole stream and fed
+ * every line in order, so no body line goes out after its BEGIN did.
+ */
+export function keyBlockCarry(secrets: readonly string[]): KeyBlockCarry {
+  const carry: KeyBlockCarry = {
+    keyEnd: null,
+    line(raw: string): string | null {
+      let line = raw;
+      if (carry.keyEnd !== null) {
+        const at = line.indexOf(carry.keyEnd);
+        if (at < 0) return null;
+        line = line.slice(at);
+        carry.keyEnd = null;
+      }
+      const out = redactLog(line, secrets);
+      carry.keyEnd = openKeyBlock(line)?.end ?? null;
+      return out;
+    },
+  };
+  return carry;
+}
+
 /**
  * Turns one SSH stream's bytes into redacted lines. One UTF-8 decoder per
  * stream keeps a character split across chunks whole. A line longer than
@@ -484,43 +524,38 @@ export function lineSplitter(
   const keep = Math.max(CUT_CONTEXT, ...secrets.map((s) => s.length * 2));
   let carry = "";
   let skipping = false;
-  // The END marker of a private key block left open by an earlier line:
-  // every line up to it is the key's body and is dropped.
-  let keyEnd: string | null = null;
+  // A private key block left open by an earlier line: every line up to its
+  // END is the key's body and is dropped.
+  const keys = keyBlockCarry(secrets);
 
   function take(text: string, final: boolean): void {
     const parts = (carry + text).split(/\r?\n/);
     carry = final ? "" : (parts.pop() ?? "");
     const out: string[] = [];
-    for (let line of parts) {
+    for (const line of parts) {
       if (skipping) {
         skipping = false;
         continue;
       }
-      if (keyEnd !== null) {
-        const at = line.indexOf(keyEnd);
-        if (at < 0) continue;
-        line = line.slice(at);
-        keyEnd = null;
-      }
-      if (final && !line) continue;
-      out.push(...pieces(redactLog(line, secrets)));
-      keyEnd = openKeyBlock(line)?.end ?? null;
+      const sent = keys.line(line);
+      // A key body line, or the empty end of the stream.
+      if (sent === null || (final && sent === "")) continue;
+      out.push(...pieces(sent));
     }
-    if (keyEnd !== null && carry.length > MAX_LINE) {
+    if (keys.keyEnd !== null && carry.length > MAX_LINE) {
       // A key body line too long to wait for: keep only what could start
       // its END marker.
-      const at = carry.indexOf(keyEnd);
-      if (at < 0) carry = carry.slice(-(keyEnd.length - 1));
+      const at = carry.indexOf(keys.keyEnd);
+      if (at < 0) carry = carry.slice(-(keys.keyEnd.length - 1));
       else {
         carry = carry.slice(at);
-        keyEnd = null;
+        keys.keyEnd = null;
       }
     }
     if (skipping) {
       carry = "";
     } else {
-      while (keyEnd === null && carry.length > MAX_LINE + keep) {
+      while (keys.keyEnd === null && carry.length > MAX_LINE + keep) {
         const cut = safeCut(carry, secrets, carry.length - keep);
         if (cut <= 0) {
           out.push(REDACTED_VALUE);
@@ -545,7 +580,7 @@ export function lineSplitter(
           // A key block still open here may run on past this line: its body
           // lines are dropped until its END (over-masking, never under).
           const key = openKeyBlock(prefix);
-          if (key && carry.indexOf(key.end, cut) < 0) keyEnd = key.end;
+          if (key && carry.indexOf(key.end, cut) < 0) keys.keyEnd = key.end;
           // A secret is open at the cut: mask from its start (from the word
           // before it, so nothing bounded straddles) to the end of the line.
           const space = prefix.lastIndexOf(" ", openAt - 1);
