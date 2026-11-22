@@ -43,8 +43,8 @@
   Automations, the CLI, the Termix API and MCP. Over MCP, deploying a preview and changing its domains need
   `confirmed: true`
 - A Coolify older than 4.7.5 that has no preview API gets a message to update Coolify
-- Deploying a preview asks for the commit of a Bitbucket pull request and the image tag of a Docker image
-  application; a Docker Compose preview's domains are edited per service. A port given with a domain is
+- A new preview needs the commit of a Bitbucket pull request and the image tag of a Docker image
+  application (a redeploy needs neither); the domain editor keeps Coolify's port overrides; a Docker Compose preview's domains are edited per service. A port given with a domain is
   kept, `:80` and `:443` included
 
 ## 1.0.0

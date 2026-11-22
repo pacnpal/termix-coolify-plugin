@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   checkDomains,
   isHostname,
+  withPortOverride,
   withoutTrailingSlashes,
 } from "../../src/shared/domains.js";
 
@@ -104,6 +105,26 @@ describe("checkDomains", () => {
     // With and without a port, they are two different domains to Coolify.
     expect(value("https://a.example.test,https://a.example.test:443")).toBe(
       "https://a.example.test,https://a.example.test:443",
+    );
+  });
+
+  it("puts Coolify's port overrides back on its portless domains", () => {
+    const overrides = {
+      "https://a.example.test": 3000,
+      "https://b.example.test/api": 8080,
+    };
+    expect(withPortOverride("https://a.example.test", overrides)).toBe(
+      "https://a.example.test:3000",
+    );
+    expect(withPortOverride("https://b.example.test/api", overrides)).toBe(
+      "https://b.example.test:8080/api",
+    );
+    expect(withPortOverride("https://c.example.test", overrides)).toBe(
+      "https://c.example.test",
+    );
+    // A domain that names its own port keeps it.
+    expect(withPortOverride("https://a.example.test:4000", overrides)).toBe(
+      "https://a.example.test:4000",
     );
   });
 

@@ -63,13 +63,21 @@ export function registerPreviewRoutes(
    */
   async function runAction(
     res: Response,
-    target: { id: number; uuid: string; check: () => void },
+    target: {
+      id: number;
+      uuid: string;
+      /** Input checks that need no Coolify request, run first. */
+      check: () => void;
+      /** Checks that read Coolify, run once the caller is authorized. */
+      verify?: () => Promise<void>;
+    },
     actionId: string,
     input: Record<string, unknown>,
     answer: (data: Record<string, unknown>) => unknown,
   ): Promise<void> {
     target.check();
     await previews.authorize(target.id, target.uuid);
+    await target.verify?.();
     const outcome = await ctx.operations.run(actionId, {
       input,
       confirmed: true,
@@ -208,7 +216,12 @@ export function registerPreviewRoutes(
       const uuid = uuidParam(req);
       await runAction(
         res,
-        { id, uuid, check: () => readPreviewCreate(bodyOf(req)) },
+        {
+          id,
+          uuid,
+          check: () => readPreviewCreate(bodyOf(req)),
+          verify: () => previews.checkCreate(id, uuid, bodyOf(req)),
+        },
         "coolify.preview-create",
         {
           connectionId: String(id),

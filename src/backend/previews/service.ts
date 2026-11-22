@@ -1,5 +1,9 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
-import type { ComposeDomainDto, PreviewDto } from "../coolify/dto.js";
+import type {
+  ComposeDomainDto,
+  PreviewDto,
+  ResourceDto,
+} from "../coolify/dto.js";
 import { COMMIT_SHA, IMAGE_TAG } from "../../shared/image-tag.js";
 import { OPERATIONS } from "../coolify/generated/operations.js";
 import { CoolifyError } from "../coolify/http.js";
@@ -344,6 +348,7 @@ export function createPreviews(ctx: PluginContext, deps: PreviewsDeps) {
       snap: Snapshot,
       appUuid: string,
       beforeFetch: () => Promise<void>,
+      app: ResourceDto,
     ) => Promise<T>,
   ): Promise<{ snap: Snapshot; appUuid: string; answer: T }> {
     const snap = await open(connectionId, level);
@@ -354,12 +359,62 @@ export function createPreviews(ctx: PluginContext, deps: PreviewsDeps) {
       await deployments.holds(connectionId, snap, level);
       signal?.throwIfAborted();
     };
-    const answer = await coolify(snap, () => call(snap, app.uuid, beforeFetch));
+    const answer = await coolify(snap, () =>
+      call(snap, app.uuid, beforeFetch, app),
+    );
     await deployments.holds(connectionId, snap, level);
     return { snap, appUuid: app.uuid, answer };
   }
 
+  /**
+   * Refuses a new preview that lacks what Coolify needs to open one: a
+   * Bitbucket pull request's commit, and a Docker image application's tag
+   * (the create operation's description: "Bitbucket also needs commit",
+   * "Docker Image applications need docker_tag for a new preview"). A
+   * redeploy of a listed preview needs neither, so the list is read only
+   * when one is missing.
+   */
+  async function requireForNew(
+    snap: Snapshot,
+    app: ResourceDto,
+    input: PreviewCreate,
+    beforeFetch: () => Promise<void>,
+  ): Promise<void> {
+    const missing =
+      input.gitType === "bitbucket" && !input.commit
+        ? "A new Bitbucket preview needs commit, the SHA to deploy"
+        : app.buildPack === "dockerimage" && !input.dockerTag
+          ? "A new preview of a Docker image application needs dockerTag"
+          : null;
+    if (!missing) return;
+    const listed = await snap.api.previews(app.uuid, { beforeFetch });
+    if (!listed.some((p) => p.pullRequestId === input.pullRequestId)) {
+      throw invalid(missing);
+    }
+  }
+
   return {
+    /**
+     * What a create route checks after authorize and before its action: a
+     * new preview's commit or tag (see requireForNew). Through core, a
+     * refusal thrown inside an action can come back as a plain error.
+     */
+    async checkCreate(
+      connectionId: number,
+      uuid: string,
+      raw: Record<string, unknown>,
+    ): Promise<void> {
+      const input = readPreviewCreate(raw);
+      await onApplication(
+        connectionId,
+        uuid,
+        "operate",
+        undefined,
+        (s, _appUuid, beforeFetch, app) =>
+          requireForNew(s, app, input, beforeFetch),
+      );
+    },
+
     /**
      * The checks a change makes before anything else, for a route that
      * hands the work to an action: the permission, the connection (another
@@ -445,10 +500,12 @@ export function createPreviews(ctx: PluginContext, deps: PreviewsDeps) {
         uuid,
         "operate",
         signal,
-        (s, app, beforeFetch) =>
-          changingQueue(connectionId, () =>
+        async (s, app, beforeFetch, resource) => {
+          await requireForNew(s, resource, input, beforeFetch);
+          return changingQueue(connectionId, () =>
             s.api.createPreview(app, body, { beforeFetch }),
-          ),
+          );
+        },
       );
       return {
         pullRequestId: input.pullRequestId,

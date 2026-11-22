@@ -492,7 +492,10 @@ this feature; update Coolify"), and the Previews tab says so.
 
 The application's previews. Needs **View Coolify** and any access to the connection. It answers `{ rows }`,
 each `{ pullRequestId, uuid, pullRequestUrl, gitType, status, domains, composeDomains, dockerTag,
-lastOnlineAt, createdAt, updatedAt, deploymentUuid, deploymentStatus }`. `deploymentUuid` and
+lastOnlineAt, createdAt, updatedAt, deploymentUuid, deploymentStatus, portOverrides }`. `domains` are the
+public, portless ones; `portOverrides` maps each portless domain URL to Coolify's internal port for it. A
+save replaces Coolify's overrides with the ports it sends, so an editor puts them back first (the Previews
+tab does). `deploymentUuid` and
 `deploymentStatus` are the newest build of that pull request among the application's latest 50
 deployments, or null; its build log opens with the deployment routes above.
 
@@ -504,7 +507,10 @@ deployment. Needs **Operate Coolify resources** and the owner or an operate gran
 `bitbucket`; Coolify needs it unless the application uses a GitHub or GitLab App source), `commit` (a
 SHA of 7 to 40 hex characters; a new Bitbucket preview needs it), `dockerTag` (a Docker image
 tag; a new preview of a Docker image application needs it) and `force` (rebuild
-without cache). A bad value is 400 `invalid-input` before Coolify is asked. It answers
+without cache). A bad value is 400 `invalid-input` before Coolify is asked. A new preview (a pull request
+the application has no preview for yet) of a Bitbucket pull request without `commit`, or of a Docker image
+application without `dockerTag`, is 400 `invalid-input` too, before anything is created; a redeploy needs
+neither. It answers
 `{ pullRequestId, deploymentUuid }`, or 202 `{ "status": "pending", "runId" }` while an approval waits.
 Coolify needs a token with `write` and `deploy` to open a preview.
 

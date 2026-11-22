@@ -95,7 +95,17 @@ export const FAKE_KEY_LINES = [
 export function previewAnswers(): Record<string, FakeAnswer> {
   return {
     "GET /applications/app-web-uuid/previews": {
-      json: [previewRaw(42), previewRaw(7, { status: "exited" })],
+      json: [
+        previewRaw(42, {
+          // Coolify keeps ports out of domains, keyed by the portless URL.
+          domain_port_overrides: {
+            "https://pr-42.example.test": 3000,
+            "https://bad.example.test": "x",
+            "https://zero.example.test": 0,
+          },
+        }),
+        previewRaw(7, { status: "exited" }),
+      ],
     },
     "GET /applications/app-api-uuid/previews": { json: [previewRaw(99)] },
     "GET /deployments/applications/app-web-uuid": {

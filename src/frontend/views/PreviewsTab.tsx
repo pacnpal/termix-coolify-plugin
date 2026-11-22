@@ -35,7 +35,7 @@ import {
   type PreviewDomainsChange,
   type Resource,
 } from "../api";
-import { checkDomains } from "../../shared/domains";
+import { checkDomains, withPortOverride } from "../../shared/domains";
 import { COMMIT_SHA, IMAGE_TAG } from "../../shared/image-tag";
 import { resourceHealth } from "../../shared/resource-health";
 import { BuildLogView, DeploymentStatus } from "./BuildLogView";
@@ -69,6 +69,8 @@ interface Forms {
   commit: string;
   dockerTag: string;
   createError: string | null;
+  /** The field the create error is about. */
+  createErrorField: CreateField | null;
   /** The preview whose domains are being edited. */
   editing: number | null;
   domains: string;
@@ -89,12 +91,27 @@ function noForms(target: string): Forms {
     commit: "",
     dockerTag: "",
     createError: null,
+    createErrorField: null,
     editing: null,
     domains: "",
     composeDomains: null,
     domainsError: null,
     domainsErrorFor: null,
   };
+}
+
+/**
+ * A comma separated domain list with the preview's port overrides put back,
+ * so saving it unchanged keeps them.
+ */
+function withPorts(list: string, preview: Preview): string {
+  const overrides = preview.portOverrides ?? {};
+  return list
+    .split(",")
+    .map((d) => d.trim())
+    .filter(Boolean)
+    .map((d) => withPortOverride(d, overrides))
+    .join(",");
 }
 
 /** What a closed domain editor holds. */
@@ -131,25 +148,47 @@ function TextInput({
   onChange,
   hint,
   error,
+  invalid = false,
+  describedBy,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   hint?: string;
+  /** A message about this field, shown under it and tied to it. */
   error?: string;
+  /** Marks the field invalid when its message is shown elsewhere. */
+  invalid?: boolean;
+  /** The id of a message elsewhere that describes this field's problem. */
+  describedBy?: string;
 }) {
   const id = useId();
+  const errorId = `${id}-error`;
+  const bad = invalid || !!error;
+  const described = [error ? errorId : null, bad ? describedBy : null]
+    .filter(Boolean)
+    .join(" ");
   return (
-    <Field label={label} hint={hint} error={error} htmlFor={id}>
+    <Field label={label} hint={hint} htmlFor={id}>
       <Input
         id={id}
         className="font-mono"
         value={value}
+        aria-invalid={bad ? true : undefined}
+        aria-describedby={described || undefined}
         onChange={(e) => onChange(e.target.value)}
       />
+      {error && (
+        <p id={errorId} className="text-xs text-destructive">
+          {error}
+        </p>
+      )}
     </Field>
   );
 }
+
+/** The create form's fields a check can fail on. */
+type CreateField = "pullRequestId" | "pullRequestUrl" | "commit" | "dockerTag";
 
 /** One preview's container logs, read once per open (and on refresh). */
 function PreviewLogs({
@@ -275,6 +314,7 @@ export function PreviewsTab({
   const [formState, setFormState] = useState<Forms>(() => noForms(target));
   const forms = formState.target === target ? formState : noForms(target);
   const [busy, setBusy] = useState(false);
+  const createErrorId = useId();
   /** A Docker image application: a new preview needs its image tag. */
   const dockerImage = resource.buildPack === "dockerimage";
 
@@ -340,26 +380,55 @@ export function PreviewsTab({
     const forTarget = target;
     const id = pullRequestOf(forms.pullRequestId);
     if (id === null) {
-      setForms({ createError: t("previews.create.invalidId") });
+      setForms({
+        createError: t("previews.create.invalidId"),
+        createErrorField: "pullRequestId",
+      });
       return;
     }
     const url = forms.pullRequestUrl.trim();
     if (url && !/^https?:\/\/\S+$/i.test(url)) {
-      setForms({ createError: t("previews.create.invalidUrl") });
+      setForms({
+        createError: t("previews.create.invalidUrl"),
+        createErrorField: "pullRequestUrl",
+      });
       return;
     }
     // Shown only where they apply; a hidden one is never sent.
+    // A new preview (not one listed) needs what Coolify needs to open it.
+    const isNew =
+      load.kind !== "ok" || !load.rows.some((r) => r.pullRequestId === id);
     const commit = forms.gitType === "bitbucket" ? forms.commit.trim() : "";
+    if (forms.gitType === "bitbucket" && !commit && isNew) {
+      setForms({
+        createError: t("previews.create.commitRequired"),
+        createErrorField: "commit",
+      });
+      return;
+    }
     if (commit && !COMMIT_SHA.test(commit)) {
-      setForms({ createError: t("previews.create.invalidCommit") });
+      setForms({
+        createError: t("previews.create.invalidCommit"),
+        createErrorField: "commit",
+      });
       return;
     }
     const dockerTag = dockerImage ? forms.dockerTag.trim() : "";
-    if (dockerTag && !IMAGE_TAG.test(dockerTag)) {
-      setForms({ createError: t("previews.create.invalidDockerTag") });
+    if (dockerImage && !dockerTag && isNew) {
+      setForms({
+        createError: t("previews.create.dockerTagRequired"),
+        createErrorField: "dockerTag",
+      });
       return;
     }
-    setForms({ createError: null });
+    if (dockerTag && !IMAGE_TAG.test(dockerTag)) {
+      setForms({
+        createError: t("previews.create.invalidDockerTag"),
+        createErrorField: "dockerTag",
+      });
+      return;
+    }
+    setForms({ createError: null, createErrorField: null });
     const ok = await confirm({
       title: t("previews.create.confirm.title", { id }),
       description: t("previews.create.confirm.description"),
@@ -447,11 +516,11 @@ export function PreviewsTab({
     setForms({
       ...NO_EDIT,
       editing: preview.pullRequestId,
-      domains: preview.domains.join(","),
+      domains: withPorts(preview.domains.join(","), preview),
       composeDomains: isCompose(resource, preview)
         ? preview.composeDomains.map((d) => ({
             name: d.name,
-            domain: d.domain ?? "",
+            domain: withPorts(d.domain ?? "", preview),
           }))
         : null,
     });
@@ -774,16 +843,28 @@ export function PreviewsTab({
         <div className="flex flex-col gap-2 border-b border-border p-3">
           <TextInput
             label={t("previews.create.pullRequestId")}
+            invalid={forms.createErrorField === "pullRequestId"}
+            describedBy={createErrorId}
             value={forms.pullRequestId}
             onChange={(value) =>
-              setForms({ pullRequestId: value, createError: null })
+              setForms({
+                pullRequestId: value,
+                createError: null,
+                createErrorField: null,
+              })
             }
           />
           <TextInput
             label={t("previews.create.pullRequestUrl")}
+            invalid={forms.createErrorField === "pullRequestUrl"}
+            describedBy={createErrorId}
             value={forms.pullRequestUrl}
             onChange={(value) =>
-              setForms({ pullRequestUrl: value, createError: null })
+              setForms({
+                pullRequestUrl: value,
+                createError: null,
+                createErrorField: null,
+              })
             }
           />
           <SelectField<GitChoice>
@@ -801,23 +882,37 @@ export function PreviewsTab({
           {forms.gitType === "bitbucket" && (
             <TextInput
               label={t("previews.create.commit")}
+              invalid={forms.createErrorField === "commit"}
+              describedBy={createErrorId}
               value={forms.commit}
               onChange={(value) =>
-                setForms({ commit: value, createError: null })
+                setForms({
+                  commit: value,
+                  createError: null,
+                  createErrorField: null,
+                })
               }
             />
           )}
           {dockerImage && (
             <TextInput
               label={t("previews.create.dockerTag")}
+              invalid={forms.createErrorField === "dockerTag"}
+              describedBy={createErrorId}
               value={forms.dockerTag}
               onChange={(value) =>
-                setForms({ dockerTag: value, createError: null })
+                setForms({
+                  dockerTag: value,
+                  createError: null,
+                  createErrorField: null,
+                })
               }
             />
           )}
           {forms.createError && (
-            <NoticePanel tone="destructive" title={forms.createError} />
+            <div id={createErrorId} role="alert">
+              <NoticePanel tone="destructive" title={forms.createError} />
+            </div>
           )}
           <div className="flex gap-2">
             <Button size="sm" disabled={busy} onClick={() => void create()}>

@@ -170,6 +170,8 @@ export interface Preview {
   status: string;
   domains: string[];
   composeDomains: { name: string; domain: string | null }[];
+  /** Coolify's internal port per portless domain URL. */
+  portOverrides?: Record<string, number>;
   dockerTag: string | null;
   lastOnlineAt: string | null;
   createdAt: string | null;

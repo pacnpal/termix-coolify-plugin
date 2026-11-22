@@ -8,6 +8,7 @@ import {
   startLifecycle,
 } from "../helpers/lifecycle.js";
 import { OTHER, type PluginHarness } from "../helpers/plugin.js";
+import { resourceLists } from "../helpers/resources.js";
 import {
   dropGrant,
   duringResourceRead,
@@ -64,6 +65,7 @@ describe("listing an application's previews", () => {
       domains: ["https://pr-42.example.test"],
       deploymentUuid: "dep-pr42",
       deploymentStatus: "in_progress",
+      portOverrides: { "https://pr-42.example.test": 3000 },
     });
     expect(answer.body.rows[1]).toMatchObject({
       pullRequestId: 7,
@@ -223,6 +225,75 @@ describe("each preview change", () => {
     }
     expect(run).not.toHaveBeenCalled();
     expect(previewCalls({ calls: fake.calls.slice(before) })).toEqual([]);
+  });
+});
+
+describe("what a new preview needs", () => {
+  /** web as a Docker image application. */
+  function dockerImageApps() {
+    const list = (resourceLists()["GET /applications"] as { json: unknown[] })
+      .json as Record<string, unknown>[];
+    return {
+      "GET /applications": {
+        json: list.map((a) =>
+          a.uuid === "app-web-uuid" ? { ...a, build_pack: "dockerimage" } : a,
+        ),
+      },
+    };
+  }
+
+  const create = (h: PluginHarness, id: number, body: object) =>
+    h.request("POST", `${web(id)}/previews`, body);
+  const created = (fake: Awaited<ReturnType<typeof start>>["fake"]) =>
+    changes(fake).filter((c) => c.method === "POST");
+
+  it("a new Bitbucket preview needs its commit; a redeploy doesn't", async () => {
+    const { harness: h, fake, id } = await start();
+    const missing = await create(h, id, {
+      pullRequestId: 51,
+      gitType: "bitbucket",
+    });
+    expect(missing.status).toBe(400);
+    expect(missing.body.cause).toBe("invalid-input");
+    expect(created(fake)).toEqual([]);
+    // 42 is already a preview of web: a redeploy needs no commit.
+    const redeploy = await create(h, id, {
+      pullRequestId: 42,
+      gitType: "bitbucket",
+    });
+    expect(redeploy.status).toBe(200);
+    expect(created(fake)).toHaveLength(1);
+  });
+
+  it("a new preview of a Docker image application needs its tag; a redeploy doesn't", async () => {
+    const { harness: h, fake, id } = await start(undefined, dockerImageApps());
+    const missing = await create(h, id, { pullRequestId: 51 });
+    expect(missing.status).toBe(400);
+    expect(missing.body.cause).toBe("invalid-input");
+    expect(created(fake)).toEqual([]);
+    const tagged = await create(h, id, {
+      pullRequestId: 51,
+      dockerTag: "pr-51",
+    });
+    expect(tagged.status).toBe(200);
+    const redeploy = await create(h, id, { pullRequestId: 42 });
+    expect(redeploy.status).toBe(200);
+    expect(created(fake)).toHaveLength(2);
+  });
+
+  it("the action refuses a new Bitbucket preview without a commit too", async () => {
+    const { harness: h, fake, id } = await start();
+    await expect(
+      h.mock.ctx.operations.run("coolify.preview-create", {
+        input: {
+          connectionId: String(id),
+          uuid: "app-web-uuid",
+          pullRequestId: 51,
+          gitType: "bitbucket",
+        },
+      }),
+    ).rejects.toMatchObject({ code: "invalid-input" });
+    expect(created(fake)).toEqual([]);
   });
 });
 

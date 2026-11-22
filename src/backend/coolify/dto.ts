@@ -103,8 +103,15 @@ export interface PreviewDto {
   gitType: string | null;
   /** The preview's containers, as Coolify reports a resource's status. */
   status: string;
+  /** The public domains, portless, as Coolify lists them. */
   domains: string[];
   composeDomains: ComposeDomainDto[];
+  /**
+   * Coolify's internal port per portless domain URL (Docker Compose
+   * services' domains included). A save sends ports inline and replaces
+   * these, so an editor must start from the domains with them put back.
+   */
+  portOverrides: Record<string, number>;
   dockerTag: string | null;
   lastOnlineAt: string | null;
   createdAt: string | null;
@@ -494,6 +501,18 @@ export function toDeploymentLog(input: unknown): string | null {
   return typeof logs === "string" ? logs : null;
 }
 
+/** Coolify's port overrides: only whole ports from 1 to 65535 are kept. */
+function portOverridesOf(value: unknown): Record<string, number> {
+  const entries: [string, number][] = [];
+  for (const [domain, port] of Object.entries(obj(value))) {
+    const n = num(port);
+    if (n !== null && Number.isInteger(n) && n >= 1 && n <= 65_535) {
+      entries.push([domain, n]);
+    }
+  }
+  return Object.fromEntries(entries);
+}
+
 /** One pull request preview, as `GET /applications/{uuid}/previews` lists it. */
 export function toPreview(input: unknown): PreviewDto {
   const raw = obj(input);
@@ -508,6 +527,7 @@ export function toPreview(input: unknown): PreviewDto {
       .map(obj)
       .filter((d) => typeof d.name === "string" && d.name !== "")
       .map((d) => ({ name: str(d.name), domain: strOrNull(d.domain) })),
+    portOverrides: portOverridesOf(raw.domain_port_overrides),
     dockerTag: strOrNull(raw.docker_registry_image_tag),
     lastOnlineAt: strOrNull(raw.last_online_at),
     createdAt: strOrNull(raw.created_at),

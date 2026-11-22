@@ -1675,7 +1675,9 @@
       "commit": "Commit SHA (a new Bitbucket preview needs it)",
       "dockerTag": "Docker tag (a new Docker image preview needs it)",
       "invalidCommit": "Enter a commit SHA: 7 to 40 hexadecimal characters.",
-      "invalidDockerTag": "Enter a Docker image tag: letters, digits, _ . and -, at most 128."
+      "invalidDockerTag": "Enter a Docker image tag: letters, digits, _ . and -, at most 128.",
+      "commitRequired": "A new Bitbucket preview needs the commit SHA to deploy.",
+      "dockerTagRequired": "A new preview of a Docker image application needs its image tag."
     },
     "domains": {
       "edit": "Domains",

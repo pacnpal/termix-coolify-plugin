@@ -91,6 +91,29 @@ function checkOne(entry: string): string | DomainProblem {
 }
 
 /**
+ * A domain as Coolify lists it (portless, like `https://pr.example.com/api`)
+ * with its port from Coolify's port overrides put back
+ * (`https://pr.example.com:3000/api`), so an editor that starts from it and
+ * saves unchanged keeps the port: Coolify replaces the overrides with what a
+ * save sends. Overrides are keyed by the portless URL. A domain that names
+ * its own port, or has no override, is left as it is.
+ */
+export function withPortOverride(
+  domain: string,
+  overrides: Readonly<Record<string, number>>,
+): string {
+  if (!Object.prototype.hasOwnProperty.call(overrides, domain)) return domain;
+  const port = overrides[domain];
+  const scheme = domain.indexOf("//");
+  if (scheme < 0) return domain;
+  const start = scheme + 2;
+  const slash = domain.indexOf("/", start);
+  const end = slash < 0 ? domain.length : slash;
+  if (domain.slice(start, end).includes(":")) return domain;
+  return `${domain.slice(0, end)}:${port}${domain.slice(end)}`;
+}
+
+/**
  * The port an entry names, as ":<number>", read from the text itself: the
  * URL parser drops a scheme's default port (:80, :443), but Coolify reads
  * any port given as an internal routing override, so it must stay. Called

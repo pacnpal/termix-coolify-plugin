@@ -520,6 +520,170 @@ describe("previews of Bitbucket, Docker image and Compose applications", () => {
     );
   });
 
+  it("saving domains unchanged keeps Coolify's port overrides, for a list and per Compose service", async () => {
+    const api = previewApi({
+      "app-web-uuid": async () => ({
+        rows: [
+          preview(42, {
+            portOverrides: { "https://pr-42.example.test": 3000 },
+          }),
+        ],
+      }),
+    });
+    api.patch.mockImplementation(async () => ({ data: { pullRequestId: 42 } }));
+    await renderHarness(api);
+    // The link shown stays the public, portless one.
+    expect(await screen.findByText("https://pr-42.example.test")).toBeTruthy();
+    fireEvent.click(
+      within(rowOf(42)).getByRole("button", { name: P.domains.edit }),
+    );
+    const input = screen.getByLabelText(
+      P.domains.label.replace("{{id}}", "42"),
+    ) as HTMLInputElement;
+    expect(input.value).toBe("https://pr-42.example.test:3000");
+    fireEvent.click(screen.getByRole("button", { name: P.domains.save }));
+    await confirmWith(P.domains.confirm.confirm);
+    await waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith(
+        "/connections/1/resources/app-web-uuid/previews/42",
+        { domains: "https://pr-42.example.test:3000" },
+      ),
+    );
+    await rendered?.deactivate();
+    rendered = null;
+    document.body.innerHTML = "";
+
+    initial = { ...web, buildPack: "dockercompose" } as Resource;
+    const compose = previewApi({
+      "app-web-uuid": async () => ({
+        rows: [
+          preview(42, {
+            domains: [],
+            composeDomains: [
+              { name: "web", domain: "https://web-42.example.test" },
+            ],
+            portOverrides: { "https://web-42.example.test": 8080 },
+          }),
+        ],
+      }),
+    });
+    compose.patch.mockImplementation(async () => ({
+      data: { pullRequestId: 42 },
+    }));
+    await renderHarness(compose);
+    await screen.findByText("Pull request #42");
+    fireEvent.click(
+      within(rowOf(42)).getByRole("button", { name: P.domains.edit }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: P.domains.save }));
+    await confirmWith(P.domains.confirm.confirm);
+    await waitFor(() =>
+      expect(compose.patch).toHaveBeenCalledWith(
+        "/connections/1/resources/app-web-uuid/previews/42",
+        {
+          composeDomains: [
+            { name: "web", domain: "https://web-42.example.test:8080" },
+          ],
+        },
+      ),
+    );
+  });
+
+  it("marks the field a create error is about and ties the message to it", async () => {
+    const api = previewApi(two);
+    await renderHarness(api);
+    await openCreate("0");
+    fireEvent.click(screen.getByRole("button", { name: P.create.submit }));
+    await screen.findByText(P.create.invalidId);
+    const input = screen.getByLabelText(P.create.pullRequestId);
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    const described = input.getAttribute("aria-describedby") ?? "";
+    expect(described).not.toBe("");
+    const message = described
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ");
+    expect(message).toContain(P.create.invalidId);
+    const url = screen.getByLabelText(P.create.pullRequestUrl);
+    expect(url.getAttribute("aria-invalid")).not.toBe("true");
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it("marks a domain field with an error and ties the message to it", async () => {
+    const api = previewApi(two);
+    await renderHarness(api);
+    await screen.findByText("Pull request #42");
+    fireEvent.click(
+      within(rowOf(42)).getByRole("button", { name: P.domains.edit }),
+    );
+    const input = screen.getByLabelText(
+      P.domains.label.replace("{{id}}", "42"),
+    );
+    fireEvent.change(input, { target: { value: "nope" } });
+    fireEvent.click(screen.getByRole("button", { name: P.domains.save }));
+    await screen.findByText(P.domains.errors.scheme);
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    const id = input.getAttribute("aria-describedby") ?? "";
+    expect(
+      id
+        .split(" ")
+        .map((part) => document.getElementById(part)?.textContent ?? "")
+        .join(" "),
+    ).toContain(P.domains.errors.scheme);
+  });
+
+  /** Picks Bitbucket in the form's one select. */
+  async function pickBitbucket() {
+    Element.prototype.scrollIntoView = () => {};
+    fireEvent.keyDown(screen.getByRole("combobox"), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("option", { name: "Bitbucket" }));
+  }
+
+  it("a new Bitbucket preview needs a commit before any confirm; a redeploy doesn't", async () => {
+    const api = previewApi(two);
+    api.post.mockImplementation(async () => ({ data: { pullRequestId: 42 } }));
+    await renderHarness(api);
+    await openCreate("51");
+    await pickBitbucket();
+    fireEvent.click(screen.getByRole("button", { name: P.create.submit }));
+    expect(await screen.findByText(P.create.commitRequired)).toBeTruthy();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    // 42 is listed: a redeploy needs no commit.
+    fireEvent.change(screen.getByLabelText(P.create.pullRequestId), {
+      target: { value: "42" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: P.create.submit }));
+    await confirmWith(P.create.confirm.confirm);
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        "/connections/1/resources/app-web-uuid/previews",
+        { pullRequestId: 42, gitType: "bitbucket" },
+      ),
+    );
+  });
+
+  it("a new Docker image preview needs a tag before any confirm; a redeploy doesn't", async () => {
+    initial = { ...web, buildPack: "dockerimage" } as Resource;
+    const api = previewApi(two);
+    api.post.mockImplementation(async () => ({ data: { pullRequestId: 42 } }));
+    await renderHarness(api);
+    await openCreate("51");
+    fireEvent.click(screen.getByRole("button", { name: P.create.submit }));
+    expect(await screen.findByText(P.create.dockerTagRequired)).toBeTruthy();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    fireEvent.change(screen.getByLabelText(P.create.pullRequestId), {
+      target: { value: "42" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: P.create.submit }));
+    await confirmWith(P.create.confirm.confirm);
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        "/connections/1/resources/app-web-uuid/previews",
+        { pullRequestId: 42 },
+      ),
+    );
+  });
+
   it("a Compose preview with no services listed offers no domain editor", async () => {
     initial = { ...web, buildPack: "dockercompose" } as Resource;
     const api = previewApi({
