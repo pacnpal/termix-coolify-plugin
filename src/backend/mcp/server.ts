@@ -12,6 +12,8 @@ import en from "../../../locales/en.json";
 import { redact } from "../redact.js";
 import { handoffIdOf, takeOnceUrl } from "../status/service.js";
 import { takeExecOutput, takeLogText } from "../ops/containers.js";
+import { takeBuildLogText } from "../ops/deployments.js";
+import { takePreviewLogText } from "../ops/previews.js";
 import { takeWebUiUrl } from "../ops/container-companions.js";
 
 /** The MCP protocol version this endpoint speaks when a client asks for another. */
@@ -39,11 +41,19 @@ export const MCP_CHANGES_EXEMPT: readonly string[] = [
 /**
  * Actions MCP refuses without `confirmed: true`, before core is asked:
  * coolify.exec runs any command in a container; coolify.enable-metrics
- * changes a server's Sentinel settings.
+ * changes a server's Sentinel settings; coolify.deploy-by-tag deploys every
+ * resource with a tag; a rollback replaces what an application runs;
+ * coolify.preview-create deploys a pull request's code and
+ * coolify.preview-domains changes where a preview answers.
  */
 export const MCP_CONFIRM_REQUIRED: readonly string[] = [
   "coolify.exec",
   "coolify.enable-metrics",
+  "coolify.preview-create",
+  "coolify.preview-domains",
+  "coolify.deploy-by-tag",
+  "coolify.rollback",
+  "coolify.resource-rollback",
 ];
 
 /**
@@ -189,15 +199,15 @@ function inputSchema(action: OperationAction): Record<string, unknown> {
       description: "Describe what would happen without changing anything.",
     };
   }
-  if (action.risk === "destructive") {
-    properties.confirmed = {
-      type: "boolean",
-      description: "Set true to confirm this destructive action.",
-    };
-  } else if (MCP_CONFIRM_REQUIRED.includes(action.id)) {
+  if (MCP_CONFIRM_REQUIRED.includes(action.id)) {
     properties.confirmed = {
       type: "boolean",
       description: "Required: set true to confirm this action.",
+    };
+  } else if (action.risk === "destructive") {
+    properties.confirmed = {
+      type: "boolean",
+      description: "Set true to confirm this destructive action.",
     };
   } else if (MCP_CONFIRM_REQUIRED_KINDS[action.id]) {
     properties.confirmed = {
@@ -493,6 +503,32 @@ function actionResult(
     // The text was redacted by redactLog and dropped from run history; the
     // caller who ran it gets it here, once.
     const text = takeLogText(
+      ctx.currentActor() ?? "",
+      (outcome.data as { handoffId?: unknown }).handoffId,
+    );
+    if (text !== null) data = { ...(data as object), text };
+  }
+  if (
+    action.id === "coolify.deployment-get" &&
+    data &&
+    typeof data === "object"
+  ) {
+    // The build log was redacted and dropped from run history; the caller
+    // who ran it gets it here, once.
+    const text = takeBuildLogText(
+      ctx.currentActor() ?? "",
+      (outcome.data as { handoffId?: unknown }).handoffId,
+    );
+    if (text !== null) data = { ...(data as object), text };
+  }
+  if (
+    action.id === "coolify.preview-logs" &&
+    data &&
+    typeof data === "object"
+  ) {
+    // The preview's logs were redacted and dropped from run history; the
+    // caller who ran it gets them here, once.
+    const text = takePreviewLogText(
       ctx.currentActor() ?? "",
       (outcome.data as { handoffId?: unknown }).handoffId,
     );

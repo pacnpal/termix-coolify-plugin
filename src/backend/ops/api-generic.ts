@@ -235,12 +235,12 @@ export function tokenAllows(op: CoolifyOperation, abilities: Abilities) {
 }
 
 /** The connection's Coolify version; one never read counts as the floor. */
-function versionOf(connection: ConnectionView): string {
+export function versionOf(connection: ConnectionView): string {
   return connection.version ?? MIN_COOLIFY_VERSION;
 }
 
 /** The oldest Coolify whose spec documents the operation. */
-function documentedFrom(op: CoolifyOperation): string {
+export function documentedFrom(op: CoolifyOperation): string {
   return op.source === "4.7.5" ? "4.7.5" : op.minVersion;
 }
 
