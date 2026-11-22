@@ -876,6 +876,22 @@
       "allowed": "any",
       "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify (the server can't be read) before anything changes; there is no reachable Coolify in the authz run."
     },
+    "GET /plugin-api/coolify/connections/:id/host-metrics": {
+      "access": "user",
+      "permission": "coolify.operate",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      },
+      "query": {
+        "servers": "authz-own-server"
+      },
+      "allowed": "any",
+      "note": "The seeded connection has no Linked host, so an allowed caller gets 200 with the server's cause not-linked before any SSH; there is no reachable Coolify or Linked host in the authz run."
+    },
     "GET /plugin-api/coolify/connections/:id/resources/:uuid/metrics": {
       "access": "user",
       "permission": "coolify.operate",

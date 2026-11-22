@@ -60,6 +60,8 @@ appear in run history.
 | `coolify.signal-degraded`          | `GET /plugin-api/coolify/connections/:id/resources`                                           | `/operations/coolify.signal-degraded/run`          | `operations:read` or `operations:run` | `coolify__signal_degraded`          | `curl -X POST "$TERMIX/operations/coolify.signal-degraded/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7}'`                                                                                                         |
 | `coolify.signal-server`            | `GET /plugin-api/coolify/connections/:id/servers`                                             | `/operations/coolify.signal-server/run`            | `operations:read` or `operations:run` | `coolify__signal_server`            | `curl -X POST "$TERMIX/operations/coolify.signal-server/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7}'`                                                                                                           |
 | `coolify.signal-updates`           | `GET /plugin-api/coolify/connections/:id/servers`                                             | `/operations/coolify.signal-updates/run`           | `operations:read` or `operations:run` | `coolify__signal_updates`           | `curl -X POST "$TERMIX/operations/coolify.signal-updates/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7}'`                                                                                                          |
+| `coolify.host-summary`             | `GET /plugin-api/coolify/connections/:id/server-health`                                       | `/operations/coolify.host-summary/run`             | `operations:read` or `operations:run` | `coolify__host_summary`             | `curl -X POST "$TERMIX/operations/coolify.host-summary/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7}'`                                                                                                            |
+| `coolify.host-metrics`             | `GET /plugin-api/coolify/connections/:id/host-metrics`                                        | `/operations/coolify.host-metrics/run`             | `operations:read` or `operations:run` | `coolify__host_metrics`             | `curl -X POST "$TERMIX/operations/coolify.host-metrics/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7}'`                                                                                                            |
 | `coolify.signal-deploying`         | `GET /plugin-api/coolify/connections/:id/resources`                                           | `/operations/coolify.signal-deploying/run`         | `operations:read` or `operations:run` | `coolify__signal_deploying`         | `curl -X POST "$TERMIX/operations/coolify.signal-deploying/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{}}'`                                                                                                        |
 | `coolify.shell-command`            | `POST /plugin-api/coolify/connections/:id/resources/:uuid/shell`                              | `/operations/coolify.shell-command/run`            | `operations:read` or `operations:run` | `coolify__shell_command`            | `curl -X POST "$TERMIX/operations/coolify.shell-command/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","uuid":"<resource uuid>","console":"shell"}}'`                                              |
 | `coolify.logs-tail`                | `GET /plugin-api/coolify/connections/:id/resources/:uuid/logs`                                | `/operations/coolify.logs-tail/run`                | `operations:read` or `operations:run` | `coolify__logs_tail`                | `curl -X POST "$TERMIX/operations/coolify.logs-tail/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","uuid":"<resource uuid>","lines":100,"confirm":true}}'`                                         |
@@ -191,7 +193,7 @@ serves.
 | `POST /plugin-api/coolify/connections/:id/probe`                                              | `coolify.connection-probe`                                                                                                                                           |
 | `GET /plugin-api/coolify/connections/:id/resources`                                           | `coolify.list-resources-all`; on a Linked host `coolify.list-resources`, and the signals `coolify.signal-degraded` and `coolify.signal-deploying` read the same list |
 | `GET /plugin-api/coolify/connections/:id/resources/:uuid`                                     | `coolify.resource-get`                                                                                                                                               |
-| `GET /plugin-api/coolify/connections/:id/server-health`                                       | the signals `coolify.signal-server` and `coolify.signal-degraded` read the same cached servers and resources for one Linked host                                     |
+| `GET /plugin-api/coolify/connections/:id/server-health`                                       | `coolify.host-summary` for one Linked host; the signals `coolify.signal-server` and `coolify.signal-degraded` read the same cached servers and resources             |
 | `GET /plugin-api/coolify/connections/:id/servers`                                             | `coolify.sync-preview`; the signals `coolify.signal-server` and `coolify.signal-updates` read the same servers                                                       |
 | `POST /plugin-api/coolify/connections/:id/sync`                                               | `coolify.sync-apply`; `coolify.sync-host` for one Linked host                                                                                                        |
 | `POST /plugin-api/coolify/connections/:id/servers/:uuid/unlink`                               | `coolify.unlink`                                                                                                                                                     |
@@ -241,6 +243,7 @@ serves.
 | `GET /plugin-api/coolify/connections/:id/api/operations`                                      | `coolify.list-api-operations`; `?reads=1` is `coolify.list-api-reads`                                                                                                |
 | `POST /plugin-api/coolify/connections/:id/api/call`                                           | `coolify.api-read` for a GET, `coolify.api-call` for anything else                                                                                                   |
 | `GET /plugin-api/coolify/connections/:id/servers/:uuid/metrics`                               | `coolify.server-metrics`                                                                                                                                             |
+| `GET /plugin-api/coolify/connections/:id/host-metrics`                                        | `coolify.host-metrics` for one Linked host                                                                                                                           |
 | `POST /plugin-api/coolify/connections/:id/servers/:uuid/metrics/enable`                       | `coolify.enable-metrics`                                                                                                                                             |
 | `GET /plugin-api/coolify/connections/:id/resources/:uuid/metrics`                             | `coolify.resource-metrics`                                                                                                                                           |
 | `GET /plugin-api/coolify/connections/:id/resources/:uuid/traffic`                             | `coolify.resource-traffic`                                                                                                                                           |
@@ -667,6 +670,41 @@ The reads are offered to the assistant and MCP, with the same data and checks as
 `connectionId` and `uuid` (or `serverUuid`), plus `minutes`, or `view`, `dim` and `range` for traffic.
 `coolify.enable-metrics` is a change: inputs `connectionId`, `serverUuid` and `confirm: true`. Over MCP it
 also needs **Allow changes over MCP** and `confirmed: true`.
+
+## Linked host rows and host metrics
+
+What Termix's dashboard host rows and the homepage's host metrics show for a Linked host. Each answers for
+every Linked host of a connection in one request, so a list of hosts costs one request per connection.
+
+### `GET /plugin-api/coolify/connections/{id}/server-health`
+
+`{ servers, degraded, counts, deploying }`, by server uuid. `servers` lists `{ uuid, reachable, usable }`, or
+is null when the token can't read servers. `counts` holds `{ running, degraded, stopped, deploying }` (Parts
+left out, `exited` is stopped, bare `unhealthy` is degraded) and `deploying` the resources with a queued or
+running deployment in Coolify's queue or a deploying status; both, and `degraded`, are null when the
+resources can't be read. Everything comes from the shared caches (servers a minute, resources 20 seconds,
+the queue 10 seconds). Needs **View Coolify**; another user's connection is 404, and a change of the
+connection's address, token or Access settings while it reads answers 409 `target-changed`.
+
+### `GET /plugin-api/coolify/connections/{id}/host-metrics?servers=`
+
+`servers` is 1 to 20 comma separated server uuids. Answers `{ servers: { uuid: { containers, cpuPercent,
+memoryBytes, cpus, memoryTotalBytes, at } }, errors: { uuid: cause } }`: the running containers' CPU
+(`cpuPercent`, where 100 is one CPU) and memory summed from one `docker stats --no-stream` over SSH on the
+server's Linked host, with the host's CPUs and memory from `docker info`. No container names. Each server is
+read at most once every 30 seconds per connection target, however many people or rows ask, which is
+never more often than the live stats socket. Needs **Operate Coolify resources** and the owner or an operate
+grant (the Stats tab's rule), checked before anything runs: 403 otherwise. A server without a summary gets
+its cause in `errors`: `not-linked`, `no-host-access` (no `connect` access to its host), `not-found`,
+`host-key` or `ssh-failed`. 400 for a bad `servers`, 409 `target-changed` as above.
+
+### Actions `coolify.host-summary` and `coolify.host-metrics`
+
+Host actions for one Linked host (send `hostId`), offered to the assistant and MCP with the same data and
+checks as the routes. Both answer `{ linked: false }` on a host that isn't linked. `coolify.host-summary`
+answers `{ linked, connectionId, serverUuid, server, counts, deploying }` for that host's server and needs
+your own `connect` access to the host. `coolify.host-metrics` answers `{ linked, connectionId, serverUuid,
+stats }` and fails with the cause when the summary can't be read.
 
 ## Running commands in containers
 

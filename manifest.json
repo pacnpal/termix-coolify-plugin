@@ -1,7 +1,7 @@
 {
   "id": "coolify",
   "name": "Coolify for Termix",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "Coolify inside Termix: servers become hosts (tunnels included), one-click container shells, deploys, logs, variables, backups and alerts, and the full Coolify API.",
   "author": {
     "name": "pacnpal",
@@ -1531,6 +1531,34 @@
           }
         },
         {
+          "id": "coolify.host-summary",
+          "titleKey": "ops.hostSummary.title",
+          "descriptionKey": "ops.hostSummary.description",
+          "icon": "Boxes",
+          "scope": "host",
+          "risk": "read",
+          "permission": "view",
+          "hostAccess": "connect",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.host-metrics",
+          "titleKey": "ops.hostMetrics.title",
+          "descriptionKey": "ops.hostMetrics.description",
+          "icon": "Gauge",
+          "scope": "host",
+          "risk": "read",
+          "permission": "operate",
+          "hostAccess": "connect",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
           "id": "coolify.signal-deploying",
           "titleKey": "ops.signalDeploying.title",
           "descriptionKey": "ops.signalDeploying.description",
@@ -2873,7 +2901,7 @@
   "provides": [
     {
       "service": "coolify.client",
-      "version": "1.1.2",
+      "version": "1.2.0",
       "permission": "coolify.view"
     }
   ],

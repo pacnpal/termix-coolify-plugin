@@ -556,6 +556,14 @@
       "title": "Coolify security updates",
       "description": "Security updates Coolify's last update check found on this Linked host's server."
     },
+    "hostSummary": {
+      "title": "Coolify resources on this host",
+      "description": "How many resources on this Linked host's Coolify server are running, degraded, stopped or being deployed."
+    },
+    "hostMetrics": {
+      "title": "Container CPU and memory on this host",
+      "description": "The CPU and memory all running containers use on this Linked host, from one docker stats reading over SSH, read at most every 30 seconds."
+    },
     "signalDeploying": {
       "title": "Coolify deployments running",
       "description": "How many resources are deploying now, across your Coolify connections."
@@ -1105,6 +1113,16 @@
     "degraded": "Coolify reports this server as not usable",
     "gone": "This server is gone from Coolify",
     "resourcesDegraded": "Degraded Coolify resources on this server: {{count}}"
+  },
+  "hostSlots": {
+    "rowTitle": "Coolify resources",
+    "badgeTitle": "Coolify deployments",
+    "metricsTitle": "Coolify containers",
+    "deploying": "Deploying",
+    "deployingHint": "Coolify deployments running on this server: {{count}}",
+    "containerCpu": "Container CPU",
+    "containerMemory": "Container memory",
+    "containers": "Running containers: {{count}}"
   },
   "hostMenu": {
     "resources": "Coolify resources",

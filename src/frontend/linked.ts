@@ -71,7 +71,8 @@ export function forgetPreview(connectionId: number): void {
   previews.delete(connectionId);
 }
 
-const HEALTH_MAX_AGE_MS = 60_000;
+/** How long a connection's server health is shared before it is read again. */
+export const HEALTH_MAX_AGE_MS = 60_000;
 const healths = new Map<
   number,
   { at: number; health: Promise<ServerHealth | null> }
@@ -84,7 +85,7 @@ const healths = new Map<
  * null, which shows no dot.
  */
 export function cachedServerHealth(
-  api: Api,
+  api: Pick<Api, "serverHealth">,
   connectionId: number,
 ): Promise<ServerHealth | null> {
   const hit = healths.get(connectionId);
@@ -94,6 +95,45 @@ export function cachedServerHealth(
     .catch(() => null as ServerHealth | null);
   healths.set(connectionId, { at: Date.now(), health });
   return health;
+}
+
+/**
+ * A Linked host's connection health, read from the shared per connection
+ * cache when the host is shown and again every `pollMs` while it stays
+ * shown, so every row of a connection costs one request a minute. Keyed by
+ * the link: a new link clears it at once, and an answer for an older link
+ * (or after unmount) is dropped. An ordinary host (null) makes no request.
+ */
+export function useServerHealth(
+  api: Pick<Api, "serverHealth">,
+  link: HostLink | null,
+  pollMs = HEALTH_MAX_AGE_MS,
+): ServerHealth | null {
+  const connectionId = link?.connectionId ?? 0;
+  const serverUuid = link?.serverUuid ?? "";
+  const key = connectionId && serverUuid ? `${connectionId}:${serverUuid}` : "";
+  const [state, setState] = useState<{
+    key: string;
+    health: ServerHealth | null;
+  } | null>(null);
+  useEffect(() => {
+    if (!key) return;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const read = () => {
+      void cachedServerHealth(api, connectionId).then((health) => {
+        if (!live) return;
+        setState({ key, health });
+        timer = setTimeout(read, pollMs);
+      });
+    };
+    read();
+    return () => {
+      live = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [api, key, connectionId, pollMs]);
+  return state && state.key === key ? state.health : null;
 }
 
 /** What is wrong with a Linked host's server, worst first. */

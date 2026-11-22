@@ -103,6 +103,10 @@
     "kind": "parses",
     "what": "docker stats numbers"
   },
+  "src/backend/metrics/service.ts#readHostStats": {
+    "kind": "parses",
+    "what": "docker info and docker stats numbers, summed"
+  },
   "src/backend/metrics/sentinel.ts#dockerNeedsSudo": {
     "kind": "parses",
     "what": "the login's uid and groups"
