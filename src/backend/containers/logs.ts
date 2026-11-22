@@ -160,6 +160,11 @@ function lastLoneKeyEnd(text: string): number {
   return last;
 }
 
+/** Whether `text` holds a private key END marker that no BEGIN in it opened. */
+export function hasLoneKeyEnd(text: string): boolean {
+  return lastLoneKeyEnd(text) >= 0;
+}
+
 /** Where the tail rule's END is in texts read as joined by newlines. */
 interface KeyTailAt {
   /** The text holding the END marker. */

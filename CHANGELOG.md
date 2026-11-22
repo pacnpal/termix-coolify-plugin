@@ -37,7 +37,9 @@
   credential query parameters, secret-named fields, Authorization credentials and private keys, in every
   field of a hit (message, time, host and container), before a message is cut to 2,000 characters. A key
   whose BEGIN, body and END come as separate hits is masked whole whether Log Search lists them oldest or
-  newest first; when the key markers fit neither order, every message is masked
+  newest first; when the key markers fit neither order, every message is masked. Every END marker on a
+  hit counts, each paired with a BEGIN of its own kind, so an END after a complete key on the same hit
+  is still found
 - The output a server update install shows (from Package Manager or over SSH) is masked the same way
   before it is cut to its last 4,000 characters
 

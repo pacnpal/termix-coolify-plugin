@@ -204,6 +204,35 @@ describe("Log Search hits are redacted", () => {
     ).toEqual(["[redacted]", "[redacted]", "[redacted]"]);
   });
 
+  it("finds a lone END after complete blocks on the same hit", async () => {
+    const { harness: h, companions, connectionId } = await start();
+    const inline = (kind: string) =>
+      `-----BEGIN ${kind}PRIVATE KEY-----inline-----END ${kind}PRIVATE KEY-----`;
+    const lone = "-----END EC PRIVATE KEY-----";
+    for (const tail of [
+      // A complete block, then an END of another kind that nothing opened.
+      `${inline("RSA ")} ${lone}`,
+      // Two complete blocks, then the lone END.
+      `${inline("RSA ")} ${inline("OPENSSH ")} ${lone}`,
+    ]) {
+      answerWith(companions, [{ message: SPLIT_KEY_BODY }, { message: tail }]);
+      const res = await h.request(
+        "GET",
+        `/connections/${connectionId}/log-search?uuid=app-web-uuid`,
+      );
+      expect(res.status).toBe(200);
+      // Soft, so each variant is reported on its own.
+      expect
+        .soft(
+          (res.body as { results: { message: string }[] }).results.map(
+            (r) => r.message,
+          ),
+          tail,
+        )
+        .toEqual(["[redacted]", "[redacted]"]);
+    }
+  });
+
   it("redacts before the message is cut, so a cut never splits a secret", async () => {
     const { harness: h, companions, connectionId } = await start();
     // The token straddles the 2,000 character cut.

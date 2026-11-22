@@ -3,7 +3,12 @@ import type {
   PluginOperationOutcome,
 } from "@termix-ssh/plugin-sdk/backend";
 import { REDACTED_VALUE } from "@termix-ssh/plugin-sdk/operations";
-import { keyBlockCarry, redactLog } from "../containers/logs.js";
+import {
+  hasLoneKeyEnd,
+  keyBlockCarry,
+  openKeyBlock,
+  redactLog,
+} from "../containers/logs.js";
 import { CompanionError } from "./detect.js";
 
 // Calls into the companion plugins. Every call is one of their documented
@@ -252,38 +257,31 @@ export interface LogLine {
 const MAX_LINES = 200;
 const MAX_LINE = 2000;
 
-/** A private key END marker, as redactLog's key rules spell it. */
-const KEY_END = /-----END [A-Z0-9 ]{0,40}PRIVATE KEY-----/;
-
-/** A line with an END marker that no BEGIN earlier on the line opened. */
-function orphanEnd(line: string): boolean {
-  const end = line.search(KEY_END);
-  return end >= 0 && !line.slice(0, end).includes("-----BEGIN ");
+/**
+ * Whether `messages` (in this order, read as one log) can be the log's own
+ * order: every private key END is opened by a BEGIN of its own kind before
+ * it, and no key is still open at the end. The pairing is logs.ts's own
+ * (hasLoneKeyEnd, openKeyBlock), the one reading of key markers.
+ */
+function readsAsLog(messages: readonly string[]): boolean {
+  const text = messages.join("\n");
+  return !hasLoneKeyEnd(text) && openKeyBlock(text) === null;
 }
 
 /**
- * The messages (each a list of lines) redacted in the order given, through
- * one keyBlockCarry, so a key whose BEGIN, body and END are separate hits
- * is masked whole. Null for a message with nothing left. `sound` is false
- * when that order can't be the log's own: an END that no BEGIN opened, or a
- * key still open at the end.
+ * The messages redacted in this order through one keyBlockCarry, line by
+ * line, so a key whose BEGIN, body and END are separate hits is masked
+ * whole. A message with nothing left is REDACTED_VALUE.
  */
-function carried(
-  messages: string[][],
-  secrets: readonly string[],
-): { texts: (string | null)[]; sound: boolean } {
+function carried(messages: readonly string[], secrets: readonly string[]) {
   const keys = keyBlockCarry(secrets);
-  let sound = true;
-  const texts = messages.map((lines) => {
-    const kept: string[] = [];
-    for (const line of lines) {
-      if (keys.keyEnd === null && orphanEnd(line)) sound = false;
-      const out = keys.line(line);
-      if (out !== null) kept.push(out);
-    }
-    return kept.length ? kept.join("\n") : null;
+  return messages.map((message) => {
+    const kept = message
+      .split(/\r?\n/)
+      .map((line) => keys.line(line))
+      .filter((line): line is string => line !== null);
+    return kept.length ? kept.join("\n") : REDACTED_VALUE;
   });
-  return { texts, sound: sound && keys.keyEnd === null };
 }
 
 /**
@@ -291,19 +289,16 @@ function carried(
  * connection's own `secrets`), before anything is cut. Log Search doesn't
  * document whether hits come oldest or newest first, so the key markers
  * decide: the order given, else its reverse, whichever reads as a log. When
- * neither does (a key cut off at both ends), every message is masked.
+ * neither does (an END that no BEGIN of its kind opened, or a key still
+ * open, either way), every message is masked.
  */
 function redactMessages(
   messages: string[],
   secrets: readonly string[],
 ): string[] {
-  const lines = messages.map((m) => m.split(/\r?\n/));
-  const masked = (texts: (string | null)[]) =>
-    texts.map((text) => text ?? REDACTED_VALUE);
-  const forward = carried(lines, secrets);
-  if (forward.sound) return masked(forward.texts);
-  const backward = carried([...lines].reverse(), secrets);
-  if (backward.sound) return masked(backward.texts.reverse());
+  if (readsAsLog(messages)) return carried(messages, secrets);
+  const reversed = [...messages].reverse();
+  if (readsAsLog(reversed)) return carried(reversed, secrets).reverse();
   return messages.map(() => REDACTED_VALUE);
 }
 

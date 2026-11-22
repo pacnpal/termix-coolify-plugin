@@ -435,8 +435,9 @@ console, revision? }`, calls the shell route and draws `PluginComponent id="term
   from SSH choices; a Coolify `forbidden-ability` falls back to SSH. The count is capped at 10,000
   (`MAX_LINES`), never refused. The container name passes `assertContainerName` and is `shellQuote`d, and so
   is the line count; no secret is ever in the command.
-- Log exits: `tests/backend/log-exits.test.ts` (`LOG_EXITS`, checked by `tests/backend/helpers/log-exits.ts`)
-  lists every backend function that touches log or command text (Coolify log reads, `docker logs`, SSH
+- Log exits: `tests/backend/log-exits.json` (loaded by `tests/backend/log-exits.test.ts`, its shape checked
+  by `parseLogExits` and the source audited by `tests/backend/helpers/log-exits.ts`; JSON because the
+  table as TypeScript failed SonarCloud's duplication gate) lists every backend function that touches log or command text (Coolify log reads, `docker logs`, SSH
   channels and `.stdout`/`.stderr`, Log Search, the generic API's `LOG_FIELDS`, Package Manager's upgrade)
   and what it does with it. An `exit` must call `redactLog` or a helper built on it (`redactLogFields`,
   `keyBlockCarry`, `lineSplitter`, `redactLogStream`, `buildLog`); a new read of log text anywhere else
@@ -650,7 +651,9 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   `configure`. `logSearch` (adapters.ts) takes the snapshot's `secrets()` and puts every text field of
   every hit through `redactLog` before the 2,000-character cut; messages go through one `keyBlockCarry`
   in the order given, else reversed (Log Search doesn't document its order), and when key markers fit
-  neither order every message is masked. Every companion call is a documented action from the companions' published references
+  neither order every message is masked. Whether an order reads as a log is `hasLoneKeyEnd` and
+  `openKeyBlock` from logs.ts over the joined messages (every marker, each END paired with a BEGIN of
+  its own kind); keep key-marker scans in logs.ts, not hand-rolled. Every companion call is a documented action from the companions' published references
   (docs.termix.site/plugins/<id>/reference), by its id and input names, through `ctx.operations.invoke`;
   `operations.invokes` lists exactly those ids (and Package Manager's) and `optionalDependencies` pins each
   companion to `~` the version its reference documents. The references list no service methods, so no

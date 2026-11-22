@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   auditLogExits,
   functionsOf,
+  parseLogExits,
   type LogExit,
 } from "./helpers/log-exits.js";
 
@@ -12,131 +13,18 @@ const root = fileURLToPath(new URL("../..", import.meta.url));
 
 /**
  * Every backend function that touches log or command text (helpers/log-exits.ts
- * lists where such text enters), and what it does with it. A function that
- * returns it to a caller is an exit and must call redactLog, or a helper
- * that runs every line through it (keyBlockCarry, lineSplitter,
- * redactLogStream, buildLog), with the connection snapshot's own secrets.
- * A new place that reads log text fails the audit until it is listed here.
+ * lists where such text enters), and what it does with it, in
+ * tests/backend/log-exits.json (`path#function` to `{ kind, what, into?,
+ * from?, issue? }`). A function that returns it to a caller is an exit and
+ * must call redactLog, or a helper that runs every line through it
+ * (redactLogFields, keyBlockCarry, lineSplitter, redactLogStream, buildLog),
+ * with the connection snapshot's own secrets. A new place that reads log
+ * text fails the audit until it is listed there. parseLogExits checks every
+ * entry's shape as it loads.
  */
-const LOG_EXITS: Record<string, LogExit> = {
-  // Container logs (route, coolify.logs-tail, coolify.client, MCP).
-  "src/backend/containers/logs.ts#snapshot": {
-    kind: "exit",
-    what: "container logs snapshot through Coolify",
-  },
-  "src/backend/containers/logs.ts#fromCoolify": {
-    kind: "feeds",
-    into: ["snapshot"],
-    what: "Coolify's container logs, raw",
-  },
-  "src/backend/containers/logs.ts#fromSsh": {
-    kind: "exit",
-    what: "container logs snapshot over SSH",
-  },
-  "src/backend/containers/logs.ts#follow": {
-    kind: "exit",
-    what: "followed container logs (WS /logs)",
-  },
-  // Deployments.
-  "src/backend/deployments/service.ts#read": {
-    kind: "feeds",
-    into: ["get", "cancel"],
-    what: "a deployment with its raw build log",
-  },
-  "src/backend/deployments/service.ts#get": {
-    kind: "exit",
-    what: "a deployment's build log",
-  },
-  "src/backend/deployments/service.ts#cancel": {
-    kind: "discards",
-    what: "cancel reads the deployment, not its log",
-  },
-  // Pull request previews.
-  "src/backend/previews/service.ts#logs": {
-    kind: "exit",
-    what: "preview logs",
-  },
-  // Exec.
-  "src/backend/containers/exec.ts#exec": {
-    kind: "exit",
-    what: "exec stdout and stderr",
-  },
-  // The generic API.
-  "src/backend/ops/api-generic.ts#logFieldsOf": {
-    kind: "feeds",
-    into: ["dispatch", "reveal"],
-    what: "an operation's log and output field names",
-  },
-  "src/backend/ops/api-generic.ts#dispatch": {
-    kind: "exit",
-    what: "generic API log fields (redactLogFields)",
-  },
-  "src/backend/ops/api-generic.ts#reveal": {
-    kind: "unredacted",
-    what: "reveal: the audited way to read one masked value as it is",
-  },
-  // Log Search.
-  "src/backend/companions/adapters.ts#logSearch": {
-    kind: "exit",
-    what: "Log Search hits",
-  },
-  // Server updates.
-  "src/backend/updates/service.ts#install": {
-    kind: "exit",
-    what: "the upgrade's output",
-  },
-  "src/backend/updates/service.ts#platform": {
-    kind: "parses",
-    what: "the platform probe's package manager",
-  },
-  "src/backend/updates/service.ts#runCheck": {
-    kind: "parses",
-    what: "the update check's package list",
-  },
-  "src/backend/updates/service.ts#reboot": {
-    kind: "parses",
-    what: "only whether sudo refused",
-  },
-  // Operations that pass on an exit's answer.
-  "src/backend/ops/containers.ts#registerContainerOperations": {
-    kind: "relays",
-    from: ["src/backend/containers/exec.ts#exec"],
-    what: "coolify.exec's handoff of exec's redacted output",
-  },
-  // Command output read only for values.
-  "src/backend/connections/probe.ts#runProbe": {
-    kind: "discards",
-    what: "one log line, read only to prove the token's ability",
-  },
-  "src/backend/companions/container-service.ts#containerIp": {
-    kind: "parses",
-    what: "docker inspect's container IP",
-  },
-  "src/backend/containers/resolver.ts#resolveContainers": {
-    kind: "parses",
-    what: "docker ps container names",
-  },
-  "src/backend/containers/service.ts#needsSudo": {
-    kind: "parses",
-    what: "the login's uid and groups",
-  },
-  "src/backend/containers/service.ts#hasBash": {
-    kind: "parses",
-    what: "whether bash exists",
-  },
-  "src/backend/containers/stats.ts#tick": {
-    kind: "parses",
-    what: "docker stats numbers",
-  },
-  "src/backend/metrics/sentinel.ts#dockerNeedsSudo": {
-    kind: "parses",
-    what: "the login's uid and groups",
-  },
-  "src/backend/metrics/sentinel.ts#sentinelGet": {
-    kind: "parses",
-    what: "Sentinel's JSON, scrubbed",
-  },
-};
+const LOG_EXITS = parseLogExits(
+  JSON.parse(readFileSync(join(root, "tests/backend/log-exits.json"), "utf8")),
+);
 
 function backendFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -268,5 +156,27 @@ describe("log exits", () => {
     ).toEqual([
       "src/backend/containers/logs.ts#gone is registered but not found",
     ]);
+  });
+
+  it("refuses a registry entry whose shape is wrong", () => {
+    const key = "src/backend/containers/logs.ts#snapshot";
+    const bad: [unknown, string][] = [
+      [{ kind: "exti", what: "x" }, `${key}: unknown kind "exti"`],
+      [{ kind: "exit" }, `${key}: what must be text`],
+      [{ kind: "feeds", what: "x" }, `${key}: feeds needs into as list`],
+      [{ kind: "feeds", what: "x", into: "snapshot" }, "feeds needs into"],
+      [{ kind: "relays", what: "x", from: [] }, "relays needs from as list"],
+      [{ kind: "pending", what: "x" }, "pending needs issue as text"],
+      [{ kind: "exit", what: "x", inot: ["a"] }, "exit takes no inot"],
+    ];
+    for (const [entry, message] of bad) {
+      expect(() => parseLogExits({ ...LOG_EXITS, [key]: entry })).toThrow(
+        message,
+      );
+    }
+    expect(() => parseLogExits({ "logs.ts#x": LOG_EXITS[key] })).toThrow(
+      "key must be <path>#<function>",
+    );
+    expect(() => parseLogExits([])).toThrow("expected an object");
   });
 });

@@ -19,6 +19,64 @@ export type LogExit =
   /** Deliberately unredacted; the reason says why. */
   | { kind: "unredacted"; what: string };
 
+/** Each kind, with the list or text field it needs besides `kind` and `what`. */
+const KIND_FIELDS: Record<LogExit["kind"], Record<string, "list" | "text">> = {
+  exit: {},
+  feeds: { into: "list" },
+  relays: { from: "list" },
+  parses: {},
+  discards: {},
+  pending: { issue: "text" },
+  unredacted: {},
+};
+
+/**
+ * The registry read from JSON, checked entry by entry: a known kind, a
+ * `what`, exactly the fields that kind takes (`into`/`from` as lists of
+ * strings, `issue` as text). Throws on the first entry that doesn't fit, so
+ * a typo fails instead of being ignored.
+ */
+export function parseLogExits(raw: unknown): Record<string, LogExit> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("log exits: expected an object of entries");
+  }
+  for (const [key, entry] of Object.entries(raw)) {
+    const fail = (why: string) => {
+      throw new Error(`log exits: ${key}: ${why}`);
+    };
+    if (!/^src\/backend\/[^#]+\.ts#[A-Za-z_$][\w$]*$/.test(key)) {
+      fail("key must be <path>#<function>");
+    }
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      fail("entry must be an object");
+    }
+    const { kind, what, ...rest } = entry as Record<string, unknown>;
+    if (
+      typeof kind !== "string" ||
+      !Object.prototype.hasOwnProperty.call(KIND_FIELDS, kind)
+    ) {
+      fail(`unknown kind ${JSON.stringify(kind)}`);
+    }
+    if (typeof what !== "string" || what === "") fail("what must be text");
+    const fields = KIND_FIELDS[kind as LogExit["kind"]];
+    for (const name of new Set([
+      ...Object.keys(fields),
+      ...Object.keys(rest),
+    ])) {
+      const value = rest[name];
+      if (!fields[name]) fail(`${kind} takes no ${name}`);
+      const ok =
+        fields[name] === "list"
+          ? Array.isArray(value) &&
+            value.length > 0 &&
+            value.every((v) => typeof v === "string" && v !== "")
+          : typeof value === "string" && value !== "";
+      if (!ok) fail(`${kind} needs ${name} as ${fields[name]}`);
+    }
+  }
+  return raw as Record<string, LogExit>;
+}
+
 /** The redactors: redactLog itself, or a helper that runs every line through it. */
 export const REDACTORS =
   /\b(?:redactLog|redactLogFields|keyBlockCarry|lineSplitter|redactLogStream|buildLog)\(/;
