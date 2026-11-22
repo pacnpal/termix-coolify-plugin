@@ -149,13 +149,16 @@ const REFUSALS: Record<string, number> = {
   forbidden: 403,
   "not-found": 404,
   "not-linked": 404,
+  "target-changed": 409,
+  "deployment-ended": 409,
+  "targets-changed": 409,
 };
 
 /**
  * The answer for an operation run that did not succeed, when core reports it
  * as an outcome rather than a throw. Only fixed texts go out.
  */
-function failedOutcome(
+export function failedOutcome(
   outcome: PluginOperationOutcome,
 ): { status: number; body: Record<string, unknown> } | null {
   if (outcome.approvalId || /approval|pending|waiting/i.test(outcome.status)) {

@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Copy, KeyRound, SquareTerminal, TriangleAlert } from "lucide-react";
-import type { TabProps } from "@termix-ssh/plugin-sdk/frontend";
-import type { PluginHostRecord } from "@termix-ssh/plugin-sdk/frontend";
+import type {
+  PluginHostRecord,
+  ShellApi,
+  TabProps,
+} from "@termix-ssh/plugin-sdk/frontend";
 import {
+  invokeAction,
   useHosts,
   usePluginApi,
   useTranslation,
@@ -23,6 +27,7 @@ import {
   createApi,
   failureOf,
   type ContainerChoice,
+  type Resource,
   type ShellAnswer,
 } from "../api";
 
@@ -35,6 +40,33 @@ export interface ShellTabData {
   console: "shell" | "db";
   /** The connection's target hash when opened; a new one starts the tab anew. */
   revision?: string;
+}
+
+/**
+ * Opens a container shell, or a database's console, for a resource in a new
+ * coolify-shell tab. The tab data carries the connection's revision, so a
+ * changed target asks for containers again. The backend checks the rest.
+ */
+export function openShellTab(
+  shell: Pick<ShellApi, "openTab">,
+  t: (key: string, options?: Record<string, unknown>) => string,
+  connection: { id: number; revision?: string | null },
+  resource: Pick<Resource, "uuid" | "name">,
+  console: "shell" | "db",
+): void {
+  shell.openTab(null, "coolify-shell", {
+    label:
+      console === "db"
+        ? t("shellTab.consoleLabel", { name: resource.name })
+        : t("shellTab.shellLabel", { name: resource.name }),
+    forceNewTab: true,
+    data: {
+      connectionId: connection.id,
+      uuid: resource.uuid,
+      console,
+      ...(connection.revision ? { revision: connection.revision } : {}),
+    },
+  });
 }
 
 const UUID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -65,8 +97,15 @@ export function shellTabData(
   return out;
 }
 
+/**
+ * The action a shell tab runs to tell the background frame which container it
+ * is connected to, for the toolbar status (toolbar-status.ts). Arguments: the
+ * tab id, the tab data's key (keyOf) and the container name, or null for none.
+ */
+export const SHELL_TARGET_ACTION = "coolify.shell-target";
+
 /** One key per resource and target: the picked container belongs to it. */
-function keyOf(opened: ShellTabData): string {
+export function keyOf(opened: ShellTabData): string {
   return [
     opened.connectionId,
     opened.uuid,
@@ -366,6 +405,21 @@ function ShellView(props: TabProps & { opened: ShellTabData }) {
   useEffect(() => {
     void load();
   }, [load, attempt]);
+
+  // The container this tab is connected to, for the toolbar status. Views run
+  // in their own frames, so it goes to the background frame as an action.
+  const tabId = props.tab?.id;
+  const connected = state.kind === "command" ? state.answer.container : null;
+  useEffect(() => {
+    if (!tabId) return;
+    const key = keyOf(opened);
+    const tell = (container: string | null) =>
+      invokeAction(SHELL_TARGET_ACTION, tabId, key, container).catch(
+        () => undefined,
+      );
+    void tell(connected);
+    return () => void tell(null);
+  }, [tabId, opened, connected]);
 
   let body;
   if (state.kind === "loading") {

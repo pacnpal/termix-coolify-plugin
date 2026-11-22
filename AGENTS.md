@@ -224,6 +224,17 @@ aren't obvious from the code, and anything that has bitten you before.
   `redactFields(action.outputs)` to every action's data, as core does. Uptime is a `deps.uptime` hook,
   not wired to the Uptime companion yet, so pages show no uptime. The resource list has no deploy result yet, so
   `lastDeployOk` is null.
+- Toolbar status: `src/frontend/toolbar-status.ts` fills the `terminal.toolbarStatus` data slot (row key is
+  the tab id). It finds the tab with `useShell().tabs.list`, answers only for `coolify-shell` tabs (parsed
+  with `shellTabData`), and reads statuses from `createStatusFeed`: one `listResources` read per connection
+  (the backend's 20 second cache) shared by every tab, read again `STATUS_POLL_MS` after each answer (a
+  `setTimeout` chain, so a slow read is never overtaken and dropped) while a tab shows it, and dropped when
+  the last one goes. The label is the container the tab connected to: `ShellView` runs in its own frame, so
+  it sends `{tab id, keyOf(tab data), container}` to the background frame with
+  `invokeAction("coolify.shell-target")` (`SHELL_TARGET_ACTION`), held in `createShellTargets`; an entry
+  counts only for the current tab data's key, and a clear only removes an entry with its own key. A uuid missing from the list shows "Gone"; a failed read shows nothing.
+  The hook runs in the background frame, so the feed is made in `activate`, not in a view. Its test mocks
+  `useShell` because the SDK's test host has no shell.
 - Status words: `src/shared/resource-health.ts` (`resourceHealth`, `countResources`) is the one reading of a
   Coolify status, imported by both the backend and the frontend. Exited is stopped, whatever its health
   suffix. Degraded covers degraded, restarting, dead and unhealthy, as a state (`unhealthy`) or a suffix
@@ -304,6 +315,19 @@ aren't obvious from the code, and anything that has bitten you before.
   `SyncView` keys its preview on the connection's id and `revision`: a change clears rows, drafts and
   results and loads again, and a request generation drops a late answer. The host card shows the
   tunnel line from the row's `tunnel` flag and opens the host editor with `shell.editHost`.
+  Terminal companion (1.1.0): `app.registerCompanion("coolify", TerminalCompanion, { tabTypes:
+["terminal"], when: isLinked })` in `src/frontend/index.tsx` (the core id is `coolify.coolify`; not the
+  backend's `companions/`, which is about other plugins). `views/TerminalCompanion.tsx` draws nothing and
+  asks nothing without a link; otherwise its body is keyed by `connectionId:serverUuid`, so a host change
+  remounts it and the old host's answers land on an unmounted view. It reads the connection (access,
+  revision), then `useResources` filtered to the server. Actions need `coolify.operate` and
+  `OPERATE_ACCESS`; Shell uses `openShellTab` (ShellTab.tsx, shared with CoolifyTab), Logs draws
+  `LogsView` in the panel, Restart and Deploy confirm and then call `useLifecycle().run` only while the
+  view is mounted and on the target the confirm was opened for (`mounted`/`current` refs, as RollbackView).
+  Refresh (and `isVisible` turning true) bumps `attempt` (reads the connection again) and reloads the
+  list. Tests draw the
+  registered component through `renderCompanion` (tests/frontend/helpers.tsx): the SDK test host has no
+  companion renderer, and SDK hooks only work inside a registered component.
   `views/SshTerminalCheck.tsx` has the Open Plugins button (`useTabs().openSingletonTab("plugins")`) used
   by blocked sync rows, and the single SSH Terminal line `ProbeChecklist` adds when Coolify has tunnelled
   servers (it reads the sync preview; scoped tokens get none). That line reloads on the connection's
@@ -349,8 +373,8 @@ console, revision? }`, calls the shell route and draws `PluginComponent id="term
   `executeCommand`; the fallback is a NoticePanel with the command to copy. Picking a container re-asks in
   place; after a failed pick, Change container clears it and asks for the choices again (Retry keeps it).
   `ShellView` is keyed by `keyOf(tab data)` (resource, part, console, container, revision; CoolifyTab's
-  `openShell` passes the connection's revision), so new tab data starts with no pick, and loads carry a
-  request generation. Shell host ids can be strings, so hosts are matched by `String(id)`, not `useHost`.
+  `openShell` and the terminal companion pass the connection's revision through `openShellTab`), so new
+  tab data starts with no pick, and loads carry a request generation. Shell host ids can be strings, so hosts are matched by `String(id)`, not `useHost`.
 - Logs: `src/backend/containers/logs.ts` (`readLogsRequest`, `logsCommand`, `redactLog`, `createLogs` with
   `snapshot` and `follow`), `sockets.ts` (`WS /logs`) and the `coolify.logs-tail` action in
   `ops/containers.ts` (refused without `confirm: true`, so MCP and ops reads are explicit). The containers
@@ -639,3 +663,48 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   state, `notCoolifyHost`, with no connection read, since only the hostless tab lists every connection's
   resources). `files.openHost` and `files.openEditor` are File
   Manager frontend actions run with `invokeAction`.
+- Deployments (1.1): `src/backend/deployments/` (service, log, routes, queue, by-tag) and
+  `src/backend/ops/deployments.ts`. `deployments.queue(connectionId)` is the one connection-wide read of
+  Coolify's queue (`GET /deployments`) plus the recent history of the ten most recently deployed
+  applications; it is cached 10 seconds in memory (`queue.ts`), keyed by revision and an invalidate
+  generation like the resources cache, shared by the Deployments section, the Overview, the
+  `coolify.deployment-queue` action and anything later (the sidebar panel, rail badge). Rows whose link
+  names no application of the connection are dropped. Cancel, deploy by tag and rollback invalidate it. In the
+  frontend, `useDeploymentQueue` is held by CoolifyTab and polls only while the tab shows Overview or
+  Deployments. Deploy by tag finds the tag's targets itself (`/applications?tag=` and each service's tags)
+  and deploys them by uuid: Coolify's own `tag` parameter refuses `pr` and `docker_tag`, and deploying by
+  uuid deploys exactly what the confirm listed (`targets`, checked again before Coolify is asked).
+- Recent activity (1.1): `src/backend/activity.ts`. `recordShell` runs in `containers.shell` (route and
+  `coolify.shell-command`) once the answer is built. `createDeployActivity(ctx, sync)` makes the one
+  post-start hook (`deployed`), built in `index.ts` and passed as a required dep to `createLifecycle` and
+  `createDeployments` (previews reach it as `deployments.deployed`), so a new deploy service has to wire
+  it. Every path that starts a Coolify deploy calls it after Coolify accepted: `lifecycle.run` (a waited
+  deploy only if it didn't fail), `deployByTag` (one entry per target Coolify answered for), `rollback`
+  and `previews.create` (text names the pull request). `deployStarted`: an application counts only with
+  a deployment uuid, a service or database always (Coolify starts them with none). The hook resolves a
+  server to its Linked host, checks `ctx.hosts.checkAccess(hostId, "connect")`, dedupes per host and
+  text, and never throws (a failure logs only the error's name). Types `coolify_shell` and
+  `coolify_deploy` (`src/shared/activity.ts`) are claimed by the `coolify` tab's `activityTypes`. It needs
+  only `hosts:read`; `hosts:activity-provide` is for the plugin that stores activity. `coolify.api-call`
+  passthroughs record nothing.
+- Activity panel and rail badge (1.1): `src/backend/attention/` and `src/backend/ops/attention.ts`
+  (`GET /attention`, `coolify.attention`) put together, for every connection the actor can view, the
+  queue's running rows, recent failures (`recentFailures`: the application's latest ended deployment per
+  pull request, failed, ended within 24 hours), degraded resources (no Parts) and unreachable servers. It
+  makes no Coolify request of its own: it reads `deployments.queue`, `resources.list` and `servers.list`,
+  whose caches the tab shares, so the panel, the badge and the tab cost one read per connection. A part
+  that fails sets the connection's `error` and keeps the others; a connection whose access went away by
+  the end is dropped. Frontend: `views/useAttention.ts` (one hook; `railBadge` is the `coolify` rail item's
+  `useBadge`, run in the background frame, checking `app.hasPermission("view")` before any read and
+  polling every 60 s) and `views/ActivityPanel.tsx` (panel `coolify-activity` with its own rail item,
+  polling every 15 s while `active`). Panel rows open the tab with data the tab reads in `requestOf`:
+  `uuid` on Resources opens that resource's detail, `resourceUuid` + `deploymentUuid` on Deployments
+  opens the build log, but only with operate (`shownDeployment` in CoolifyTab).
+- Rollback (1.1): `deployments/service.ts` `rollbackImages` (view) and `rollback` (operate), applications
+  only, through the same `open`/`holds` snapshot re-check as cancel; the image must be in Coolify's list as
+  read in that same call. `ops/rollback.ts` has both scopes; the rollbacks are destructive and in
+  `MCP_CONFIRM_REQUIRED`. `coolify.deploy` / `coolify.resource-deploy` declare them as `undo`: before an
+  application deploy, `imageBefore` in `ops/lifecycle.ts` reads the current image and returns it as
+  `undoInput` only when it is listed; a failed read never blocks the deploy. `PluginOperationOutcome` has
+  no `undoInput`, so tests read it from the handler's own result. `RollbackView` re-checks after the
+  confirm that it is still mounted and on the same application before it posts.

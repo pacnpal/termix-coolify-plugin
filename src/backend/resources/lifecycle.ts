@@ -1,4 +1,5 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
+import type { DeployActivity } from "../activity.js";
 import type { CoolifyApi } from "../coolify/api.js";
 import type { ResourceDto } from "../coolify/dto.js";
 import { CoolifyError } from "../coolify/http.js";
@@ -103,6 +104,8 @@ export interface LifecycleDeps {
   connections: Connections;
   resources: Resources;
   sync: Pick<Sync, "linkOfHost" | "linkedHostFor">;
+  /** The post-start hook every deploy path shares (recent activity). */
+  deployed: DeployActivity;
   /** Waits between deployment polls; tests pass one that doesn't. */
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   pollMs?: number;
@@ -145,7 +148,7 @@ function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
  * called.
  */
 export function createLifecycle(ctx: PluginContext, deps: LifecycleDeps) {
-  const { connections, resources, sync } = deps;
+  const { connections, resources, sync, deployed } = deps;
   const sleep = deps.sleep ?? abortableSleep;
   const pollMs = deps.pollMs ?? POLL_MS;
   const maxWaitMs = deps.maxWaitMs ?? MAX_WAIT_MS;
@@ -259,7 +262,20 @@ export function createLifecycle(ctx: PluginContext, deps: LifecycleDeps) {
       } finally {
         await resources.invalidate(connectionId);
       }
+      // The shared post-start hook: a waited deploy only once the run
+      // didn't fail.
+      const started = () =>
+        deployed(connectionId, [
+          {
+            name: resource.name,
+            kind: resource.kind,
+            deploymentUuid: result.deploymentUuid,
+            hostId: opts.hostId,
+            serverUuid: resource.serverUuid,
+          },
+        ]);
       if (verb !== "deploy" || !opts.wait || !result.deploymentUuid) {
+        if (verb === "deploy") await started();
         return result;
       }
       let status: string;
@@ -283,6 +299,7 @@ export function createLifecycle(ctx: PluginContext, deps: LifecycleDeps) {
         );
       }
       if (failed) throw new DeploymentFailedError(resource.name, status);
+      await started();
       return { ...result, status };
     },
   };

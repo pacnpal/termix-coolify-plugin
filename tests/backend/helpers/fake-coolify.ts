@@ -3,7 +3,7 @@ import type { PluginFetchInit } from "@termix-ssh/plugin-sdk/backend";
 /** One canned answer: a JSON body, or a full Response for anything else. */
 export type FakeAnswer =
   | { status?: number; json?: unknown; text?: string; contentType?: string }
-  | (() => Response);
+  | ((url: string) => Response);
 
 export interface FakeCall {
   method: string;
@@ -37,7 +37,7 @@ export function fakeCoolify(
         headers: { "content-type": "application/json" },
       });
     }
-    if (typeof answer === "function") return answer();
+    if (typeof answer === "function") return answer(url);
     if (answer.text !== undefined) {
       return new Response(answer.text, {
         status: answer.status ?? 200,

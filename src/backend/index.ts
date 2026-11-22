@@ -1,7 +1,10 @@
 import type { Router } from "express";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { defineTables } from "./db.js";
+import { createDeployActivity } from "./activity.js";
 import { registerApiConsoleRoutes } from "./api/routes.js";
+import { registerAttentionRoutes } from "./attention/routes.js";
+import { createAttention } from "./attention/service.js";
 import { registerCompanionRoutes } from "./companions/routes.js";
 import { createCompanions } from "./companions/service.js";
 import { createContainerCompanions } from "./companions/container-service.js";
@@ -20,6 +23,10 @@ import { provideClient } from "./service.js";
 import { createContainers } from "./containers/service.js";
 import { registerContainerRoutes } from "./containers/routes.js";
 import { createLogs } from "./containers/logs.js";
+import { createDeployments } from "./deployments/service.js";
+import { registerDeploymentRoutes } from "./deployments/routes.js";
+import { createPreviews } from "./previews/service.js";
+import { registerPreviewRoutes } from "./previews/routes.js";
 import { createExec } from "./containers/exec.js";
 import { registerLogSocket } from "./containers/sockets.js";
 import { registerStatsSocket } from "./containers/stats.js";
@@ -49,9 +56,22 @@ export async function activate(ctx: PluginContext): Promise<void> {
   });
   sync = await createSync(ctx, { tables, connections });
   const resources = createResources(ctx, { tables, connections });
-  const lifecycle = createLifecycle(ctx, { connections, resources, sync });
+  // The one post-start hook every deploy path shares: recent activity.
+  const deployed = createDeployActivity(ctx, sync);
+  const lifecycle = createLifecycle(ctx, {
+    connections,
+    resources,
+    sync,
+    deployed,
+  });
   const containers = createContainers(ctx, { connections, lifecycle, sync });
   const logs = createLogs(ctx, { connections, containers });
+  const deployments = createDeployments(ctx, {
+    connections,
+    resources,
+    deployed,
+  });
+  const previews = createPreviews(ctx, { deployments });
   const servers = createServerStatuses(ctx, { tables, connections });
   const exec = createExec(ctx, {
     connections,
@@ -85,6 +105,12 @@ export async function activate(ctx: PluginContext): Promise<void> {
     resources,
     sync,
   });
+  const attention = createAttention(ctx, {
+    connections,
+    resources,
+    deployments,
+    servers,
+  });
   const statusPages = createStatusPages(ctx, {
     tables,
     connections,
@@ -97,6 +123,9 @@ export async function activate(ctx: PluginContext): Promise<void> {
   registerServerHealthRoutes(router, ctx, { resources, servers });
   registerSyncRoutes(router, ctx, sync);
   registerLifecycleRoutes(router, ctx, lifecycle);
+  registerDeploymentRoutes(router, ctx, deployments);
+  registerPreviewRoutes(router, ctx, previews);
+  registerAttentionRoutes(router, ctx, attention);
   registerContainerRoutes(router, ctx, containers, logs);
   registerLogSocket(ctx, { logs });
   registerStatsSocket(ctx, { connections, containers });
@@ -113,6 +142,8 @@ export async function activate(ctx: PluginContext): Promise<void> {
     sync,
     resources,
     lifecycle,
+    deployments,
+    previews,
     containers,
     logs,
     exec,
@@ -123,6 +154,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
     statusPages,
     genericApi,
     metrics,
+    attention,
   });
   provideClient(ctx);
   await statusPages.start();

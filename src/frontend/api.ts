@@ -93,6 +93,8 @@ export interface Resource {
   parentUuid: string | null;
   engine: string | null;
   lastDeployAt: string | null;
+  /** Applications only: Coolify's build pack, like "dockercompose". */
+  buildPack?: string | null;
 }
 
 export interface ResourceList {
@@ -107,6 +109,238 @@ export type LifecycleVerb = "start" | "stop" | "restart" | "deploy";
 export interface LifecycleAnswer {
   deploymentUuid: string | null;
   status?: "pending";
+}
+
+/** One deployment of an application, without its build log. */
+export interface Deployment {
+  uuid: string;
+  resourceUuid: string | null;
+  status: string;
+  commit: string | null;
+  commitMessage: string | null;
+  /** 0 unless it is a preview deployment. */
+  pullRequestId: number;
+  rollback: boolean;
+  serverName: string | null;
+  createdAt: string;
+  updatedAt: string | null;
+  finishedAt: string | null;
+}
+
+/** A page of an application's deployments, newest first. */
+export interface DeploymentPage {
+  rows: Deployment[];
+  /** Coolify's total, or null when it doesn't send one. */
+  count: number | null;
+  skip: number;
+  take: number;
+}
+
+/** One redacted build log line; `hidden` is Coolify's own flag. */
+export interface BuildLogLine {
+  order: number;
+  timestamp: string | null;
+  stream: "stdout" | "stderr";
+  hidden: boolean;
+  command: string | null;
+  output: string;
+}
+
+/** One deployment and its build log (null when the token can't read it). */
+export interface DeploymentDetail {
+  deployment: Deployment;
+  log: { lines: BuildLogLine[]; truncated: boolean } | null;
+  /** The deployment ended: nothing more will change. */
+  final: boolean;
+  cancellable: boolean;
+}
+
+/** What cancel answers; status "pending" waits for an approval. */
+export interface CancelAnswer {
+  status: string | null;
+  pending: boolean;
+}
+
+/** One pull request preview of an application, with its newest build. */
+export interface Preview {
+  pullRequestId: number;
+  uuid: string;
+  pullRequestUrl: string | null;
+  gitType: string | null;
+  status: string;
+  domains: string[];
+  composeDomains: { name: string; domain: string | null }[];
+  /** Coolify's internal port per portless domain URL. */
+  portOverrides?: Record<string, number>;
+  dockerTag: string | null;
+  lastOnlineAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  deploymentUuid: string | null;
+  deploymentStatus: string | null;
+}
+
+/** What deploying a preview sends; the backend checks each value again. */
+export interface PreviewCreateInput {
+  pullRequestId: number;
+  pullRequestUrl?: string;
+  gitType?: string;
+  /** A new Bitbucket preview needs it. */
+  commit?: string;
+  /** A new Docker image preview needs it. */
+  dockerTag?: string;
+}
+
+/** A preview's domains: a list, or one per Docker Compose service. */
+export type PreviewDomainsChange =
+  | { domains: string }
+  | { composeDomains: { name: string; domain: string | null }[] };
+
+/** A preview change's answer; pending waits for an approval. */
+export interface PreviewAnswer {
+  pending: boolean;
+  deploymentUuid: string | null;
+}
+
+/** A deployment in the connection's queue, with its application's name. */
+export interface QueueDeployment extends Deployment {
+  resourceUuid: string;
+  resourceName: string;
+}
+
+/** The connection's queued and running deployments and recent ended ones. */
+export interface DeploymentQueue {
+  running: QueueDeployment[];
+  recent: QueueDeployment[];
+  fetchedAt: string | null;
+}
+
+/** A degraded resource on the attention list (never a Part). */
+export interface AttentionResource {
+  uuid: string;
+  name: string;
+  kind: ResourceKind;
+  status: string;
+  serverName: string | null;
+  projectName: string | null;
+  environmentName: string | null;
+}
+
+/** What needs a look on one connection the user can view. */
+export interface AttentionConnection {
+  id: number;
+  name: string;
+  access: Connection["access"];
+  scoped: boolean;
+  running: QueueDeployment[];
+  /** Recent failures that are still their application's latest outcome. */
+  failed: QueueDeployment[];
+  degraded: AttentionResource[];
+  unreachable: { uuid: string; name: string }[];
+  /** Why a part could not be read; what was read is still there. */
+  error: ApiFailure | null;
+}
+
+/** GET /attention: the sidebar panel's and the rail badge's one read. */
+export interface Attention {
+  connections: AttentionConnection[];
+  /** Running deployments plus recent failures. */
+  badge: number;
+  fetchedAt: string | null;
+}
+
+function named<T extends { uuid: string; name: string }>(value: unknown): T[] {
+  return Array.isArray(value)
+    ? (value as T[]).filter(
+        (v) => !!v && typeof v.uuid === "string" && typeof v.name === "string",
+      )
+    : [];
+}
+
+function attentionConnection(value: unknown): AttentionConnection | null {
+  const c = value as Partial<AttentionConnection> | null;
+  if (!c || typeof c.id !== "number" || typeof c.name !== "string") {
+    return null;
+  }
+  const error = c.error as Partial<ApiFailure> | null | undefined;
+  return {
+    id: c.id,
+    name: c.name,
+    access: c.access ?? "view",
+    scoped: c.scoped === true,
+    running: queueRows(c.running),
+    failed: queueRows(c.failed),
+    degraded: named<AttentionResource>(c.degraded),
+    unreachable: named<{ uuid: string; name: string }>(c.unreachable),
+    error:
+      error && typeof error.cause === "string"
+        ? { error: String(error.error ?? ""), cause: error.cause }
+        : null,
+  };
+}
+
+/** A resource deploy by tag will deploy. */
+export interface TagTarget {
+  uuid: string;
+  name: string;
+  kind: "application" | "service";
+  serverName: string | null;
+}
+
+/** What deploy by tag will hit, for its confirm. */
+export interface TagTargets {
+  tag: string;
+  targets: TagTarget[];
+  /** Services with the tag left out because a pull request was asked. */
+  skippedServices: number;
+}
+
+/** Deploy by tag's options as the form sends them. */
+export interface TagDeployBody {
+  tag: string;
+  force: boolean;
+  pullRequestId?: number;
+  dockerTag?: string;
+  /** The uuids the person confirmed. */
+  targets: string[];
+}
+
+/** What deploy by tag answers; pending waits for an approval. */
+export interface TagDeployAnswer {
+  queued: number;
+  pending: boolean;
+}
+
+function queueRows(value: unknown): QueueDeployment[] {
+  return Array.isArray(value)
+    ? (value as QueueDeployment[]).filter(
+        (r) =>
+          !!r &&
+          typeof r.uuid === "string" &&
+          typeof r.resourceUuid === "string",
+      )
+    : [];
+}
+
+/** One image an application can be rolled back to. */
+export interface RollbackImage {
+  tag: string;
+  createdAt: string | null;
+  /** The image the application runs now. */
+  current: boolean;
+  source: "local" | "registry" | null;
+}
+
+/** An application's rollback images and the tag it runs now. */
+export interface RollbackImages {
+  current: string | null;
+  images: RollbackImage[];
+}
+
+/** What a rollback answers; pending waits for an approval. */
+export interface RollbackAnswer {
+  deploymentUuid: string | null;
+  pending: boolean;
 }
 
 /** GET /mcp: where the plugin's MCP endpoint is. */
@@ -644,6 +878,247 @@ export function createApi(api: PluginApiClient) {
         deploymentUuid:
           typeof data?.deploymentUuid === "string" ? data.deploymentUuid : null,
         status: data?.status === "pending" ? "pending" : undefined,
+      };
+    },
+    /** A page of an application's deployments, newest first. */
+    async listDeployments(
+      id: number,
+      uuid: string,
+      page: { skip: number; take: number },
+    ): Promise<DeploymentPage> {
+      const params = new URLSearchParams({
+        skip: String(page.skip),
+        take: String(page.take),
+      });
+      const data = (
+        await api.get<Partial<DeploymentPage>>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/deployments?${params}`,
+        )
+      ).data;
+      return {
+        rows: Array.isArray(data?.rows) ? data.rows : [],
+        count: typeof data?.count === "number" ? data.count : null,
+        skip: page.skip,
+        take: page.take,
+      };
+    },
+    /** One deployment with its redacted build log. */
+    async getDeployment(
+      id: number,
+      uuid: string,
+      deploymentUuid: string,
+    ): Promise<DeploymentDetail> {
+      const data = (
+        await api.get<DeploymentDetail>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/deployments/${encodeURIComponent(deploymentUuid)}`,
+        )
+      ).data;
+      const log = data?.log;
+      return {
+        deployment: data.deployment,
+        log:
+          log && Array.isArray(log.lines)
+            ? { lines: log.lines, truncated: log.truncated === true }
+            : null,
+        final: data?.final === true,
+        cancellable: data?.cancellable === true,
+      };
+    },
+    /** The images an application can be rolled back to. */
+    async listRollbackImages(
+      id: number,
+      uuid: string,
+    ): Promise<RollbackImages> {
+      const data = (
+        await api.get<Partial<RollbackImages>>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/rollback-images`,
+        )
+      ).data;
+      return {
+        current: typeof data?.current === "string" ? data.current : null,
+        images: Array.isArray(data?.images) ? data.images : [],
+      };
+    },
+    /** Rolls an application back to `image`; the backend runs it as an action. */
+    async rollback(
+      id: number,
+      uuid: string,
+      image: string,
+    ): Promise<RollbackAnswer> {
+      const data = (
+        await api.post<{ status?: unknown; deploymentUuid?: unknown }>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/rollback`,
+          { image },
+        )
+      ).data;
+      return {
+        deploymentUuid:
+          typeof data?.deploymentUuid === "string" ? data.deploymentUuid : null,
+        pending: data?.status === "pending",
+      };
+    },
+    /** Cancels a queued or running deployment; the backend runs it as an action. */
+    async cancelDeployment(
+      id: number,
+      uuid: string,
+      deploymentUuid: string,
+    ): Promise<CancelAnswer> {
+      const data = (
+        await api.post<{ status?: unknown }>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/deployments/${encodeURIComponent(deploymentUuid)}/cancel`,
+          {},
+        )
+      ).data;
+      return {
+        status: typeof data?.status === "string" ? data.status : null,
+        pending: data?.status === "pending",
+      };
+    },
+    /** An application's pull request previews. */
+    async listPreviews(id: number, uuid: string): Promise<Preview[]> {
+      const data = (
+        await api.get<{ rows?: unknown }>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/previews`,
+        )
+      ).data;
+      return Array.isArray(data?.rows) ? (data.rows as Preview[]) : [];
+    },
+    /** Deploys the preview of a pull request; the backend runs it as an action. */
+    async createPreview(
+      id: number,
+      uuid: string,
+      input: PreviewCreateInput,
+    ): Promise<PreviewAnswer> {
+      const data = (
+        await api.post<{ status?: unknown; deploymentUuid?: unknown }>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/previews`,
+          input,
+        )
+      ).data;
+      return {
+        pending: data?.status === "pending",
+        deploymentUuid:
+          typeof data?.deploymentUuid === "string" ? data.deploymentUuid : null,
+      };
+    },
+    /** Replaces a preview's domains (checked before it is called). */
+    async setPreviewDomains(
+      id: number,
+      uuid: string,
+      pullRequestId: number,
+      change: PreviewDomainsChange,
+    ): Promise<PreviewAnswer> {
+      const data = (
+        await api.patch<{ status?: unknown }>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/previews/${pullRequestId}`,
+          change,
+        )
+      ).data;
+      return { pending: data?.status === "pending", deploymentUuid: null };
+    },
+    /** Deletes a preview; the backend runs it as a destructive action. */
+    async deletePreview(
+      id: number,
+      uuid: string,
+      pullRequestId: number,
+    ): Promise<PreviewAnswer> {
+      const data = (
+        await api.delete<{ status?: unknown }>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/previews/${pullRequestId}`,
+        )
+      ).data;
+      return { pending: data?.status === "pending", deploymentUuid: null };
+    },
+    /** A preview's container logs, redacted by the backend. */
+    async previewLogs(
+      id: number,
+      uuid: string,
+      pullRequestId: number,
+    ): Promise<string> {
+      const data = (
+        await api.get<{ text?: unknown }>(
+          `/connections/${id}/resources/${encodeURIComponent(uuid)}/previews/${pullRequestId}/logs`,
+        )
+      ).data;
+      return typeof data?.text === "string" ? data.text : "";
+    },
+    /** The connection's deployment queue, from the backend's shared cache. */
+    async deploymentQueue(
+      id: number,
+      opts: { refresh?: boolean } = {},
+    ): Promise<DeploymentQueue> {
+      const data = (
+        await api.get<Partial<DeploymentQueue>>(
+          `/connections/${id}/deployments${opts.refresh ? "?refresh=1" : ""}`,
+        )
+      ).data;
+      return {
+        running: queueRows(data?.running),
+        recent: queueRows(data?.recent),
+        fetchedAt: typeof data?.fetchedAt === "string" ? data.fetchedAt : null,
+      };
+    },
+    /** Deployments in progress and attention items across connections. */
+    async attention(opts: { refresh?: boolean } = {}): Promise<Attention> {
+      const data = (
+        await api.get<Partial<Attention>>(
+          `/attention${opts.refresh ? "?refresh=1" : ""}`,
+        )
+      ).data;
+      const badge = Number(data?.badge);
+      const rows: unknown[] = Array.isArray(data?.connections)
+        ? data.connections
+        : [];
+      return {
+        connections: rows
+          .map(attentionConnection)
+          .filter((c): c is AttentionConnection => c !== null),
+        badge: Number.isSafeInteger(badge) && badge > 0 ? badge : 0,
+        fetchedAt: typeof data?.fetchedAt === "string" ? data.fetchedAt : null,
+      };
+    },
+    /** The resources deploy by tag would deploy. Changes nothing. */
+    async tagTargets(
+      id: number,
+      query: { tag: string; pullRequestId?: number },
+    ): Promise<TagTargets> {
+      const params = new URLSearchParams({ tag: query.tag });
+      if (query.pullRequestId !== undefined) {
+        params.set("pullRequestId", String(query.pullRequestId));
+      }
+      const data = (
+        await api.get<Partial<TagTargets>>(
+          `/connections/${id}/deploy-by-tag?${params}`,
+        )
+      ).data;
+      return {
+        tag: typeof data?.tag === "string" ? data.tag : query.tag,
+        targets: Array.isArray(data?.targets) ? data.targets : [],
+        skippedServices:
+          typeof data?.skippedServices === "number" ? data.skippedServices : 0,
+      };
+    },
+    /** Deploys the confirmed resources with the tag; the backend runs an action. */
+    async deployByTag(
+      id: number,
+      body: TagDeployBody,
+    ): Promise<TagDeployAnswer> {
+      const data = (
+        await api.post<{ status?: unknown; deployments?: unknown }>(
+          `/connections/${id}/deploy-by-tag`,
+          body,
+        )
+      ).data;
+      const rows: unknown[] = Array.isArray(data?.deployments)
+        ? data.deployments
+        : [];
+      return {
+        queued: rows.filter(
+          (d) =>
+            typeof (d as { deploymentUuid?: unknown } | null)
+              ?.deploymentUuid === "string",
+        ).length,
+        pending: data?.status === "pending",
       };
     },
     async listStatusPages(connectionId: number): Promise<StatusPageList> {

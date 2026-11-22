@@ -30,15 +30,24 @@ import {
   ToolbarSelect,
   type SideNavEntry,
 } from "@termix-ssh/plugin-sdk/ui";
-import { createApi, type Api, type Connection, type Resource } from "../api";
+import {
+  createApi,
+  type Api,
+  type Connection,
+  type QueueDeployment,
+  type Resource,
+} from "../api";
 import type { ResourceHealth } from "../../shared/resource-health";
 import { ApiConsoleView } from "./ApiConsoleView";
 import { ConnectionsView, syncable } from "./ConnectionsView";
+import { DeploymentsSection, type OpenDeployment } from "./DeploymentsSection";
 import { OverviewView } from "./OverviewView";
 import { ResourceDetail } from "./ResourceDetail";
 import { ResourcesView } from "./ResourcesView";
+import { openShellTab } from "./ShellTab";
 import { SyncView } from "./SyncView";
 import type { HealthFilter } from "./resource-model";
+import { useDeploymentQueue } from "./useDeploymentQueue";
 import { useResources } from "./useResources";
 
 /**
@@ -46,11 +55,12 @@ import { useResources } from "./useResources";
  * the API console picks its own connection.
  */
 export type Section =
-  "overview" | "resources" | "servers" | "connections" | "api";
+  "overview" | "resources" | "deployments" | "servers" | "connections" | "api";
 
 const SECTIONS: readonly string[] = [
   "overview",
   "resources",
+  "deployments",
   "servers",
   "connections",
   "api",
@@ -71,11 +81,18 @@ interface OpenRequest extends PickIntent {
   section: Section;
   /** A connection id, or null for the first syncable one (the import menu). */
   connectionId: number | null;
+  /** On Resources: the resource whose detail opens (the activity panel). */
+  uuid: string | null;
+  /** On Deployments: the build log that opens, with operate. */
+  deployment: { resourceUuid: string; deploymentUuid: string } | null;
   /** On Resources: one Coolify server's resources only (a Linked host). */
   serverUuid: string | null;
 }
 
-const SERVER_UUID = /^[A-Za-z0-9_-]{1,64}$/;
+const UUID = /^[A-Za-z0-9_-]{1,64}$/;
+
+const uuidOf = (value: unknown): string | null =>
+  typeof value === "string" && UUID.test(value) ? value : null;
 
 /**
  * Reads the tab's data. "sync" (from a Linked host, the import menu or the
@@ -92,20 +109,27 @@ function requestOf(
   if (typeof raw !== "string" || !SECTIONS.includes(raw)) return null;
   const id = Number(data?.connectionId);
   const connectionId = Number.isSafeInteger(id) && id > 0 ? id : null;
-  const server = data?.serverUuid;
+  const resourceUuid = uuidOf(data?.resourceUuid);
+  const deploymentUuid = uuidOf(data?.deploymentUuid);
   return {
     section: raw as Section,
     connectionId,
     serverUuid:
-      raw === "resources" &&
-      connectionId !== null &&
-      typeof server === "string" &&
-      SERVER_UUID.test(server)
-        ? server
+      raw === "resources" && connectionId !== null
+        ? uuidOf(data?.serverUuid)
         : null,
     open: raw === "resources" && data?.open === "shell" ? "shell" : null,
     detailTab:
       raw === "resources" && typeof data?.tab === "string" ? data.tab : null,
+    uuid:
+      raw === "resources" && connectionId !== null ? uuidOf(data?.uuid) : null,
+    deployment:
+      raw === "deployments" &&
+      connectionId !== null &&
+      resourceUuid &&
+      deploymentUuid
+        ? { resourceUuid, deploymentUuid }
+        : null,
   };
 }
 
@@ -175,6 +199,9 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
   const [server, setServer] = useState<string | null>(null);
   const [openUuid, setOpenUuid] = useState<string | null>(null);
   const [intent, setIntent] = useState<PickIntent>(NO_INTENT);
+  const [openDeployment, setOpenDeployment] = useState<OpenDeployment | null>(
+    null,
+  );
 
   const [loadFailed, setLoadFailed] = useState(false);
 
@@ -207,10 +234,15 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
     const asked = requestOf(data);
     if (!asked) return;
     setSection(asked.section);
-    setOpenUuid(null);
+    setOpenUuid(asked.uuid);
     setIntent({ open: asked.open, detailTab: asked.detailTab });
     setServer(asked.serverUuid);
     if (asked.connectionId !== null) setSelectedId(asked.connectionId);
+    setOpenDeployment(
+      asked.deployment && asked.connectionId !== null
+        ? { connectionId: asked.connectionId, ...asked.deployment }
+        : null,
+    );
     pickFirst.current =
       asked.section === "servers" && asked.connectionId === null;
   }, [data]);
@@ -232,6 +264,22 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
     connection?.id ?? null,
     connection?.revision ?? null,
   );
+  // The same rule as the detail view's Shell button.
+  const mayOperate =
+    canOperate && !!connection && OPERATE_ACCESS.has(connection.access);
+  // A build log holds secrets: it shows only with operate on this connection,
+  // also when the activity panel asked for one.
+  const shownDeployment = mayOperate ? openDeployment : null;
+  // One read shared by the Overview and the Deployments section, polled only
+  // while one of them is shown (and not under an open build log).
+  const queue = useDeploymentQueue(
+    api,
+    connection?.id ?? null,
+    connection?.revision ?? null,
+    isVisible &&
+      (section === "overview" ||
+        (section === "deployments" && shownDeployment === null)),
+  );
 
   /** A saved connection replaces its row; a new target reloads resources. */
   const saved = useCallback((next: Connection) => {
@@ -245,6 +293,7 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
   function select(next: string) {
     setSection(next as Section);
     setOpenUuid(null);
+    setOpenDeployment(null);
     setIntent(NO_INTENT);
     // Pick up connections added or removed in the Connections section.
     if (next !== "connections") void loadConnections();
@@ -266,6 +315,7 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
   const entries: SideNavEntry[] = [
     { id: "overview", label: t("nav.overview"), icon: LayoutDashboard },
     { id: "resources", label: t("nav.resources"), icon: Boxes },
+    { id: "deployments", label: t("nav.deployments"), icon: Rocket },
     ...(canConfigure
       ? [{ id: "servers", label: t("nav.servers"), icon: Server }]
       : []),
@@ -280,6 +330,7 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
         onChange={(id) => {
           setSelectedId(Number(id));
           setOpenUuid(null);
+          setOpenDeployment(null);
           // A server belongs to one connection.
           setServer(null);
         }}
@@ -292,26 +343,9 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
     ) : null;
 
   const rows = resources.list?.rows ?? [];
-  // The same rule as the detail view's Shell button.
-  const mayOperate =
-    canOperate && !!connection && OPERATE_ACCESS.has(connection.access);
 
   function openShell(resource: Resource, console: "shell" | "db") {
-    if (!connection) return;
-    shell.openTab(null, "coolify-shell", {
-      label:
-        console === "db"
-          ? t("shellTab.consoleLabel", { name: resource.name })
-          : t("shellTab.shellLabel", { name: resource.name }),
-      forceNewTab: true,
-      data: {
-        connectionId: connection.id,
-        uuid: resource.uuid,
-        console,
-        // The target it was opened for: a new one asks for containers again.
-        ...(connection.revision ? { revision: connection.revision } : {}),
-      },
-    });
+    if (connection) openShellTab(shell, t, connection, resource, console);
   }
 
   /** A pick in the Resources list: a shell once when asked, else the detail. */
@@ -362,13 +396,41 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
     body = (
       <OverviewView
         resources={resources}
+        queue={queue}
         picker={picker}
+        onOpenDeployment={
+          mayOperate
+            ? (row: QueueDeployment) => {
+                setOpenDeployment({
+                  connectionId: connection.id,
+                  resourceUuid: row.resourceUuid,
+                  deploymentUuid: row.uuid,
+                });
+                setSection("deployments");
+              }
+            : undefined
+        }
+        onShowDeployments={() => setSection("deployments")}
         onShowResources={(h: ResourceHealth) => {
           // The Overview counts every server, so its list shows them all.
           setHealth(h);
           setServer(null);
           setSection("resources");
         }}
+      />
+    );
+  } else if (section === "deployments") {
+    body = (
+      <DeploymentsSection
+        api={api}
+        connectionId={connection.id}
+        revision={connection.revision ?? null}
+        queue={queue}
+        canOperate={mayOperate}
+        isVisible={isVisible}
+        open={shownDeployment}
+        onOpen={setOpenDeployment}
+        picker={picker}
       />
     );
   } else {
