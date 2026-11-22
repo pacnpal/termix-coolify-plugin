@@ -295,6 +295,87 @@ describe("lifecycle, resource and signal operations", () => {
     });
   });
 
+  describe("a waited deploy still running at the 30 minute limit", () => {
+    const stillRunning = {
+      "GET /deployments/dep-uuid": {
+        json: { deployment_uuid: "dep-uuid", status: "in_progress" },
+      },
+    };
+    const words =
+      "The deployment of web was still in progress after 30 minutes, so the run " +
+      "stopped waiting; the deployment has not ended. Follow it at ";
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** Settles `work` while the fake clock runs past the wait's limit. */
+    async function pastTheLimit<T>(work: () => Promise<T>) {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+      const settled = work().then(
+        (value) => ({ value }),
+        (error: unknown) => ({ error }),
+      );
+      await vi.advanceTimersByTimeAsync(31 * 60_000);
+      return settled;
+    }
+
+    it("fails either deploy action with cause wait-timeout and emits no event", async () => {
+      const { harness, id } = await start({ overrides: stillRunning });
+      link(harness, id, "srv-vps1-uuid", 7);
+      const onHost = await pastTheLimit(() =>
+        harness.mock.ctx.operations.run("coolify.deploy", {
+          hostId: 7,
+          resourceKey: "app-web-uuid",
+          input: { wait: true },
+        }),
+      );
+      expect(onHost).toMatchObject({
+        error: {
+          code: "wait-timeout",
+          message: `${words}/plugin-api/coolify/connections/${id}/resources/app-web-uuid/deployments/dep-uuid`,
+        },
+      });
+      const byConnection = await pastTheLimit(() =>
+        harness.mock.ctx.operations.run("coolify.resource-deploy", {
+          input: { connectionId: String(id), uuid: "app-web-uuid", wait: true },
+        }),
+      );
+      expect(byConnection).toMatchObject({ error: { code: "wait-timeout" } });
+      expect(harness.mock.operationEvents).toEqual([]);
+    });
+
+    it("over MCP is an error result with cause wait-timeout, in words", async () => {
+      const { harness, id } = await start({ overrides: stillRunning });
+      harness.mock.setActor(OWNER);
+      const { value: answer } = (await pastTheLimit(() =>
+        handleMcp(harness.mock.ctx, {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "coolify__resource_deploy",
+            arguments: {
+              connectionId: String(id),
+              uuid: "app-web-uuid",
+              wait: true,
+            },
+          },
+        }),
+      )) as { value: Awaited<ReturnType<typeof handleMcp>> };
+      const result = answer?.result as {
+        isError: boolean;
+        content: { text: string }[];
+      };
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0]!.text)).toMatchObject({
+        errorCode: "wait-timeout",
+        error: `${words}/plugin-api/coolify/connections/${id}/resources/app-web-uuid/deployments/dep-uuid`,
+      });
+      expect(harness.mock.operationEvents).toEqual([]);
+    });
+  });
+
   it("deploy events carry only their declared non-secret fields, never Coolify's text", async () => {
     const { harness, id } = await start({
       overrides: {

@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.2
+
+### Fixed
+
+- A waited deploy (`coolify.deploy` or `coolify.resource-deploy` with **wait**) whose deployment is still
+  running when the wait reaches its 30 minute limit no longer ends as a success ("Deployed web:
+  in_progress"). It now fails the run with the cause `wait-timeout`, in Operations Center, Automations,
+  the CLI, the operations API and MCP alike. The message gives the deployment's last status in words and
+  a link to it ("The deployment of web was still in progress after 30 minutes, so the run stopped
+  waiting; the deployment has not ended. Follow it at /plugin-api/coolify/connections/…/deployments/…").
+  No `coolify.deployment-finished` or `coolify.deployment-failed` event is sent, since the deployment
+  itself hasn't ended, and the resource list is still refreshed. The lifecycle deploy route answers such a
+  run with 504 and the cause `wait-timeout`
+
 ## 1.1.1
 
 ### Fixed

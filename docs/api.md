@@ -87,6 +87,30 @@ check or SSH itself.
 Every action stops before it calls Coolify, SSH or another plugin when its run is already cancelled, and a
 deploy with `wait` stops following the deployment when the run is cancelled.
 
+### Waited deploys
+
+`coolify.deploy` and `coolify.resource-deploy` with `"wait": true` follow the deployment, polling every 5
+seconds, until it reaches a final status or the wait reaches its limit of 30 minutes:
+
+- **finished**: the run succeeds and sends `coolify.deployment-finished`.
+- **failed** or **cancelled**: the run fails with the cause `deployment-failed` and sends
+  `coolify.deployment-failed`.
+- **skipped**: the run fails at once with the cause `skipped` and sends `coolify.deployment-failed`.
+- **still running after 30 minutes**: the run fails with the cause `wait-timeout` and sends **no** event,
+  since the deployment itself hasn't ended. The error gives its last status in words and a link to it,
+  the plugin's own deployment route, which answers its status and build log (for an application). Over
+  MCP the tool result is an error with `"errorCode": "wait-timeout"`; on the operations API the run fails
+  with that error code. Read the deployment later with `coolify.deployment-get` or that route.
+
+The error for a timed-out wait reads like this:
+
+```text
+The deployment of web was still in progress after 30 minutes, so the run stopped waiting; the deployment
+has not ended. Follow it at /plugin-api/coolify/connections/1/resources/<app uuid>/deployments/<deployment uuid>
+```
+
+Every outcome refreshes the resource list once the wait ends.
+
 ### Lifecycle routes
 
 `POST /plugin-api/coolify/connections/:id/resources/:uuid/{start|stop|restart|deploy}` (deploy takes
@@ -95,7 +119,9 @@ It answers `{ "deploymentUuid": "…" | null }`, or 202 `{ "status": "pending", 
 waits. With a Linked host it runs the resource-scope action on that host (`hostId`, `resourceKey` = the uuid),
 so the run is in the host's history; without one it runs `coolify.resource-deploy`, `coolify.resource-restart`
 or `coolify.resource-action`. A uuid that isn't one of the connection's resources is 404, a missing permission
-or a view grant 403, and a Coolify refusal 502 with a `cause` such as `forbidden-ability`.
+or a view grant 403, and a Coolify refusal 502 with a `cause` such as `forbidden-ability`. A run that waited
+on its deployment past the 30 minute limit is 504 with the cause `wait-timeout` (the route itself doesn't
+wait; see [Waited deploys](#waited-deploys)).
 
 ```bash
 curl -X POST "$TERMIX/plugin-api/coolify/connections/1/resources/<resource uuid>/deploy" \

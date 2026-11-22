@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMockCtx } from "@termix-ssh/plugin-sdk/testing";
 import type { PluginManifest } from "@termix-ssh/plugin-sdk/manifest";
 import manifestJson from "../../../manifest.json";
@@ -130,6 +130,10 @@ describe("lifecycle()", () => {
 });
 
 describe("createLifecycle run", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   const web = {
     uuid: "app-web-uuid",
     name: "web",
@@ -298,4 +302,56 @@ describe("createLifecycle run", () => {
       ]);
     },
   );
+
+  it("a waited deploy still running at the 30 minute limit fails with wait-timeout and no event", async () => {
+    // The real sleep and clock, both on vitest's fake timers.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const { life, ctx, order } = runner(
+      {
+        "POST /deploy": {
+          json: {
+            deployments: [
+              { resource_uuid: "app-web-uuid", deployment_uuid: "dep-uuid" },
+            ],
+          },
+        },
+        "GET /deployments/dep-uuid": {
+          json: { deployment_uuid: "dep-uuid", status: "in_progress" },
+        },
+      },
+      { sleep: undefined },
+    );
+    const emit = vi.spyOn(ctx.operations, "emit");
+    let settled = false;
+    const ended = life.run(1, web, "deploy", { wait: true, hostId: 7 }).then(
+      () => {
+        settled = true;
+        return null;
+      },
+      (e: unknown) => {
+        settled = true;
+        return e;
+      },
+    );
+    await vi.advanceTimersByTimeAsync(29 * 60_000);
+    // Still following it a minute before the limit.
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(60_000);
+    const err = await ended;
+    expect(err).toBeInstanceOf(DeploymentFailedError);
+    expect(err).toMatchObject({ code: "wait-timeout", status: "in_progress" });
+    expect((err as Error).message).toBe(
+      "The deployment of web was still in progress after 30 minutes, so the run " +
+        "stopped waiting; the deployment has not ended. Follow it at " +
+        "/plugin-api/coolify/connections/1/resources/app-web-uuid/deployments/dep-uuid",
+    );
+    // The deployment hasn't ended: neither event.
+    expect(emit).not.toHaveBeenCalled();
+    // The list is dropped after the deploy and again when the wait ends.
+    expect(order.filter((o) => o.startsWith("invalidate"))).toEqual([
+      "invalidate 1",
+      "invalidate 1",
+    ]);
+    expect(order.at(-1)).toBe("invalidate 1");
+  });
 });
