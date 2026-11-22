@@ -125,7 +125,8 @@
   through Log Search, and, on Linked hosts, the Security Center score, a Host Metrics card with Coolify's
   resource counts, failed backups and whether Databases has a saved login. Each hides while its plugin is
   missing or Termix's plugin list can't be read, and stops with `target-changed` when the connection's
-  target changes while it runs. Create DNS record and Uptime also appear on a resource's Overview
+  target changes while it runs. Create DNS record and Uptime also appear on a resource's Overview, and a
+  click on Create DNS record made as the view first appears is kept
 - Actions `coolify.companion-read` (offered to the assistant and MCP) and `coolify.companion` for the
   same features, including pausing and resuming a resource's Uptime monitors, and the destructive
   `coolify.companion-dns-remove`, which asks for a confirm before it deletes a DNS record made here
@@ -176,8 +177,8 @@
   is logs or command output (deployments, executions, imports) need Operate Coolify resources and ask
   first, while log fields in other answers (a server's validation logs) come back masked unless an
   operator confirms, both found from Coolify's own API description. The API console keeps only the newest answer
-  when you switch connections or reveal twice, retries loading connections on Refresh, and can send null
-  to clear a nullable field
+  when you switch connections or reveal twice, keeps a Reveal clicked as an answer first appears, retries
+  loading connections on Refresh, and can send null to clear a nullable field
 - Request bodies through the full API offer the fields of every variant Coolify accepts (such as a
   database import from an upload or from S3)
 - The API console in the Coolify tab: a form for every Coolify operation. Plain reads run at once, reads of

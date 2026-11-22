@@ -590,6 +590,35 @@ describe("companion UI", () => {
     expect(screen.getByText(/a\.example\.test A/)).toBeTruthy();
   });
 
+  it("a Create click that lands before the DNS view's first effect keeps the form open", async () => {
+    const api = stubApi(ALL_RUNNING);
+    const get = api.get.getMockImplementation()!;
+    // Hold the companion map, so the DNS view first renders outside act,
+    // as it does in a real frame.
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    api.get.mockImplementation(async (url: string) => {
+      if (url === "/companions") await held;
+      return get(url);
+    });
+    await mountSwitcher(api, app);
+    // Click Create the moment React commits the button, before the view's
+    // effects have run.
+    const clicked = new Promise<void>((resolve) => {
+      const observer = new MutationObserver(() => {
+        const button = screen.queryByText(locales.companions.dns.create);
+        if (!button) return;
+        observer.disconnect();
+        fireEvent.click(button);
+        resolve();
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+    release();
+    await clicked;
+    expect(await screen.findByText(locales.companions.dns.submit)).toBeTruthy();
+  });
+
   it("a create during the first list read loses none of the records already there", async () => {
     const api = stubApi(ALL_RUNNING);
     const get = api.get.getMockImplementation()!;
