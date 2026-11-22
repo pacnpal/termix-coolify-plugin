@@ -1,11 +1,13 @@
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, waitFor, within } from "@testing-library/react";
 import {
   checkFrameApp,
   renderWithApp,
   type RenderedPluginApp,
 } from "@termix-ssh/plugin-sdk/testing";
 import type { PluginHostRecord } from "@termix-ssh/plugin-sdk/frontend";
+import { SurfaceScope, useHostBadges } from "@termix-ssh/plugin-sdk/ui";
 import * as plugin from "../../../src/frontend/index";
 import locales from "../../../locales/en.json";
 import { manifest, renderApp, stubClient } from "../helpers";
@@ -53,23 +55,39 @@ function healthApi(health: Health) {
 const healthCalls = (api: ReturnType<typeof healthApi>) =>
   api.get.mock.calls.filter(([url]) => /\/server-health$/.test(String(url)));
 
-/** The status indicator's dot for a host: its tone and label, or null. */
-function dotOf(r: RenderedPluginApp, h: PluginHostRecord) {
-  const el = r.renderHostItems(
-    "status",
-    h as unknown as Record<string, unknown>,
+/**
+ * Runs every registered host badge's dot hook (useDot) for one host, as the
+ * layout's merged host dot does, and shows the last reported dot.
+ */
+function DotProbe({ host }: { host: PluginHostRecord }) {
+  const badges = useHostBadges();
+  const [dot, setDot] = useState<{ tone: string; label: string } | null>(null);
+  return (
+    <span data-dot-tone={dot?.tone ?? ""} data-dot-label={dot?.label ?? ""}>
+      {badges
+        .filter((b) => b.dot)
+        .map((b) => {
+          const Reporter = b.dot!;
+          return <Reporter key={b.id} host={host as never} report={setDot} />;
+        })}
+    </span>
   );
-  return el;
+}
+
+/** Renders the host's badge dot and returns where it shows. */
+function dotOf(h: PluginHostRecord): HTMLElement {
+  const { container } = render(
+    <SurfaceScope>
+      <DotProbe host={h} />
+    </SurfaceScope>,
+  );
+  return container;
 }
 
 function readDot(el: HTMLElement) {
-  const dot = el.querySelector("[data-data-dot]");
-  return dot
-    ? {
-        tone: dot.getAttribute("data-data-dot"),
-        label: dot.getAttribute("aria-label"),
-      }
-    : null;
+  const probe = el.querySelector("[data-dot-tone]");
+  const tone = probe?.getAttribute("data-dot-tone");
+  return tone ? { tone, label: probe?.getAttribute("data-dot-label") } : null;
 }
 
 let rendered: RenderedPluginApp | null = null;
@@ -86,15 +104,10 @@ describe("host status dot", () => {
     rendered = await renderApp(api);
     const plain = host(1, null);
     expect(rendered.registered.hostActionsFor(plain)).toEqual([]);
-    const status = dotOf(rendered, plain);
-    const badge = rendered.renderHostItems(
-      "badge",
-      plain as unknown as Record<string, unknown>,
-    );
+    const dot = dotOf(plain);
     // Give any effect a chance to fetch.
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(readDot(status)).toBeNull();
-    expect(readDot(badge)).toBeNull();
+    expect(readDot(dot)).toBeNull();
     expect(api.get).not.toHaveBeenCalled();
   });
 
@@ -104,10 +117,7 @@ describe("host status dot", () => {
       degraded: { "srv-a": 2, "srv-b": 0 },
     });
     rendered = await renderApp(api);
-    const el = dotOf(
-      rendered,
-      host(2, { connectionId: 102, serverUuid: "srv-a" }),
-    );
+    const el = dotOf(host(2, { connectionId: 102, serverUuid: "srv-a" }));
     await waitFor(() =>
       expect(readDot(el)).toEqual({
         tone: "warn",
@@ -122,10 +132,7 @@ describe("host status dot", () => {
       degraded: { "srv-a": 1 },
     });
     rendered = await renderApp(api);
-    const el = dotOf(
-      rendered,
-      host(3, { connectionId: 103, serverUuid: "srv-a" }),
-    );
+    const el = dotOf(host(3, { connectionId: 103, serverUuid: "srv-a" }));
     await waitFor(() =>
       expect(readDot(el)).toEqual({
         tone: "bad",
@@ -141,10 +148,7 @@ describe("host status dot", () => {
       degraded: { "srv-a": 0 },
     });
     rendered = await renderApp(api);
-    const el = dotOf(
-      rendered,
-      host(4, { connectionId: 104, serverUuid: "srv-a" }),
-    );
+    const el = dotOf(host(4, { connectionId: 104, serverUuid: "srv-a" }));
     await waitFor(() => expect(healthCalls(api)).toHaveLength(1));
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(readDot(el)).toBeNull();
@@ -161,22 +165,25 @@ describe("host status dot", () => {
     rendered = await renderApp(api);
     const a = host(5, { connectionId: 105, serverUuid: "srv-a" });
     const b = host(6, { connectionId: 105, serverUuid: "srv-b" });
-    const elA = dotOf(rendered, a);
-    const elB = dotOf(rendered, b);
-    rendered.renderHostItems("badge", a as unknown as Record<string, unknown>);
+    const elA = dotOf(a);
+    const elB = dotOf(b);
     await waitFor(() => expect(readDot(elA)?.tone).toBe("warn"));
     await waitFor(() => expect(readDot(elB)?.tone).toBe("bad"));
     expect(healthCalls(api)).toEqual([["/connections/105/server-health"]]);
   });
 
-  it("registers the host action and status indicator frame-safe", async () => {
+  it("registers the host action frame-safe, and the dot only through the badge", async () => {
     const { problems, registrations } = await checkFrameApp(plugin, {
       manifest: manifest as unknown as Record<string, unknown>,
     });
     expect(problems).toEqual([]);
     const kinds = registrations.map((r) => r.kind);
     expect(kinds).toContain("hostAction");
-    expect(kinds).toContain("hostStatusIndicator");
+    // The layout merges every plugin's badge dots into one; a separate status
+    // indicator could draw a second dot.
+    expect(kinds).not.toContain("hostStatusIndicator");
+    const badge = registrations.find((r) => r.kind === "hostBadge");
+    expect((badge?.data as { dotKey?: string }).dotKey).toBeTruthy();
   });
 });
 

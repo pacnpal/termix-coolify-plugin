@@ -6,14 +6,13 @@
 
 - A **Coolify** button on Linked hosts that opens the Resources list filtered to that host's server; the
   filter shows the server's name and clears with one click
-- The Linked host status dot also warns when a resource on the server is degraded. Coolify's `exited`
-  counts as stopped, not degraded. The dot is also offered as a host status indicator for layouts that
-  draw one
 - `GET /plugin-api/coolify/connections/:id/server-health`: each server's reachability and degraded count,
   served from the plugin's shared server and resource caches
 
 ### Changed
 
+- The existing Linked host dot now also warns when a resource on the server is degraded. Coolify's
+  `exited` counts as stopped, not degraded
 - Every Linked host of a connection now shares one status read for its dot (a minute in the browser,
   answered from the plugin's own caches) instead of a sync preview, so host rows no longer ask Coolify for
   its server list each time

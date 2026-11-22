@@ -287,14 +287,14 @@ aren't obvious from the code, and anything that has bitten you before.
   `pluginSettings` and `pluginEnable`, so tests spy on the calls to check them. `coolify.unlink`'s server
   input uses `ops.fields.linkedServerUuid`: `ops.fields.serverUuid` is the optional filter of
   `coolify.list-resources-all`.
-- Host dot and host action (1.1.0): the badge's `useDot` and `registerHostStatusIndicator`'s `useValue`
-  run one hook (`useHostDot` in `src/frontend/index.tsx` over `useHostProblem` in `linked.ts`). It reads
+- Host dot and host action (1.1.0): the badge's `useDot` runs `useHostDot` (`src/frontend/index.tsx`,
+  over `useHostProblem` in `linked.ts`). It reads
   `GET /connections/:id/server-health`, cached a minute per connection in the frontend
   (`cachedServerHealth`); the route answers from the backend's shared server statuses (`ops/signals.ts`,
   a minute) and resources cache (20 seconds), so many host rows cost one request and at most one Coolify
-  read per list. Degraded counts use `countResources` (Parts left out, `exited` is stopped). The guide says
-  host row dots go through `useDot` (merged by the layout); the status indicator is for layouts that draw
-  indicators. The "Coolify" host action and the Resources menu item open the tab with `serverUuid`, which
+  read per list. Degraded counts use `countResources` (Parts left out, `exited` is stopped). The dot goes only
+  through `useDot`, which the layout merges with other plugins' dots (PLUGIN-GUIDE.md). Don't add a
+  `registerHostStatusIndicator` for it: a layout could draw a second dot. The "Coolify" host action and the Resources menu item open the tab with `serverUuid`, which
   `CoolifyTab` turns into a clearable server filter on Resources (cleared by a connection pick, Sync
   servers and an Overview tile).
 - Frontend host surfaces: `src/frontend/linked.ts` reads a host's link from its own settings and shares one

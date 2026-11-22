@@ -101,17 +101,8 @@ export function activate(app: TermixApp): void {
             tooltip: app.t("hostBadge.tooltip"),
           }
         : null,
+    // The one host dot path: the layout merges every plugin's dots into one.
     useDot: useHostDot,
-  });
-  // The same dot for layouts that draw status indicators. Both read one
-  // shared per connection cache, so they cost one request between them.
-  app.registerHostStatusIndicator({
-    id: "coolify",
-    when: isLinked,
-    useValue: (host) => {
-      const dot = useHostDot(host);
-      return dot ? { shape: "dot", tone: dot.tone, label: dot.label } : null;
-    },
   });
   // "Coolify" on a Linked host: the Resources list filtered to its server.
   app.registerHostAction({
