@@ -101,8 +101,29 @@ const SERVER_TRANSFER_START = new RegExp(
 const SERVER_TRANSFER_STATUS = new RegExp(`^/servers/${SEGMENT}/transfer$`);
 const INSTANCE_SETTINGS = /^\/(settings|mcp)(\/|$)|^\/(enable|disable)$/;
 const DEPLOYMENT_CANCEL = new RegExp(`^/deployments/${SEGMENT}/cancel$`);
-const TASK_RUN = new RegExp(`/scheduled-tasks/${SEGMENT}/execute$`);
 const ROLLBACK = new RegExp(`^/applications/${SEGMENT}/rollback$`);
+
+const TASK_HEAD = "/scheduled-tasks/{";
+const TASK_TAIL = "}/execute";
+
+/**
+ * A path that ends `/scheduled-tasks/{<id>}/execute`, `<id>` non-empty and
+ * without a `}`: what `/scheduled-tasks/\{[^}]+\}/execute$/` matched. Found
+ * with index scans from the end, since that unanchored pattern rescanned the
+ * rest of the path from every `/scheduled-tasks/{` it saw.
+ */
+export function isTaskRunPath(path: string): boolean {
+  if (!path.endsWith(TASK_TAIL)) return false;
+  const close = path.length - TASK_TAIL.length;
+  // The last head that still leaves the id at least one character.
+  const latest = close - TASK_HEAD.length - 1;
+  if (latest < 0) return false;
+  const head = path.lastIndexOf(TASK_HEAD, latest);
+  if (head < 0) return false;
+  const open = head + TASK_HEAD.length - 1;
+  // No `}` between the id's `{` and its closing one.
+  return path.lastIndexOf("}", close - 1) < open;
+}
 
 /**
  * Deletes; starting a server create, transfer, migration or import; cloud
@@ -141,7 +162,7 @@ function isOperate(op: CoolifyOperation): boolean {
     /\/(start|stop|restart)$/.test(path) ||
     path === "/deploy" ||
     DEPLOYMENT_CANCEL.test(path) ||
-    TASK_RUN.test(path) ||
+    isTaskRunPath(path) ||
     path.endsWith("/backups/run") ||
     // Judgement: a rollback queues a deployment of an earlier image.
     ROLLBACK.test(path)

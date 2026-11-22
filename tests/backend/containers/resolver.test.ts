@@ -59,7 +59,7 @@ describe("container resolver", () => {
     const legacy = resource({ uuid: "app-legacy-uuid", id: 42 });
     const { run, commands } = fakeRunner([
       [
-        /coolify\.applicationId=42.*name=app-legacy-uuid/,
+        /^(?:(?!coolify\.applicationId=42).)*coolify\.applicationId=42.*name=app-legacy-uuid/m,
         "app-legacy-uuid-1200|exited||\n",
       ],
     ]);

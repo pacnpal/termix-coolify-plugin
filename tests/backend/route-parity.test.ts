@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { manifest } from "./helpers/plugin.js";
 import { served } from "./helpers/served.js";
+import { byText } from "./helpers/order.js";
 
 const doc = readFileSync(new URL("../../docs/api.md", import.meta.url), "utf8");
 const declared = new Set(
@@ -42,8 +43,8 @@ function routesOfActionRows(): Map<string, string> {
 describe("route parity", () => {
   it("every served route and socket is in docs/api.md's route map, and nothing else is", async () => {
     const { routes, sockets } = await served();
-    expect([...routeMap().keys()].sort()).toEqual(
-      [...routes, ...sockets].sort(),
+    expect([...routeMap().keys()].sort(byText)).toEqual(
+      [...routes, ...sockets].sort(byText),
     );
   });
 

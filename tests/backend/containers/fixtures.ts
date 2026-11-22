@@ -56,6 +56,35 @@ export interface DockerHost {
   openHang?: boolean;
 }
 
+const HEREDOC_OPEN = "<<'";
+const WORD = /\w+/y;
+
+/**
+ * The body of the first `<<'WORD'` here-document closed by a `WORD` line,
+ * as `/<<'(\w+)'[^\n]*\n([\s\S]*)\n\1\n/` captured it, found by index
+ * scans: that pattern backtracked over the whole rest of the text.
+ */
+function hereDocBody(text: string): string | null {
+  const closes = new Map<string, number>();
+  for (
+    let at = text.indexOf(HEREDOC_OPEN);
+    at >= 0;
+    at = text.indexOf(HEREDOC_OPEN, at + 1)
+  ) {
+    WORD.lastIndex = at + HEREDOC_OPEN.length;
+    const word = WORD.exec(text)?.[0];
+    if (!word) continue;
+    const quote = WORD.lastIndex;
+    if (text[quote] !== "'") continue;
+    const lineEnd = text.indexOf("\n", quote + 1);
+    if (lineEnd < 0) continue;
+    const close = closes.get(word) ?? text.lastIndexOf(`\n${word}\n`);
+    closes.set(word, close);
+    if (close > lineEnd) return text.slice(lineEnd + 1, close);
+  }
+  return null;
+}
+
 function result(stdout: string, code = 0): PluginSshExecResult {
   return { stdout, stderr: "", code, truncated: false, timedOut: false };
 }
@@ -133,9 +162,9 @@ export function fakeDocker(harness: PluginHarness, host: DockerHost) {
           channel.onEnd = (stdin) => {
             // The exec script carries the command in a quoted here-document
             // and has the new group's leader print a marker line first.
-            const doc = stdin && /<<'(\w+)'[^\n]*\n([\s\S]*)\n\1\n/.exec(stdin);
+            const doc = stdin ? hereDocBody(stdin) : null;
             const mark = stdin && /echo "(\S+ \S+) \$\$"/.exec(stdin);
-            const command_ = doc ? doc[2] : stdin;
+            const command_ = doc ?? stdin;
             call.options = { stdin: command_ };
             call.script = stdin;
             const answer = host.exec

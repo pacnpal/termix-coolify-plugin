@@ -22,6 +22,7 @@ import {
 } from "./helpers/plugin.js";
 import { resourceLists } from "./helpers/resources.js";
 import { redact } from "../../src/backend/redact.js";
+import { byText } from "./helpers/order.js";
 
 let harness: PluginHarness | null = null;
 
@@ -119,13 +120,15 @@ describe("lifecycle, resource and signal operations", () => {
     expect(
       resourceAction.inputs!.find((i) => i.key === "connectionId")!.optionsFrom,
     ).toBe("coolify.list-connections");
-    expect(ops.signals!.map((s) => [s.id, s.scope, s.kind]).sort()).toEqual([
+    expect(
+      ops.signals!.map((s) => [s.id, s.scope, s.kind]).sort(byText),
+    ).toEqual([
       ["coolify.degraded", "host", "count"],
       ["coolify.deploying", "server", "count"],
       ["coolify.server", "host", "status"],
       ["coolify.updates", "host", "count"],
     ]);
-    expect(ops.events!.map((e) => e.id).sort()).toEqual([
+    expect(ops.events!.map((e) => e.id).sort(byText)).toEqual([
       "coolify.container-restarted",
       "coolify.deployment-failed",
       "coolify.deployment-finished",
@@ -235,8 +238,8 @@ describe("lifecycle, resource and signal operations", () => {
     const declared = manifest
       .contributes!.operations!.events!.find((e) => e.id === event.eventId)!
       .payload!.map((f) => f.key);
-    expect(Object.keys(event.payload ?? {}).sort()).toEqual(
-      [...declared].sort(),
+    expect(Object.keys(event.payload ?? {}).sort(byText)).toEqual(
+      [...declared].sort(byText),
     );
     expect(event.payload).toMatchObject({
       uuid: "app-web-uuid",

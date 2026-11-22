@@ -13,6 +13,7 @@ import {
   startWithConnection,
   syncCoolify,
 } from "./fixtures.js";
+import { byText } from "../helpers/order.js";
 
 let harness: PluginHarness | null = null;
 
@@ -70,8 +71,8 @@ describe("host sync", () => {
   it("preview lists every server with what it would become", async () => {
     const { harness: h, connectionId } = await start();
     const rows = await preview(h, connectionId);
-    expect(rows.map((r) => r.server.uuid).sort()).toEqual(
-      ["srv-local", "srv-vps1", "srv-web1", "srv-web2"].sort(),
+    expect(rows.map((r) => r.server.uuid).sort(byText)).toEqual(
+      ["srv-local", "srv-vps1", "srv-web1", "srv-web2"].sort(byText),
     );
     expect(byUuid(rows, "srv-web1")).toMatchObject({
       status: "new",
@@ -139,7 +140,7 @@ describe("host sync", () => {
       (a) => a.action === "coolify_key_copied",
     );
     expect(copies).toHaveLength(2);
-    expect(copies.map((a) => a.resourceName).sort()).toEqual([
+    expect(copies.map((a) => a.resourceName).sort(byText)).toEqual([
       "Coolify: Prod / deploy key",
       "Coolify: Prod / localhost key",
     ]);
@@ -737,7 +738,7 @@ describe("host sync under concurrency", () => {
     ]);
     const statuses = [first, second]
       .map((results) => byUuid(results, "srv-web1").status)
-      .sort();
+      .sort(byText);
     expect(statuses).toEqual(["created", "updated"]);
     const hosts = await h.mock.ctx.hosts.listOwned();
     expect(hosts).toHaveLength(1);

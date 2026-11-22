@@ -30,7 +30,7 @@ function param(req: Request, name: string): string {
 
 function recordId(req: Request): number {
   const raw = param(req, "recordId");
-  return /^\d{1,15}$/.test(raw) ? Number(raw) : NaN;
+  return /^\d{1,15}$/.test(raw) ? Number(raw) : Number.NaN;
 }
 
 /**

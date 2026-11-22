@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.1
+
+### Fixed
+
+- Trailing slashes are trimmed from the Termix address in status page links, from resource domains and
+  from storage paths in linear time, so a long run of slashes can no longer slow a request down.
+  Scheduled task runs are recognized the same way. Behaviour is otherwise unchanged
+
 ## 1.1.0
 
 ### Added

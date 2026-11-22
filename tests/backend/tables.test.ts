@@ -9,6 +9,7 @@ import {
 import type { PluginManifest } from "@termix-ssh/plugin-sdk/manifest";
 import manifestJson from "../../manifest.json";
 import { tables } from "../../src/backend/tables.js";
+import { byText } from "./helpers/order.js";
 
 const pluginDir = fileURLToPath(new URL("../..", import.meta.url));
 const manifest = manifestJson as unknown as PluginManifest;
@@ -45,7 +46,7 @@ function names(test: TestDb, type: "table" | "index"): string[] {
 describe("plugin tables", () => {
   it("migrations create every table", async () => {
     db = await createTestDb(pluginDir);
-    expect(names(db, "table")).toEqual([...TABLES].sort());
+    expect(names(db, "table")).toEqual([...TABLES].sort(byText));
   });
 
   it("every index carries the plugin prefix", async () => {
