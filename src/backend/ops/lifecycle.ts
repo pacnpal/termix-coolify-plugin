@@ -4,6 +4,7 @@ import type {
 } from "@termix-ssh/plugin-sdk/backend";
 import en from "../../../locales/en.json";
 import type { ResourceDto } from "../coolify/dto.js";
+import { fill } from "../../shared/template.js";
 import { ConnectionError } from "../connections/service.js";
 import type {
   Lifecycle,
@@ -28,12 +29,11 @@ function text(value: unknown): string {
 
 /** "Would deploy <name> on <server>", from locales. */
 export function describeDeploy(resource: ResourceDto): string {
-  return en.ops.deploy.dryRun
-    .replace("{{name}}", resource.name)
-    .replace(
-      "{{server}}",
+  return fill(en.ops.deploy.dryRun, {
+    name: resource.name,
+    server:
       resource.serverName ?? resource.serverUuid ?? en.ops.deploy.noServer,
-    );
+  });
 }
 
 function summaryOf(

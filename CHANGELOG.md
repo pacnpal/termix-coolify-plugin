@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.1
+
+### Fixed
+
+- A dry run of a deploy or rollback shows a resource or server name exactly as it is. A name holding `$&`,
+  `$1` or `$$` was changed by the text it was put into, and one holding `{{server}}` or `{{image}}` was
+  filled a second time
+
 ## 1.1.0
 
 ### Added
