@@ -427,6 +427,49 @@ describe("API console", () => {
     expect(screen.getByText("list-servers")).toBeTruthy();
   });
 
+  it("a change confirmed after switching connection sends nothing (#86)", async () => {
+    const api = stubApi();
+    const base = api.get.getMockImplementation()!;
+    (api.get as ReturnType<typeof vi.fn>).mockImplementation(
+      async (url: string) => {
+        if (url === "/connections") {
+          return {
+            data: [connection(true), { ...connection(true), id: 2, name: "B" }],
+          };
+        }
+        if (url === "/connections/2/api/operations") {
+          return { data: { operations: OPERATIONS } };
+        }
+        return base(url);
+      },
+    );
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions: CONFIGURE,
+    });
+    rendered.renderTab("coolify", { isVisible: true });
+    fireEvent.click(
+      (await screen.findAllByRole("button", { name: L.title }))[0],
+    );
+    await screen.findByText("deploy-by-tag-or-uuid");
+    await openOperation("deploy-by-tag-or-uuid");
+    fireEvent.click(screen.getByRole("button", { name: L.run }));
+    const prompt = await screen.findByRole("button", { name: L.confirmLabel });
+    // Switch to connection B while the confirm for A is open.
+    const picker = screen.getByRole("combobox", { name: L.connection });
+    Element.prototype.scrollIntoView = () => {};
+    fireEvent.keyDown(picker, { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("option", { name: "B" }));
+    await waitFor(() =>
+      expect(api.get).toHaveBeenCalledWith("/connections/2/api/operations"),
+    );
+    fireEvent.click(prompt);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
   it("Refresh loads the connections again after they failed to load", async () => {
     const api = stubApi();
     const base = api.get.getMockImplementation()!;

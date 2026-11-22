@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Tags } from "lucide-react";
 import { useToast, useTranslation } from "@termix-ssh/plugin-sdk/frontend";
 import {
@@ -6,9 +6,9 @@ import {
   NoticePanel,
   SwitchRow,
   TextField,
-  useConfirm,
 } from "@termix-ssh/plugin-sdk/ui";
 import { failureOf, type Api, type TagTargets } from "../api";
+import { useConfirmFor } from "../confirm";
 import { describeFailure } from "./ConnectionForm";
 
 const PR = /^\d{1,10}$/;
@@ -36,28 +36,16 @@ export function DeployByTagForm({
   onClose: () => void;
 }) {
   const { t } = useTranslation();
-  const confirm = useConfirm();
   const toast = useToast();
   const target = `${connectionId}\n${revision}`;
-  const current = useRef(target);
-  current.current = target;
-  const mounted = useRef(false);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
+  // still(forTarget): the same view, on the same connection and target.
+  const { confirm, still } = useConfirmFor(target);
   const [tag, setTag] = useState("");
   const [force, setForce] = useState(false);
   const [pr, setPr] = useState("");
   const [dockerTag, setDockerTag] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  /** Still the same view, on the same connection and target. */
-  const still = (forTarget: string) =>
-    mounted.current && current.current === forTarget;
 
   function describeTargets(found: TagTargets) {
     return (
@@ -125,7 +113,7 @@ export function DeployByTagForm({
       });
       // The view moved to another connection or section while the confirm
       // was open: what was confirmed is no longer what is shown.
-      if (!ok || !still(forTarget)) return;
+      if (!ok) return;
       const answer = await api.deployByTag(connectionId, {
         tag: name,
         force,

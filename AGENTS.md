@@ -263,6 +263,15 @@ aren't obvious from the code, and anything that has bitten you before.
   Open shell and Open database console buttons (only with `canOperate`), and `logs`, `stats` and
   `traffic` (`OPERATE_TABS`: shown only with `canOperate`; `detailTabs()` shows `traffic` for
   applications only). Stats and Traffic are keyed by connection, uuid and revision, like Logs.
+- Confirms: `src/frontend/confirm.ts` is the only code that asks. A view calls
+  `useConfirmFor(target)`, never the SDK's `useConfirm`; its `confirm` answers false once the view
+  unmounted or `target` (what the action acts on: connection, uuid, revision, host link) is not the one
+  of the render that asked, and `still(forTarget)`/`isMounted()` guard the view's other awaits.
+  `useLifecycle(connectionId, onChanged, target)` takes its caller's target. Outside a view (the host
+  menu's Unlink, in the background frame) `confirmOnApp(app, options, holds)` asks `app.confirm` and
+  then `holds()`: Unlink reads `app.listHosts()` again and sends nothing unless the host still has the
+  link it was opened for (a failed read sends nothing). `tests/frontend/confirm-guard.test.ts` scans
+  `src/frontend` and fails on any `useConfirm`, `.confirm(` or `confirm(` not bound from the helper.
 - Host sync: `src/backend/sync/` (`mapping.ts` pure `planHost`, `credentials.ts` key copy, `locks.ts`,
   `service.ts` `createSync`, `routes.ts`) and `src/backend/ops/sync.ts`. `createSync` is async (it loads the
   lock set from `servers.hostId` before providing locks) and is made right after `createConnections`, whose
