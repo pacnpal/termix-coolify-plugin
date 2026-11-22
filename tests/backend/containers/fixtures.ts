@@ -9,6 +9,18 @@ import { OWNER, startPlugin, type PluginHarness } from "../helpers/plugin.js";
 import { resourceLists } from "../helpers/resources.js";
 
 export const HOST_ID = 7;
+
+/**
+ * A log read from its tail (docker logs --tail, Coolify's ?lines=), cut
+ * inside a private key: its body and END with no BEGIN before them.
+ */
+export const KEY_TAIL_LOG = [
+  "fake-snapshot-key-body-one",
+  "fake-snapshot-key-body-two",
+  "-----END OPENSSH PRIVATE KEY-----",
+  "after the key",
+  "",
+].join("\n");
 export const FINGERPRINT = "SHA256:fake-host-key-fingerprint";
 
 /** The Linked host of srv-vps1-uuid, as ctx.hosts serves it. */

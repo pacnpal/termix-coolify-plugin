@@ -12,6 +12,7 @@ import { resourceLists } from "../helpers/resources.js";
 import {
   dropGrant,
   duringResourceRead,
+  KEY_TAIL_LOGS,
   moveTarget,
   PREVIEW_CHANGES,
   previewAnswers,
@@ -367,6 +368,17 @@ describe("a preview's container logs", () => {
     expect(text).not.toContain("fake-preview-pass");
     expect(text).not.toContain("fake-preview-key-body");
     expect(text).not.toContain(LIFECYCLE_TOKEN);
+  });
+
+  it("masks logs that start inside a private key", async () => {
+    const { harness, id } = await start(undefined, KEY_TAIL_LOGS);
+    const answer = await harness.request(
+      "GET",
+      `${web(id)}/previews/42/logs?lines=3`,
+    );
+    expect(answer.status).toBe(200);
+    expect(answer.body.text).not.toContain("fake-preview-key-body");
+    expect(answer.body.text).toContain("preview ready");
   });
 
   it("needs coolify.operate and an operate grant", async () => {

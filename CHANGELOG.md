@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.1
+
+### Fixed
+
+- Logs read from their tail no longer show a private key's body when the cut falls inside the key. When a
+  key's END line appears with no BEGIN before it, everything from the start of the log up to and
+  including that line is masked; the lines after it are unchanged. This covers container log snapshots
+  (from Coolify and over SSH), preview logs, deployment build logs and Coolify's log endpoints called
+  through the API console or `coolify.api-call`, in the UI, the operations API and MCP alike. A followed
+  log holds its first lines while they look like a key's body, so a follow that starts inside a key
+  shows none of it either. Log fields that the API console or `coolify.api-call` shows to an operator
+  are now masked as container logs are: private keys, the connection's token and Access secret,
+  secret-named fields and credentials
+
 ## 1.1.0
 
 ### Added

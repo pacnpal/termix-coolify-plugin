@@ -9,6 +9,7 @@ import {
   deploymentAnswers,
   KEY_BODY,
   keyEntries,
+  keyTailEntries,
   logEntry,
 } from "../helpers/deployments.js";
 import { LIFECYCLE_TOKEN, startLifecycle } from "../helpers/lifecycle.js";
@@ -99,5 +100,52 @@ describe("build logs over MCP", () => {
     const history = JSON.stringify(runs.history);
     expect(history).not.toContain("first mcp build line");
     expect(history).not.toContain("fake-mcp-build-pass");
+  });
+
+  it("coolify__deployment_get masks a build log that starts inside a private key", async () => {
+    const started = await startLifecycle({
+      overrides: deploymentAnswers(),
+      serve: false,
+    });
+    harness = started.harness;
+    const { fake, id } = started;
+    fake.set("GET /deployments/dep-done", {
+      json: {
+        deployment_uuid: "dep-done",
+        status: "finished",
+        deployment_url:
+          "/project/p/environment/e/application/app-web-uuid/deployment/dep-done",
+        logs: JSON.stringify(
+          keyTailEntries(1).map((e) => ({ ...e, hidden: false })),
+        ),
+      },
+    });
+    const runs = withRunHistory(harness.mock);
+    const ctx = withRun(harness.mock.ctx, (actionId, options) =>
+      runs.run(actionId, options?.input ?? {}),
+    );
+    harness.mock.setActor(OWNER);
+    const answer = await handleMcp(ctx, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "coolify__deployment_get",
+        arguments: {
+          connectionId: String(id),
+          uuid: "app-web-uuid",
+          deploymentUuid: "dep-done",
+          confirm: true,
+        },
+      },
+    });
+    const result = answer?.result as {
+      isError: boolean;
+      content: { text: string }[];
+    };
+    expect(result.isError).toBe(false);
+    const shown = result.content.map((c) => c.text).join("\n");
+    expect(shown).toContain("after the key");
+    expect(shown).not.toContain(KEY_BODY);
   });
 });

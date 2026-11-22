@@ -10,6 +10,7 @@ import {
 import {
   dropGrant,
   duringResourceRead,
+  KEY_TAIL_LOGS,
   moveTarget,
   PREVIEW_CHANGES,
   previewAnswers,
@@ -169,5 +170,25 @@ describe("preview operations", () => {
     const history = JSON.stringify(runs.history);
     expect(history).not.toContain("preview ready");
     expect(history).not.toContain("fake-preview-pass");
+  });
+
+  it("coolify.preview-logs masks logs that start inside a private key", async () => {
+    const { harness, fake, id } = await start();
+    for (const [route, answer] of Object.entries(KEY_TAIL_LOGS)) {
+      fake.set(route, answer);
+    }
+    const outcome = await withRunHistory(harness.mock).run(
+      "coolify.preview-logs",
+      {
+        connectionId: String(id),
+        uuid: "app-web-uuid",
+        pullRequestId: 42,
+        lines: 3,
+        confirm: true,
+      },
+    );
+    const text = (outcome.data as { text: string }).text;
+    expect(text).toContain("preview ready");
+    expect(text).not.toContain("fake-preview-key-body");
   });
 });

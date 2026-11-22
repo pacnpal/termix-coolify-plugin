@@ -287,6 +287,28 @@ describe("API console routes", () => {
     expect(fake.calls).toEqual([]);
   });
 
+  it("a confirmed logs call masks a snapshot that starts inside a private key", async () => {
+    const { h, id, fake } = await start();
+    fake.set("GET /applications/app-web-uuid/logs", {
+      json: {
+        logs: [
+          "fake-console-key-body",
+          "-----END OPENSSH PRIVATE KEY-----",
+          "after the key",
+        ].join("\n"),
+      },
+    });
+    const answer = await h.request("POST", `/connections/${id}/api/call`, {
+      operationId: "get-application-logs-by-uuid",
+      params: { uuid: "app-web-uuid" },
+      confirmed: true,
+    });
+    expect(answer.status).toBe(200);
+    expect(answer.body.data.logs).not.toContain("fake-console-key-body");
+    expect(answer.body.data.logs).toContain("after the key");
+    expect(answer.body.masked).toContainEqual(["logs"]);
+  });
+
   it("reveal needs a token that reads secrets", async () => {
     const { h, id, fake } = await start({
       overrides: {

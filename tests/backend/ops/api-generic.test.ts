@@ -815,6 +815,48 @@ describe("generic API: log and output fields", () => {
     expect(read.data).toMatchObject({ data: { uuid: "dep-1", logs: "build" } });
   });
 
+  it("a confirmed logs read masks private keys, and a tail that starts inside one", async () => {
+    const { fake } = await start({ permissions: ["view", "operate"] });
+    fake.set("GET /applications/app-web-uuid/logs", {
+      json: {
+        logs: [
+          "fake-generic-key-body-tail",
+          "-----END OPENSSH PRIVATE KEY-----",
+          "after the key",
+          "-----BEGIN RSA PRIVATE KEY-----",
+          "fake-generic-key-body-whole",
+          "-----END RSA PRIVATE KEY-----",
+          "last line",
+        ].join("\n"),
+      },
+    });
+    const read = await apiCall("get-application-logs-by-uuid", {
+      uuid: "app-web-uuid",
+    });
+    const logs = (read.data as { data: { logs: string } }).data.logs;
+    expect(logs).not.toContain("fake-generic-key-body");
+    expect(logs).toContain("after the key");
+    expect(logs).toContain("last line");
+  });
+
+  it("a confirmed get-deployment masks a build log that starts inside a key", async () => {
+    const { fake } = await start({ permissions: ["view", "operate"] });
+    fake.set("GET /deployments/dep-1", {
+      json: {
+        uuid: "dep-1",
+        logs: JSON.stringify([
+          { output: "fake-generic-build-key-body", order: 1 },
+          { output: "-----END OPENSSH PRIVATE KEY-----", order: 2 },
+          { output: "after the key", order: 3 },
+        ]),
+      },
+    });
+    const read = await apiCall("get-deployment-by-uuid", { uuid: "dep-1" });
+    const logs = (read.data as { data: { logs: string } }).data.logs;
+    expect(logs).not.toContain("fake-generic-build-key-body");
+    expect(logs).toContain("after the key");
+  });
+
   it("an operate-level, confirmed list-servers answers validation_logs", async () => {
     await start({ permissions: ["view", "operate"] });
     const read = await apiCall("list-servers");

@@ -4,6 +4,7 @@ import {
   deploymentRaw,
   KEY_BODY,
   keyEntries,
+  keyTailEntries,
 } from "../helpers/deployments.js";
 import { changes, startLifecycle } from "../helpers/lifecycle.js";
 import {
@@ -118,6 +119,28 @@ describe("deployment operations", () => {
     );
     const text = (outcome.data as { text: string }).text;
     expect(text).toContain("after the key");
+    expect(JSON.stringify(outcome)).not.toContain(KEY_BODY);
+  });
+
+  it("coolify.deployment-get masks a build log that starts inside a private key", async () => {
+    const { harness, fake, id } = await start();
+    fake.set("GET /deployments/dep-done", {
+      json: deploymentRaw("dep-done", "finished", {
+        entries: keyTailEntries(1),
+      }),
+    });
+    const outcome = await harness.mock.ctx.operations.run(
+      "coolify.deployment-get",
+      {
+        input: {
+          connectionId: String(id),
+          deploymentUuid: "dep-done",
+          showHidden: true,
+          confirm: true,
+        },
+      },
+    );
+    expect((outcome.data as { text: string }).text).toContain("after the key");
     expect(JSON.stringify(outcome)).not.toContain(KEY_BODY);
   });
 

@@ -91,6 +91,15 @@ export const FAKE_KEY_LINES = [
   "-----END OPENSSH PRIVATE KEY-----",
 ];
 
+/** A preview's logs read from their tail, cut inside FAKE_KEY_LINES's key. */
+export const KEY_TAIL_LOGS = {
+  "GET /applications/app-web-uuid/previews/42/logs": {
+    json: {
+      logs: [...FAKE_KEY_LINES.slice(1), "preview ready"].join("\n"),
+    },
+  },
+};
+
 /** Coolify's answers for web's previews (and api's one). */
 export function previewAnswers(): Record<string, FakeAnswer> {
   return {

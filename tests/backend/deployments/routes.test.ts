@@ -5,6 +5,7 @@ import {
   deploymentRaw,
   KEY_BODY,
   keyEntries,
+  keyTailEntries,
   expectRefusedBeforeCoolify,
   REFUSED_CALLERS,
 } from "../helpers/deployments.js";
@@ -149,6 +150,22 @@ describe("one deployment with its build log", () => {
     const { harness, fake, id } = await start();
     fake.set("GET /deployments/dep-done", {
       json: deploymentRaw("dep-done", "finished", { entries: keyEntries(1) }),
+    });
+    const answer = await harness.request(
+      "GET",
+      `${web(id)}/deployments/dep-done`,
+    );
+    expect(answer.status).toBe(200);
+    expect(JSON.stringify(answer.body)).not.toContain(KEY_BODY);
+    expect(JSON.stringify(answer.body)).toContain("after the key");
+  });
+
+  it("masks a build log that starts inside a private key", async () => {
+    const { harness, fake, id } = await start();
+    fake.set("GET /deployments/dep-done", {
+      json: deploymentRaw("dep-done", "finished", {
+        entries: keyTailEntries(1),
+      }),
     });
     const answer = await harness.request(
       "GET",

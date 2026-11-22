@@ -161,6 +161,14 @@ export function keyEntries(from: number) {
   ];
 }
 
+/**
+ * keyEntries cut inside the key, as a log read from its tail would be: the
+ * body and END with no BEGIN before them.
+ */
+export function keyTailEntries(from: number) {
+  return keyEntries(from - 1).slice(1);
+}
+
 /** web's rollback images as Coolify lists them: the current one and two older. */
 export function rollbackImagesRaw() {
   return {

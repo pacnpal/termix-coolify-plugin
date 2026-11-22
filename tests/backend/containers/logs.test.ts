@@ -1,8 +1,15 @@
 import { EventEmitter } from "node:events";
+import { REDACTED_VALUE } from "@termix-ssh/plugin-sdk/operations";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OTHER, OWNER, type PluginHarness } from "../helpers/plugin.js";
 import { resourceLists } from "../helpers/resources.js";
-import { fakeDocker, HOST_ID, setSensitive, startShell } from "./fixtures.js";
+import {
+  fakeDocker,
+  HOST_ID,
+  KEY_TAIL_LOG,
+  setSensitive,
+  startShell,
+} from "./fixtures.js";
 import { RECHECK_MS } from "../../../src/backend/containers/sockets.js";
 import {
   lineSplitter,
@@ -66,109 +73,124 @@ describe("long-line redaction property", () => {
   // mask are lower case, so any run of six of them in the output is a leak.
   const LEAK = /[A-Z0-9@]{6}/;
   const CASES = 500;
+  // The cases are seeded, so the work is the same on every run (about 2 s
+  // alone). Only the wall time grows with machine load, and Vitest's default
+  // 5 s timeout is a wall-clock budget: a busy machine failed the test on it,
+  // not on a leak. The timeout leaves a wide margin instead; the cases and
+  // the leak check are unchanged.
+  const TIMEOUT_MS = 120_000;
 
-  it("never emits six characters of a secret, whatever the shape, length or chunking", () => {
-    const rand = prng(20261120);
-    const int = (lo: number, hi: number) =>
-      lo + Math.floor(rand() * (hi - lo + 1));
-    const pick = <T>(list: readonly T[]) => list[int(0, list.length - 1)];
-    // Secrets are slices of one seeded pool at random offsets: building
-    // each character apart cost more than the redaction under test.
-    let pool = "";
-    for (let i = 0; i < 256 * 1024; i += 1) {
-      pool += "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[int(0, 35)];
-    }
-    const upper = (n: number) => {
-      const at = int(0, pool.length - n);
-      return pool.slice(at, at + n);
-    };
-    const words = [
-      "lorem",
-      "ipsum",
-      "dolor",
-      "sit",
-      "amet",
-      "x.y",
-      "a-b",
-      "q&r",
-      "s/t",
-    ];
-    let fillerPool = "";
-    while (fillerPool.length < 64 * 1024) fillerPool += pick(words) + " ";
-    const filler = (n: number) => {
-      const at = int(0, fillerPool.length - n);
-      return fillerPool.slice(at, at + n);
-    };
-    const withAt = (n: number) => {
-      const s = upper(n);
-      const at = int(1, n - 2);
-      return s.slice(0, at) + "@" + s.slice(at + 1);
-    };
-    const shapes: ((n: number) => string)[] = [
-      (n) => `postgres://app:${upper(n)}@db/app`,
-      (n) => `postgres://app:${withAt(n)}@db/app`,
-      (n) => `{"password": "${upper(n)}"}`,
-      (n) => `secret='${upper(n)}'`,
-      (n) => `token=${upper(n)}`,
-      (n) => `db_password=${upper(n)}`,
-      (n) => `Authorization: Basic ${upper(n)}`,
-      (n) => `proxy-authorization: Bearer ${upper(n)}`,
-      (n) =>
-        `"-----BEGIN RSA PRIVATE KEY-----\\n${upper(n)}\\n-----END RSA PRIVATE KEY-----"`,
-    ];
-    // The key markers' own words are upper case: they aren't secrets. A piece
-    // cut inside one starts or ends with a part of "PRIVATE".
-    const leak = (text: string) =>
-      LEAK.exec(
-        text
-          .replace(/^[PRIVATE]{1,7}(?= KEY-----)/, "")
-          .replace(/P(?:R(?:I(?:V(?:A(?:T(?:E)?)?)?)?)?)?$/, "")
-          .replaceAll("PRIVATE", ""),
+  it(
+    "never emits six characters of a secret, whatever the shape, length or chunking",
+    () => {
+      const rand = prng(20261120);
+      const int = (lo: number, hi: number) =>
+        lo + Math.floor(rand() * (hi - lo + 1));
+      const pick = <T>(list: readonly T[]) => list[int(0, list.length - 1)];
+      // Secrets are slices of one seeded pool at random offsets: building
+      // each character apart cost more than the redaction under test.
+      let pool = "";
+      for (let i = 0; i < 256 * 1024; i += 1) {
+        pool += "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[int(0, 35)];
+      }
+      const upper = (n: number) => {
+        const at = int(0, pool.length - n);
+        return pool.slice(at, at + n);
+      };
+      const words = [
+        "lorem",
+        "ipsum",
+        "dolor",
+        "sit",
+        "amet",
+        "x.y",
+        "a-b",
+        "q&r",
+        "s/t",
+      ];
+      let fillerPool = "";
+      while (fillerPool.length < 64 * 1024) fillerPool += pick(words) + " ";
+      const filler = (n: number) => {
+        const at = int(0, fillerPool.length - n);
+        return fillerPool.slice(at, at + n);
+      };
+      const withAt = (n: number) => {
+        const s = upper(n);
+        const at = int(1, n - 2);
+        return s.slice(0, at) + "@" + s.slice(at + 1);
+      };
+      const shapes: ((n: number) => string)[] = [
+        (n) => `postgres://app:${upper(n)}@db/app`,
+        (n) => `postgres://app:${withAt(n)}@db/app`,
+        (n) => `{"password": "${upper(n)}"}`,
+        (n) => `secret='${upper(n)}'`,
+        (n) => `token=${upper(n)}`,
+        (n) => `db_password=${upper(n)}`,
+        (n) => `Authorization: Basic ${upper(n)}`,
+        (n) => `proxy-authorization: Bearer ${upper(n)}`,
+        (n) =>
+          `"-----BEGIN RSA PRIVATE KEY-----\\n${upper(n)}\\n-----END RSA PRIVATE KEY-----"`,
+      ];
+      // The key markers' own words are upper case: they aren't secrets. A piece
+      // cut inside one starts or ends with a part of "PRIVATE".
+      const leak = (text: string) =>
+        LEAK.exec(
+          text
+            .replace(/^[PRIVATE]{1,7}(?= KEY-----)/, "")
+            .replace(/P(?:R(?:I(?:V(?:A(?:T(?:E)?)?)?)?)?)?$/, "")
+            .replaceAll("PRIVATE", ""),
+        );
+      const failures: number[] = [];
+      const header = "-----BEGIN RSA PRIVATE KEY-----";
+      for (let c = 0; c < CASES; c += 1) {
+        const token = upper(int(1024, 30 * 1024));
+        const access = upper(int(1024, 4096));
+        const target = int(1, 5) * MAX_LINE;
+        let line =
+          rand() < 0.15 ? `password: ${upper(int(1024, 30 * 1024))} ` : "";
+        if (!line && rand() < 0.25) {
+          // A key header across the first 16 KiB piece boundary, at any offset.
+          const off = int(0, header.length);
+          line = `${filler(MAX_LINE - off)}${header}\\n${upper(int(64, 4096))}\\n-----END RSA PRIVATE KEY----- `;
+        }
+        while (line.length < target) {
+          const r = rand();
+          line += filler(int(1, 6000)) + " ";
+          if (r < 0.15) line += token + " ";
+          else if (r < 0.25) line += access + " ";
+          else line += pick(shapes)(int(1024, 30 * 1024)) + " ";
+        }
+        // The whole line, redacted at once, shows no secret: the shapes are
+        // ones redactLog masks.
+        const whole = redactLog(line, [token, access]);
+        const wholeLeak = leak(whole);
+        expect(
+          wholeLeak &&
+            whole.slice(
+              Math.max(0, wholeLeak.index - 60),
+              wholeLeak.index + 20,
+            ),
+          `case ${c} whole`,
+        ).toBeNull();
+        const sent: string[] = [];
+        const split = lineSplitter([token, access], (l) => sent.push(...l));
+        for (let i = 0; i < line.length;) {
+          const size = int(1, 8192);
+          split.data(Buffer.from(line.slice(i, i + size)));
+          i += size;
+        }
+        split.data(Buffer.from("\n"));
+        split.end();
+        if (sent.some((piece) => leak(piece) || piece.length > MAX_LINE)) {
+          failures.push(c);
+        }
+      }
+      expect(failures, `${failures.length} of ${CASES} cases leaked`).toEqual(
+        [],
       );
-    const failures: number[] = [];
-    const header = "-----BEGIN RSA PRIVATE KEY-----";
-    for (let c = 0; c < CASES; c += 1) {
-      const token = upper(int(1024, 30 * 1024));
-      const access = upper(int(1024, 4096));
-      const target = int(1, 5) * MAX_LINE;
-      let line =
-        rand() < 0.15 ? `password: ${upper(int(1024, 30 * 1024))} ` : "";
-      if (!line && rand() < 0.25) {
-        // A key header across the first 16 KiB piece boundary, at any offset.
-        const off = int(0, header.length);
-        line = `${filler(MAX_LINE - off)}${header}\\n${upper(int(64, 4096))}\\n-----END RSA PRIVATE KEY----- `;
-      }
-      while (line.length < target) {
-        const r = rand();
-        line += filler(int(1, 6000)) + " ";
-        if (r < 0.15) line += token + " ";
-        else if (r < 0.25) line += access + " ";
-        else line += pick(shapes)(int(1024, 30 * 1024)) + " ";
-      }
-      // The whole line, redacted at once, shows no secret: the shapes are
-      // ones redactLog masks.
-      const whole = redactLog(line, [token, access]);
-      const wholeLeak = leak(whole);
-      expect(
-        wholeLeak &&
-          whole.slice(Math.max(0, wholeLeak.index - 60), wholeLeak.index + 20),
-        `case ${c} whole`,
-      ).toBeNull();
-      const sent: string[] = [];
-      const split = lineSplitter([token, access], (l) => sent.push(...l));
-      for (let i = 0; i < line.length;) {
-        const size = int(1, 8192);
-        split.data(Buffer.from(line.slice(i, i + size)));
-        i += size;
-      }
-      split.data(Buffer.from("\n"));
-      split.end();
-      if (sent.some((piece) => leak(piece) || piece.length > MAX_LINE)) {
-        failures.push(c);
-      }
-    }
-    expect(failures, `${failures.length} of ${CASES} cases leaked`).toEqual([]);
-  });
+    },
+    TIMEOUT_MS,
+  );
 });
 
 describe("long-line cuts with an open secret", () => {
@@ -285,6 +307,115 @@ describe("private key blocks", () => {
     split.end();
     expect(sent.join("\n")).not.toContain("fake-chunked");
     expect(sent).toContain("next");
+  });
+});
+
+describe("a snapshot or stream that starts inside a private key", () => {
+  // A tail cut (docker logs --tail, Coolify's ?lines=) that falls inside a
+  // key: its body and END arrive with no BEGIN before them.
+  const END = "-----END RSA PRIVATE KEY-----";
+  // Body lines as a PEM has them: 64 base64 characters, the last shorter.
+  const BODY = [`FAKETAILBODY${"A".repeat(52)}`, "FAKETAILBODYLAST="];
+  const tail = [...BODY, END, "after the key", "last line", ""].join("\n");
+
+  /** Lines a fresh splitter emits for `chunks`, fed in order. */
+  function follow(chunks: string[]): string[] {
+    const sent: string[] = [];
+    const split = lineSplitter([], (lines) => sent.push(...lines));
+    for (const chunk of chunks) split.data(Buffer.from(chunk));
+    split.end();
+    return sent;
+  }
+
+  it("a snapshot masks from its start through the END line, and keeps what follows", () => {
+    const out = redactLog(tail, []);
+    expect(out).not.toContain("FAKETAILBODY");
+    expect(out).toBe(`${REDACTED_VALUE}${END}\nafter the key\nlast line\n`);
+  });
+
+  it("an END with no key around it masks only up to and including itself", () => {
+    const text = [
+      "plain before",
+      END,
+      "plain after",
+      "-----BEGIN PRIVATE KEY-----",
+      "fake-later-body",
+      "-----END PRIVATE KEY-----",
+      "last",
+      "",
+    ].join("\n");
+    expect(redactLog(text, [])).toBe(
+      [
+        `${REDACTED_VALUE}${END}`,
+        "plain after",
+        `-----BEGIN PRIVATE KEY-----${REDACTED_VALUE}-----END PRIVATE KEY-----`,
+        "last",
+        "",
+      ].join("\n"),
+    );
+    // Mid-line, too: what follows the marker on its line stays.
+    expect(redactLog(`a fake-mid ${END} b\nc`, [])).toBe(
+      `${REDACTED_VALUE}${END} b\nc`,
+    );
+  });
+
+  it("an END closing an open key of its own kind is not a tail", () => {
+    const text = `ok\n-----BEGIN RSA PRIVATE KEY-----\nfake-whole\n${END}\nafter\n`;
+    expect(redactLog(text, [])).toBe(
+      `ok\n-----BEGIN RSA PRIVATE KEY-----${REDACTED_VALUE}${END}\nafter\n`,
+    );
+  });
+
+  it("a follow whose first lines are key body and END shows none of them", () => {
+    const lines = tail.split("\n");
+    for (const [name, chunks] of [
+      ["one chunk", [tail]],
+      [
+        "a chunk per line",
+        lines.map((l, i) => (i < lines.length - 1 ? `${l}\n` : l)),
+      ],
+      ["the END split across chunks", [tail.slice(0, 50), tail.slice(50)]],
+      ["tiny chunks", tail.match(/[\s\S]{1,5}/g)!],
+    ] as const) {
+      const sent = follow([...chunks]);
+      expect(sent.join("\n"), name).not.toContain("FAKETAILBODY");
+      expect(sent, name).toEqual([
+        `${REDACTED_VALUE}${END}`,
+        "after the key",
+        "last line",
+      ]);
+    }
+  });
+
+  it("a follow of PEM-wide body lines, a short last line and END, one per chunk, shows none", () => {
+    const wide = "A".repeat(64);
+    const stamp = "2026-11-22T10:00:00.123456789Z ";
+    for (const prefix of ["", stamp]) {
+      const sent = follow([
+        `${prefix}${wide}\n`,
+        `${prefix}${wide}\n`,
+        `${prefix}FAKESHORT=\n`,
+        `${prefix}${END}\n`,
+        `${prefix}after\n`,
+      ]);
+      expect(sent.join("\n"), prefix).not.toMatch(/AAAAAA|FAKESHORT/);
+      expect(sent.at(-1), prefix).toBe(`${prefix}after`);
+    }
+  });
+
+  it("a follow that starts with an ordinary line sends it at once", () => {
+    const sent: string[] = [];
+    const split = lineSplitter([], (lines) => sent.push(...lines));
+    split.data(Buffer.from("Server listening on 3000\n"));
+    expect(sent).toEqual(["Server listening on 3000"]);
+  });
+
+  it("an END later in a follow masks only its own line up to itself", () => {
+    expect(follow(["ok line\n", `fake-mid ${END} tail\nlater\n`])).toEqual([
+      "ok line",
+      `${REDACTED_VALUE}${END} tail`,
+      "later",
+    ]);
   });
 });
 
@@ -554,6 +685,25 @@ describe("logs snapshot route", () => {
     expect(res.status).toBe(200);
     expect(res.body.source).toBe("ssh");
     expectMasked(res.body.text);
+  });
+
+  it("a snapshot that starts inside a private key shows none of its body, from Coolify or SSH", async () => {
+    const { harness: h, fake, connectionId } = await start();
+    fake.set("GET /applications/app-web-uuid/logs", {
+      json: { logs: KEY_TAIL_LOG },
+    });
+    fakeDocker(h, { ps: [WEB_RUNNING], logs: KEY_TAIL_LOG });
+    for (const sensitive of [true, false]) {
+      setSensitive(h, connectionId, sensitive);
+      const res = await h.request(
+        "GET",
+        logsPath(connectionId, "app-web-uuid", "?lines=4"),
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.source).toBe(sensitive ? "coolify" : "ssh");
+      expect(res.body.text).not.toContain("fake-snapshot-key-body");
+      expect(res.body.text).toContain("after the key");
+    }
   });
 
   it("a target change before Coolify's logs call reads nothing", async () => {
@@ -1021,6 +1171,32 @@ describe("logs follow socket", () => {
         .flatMap((m) => m.lines as string[])
         .join("\n"),
     );
+  });
+
+  it("a follow that starts inside a private key sends none of its body", async () => {
+    const wide = `FAKEFOLLOWBODY${"B".repeat(50)}`;
+    for (const chunks of [
+      // The whole tail in one chunk.
+      [KEY_TAIL_LOG],
+      // PEM-wide body lines, a line a chunk, as docker logs -f writes them.
+      [`${wide}\n`, `${wide}\n`, "FAKEFOLLOWEND==\n", KEY_TAIL_LOG.slice(-48)],
+    ]) {
+      const { ssh, socket } = await following();
+      for (const chunk of chunks) {
+        ssh.execs[0].stream.emit("data", Buffer.from(chunk));
+      }
+      await vi.waitFor(() =>
+        expect(
+          sentOf(socket, "lines").flatMap((m) => m.lines as string[]),
+        ).toContain("after the key"),
+      );
+      const sent = sentOf(socket, "lines")
+        .flatMap((m) => m.lines as string[])
+        .join("\n");
+      expect(sent).not.toMatch(/fake-snapshot-key-body|FAKEFOLLOW/);
+      await harness?.close();
+      harness = null;
+    }
   });
 
   it("masks the token when it straddles the long-line split", async () => {

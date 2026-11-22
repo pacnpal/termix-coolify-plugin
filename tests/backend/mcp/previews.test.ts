@@ -7,7 +7,7 @@ import {
   startLifecycle,
 } from "../helpers/lifecycle.js";
 import { OWNER, type PluginHarness } from "../helpers/plugin.js";
-import { previewAnswers } from "../helpers/previews.js";
+import { KEY_TAIL_LOGS, previewAnswers } from "../helpers/previews.js";
 import { withRunHistory } from "../helpers/run-history.js";
 import { callTool, withRun } from "../helpers/mcp.js";
 
@@ -53,6 +53,27 @@ describe("previews over MCP", () => {
     const history = JSON.stringify(runs.history);
     expect(history).not.toContain("preview ready");
     expect(history).not.toContain("fake-preview-pass");
+  });
+
+  it("coolify__preview_logs masks logs that start inside a private key", async () => {
+    const { harness, fake, id } = await start();
+    for (const [route, answer] of Object.entries(KEY_TAIL_LOGS)) {
+      fake.set(route, answer);
+    }
+    const runs = withRunHistory(harness.mock);
+    const ctx = withRun(harness.mock.ctx, (actionId, options) =>
+      runs.run(actionId, options?.input ?? {}),
+    );
+    const result = await callTool(ctx, "coolify__preview_logs", {
+      connectionId: String(id),
+      uuid: "app-web-uuid",
+      pullRequestId: 42,
+      confirm: true,
+    });
+    expect(result.isError).toBe(false);
+    const shown = result.content.map((c) => c.text).join("\n");
+    expect(shown).toContain("preview ready");
+    expect(shown).not.toContain("fake-preview-key-body");
   });
 
   it("create and domain changes need confirmed: true, before core is asked", async () => {

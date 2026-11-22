@@ -11,6 +11,7 @@ import { withRunHistory } from "../helpers/run-history.js";
 import {
   fakeDocker,
   HOST_ID,
+  KEY_TAIL_LOG,
   setSensitive,
   startShell,
 } from "../containers/fixtures.js";
@@ -224,6 +225,27 @@ describe("logs-tail operation", () => {
     const history = JSON.stringify(runs.history);
     for (const line of ["c1\\n", "c2\\n", "s1\\n", "s2\\n"]) {
       expect(history).not.toContain(line);
+    }
+  });
+
+  it("logs-tail shows no key body when the tail starts inside a key, from Coolify or SSH", async () => {
+    const { runs, id, harness: h, fake, connectionId } = await start();
+    fake.set("GET /applications/app-web-uuid/logs", {
+      json: { logs: KEY_TAIL_LOG },
+    });
+    fakeDocker(h, { ps: [WEB], logs: KEY_TAIL_LOG });
+    for (const sensitive of [true, false]) {
+      setSensitive(h, connectionId, sensitive);
+      const outcome = await runs.run("coolify.logs-tail", {
+        connectionId: id,
+        uuid: "app-web-uuid",
+        lines: 4,
+        confirm: true,
+      });
+      const data = outcome.data as { source: string; text: string };
+      expect(data.source).toBe(sensitive ? "coolify" : "ssh");
+      expect(data.text).not.toContain("fake-snapshot-key-body");
+      expect(data.text).toContain("after the key");
     }
   });
 
