@@ -86,6 +86,7 @@ function redactOnce(text: string): string {
 }
 
 const KEY_BEGIN = "-----BEGIN ";
+const KEY_END = "-----END ";
 const KEY_TAIL = "PRIVATE KEY-----";
 /** The kind in `-----BEGIN <kind>PRIVATE KEY-----`, like "RSA " or "". */
 const KEY_KIND = /^[A-Z0-9 ]{0,40}$/;
@@ -93,22 +94,26 @@ const KEY_KIND = /^[A-Z0-9 ]{0,40}$/;
 const KEY_HEAD_MAX = 40 + KEY_TAIL.length;
 
 interface KeyBegin {
-  /** Where `-----BEGIN` starts. */
+  /** Where `-----BEGIN` (or, for an END marker, `-----END`) starts. */
   at: number;
-  /** Where the key's body starts, right after the BEGIN marker. */
+  /** Where the key's body starts, right after the marker. */
   body: number;
-  /** The END marker that closes it. */
+  /** The END marker that closes it (an END marker: itself). */
   end: string;
 }
 
-/** The next private key BEGIN marker at or after `from`, or null. */
-function nextKeyBegin(text: string, from: number): KeyBegin | null {
+/** The next private key marker (`marker` is KEY_BEGIN or KEY_END) at or after `from`, or null. */
+function nextKeyMarker(
+  text: string,
+  from: number,
+  marker: string,
+): KeyBegin | null {
   for (
-    let at = text.indexOf(KEY_BEGIN, from);
+    let at = text.indexOf(marker, from);
     at >= 0;
-    at = text.indexOf(KEY_BEGIN, at + 1)
+    at = text.indexOf(marker, at + 1)
   ) {
-    const head = at + KEY_BEGIN.length;
+    const head = at + marker.length;
     const tail = text.slice(head, head + KEY_HEAD_MAX).indexOf(KEY_TAIL);
     if (tail < 0) continue;
     const kind = text.slice(head, head + tail);
@@ -116,19 +121,102 @@ function nextKeyBegin(text: string, from: number): KeyBegin | null {
     return {
       at,
       body: head + tail + KEY_TAIL.length,
-      end: `-----END ${kind}${KEY_TAIL}`,
+      end: `${KEY_END}${kind}${KEY_TAIL}`,
     };
   }
   return null;
 }
 
+/** The next private key BEGIN marker at or after `from`, or null. */
+function nextKeyBegin(text: string, from: number): KeyBegin | null {
+  return nextKeyMarker(text, from, KEY_BEGIN);
+}
+
+/**
+ * Where the last private key END marker that no BEGIN in `text` opened
+ * starts, or -1. Such an END means `text` started inside a key (a tail cut:
+ * `docker logs --tail`, Coolify's `?lines=`, a follow that starts at now), so
+ * everything before it may be the key's body. Linear: every search moves
+ * forward, and a search result is reused while it is still ahead.
+ */
+function lastLoneKeyEnd(text: string): number {
+  let last = -1;
+  let begin = nextKeyBegin(text, 0);
+  let end = nextKeyMarker(text, 0, KEY_END);
+  while (end) {
+    if (begin && begin.at < end.at) {
+      // A block opens first: its own END closes it, and anything between
+      // (an END of another kind too) is its body.
+      const close = text.indexOf(begin.end, begin.body);
+      if (close < 0) break;
+      const pos = close + begin.end.length;
+      begin = nextKeyBegin(text, pos);
+      if (end.at < pos) end = nextKeyMarker(text, pos, KEY_END);
+    } else {
+      last = end.at;
+      end = nextKeyMarker(text, end.body, KEY_END);
+    }
+  }
+  return last;
+}
+
+/** Where the tail rule's END is in texts read as joined by newlines. */
+interface KeyTailAt {
+  /** The text holding the END marker. */
+  index: number;
+  /** Where the marker starts in that text. */
+  from: number;
+}
+
+/**
+ * The tail rule's END in a snapshot (or a stream's first lines) given as
+ * texts in order (lines, or log entries) read as if joined by newlines: the
+ * last END marker that no BEGIN before it opened, or null when there is none
+ * or nothing comes before it.
+ */
+function keyTailAt(texts: readonly string[]): KeyTailAt | null {
+  let at = lastLoneKeyEnd(texts.join("\n"));
+  if (at <= 0) return null;
+  for (let index = 0; index < texts.length; index += 1) {
+    if (at <= texts[index].length) return { index, from: at };
+    at -= texts[index].length + 1;
+  }
+  return null;
+}
+
+/**
+ * The tail rule over texts in order (lines, or log entries; see keyTailAt):
+ * when an END marker appears that no BEGIN before it opened, everything from
+ * the start up to that END is masked. Each text before it becomes
+ * REDACTED_VALUE, the one holding it keeps the marker and what follows it,
+ * and the texts after are untouched. Same length as `texts`.
+ */
+export function maskKeyTail(texts: readonly string[]): string[] {
+  const tail = keyTailAt(texts);
+  if (!tail) return [...texts];
+  return texts.map((text, i) => {
+    if (i < tail.index) return REDACTED_VALUE;
+    if (i > tail.index) return text;
+    return REDACTED_VALUE + text.slice(tail.from);
+  });
+}
+
 /**
  * Every private key block's body masked, wherever it is: several on one
  * line (a JSON array of PEMs with escaped newlines), across real lines, and
- * a block without its END to the end of `text`. The markers stay. Linear:
- * every search moves forward.
+ * a block without its END to the end of `text`. The markers stay. `text` may
+ * start inside a key: an END that no BEGIN opened masks everything before it
+ * (maskKeyTail). Linear: every search moves forward.
  */
 export function maskKeyBlocks(text: string): string {
+  const lone = lastLoneKeyEnd(text);
+  return lone > 0
+    ? REDACTED_VALUE + maskWholeBlocks(text.slice(lone))
+    : maskWholeBlocks(text);
+}
+
+/** maskKeyBlocks without the tail rule: for a slice that isn't a start. */
+function maskWholeBlocks(text: string): string {
   let out = "";
   let pos = 0;
   for (let b = nextKeyBegin(text, 0); b; b = nextKeyBegin(text, pos)) {
@@ -160,7 +248,21 @@ export function openKeyBlock(text: string): KeyBegin | null {
  * text stops changing (a fixed point, at most MAX_PASSES).
  */
 export function redactLog(text: string, secrets: readonly string[]): string {
-  let out = maskKeyBlocks(text);
+  return redactWith(maskKeyBlocks(text), secrets);
+}
+
+/**
+ * redactLog of a slice of a line that isn't where the text starts (safeCut's
+ * windows and halves): no tail rule, since its start is not a cut the log
+ * was read from.
+ */
+function redactSlice(text: string, secrets: readonly string[]): string {
+  return redactWith(maskWholeBlocks(text), secrets);
+}
+
+/** The passes after key blocks: `secrets`, then redactOnce to a fixed point. */
+function redactWith(masked: string, secrets: readonly string[]): string {
+  let out = masked;
   for (const secret of secrets) {
     if (secret) out = out.split(secret).join(REDACTED_VALUE);
   }
@@ -460,9 +562,9 @@ function safeCut(text: string, secrets: readonly string[], from: number) {
     const start = Math.max(0, p - CUT_WINDOW);
     const window = text.slice(start);
     const at = p - start;
-    const left = redactLog(window.slice(0, at), secrets);
-    const right = redactLog(window.slice(at), secrets);
-    if (left + right === redactLog(window, secrets)) return p;
+    const left = redactSlice(window.slice(0, at), secrets);
+    const right = redactSlice(window.slice(at), secrets);
+    if (left + right === redactSlice(window, secrets)) return p;
     const space = text.lastIndexOf(" ", p - 2);
     p = space > start ? space + 1 : p - CUT_CONTEXT;
   }
@@ -509,12 +611,45 @@ export function keyBlockCarry(secrets: readonly string[]): KeyBlockCarry {
   return carry;
 }
 
+/** A `docker logs --timestamps` prefix. */
+const LOG_STAMP =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}) /;
+/** A key body line at full width: PEM (64), OpenSSH (70) or MIME (76). */
+const KEY_WIDE =
+  /^(?:[A-Za-z0-9+/=]{64}|[A-Za-z0-9+/=]{70}|[A-Za-z0-9+/=]{76})$/;
+/** A key body's last, shorter line. */
+const KEY_SHORT = /^[A-Za-z0-9+/=]{1,76}$/;
+/** A PEM header line, or the blank line after the headers. */
+const KEY_HEADER = /^(?:(?:Proc-Type|DEK-Info): .*)?$/;
+/** Text a stream holds at most while its start may be inside a key. */
+const KEY_HOLD_MAX = 32 * 1024;
+
+/**
+ * Whether a stream whose lines so far are `lines` may still be inside a
+ * private key it started in: its last line is shaped like a key's body (a
+ * full-width line, a header or blank line, or a short last line right after
+ * a full-width one or at the start).
+ */
+function mayBeInKey(lines: readonly string[]): boolean {
+  const shape = (i: number) => lines[i].replace(LOG_STAMP, "");
+  const last = shape(lines.length - 1);
+  if (KEY_WIDE.test(last) || KEY_HEADER.test(last)) return true;
+  if (!KEY_SHORT.test(last)) return false;
+  return lines.length === 1 || KEY_WIDE.test(shape(lines.length - 2));
+}
+
 /**
  * Turns one SSH stream's bytes into redacted lines. One UTF-8 decoder per
  * stream keeps a character split across chunks whole. A line longer than
  * MAX_LINE is cut only where `safeCut` allows, with at least CUT_CONTEXT
  * (and the longest secret) kept back; when no safe cut exists the rest of
  * that line is masked, so nothing is let through unredacted.
+ *
+ * A stream can start inside a private key (a follow starts at now), so its
+ * first lines are held while they may be a key's body: until a chunk ends
+ * on a whole line that isn't shaped like one, the stream ends, or
+ * KEY_HOLD_MAX is held. Then maskKeyTail applies to everything held: an END
+ * that no BEGIN opened masks every line before it.
  */
 export function lineSplitter(
   secrets: readonly string[],
@@ -527,10 +662,50 @@ export function lineSplitter(
   // A private key block left open by an earlier line: every line up to its
   // END is the key's body and is dropped.
   const keys = keyBlockCarry(secrets);
+  // The stream's first lines, held while it may have started inside a key.
+  let opening = true;
+  let held: string[] = [];
+  let heldSize = 0;
+
+  /**
+   * The held lines once the stream's start is settled, with the tail rule
+   * applied over them and the partial line: everything held before an END
+   * that no BEGIN opened becomes one REDACTED_VALUE.
+   */
+  function settle(): string[] {
+    opening = false;
+    const lines = held;
+    held = [];
+    const tail = keyTailAt([...lines, carry]);
+    if (!tail) return lines;
+    if (tail.index === lines.length) {
+      carry = REDACTED_VALUE + carry.slice(tail.from);
+      return [];
+    }
+    return [
+      REDACTED_VALUE + lines[tail.index].slice(tail.from),
+      ...lines.slice(tail.index + 1),
+    ];
+  }
 
   function take(text: string, final: boolean): void {
-    const parts = (carry + text).split(/\r?\n/);
+    let parts = (carry + text).split(/\r?\n/);
     carry = final ? "" : (parts.pop() ?? "");
+    if (opening) {
+      for (const line of parts) {
+        held.push(line);
+        heldSize += line.length + 1;
+      }
+      parts = [];
+      const waiting =
+        !final &&
+        heldSize <= KEY_HOLD_MAX &&
+        (carry === ""
+          ? held.length === 0 || mayBeInKey(held)
+          : carry.length <= MAX_LINE + keep);
+      if (waiting) return;
+      parts = settle();
+    }
     const out: string[] = [];
     for (const line of parts) {
       if (skipping) {

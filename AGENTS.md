@@ -180,7 +180,9 @@ aren't obvious from the code, and anything that has bitten you before.
   confirm (they are `isOperate` and sensitive). Any other answer that merely holds a log field
   (`list-servers`, `get-server-by-uuid`, the database reads and `update-server-by-uuid`, through
   `validation_logs`) is an ordinary read; `dispatch` masks the operation's `LOG_FIELDS` unless the call
-  is confirmed and the actor has `coolify.operate` and an operate grant. Revealing a log field needs
+  is confirmed and the actor has `coolify.operate` and an operate grant; when it does come back, every
+  string under a log field goes through `redactLog` (`redactLogFields`) with the snapshot's secrets, as
+  container logs do. Revealing a log field needs
   `coolify.operate` too. A server transfer's status stays operate by hand (its schema has no log field).
   `authorize` also applies `tokenAllows` (`token-ability`, 409), and `send` passes `beforeFetch` so the
   request layer checks the revision again after its budget and retry waits, right before each fetch.
@@ -405,7 +407,17 @@ console, revision? }`, calls the shell route and draws `PluginComponent id="term
   every private key block's body (`maskKeyBlocks`: several on a line, escaped `\n` or real newlines, and a
   block without END to the end of the text; linear `indexOf` scans). `lineSplitter` keeps a block opened
   by one line open (`keyEnd`) and drops the body lines until its END, and `openSecretStart` counts an open
-  block, so a long-line cut never splits one. Then the snapshot's own
+  block, so a long-line cut never splits one. The tail rule (#81): a tail cut (`--tail`, `?lines=`, a
+  follow at now) can start inside a key, so an END that no BEGIN before it opened (`lastLoneKeyEnd`)
+  masks everything from the start of that text up to it, and what follows is untouched. `maskKeyBlocks`
+  applies it to every text `redactLog` gets; `maskKeyTail` applies it across texts in order (buildLog's
+  commands and outputs); `lineSplitter` holds a stream's first lines while its last line is shaped like
+  a key's body (`mayBeInKey`: 64/70/76-wide base64, a PEM header or blank line, a short line first or
+  after a wide one; a `docker logs --timestamps` prefix is ignored) or a partial line is pending, up to
+  `KEY_HOLD_MAX` (32 KiB), then applies it to everything held. A key interleaved with other lines in a
+  live follow can still pass once a non-key line settles the start. `safeCut` compares its windows with
+  `redactSlice` (no tail rule): a window's start is not where the log starts, and the rule there only
+  refused good cuts. Then the snapshot's own
   token and Access secret (`snapshot.secrets()`, unsealed from the same row) are replaced anywhere, then
   redact.ts's `maskCredentials`, then secret-named `name=value`/`"name": "value"` fields and
   `Authorization` credentials. Names are bounded (`{0,64}`) so a long line can't backtrack for long.
@@ -424,7 +436,9 @@ console, revision? }`, calls the shell route and draws `PluginComponent id="term
   start to the end of the line. A prefix whose redaction ends masked does the same. At a cut a context
   closes only at whitespace (or its own closing quote): `@`, `/` and `&` never close it. The connection's
   own secrets, which can outrun the window, are checked by `indexOf` across the cut. A seeded 500-case
-  property test in `logs.test.ts` streams mixed secret shapes 1–5× MAX_LINE long in random chunks.
+  property test in `logs.test.ts` streams mixed secret shapes 1–5× MAX_LINE long in random chunks. Its
+  work is fixed by the seed; only wall time grows with load, so it has its own 120 s timeout (#75), not
+  Vitest's 5 s default.
 - logs-tail over MCP: `text` is a sensitive output, so core drops it from run history and from what
   `redactFields` passes on. The handler keeps the redacted text in memory (`takeLogText`, per user and
   `handoffId`, 60 s, 16 MB at most) and `actionResult` in `mcp/server.ts` puts it back into that one

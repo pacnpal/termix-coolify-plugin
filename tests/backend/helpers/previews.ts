@@ -1,5 +1,6 @@
 import { deploymentRaw } from "./deployments.js";
 import type { fakeCoolify, FakeAnswer } from "./fake-coolify.js";
+import { KEY_TAIL } from "./key-tail.js";
 import type { PluginHarness } from "./plugin.js";
 import { resourceLists } from "./resources.js";
 
@@ -90,6 +91,14 @@ export const FAKE_KEY_LINES = [
   "fake-preview-key-body-line-two",
   "-----END OPENSSH PRIVATE KEY-----",
 ];
+
+/** PR 42's logs read from their tail, cut inside a key (KEY_TAIL): `fake.set(...it)`. */
+export function keyTailPreviewLogs(): [string, FakeAnswer] {
+  return [
+    "GET /applications/app-web-uuid/previews/42/logs",
+    { json: { logs: KEY_TAIL.text } },
+  ];
+}
 
 /** Coolify's answers for web's previews (and api's one). */
 export function previewAnswers(): Record<string, FakeAnswer> {

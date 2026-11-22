@@ -261,7 +261,10 @@ hidden without them. Each read is labelled with where it came from:
 
 Before any line reaches you, the connection's own token and Cloudflare Access secret are masked wherever
 they appear, and so are passwords in URLs, credential query parameters, fields named like a password,
-token or key (`DB_PASSWORD=…`) and `Authorization` credentials. If the connection's address, token or
+token or key (`DB_PASSWORD=…`) and `Authorization` credentials. A private key's body is masked, and so is
+everything before a key's END line that has no BEGIN before it: logs read from their tail can start inside
+a key, and the lines after that END are shown as they are. A follow holds its first lines while they look
+like a key's body, so one that starts inside a key shows none of it. If the connection's address, token or
 Access settings change while logs are read, the read stops with `target-changed` and shows nothing from the
 old target.
 
@@ -606,7 +609,8 @@ Everything in Coolify's API is reachable from Termix, checked against your permi
 - The **API console** in the Coolify tab lists every operation you may call on a connection, with a form for
   its parameters and body. Plain reads run at once; reads of secrets or logs and anything that changes
   Coolify ask first, and a delete asks you
-  to type the operation id. Secrets in answers are masked. With **Configure Coolify**, configure access and a
+  to type the operation id. Secrets in answers are masked, and logs and command output in an answer are
+  masked as container logs are. With **Configure Coolify**, configure access and a
   token with `read:sensitive`, **Reveal** shows one value; each reveal is recorded in the audit log and
   nothing is kept.
 - The actions `coolify.api-read` (reads) and `coolify.api-call` (anything, after a confirm) do the same from

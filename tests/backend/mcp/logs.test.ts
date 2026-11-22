@@ -7,7 +7,14 @@ import type {
 import { OWNER, type PluginHarness } from "../helpers/plugin.js";
 import { withRunHistory } from "../helpers/run-history.js";
 import { handleMcp } from "../../../src/backend/mcp/server.js";
-import { setSensitive, startShell } from "../containers/fixtures.js";
+import {
+  LOG_SOURCES,
+  serveKeyTail,
+  setSensitive,
+  startShell,
+} from "../containers/fixtures.js";
+import { expectKeyTailMasked } from "../helpers/key-tail.js";
+import { callTool } from "../helpers/mcp.js";
 
 type Run = (
   actionId: string,
@@ -75,5 +82,55 @@ describe("logs over MCP", () => {
     expect(runs.history).toHaveLength(1);
     expect(history).not.toContain("first mcp line");
     expect(history).not.toContain("fake-mcp-pass");
+  });
+
+  it.each(LOG_SOURCES)(
+    "coolify__logs_tail from %s shows no key body when the tail starts inside a key",
+    async (source, sensitive) => {
+      const started = await startShell();
+      serveKeyTail(started, sensitive);
+      const shown = await toolText(started, "coolify__logs_tail", {
+        uuid: "app-web-uuid",
+        confirm: true,
+      });
+      expect(shown).toContain(`"source":"${source}"`);
+      expectKeyTailMasked(shown);
+    },
+  );
+});
+
+/**
+ * One tool call on `started`'s connection through core's run history, as the
+ * owner; its text, after checking it isn't an error.
+ */
+async function toolText(
+  started: Awaited<ReturnType<typeof startShell>>,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<string> {
+  harness = started.harness;
+  const runs = withRunHistory(harness.mock);
+  const ctx = withRun(harness.mock.ctx, (id, options) =>
+    runs.run(id, options?.input ?? {}),
+  );
+  harness.mock.setActor(OWNER);
+  const result = await callTool(ctx, name, {
+    connectionId: String(started.connectionId),
+    ...args,
+  });
+  expect(result.isError).toBe(false);
+  return result.content.map((c) => c.text).join("\n");
+}
+
+describe("Coolify's /logs through the generic API over MCP", () => {
+  it("coolify__api_call of a logs read shows no key body when the tail starts inside a key", async () => {
+    const started = await startShell({ settings: { allowMcpChanges: true } });
+    serveKeyTail(started, true);
+    const shown = await toolText(started, "coolify__api_call", {
+      operationId: "get-application-logs-by-uuid",
+      params: JSON.stringify({ uuid: "app-web-uuid" }),
+      confirmed: true,
+    });
+    expectKeyTailMasked(shown);
   });
 });

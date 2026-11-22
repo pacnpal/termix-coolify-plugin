@@ -8,7 +8,13 @@ import {
   isCancellableDeployment,
   isFinalDeployment,
 } from "../../../src/shared/deployment-status.js";
-import { KEY_BODY, keyEntries, logEntry } from "../helpers/deployments.js";
+import {
+  KEY_BODY,
+  keyEntries,
+  keyTailEntries,
+  logEntry,
+} from "../helpers/deployments.js";
+import { expectKeyTailMasked, KEY_TAIL } from "../helpers/key-tail.js";
 
 describe("build log parsing", () => {
   it("reads Coolify's JSON lines in order, keeping the hidden flag", () => {
@@ -109,6 +115,17 @@ describe("private keys across build log lines", () => {
     const log = buildLog(raw, []);
     expect(leaks(log)).toBe(false);
     expect(log.lines.map((l) => l.output)).toContain("after the key");
+  });
+
+  it("masks a log that starts inside a key, from its start through the END", () => {
+    const entries = keyTailEntries(1);
+    for (const raw of [JSON.stringify(entries), KEY_TAIL.text]) {
+      const log = buildLog(raw, []);
+      expectKeyTailMasked(log);
+      const outputs = log.lines.map((l) => l.output);
+      expect(outputs).toContain(KEY_TAIL.after);
+      expect(outputs).toContain(`[redacted]${KEY_TAIL.end}`);
+    }
   });
 
   it("masks a key's body when truncation cuts its BEGIN marker", () => {

@@ -9,8 +9,11 @@ import {
   deploymentAnswers,
   KEY_BODY,
   keyEntries,
+  keyTailDeployment,
   logEntry,
 } from "../helpers/deployments.js";
+import { expectKeyTailMasked } from "../helpers/key-tail.js";
+import { callTool } from "../helpers/mcp.js";
 import { LIFECYCLE_TOKEN, startLifecycle } from "../helpers/lifecycle.js";
 import { OWNER, type PluginHarness } from "../helpers/plugin.js";
 import { withRunHistory } from "../helpers/run-history.js";
@@ -99,5 +102,29 @@ describe("build logs over MCP", () => {
     const history = JSON.stringify(runs.history);
     expect(history).not.toContain("first mcp build line");
     expect(history).not.toContain("fake-mcp-build-pass");
+  });
+
+  it("coolify__deployment_get masks a build log that starts inside a private key", async () => {
+    const started = await startLifecycle({
+      overrides: {
+        ...deploymentAnswers(),
+        ...Object.fromEntries([keyTailDeployment()]),
+      },
+      serve: false,
+    });
+    harness = started.harness;
+    harness.mock.setActor(OWNER);
+    const runs = withRunHistory(harness.mock);
+    const ctx = withRun(harness.mock.ctx, (actionId, options) =>
+      runs.run(actionId, options?.input ?? {}),
+    );
+    const result = await callTool(ctx, "coolify__deployment_get", {
+      connectionId: String(started.id),
+      uuid: "app-web-uuid",
+      deploymentUuid: "dep-done",
+      confirm: true,
+    });
+    expect(result.isError).toBe(false);
+    expectKeyTailMasked(result.content.map((c) => c.text).join("\n"));
   });
 });
