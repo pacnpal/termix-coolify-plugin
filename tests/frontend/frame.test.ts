@@ -10,6 +10,7 @@ describe("sandboxed frame", () => {
     });
     expect(problems).toEqual([]);
     expect(registrations.length).toBeGreaterThan(0);
+    expect(registrations.map((r) => r.kind)).toContain("companion");
   });
 
   it("gives the Coolify rail item a badge and opens the activity panel from the rail", async () => {

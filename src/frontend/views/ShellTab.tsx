@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Copy, KeyRound, SquareTerminal, TriangleAlert } from "lucide-react";
-import type { TabProps } from "@termix-ssh/plugin-sdk/frontend";
-import type { PluginHostRecord } from "@termix-ssh/plugin-sdk/frontend";
+import type {
+  PluginHostRecord,
+  ShellApi,
+  TabProps,
+} from "@termix-ssh/plugin-sdk/frontend";
 import {
   useHosts,
   usePluginApi,
@@ -23,6 +26,7 @@ import {
   createApi,
   failureOf,
   type ContainerChoice,
+  type Resource,
   type ShellAnswer,
 } from "../api";
 
@@ -35,6 +39,33 @@ export interface ShellTabData {
   console: "shell" | "db";
   /** The connection's target hash when opened; a new one starts the tab anew. */
   revision?: string;
+}
+
+/**
+ * Opens a container shell, or a database's console, for a resource in a new
+ * coolify-shell tab. The tab data carries the connection's revision, so a
+ * changed target asks for containers again. The backend checks the rest.
+ */
+export function openShellTab(
+  shell: Pick<ShellApi, "openTab">,
+  t: (key: string, options?: Record<string, unknown>) => string,
+  connection: { id: number; revision?: string | null },
+  resource: Pick<Resource, "uuid" | "name">,
+  console: "shell" | "db",
+): void {
+  shell.openTab(null, "coolify-shell", {
+    label:
+      console === "db"
+        ? t("shellTab.consoleLabel", { name: resource.name })
+        : t("shellTab.shellLabel", { name: resource.name }),
+    forceNewTab: true,
+    data: {
+      connectionId: connection.id,
+      uuid: resource.uuid,
+      console,
+      ...(connection.revision ? { revision: connection.revision } : {}),
+    },
+  });
 }
 
 const UUID = /^[A-Za-z0-9_-]{1,64}$/;

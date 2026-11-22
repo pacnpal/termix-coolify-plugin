@@ -86,6 +86,8 @@ describe("sandboxed frame views", () => {
     expect(refused).toEqual([]);
     expect(errors).toEqual([]);
     expect(rendered.map(String).join(" ")).toContain("hostSection:coolify");
+    // The terminal companion draws for the Linked host, from a frame.
+    expect(rendered.map(String)).toContain("companion:coolify.coolify");
     expect(rendered.map(String)).toContain("panel:coolify-activity");
     expect(rendered.length).toBeGreaterThan(0);
   });

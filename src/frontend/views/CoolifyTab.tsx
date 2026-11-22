@@ -44,6 +44,7 @@ import { DeploymentsSection, type OpenDeployment } from "./DeploymentsSection";
 import { OverviewView } from "./OverviewView";
 import { ResourceDetail } from "./ResourceDetail";
 import { ResourcesView } from "./ResourcesView";
+import { openShellTab } from "./ShellTab";
 import { SyncView } from "./SyncView";
 import type { HealthFilter } from "./resource-model";
 import { useDeploymentQueue } from "./useDeploymentQueue";
@@ -331,21 +332,7 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
   const rows = resources.list?.rows ?? [];
 
   function openShell(resource: Resource, console: "shell" | "db") {
-    if (!connection) return;
-    shell.openTab(null, "coolify-shell", {
-      label:
-        console === "db"
-          ? t("shellTab.consoleLabel", { name: resource.name })
-          : t("shellTab.shellLabel", { name: resource.name }),
-      forceNewTab: true,
-      data: {
-        connectionId: connection.id,
-        uuid: resource.uuid,
-        console,
-        // The target it was opened for: a new one asks for containers again.
-        ...(connection.revision ? { revision: connection.revision } : {}),
-      },
-    });
+    if (connection) openShellTab(shell, t, connection, resource, console);
   }
 
   /** A pick in the Resources list: a shell once when asked, else the detail. */

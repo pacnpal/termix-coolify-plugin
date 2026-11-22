@@ -130,6 +130,29 @@ Linked hosts also get:
 Cancelling a run stops any of these actions before it reaches Coolify, and a deploy that waits stops
 waiting.
 
+## Beside a terminal
+
+A terminal on a Linked host gets a **Coolify** panel in its panel bar. It lists the resources on that host's
+Coolify server, each service followed by its parts, with their status. Each row has:
+
+- **Shell**: opens a container shell in a new **Coolify shell** tab (see
+  [Container shells](#container-shells-and-database-consoles)).
+- **Logs**: shows the resource's logs in the panel (see [Logs](#logs)); **Back to resources** returns.
+- **Restart** and **Deploy** (not on a part, which deploys with its service): each asks first, naming the
+  resource, then runs the same action as the resource's header (see
+  [Deploy, start, stop and restart](#deploy-start-stop-and-restart)).
+
+The panel reads the same short resource cache as the Coolify tab. The buttons need **Operate Coolify
+resources** and the connection's owner or an operate or configure grant; without them the panel lists the
+resources only. When the terminal moves to another host, the panel starts empty and shows only the new
+host's resources. A terminal on a host that isn't linked has no Coolify panel, and nothing is asked of
+Coolify.
+
+**Refresh resources** in the panel's header reads the list again, past the cache, which also recovers
+from a failed read. Showing the panel again (back from a background tab, or opened again) reads it too. A
+**Restart** or **Deploy** you confirm after the terminal moved to another host, or after the panel closed,
+runs nothing.
+
 ## Command palette
 
 The **Coolify** group in the command palette has:

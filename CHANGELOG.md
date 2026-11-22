@@ -4,6 +4,12 @@
 
 ### Added
 
+- A Coolify panel beside terminals on Linked hosts: the resources on that host's Coolify server, each with
+  **Shell** (a new Coolify shell tab), **Logs**, **Restart** and **Deploy**. Restart and Deploy ask first.
+  The actions need **Operate Coolify resources** and the connection's owner or an operate or configure
+  grant. Other hosts get no panel and no request to Coolify. **Refresh resources** reads the list again,
+  and so does showing the panel again. A Restart or Deploy confirmed after the terminal moved to another
+  host, or after the panel closed, runs nothing
 - A Deployments tab on an application: its deployment history, a page at a time, with status, commit,
   pull request and times
 - A deployment's build log, live while the deployment runs: refreshed every 2 seconds while it is shown,

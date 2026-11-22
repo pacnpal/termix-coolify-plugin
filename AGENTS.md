@@ -294,6 +294,19 @@ aren't obvious from the code, and anything that has bitten you before.
   `SyncView` keys its preview on the connection's id and `revision`: a change clears rows, drafts and
   results and loads again, and a request generation drops a late answer. The host card shows the
   tunnel line from the row's `tunnel` flag and opens the host editor with `shell.editHost`.
+  Terminal companion (1.1.0): `app.registerCompanion("coolify", TerminalCompanion, { tabTypes:
+["terminal"], when: isLinked })` in `src/frontend/index.tsx` (the core id is `coolify.coolify`; not the
+  backend's `companions/`, which is about other plugins). `views/TerminalCompanion.tsx` draws nothing and
+  asks nothing without a link; otherwise its body is keyed by `connectionId:serverUuid`, so a host change
+  remounts it and the old host's answers land on an unmounted view. It reads the connection (access,
+  revision), then `useResources` filtered to the server. Actions need `coolify.operate` and
+  `OPERATE_ACCESS`; Shell uses `openShellTab` (ShellTab.tsx, shared with CoolifyTab), Logs draws
+  `LogsView` in the panel, Restart and Deploy confirm and then call `useLifecycle().run` only while the
+  view is mounted and on the target the confirm was opened for (`mounted`/`current` refs, as RollbackView).
+  Refresh (and `isVisible` turning true) bumps `attempt` (reads the connection again) and reloads the
+  list. Tests draw the
+  registered component through `renderCompanion` (tests/frontend/helpers.tsx): the SDK test host has no
+  companion renderer, and SDK hooks only work inside a registered component.
   `views/SshTerminalCheck.tsx` has the Open Plugins button (`useTabs().openSingletonTab("plugins")`) used
   by blocked sync rows, and the single SSH Terminal line `ProbeChecklist` adds when Coolify has tunnelled
   servers (it reads the sync preview; scoped tokens get none). That line reloads on the connection's
@@ -339,8 +352,8 @@ console, revision? }`, calls the shell route and draws `PluginComponent id="term
   `executeCommand`; the fallback is a NoticePanel with the command to copy. Picking a container re-asks in
   place; after a failed pick, Change container clears it and asks for the choices again (Retry keeps it).
   `ShellView` is keyed by `keyOf(tab data)` (resource, part, console, container, revision; CoolifyTab's
-  `openShell` passes the connection's revision), so new tab data starts with no pick, and loads carry a
-  request generation. Shell host ids can be strings, so hosts are matched by `String(id)`, not `useHost`.
+  `openShell` and the terminal companion pass the connection's revision through `openShellTab`), so new
+  tab data starts with no pick, and loads carry a request generation. Shell host ids can be strings, so hosts are matched by `String(id)`, not `useHost`.
 - Logs: `src/backend/containers/logs.ts` (`readLogsRequest`, `logsCommand`, `redactLog`, `createLogs` with
   `snapshot` and `follow`), `sockets.ts` (`WS /logs`) and the `coolify.logs-tail` action in
   `ops/containers.ts` (refused without `confirm: true`, so MCP and ops reads are explicit). The containers
