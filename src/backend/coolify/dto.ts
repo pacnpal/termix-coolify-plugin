@@ -1,3 +1,4 @@
+import { IMAGE_TAG } from "../../shared/image-tag.js";
 // Strippers from Coolify payloads to the plugin's own DTOs. Each one picks the
 // fields it needs by name, never with a spread, so a secret Coolify adds to a
 // payload later can't ride along. Coolify returns fields its OpenAPI schema
@@ -61,6 +62,12 @@ export interface ResourceDto {
   parentUuid: string | null;
   engine: string | null;
   lastDeployAt: string | null;
+  /**
+   * An application's build pack (nixpacks, static, dockerfile,
+   * dockercompose, dockerimage and so on), which decides what a preview
+   * needs; null for anything else.
+   */
+  buildPack: string | null;
 }
 
 export interface DeploymentDto {
@@ -77,6 +84,38 @@ export interface DeploymentDto {
   createdAt: string;
   updatedAt: string | null;
   finishedAt: string | null;
+}
+
+/** One service's domains on a Docker Compose preview. */
+export interface ComposeDomainDto {
+  name: string;
+  domain: string | null;
+}
+
+/**
+ * One pull request preview of an application. Coolify's domain port
+ * overrides and anything else it sends are left out.
+ */
+export interface PreviewDto {
+  pullRequestId: number;
+  uuid: string;
+  pullRequestUrl: string | null;
+  gitType: string | null;
+  /** The preview's containers, as Coolify reports a resource's status. */
+  status: string;
+  /** The public domains, portless, as Coolify lists them. */
+  domains: string[];
+  composeDomains: ComposeDomainDto[];
+  /**
+   * Coolify's internal port per portless domain URL (Docker Compose
+   * services' domains included). A save sends ports inline and replaces
+   * these, so an editor must start from the domains with them put back.
+   */
+  portOverrides: Record<string, number>;
+  dockerTag: string | null;
+  lastOnlineAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
 }
 
 /** A Coolify team as the plugin keeps it. Ids are strings, so instanceKey reads the same everywhere. */
@@ -314,6 +353,7 @@ type ResourceExtra = Partial<
     | "parentUuid"
     | "engine"
     | "lastDeployAt"
+    | "buildPack"
   >
 >;
 
@@ -344,6 +384,7 @@ function resource(
     parentUuid: extra.parentUuid ?? null,
     engine: extra.engine ?? null,
     lastDeployAt: extra.lastDeployAt ?? null,
+    buildPack: extra.buildPack ?? null,
   };
 }
 
@@ -352,6 +393,7 @@ export function toApplication(input: unknown): ResourceDto {
   return resource(raw, "application", {
     fqdns: fqdns(raw.fqdn),
     lastDeployAt: strOrNull(raw.last_deployment_at),
+    buildPack: strOrNull(raw.build_pack),
   });
 }
 
@@ -459,6 +501,40 @@ export function toDeploymentLog(input: unknown): string | null {
   return typeof logs === "string" ? logs : null;
 }
 
+/** Coolify's port overrides: only whole ports from 1 to 65535 are kept. */
+function portOverridesOf(value: unknown): Record<string, number> {
+  const entries: [string, number][] = [];
+  for (const [domain, port] of Object.entries(obj(value))) {
+    const n = num(port);
+    if (n !== null && Number.isInteger(n) && n >= 1 && n <= 65_535) {
+      entries.push([domain, n]);
+    }
+  }
+  return Object.fromEntries(entries);
+}
+
+/** One pull request preview, as `GET /applications/{uuid}/previews` lists it. */
+export function toPreview(input: unknown): PreviewDto {
+  const raw = obj(input);
+  return {
+    pullRequestId: num(raw.pull_request_id) ?? 0,
+    uuid: str(raw.uuid),
+    pullRequestUrl: strOrNull(raw.pull_request_html_url),
+    gitType: strOrNull(raw.git_type),
+    status: str(raw.status, "unknown"),
+    domains: fqdns(raw.domains ?? raw.fqdn),
+    composeDomains: list(raw.docker_compose_domains)
+      .map(obj)
+      .filter((d) => typeof d.name === "string" && d.name !== "")
+      .map((d) => ({ name: str(d.name), domain: strOrNull(d.domain) })),
+    portOverrides: portOverridesOf(raw.domain_port_overrides),
+    dockerTag: strOrNull(raw.docker_registry_image_tag),
+    lastOnlineAt: strOrNull(raw.last_online_at),
+    createdAt: strOrNull(raw.created_at),
+    updatedAt: strOrNull(raw.updated_at),
+  };
+}
+
 /** One image an application can be rolled back to. */
 export interface RollbackImageDto {
   /** The image tag (a commit for a built app); what a rollback is sent. */
@@ -477,7 +553,7 @@ export interface RollbackImagesDto {
 }
 
 /** A Docker image tag: what Coolify lists and what a rollback may name. */
-export const IMAGE_TAG = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/;
+export { IMAGE_TAG };
 
 /**
  * An application's rollback images, in Coolify's order. Rows without a

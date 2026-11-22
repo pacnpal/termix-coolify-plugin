@@ -981,6 +981,290 @@
           }
         },
         {
+          "id": "coolify.preview-list",
+          "titleKey": "ops.previewList.title",
+          "descriptionKey": "ops.previewList.description",
+          "icon": "GitPullRequest",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.appUuid.label",
+              "descriptionKey": "ops.fields.appUuid.previews",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.preview-create",
+          "titleKey": "ops.previewCreate.title",
+          "descriptionKey": "ops.previewCreate.description",
+          "icon": "GitPullRequestArrow",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.appUuid.label",
+              "descriptionKey": "ops.fields.appUuid.previews",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            },
+            {
+              "key": "pullRequestId",
+              "type": "number",
+              "labelKey": "ops.fields.previewPullRequestId.label",
+              "descriptionKey": "ops.fields.previewPullRequestId.description",
+              "min": 1,
+              "max": 2147483647,
+              "required": true
+            },
+            {
+              "key": "pullRequestUrl",
+              "type": "string",
+              "labelKey": "ops.fields.pullRequestUrl.label",
+              "descriptionKey": "ops.fields.pullRequestUrl.description"
+            },
+            {
+              "key": "gitType",
+              "type": "select",
+              "labelKey": "ops.fields.gitType.label",
+              "descriptionKey": "ops.fields.gitType.description",
+              "options": [
+                {
+                  "value": "github",
+                  "labelKey": "ops.fields.gitType.github"
+                },
+                {
+                  "value": "gitlab",
+                  "labelKey": "ops.fields.gitType.gitlab"
+                },
+                {
+                  "value": "gitea",
+                  "labelKey": "ops.fields.gitType.gitea"
+                },
+                {
+                  "value": "bitbucket",
+                  "labelKey": "ops.fields.gitType.bitbucket"
+                }
+              ]
+            },
+            {
+              "key": "commit",
+              "type": "string",
+              "labelKey": "ops.fields.commit.label",
+              "descriptionKey": "ops.fields.commit.description",
+              "pattern": "[0-9a-fA-F]{7,40}"
+            },
+            {
+              "key": "dockerTag",
+              "type": "string",
+              "labelKey": "ops.fields.previewDockerTag.label",
+              "descriptionKey": "ops.fields.previewDockerTag.description",
+              "pattern": "[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}"
+            },
+            {
+              "key": "force",
+              "type": "boolean",
+              "labelKey": "ops.fields.force.label",
+              "descriptionKey": "ops.fields.force.description",
+              "default": false
+            }
+          ],
+          "risk": "change",
+          "permission": "operate",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.preview-domains",
+          "titleKey": "ops.previewDomains.title",
+          "descriptionKey": "ops.previewDomains.description",
+          "icon": "Globe",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.appUuid.label",
+              "descriptionKey": "ops.fields.appUuid.previews",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            },
+            {
+              "key": "pullRequestId",
+              "type": "number",
+              "labelKey": "ops.fields.previewPullRequestId.label",
+              "descriptionKey": "ops.fields.previewPullRequestId.description",
+              "min": 1,
+              "max": 2147483647,
+              "required": true
+            },
+            {
+              "key": "domains",
+              "type": "string",
+              "labelKey": "ops.fields.previewDomains.label",
+              "descriptionKey": "ops.fields.previewDomains.description"
+            },
+            {
+              "key": "composeDomains",
+              "type": "json",
+              "labelKey": "ops.fields.composeDomains.label",
+              "descriptionKey": "ops.fields.composeDomains.description"
+            }
+          ],
+          "risk": "change",
+          "permission": "operate",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.preview-delete",
+          "titleKey": "ops.previewDelete.title",
+          "descriptionKey": "ops.previewDelete.description",
+          "icon": "Trash2",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.appUuid.label",
+              "descriptionKey": "ops.fields.appUuid.previews",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            },
+            {
+              "key": "pullRequestId",
+              "type": "number",
+              "labelKey": "ops.fields.previewPullRequestId.label",
+              "descriptionKey": "ops.fields.previewPullRequestId.description",
+              "min": 1,
+              "max": 2147483647,
+              "required": true
+            }
+          ],
+          "risk": "destructive",
+          "permission": "operate",
+          "surfaces": {
+            "assistant": false,
+            "mcp": false
+          }
+        },
+        {
+          "id": "coolify.preview-logs",
+          "titleKey": "ops.previewLogs.title",
+          "descriptionKey": "ops.previewLogs.description",
+          "icon": "ScrollText",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.appUuid.label",
+              "descriptionKey": "ops.fields.appUuid.previews",
+              "pattern": "[A-Za-z0-9_-]{1,64}",
+              "required": true
+            },
+            {
+              "key": "pullRequestId",
+              "type": "number",
+              "labelKey": "ops.fields.previewPullRequestId.label",
+              "descriptionKey": "ops.fields.previewPullRequestId.description",
+              "min": 1,
+              "max": 2147483647,
+              "required": true
+            },
+            {
+              "key": "lines",
+              "type": "number",
+              "labelKey": "ops.fields.lines.label",
+              "descriptionKey": "ops.fields.lines.description",
+              "min": 1,
+              "max": 10000,
+              "default": 100
+            },
+            {
+              "key": "timestamps",
+              "type": "boolean",
+              "labelKey": "ops.fields.timestamps.label",
+              "default": false
+            },
+            {
+              "key": "confirm",
+              "type": "boolean",
+              "labelKey": "ops.fields.confirmLogs.label",
+              "descriptionKey": "ops.fields.confirmLogs.description",
+              "required": true
+            }
+          ],
+          "outputs": [
+            {
+              "key": "text",
+              "type": "textarea",
+              "labelKey": "ops.fields.logText.label",
+              "sensitive": true
+            }
+          ],
+          "risk": "read",
+          "permission": "operate",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
           "id": "coolify.rollback-images",
           "titleKey": "ops.rollbackImages.title",
           "descriptionKey": "ops.rollbackImages.description",

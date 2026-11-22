@@ -9,6 +9,7 @@ import type { Containers } from "./containers/service.js";
 import type { Exec } from "./containers/exec.js";
 import type { Logs } from "./containers/logs.js";
 import type { Deployments } from "./deployments/service.js";
+import type { Previews } from "./previews/service.js";
 import type { Connections } from "./connections/service.js";
 import type { Tables } from "./db.js";
 import type { Lifecycle } from "./resources/lifecycle.js";
@@ -24,6 +25,7 @@ import {
 } from "./ops/api-generic.js";
 import { registerContainerOperations } from "./ops/containers.js";
 import { registerDeploymentOperations } from "./ops/deployments.js";
+import { registerPreviewOperations } from "./ops/previews.js";
 import { registerLifecycleOperations } from "./ops/lifecycle.js";
 import { registerMetricsOperations } from "./ops/metrics.js";
 import { registerResourceOperations } from "./ops/resources.js";
@@ -45,6 +47,7 @@ export interface Services {
   sync: Sync;
   lifecycle: Lifecycle;
   deployments: Deployments;
+  previews: Previews;
   containers: Containers;
   logs: Logs;
   exec: Exec;
@@ -109,6 +112,7 @@ export function registerOperations(
   registerSyncOperations(ctx, services.sync);
   registerLifecycleOperations(ctx, services);
   registerDeploymentOperations(ctx, services.deployments);
+  registerPreviewOperations(ctx, services.previews);
   registerRollbackOperations(ctx, services);
   registerSignalOperations(ctx, services);
   registerContainerOperations(

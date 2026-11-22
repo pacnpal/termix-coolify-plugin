@@ -8,6 +8,7 @@ import {
 } from "../connections/service.js";
 import { dbClient, type Tables } from "../db.js";
 import type { Resources } from "../resources/service.js";
+import { isHostname } from "../../shared/domains.js";
 import type { Sync } from "../sync/service.js";
 import {
   backupsFailed,
@@ -46,8 +47,6 @@ const RANK: Record<AccessLevel, number> = {
 };
 
 const UUID = /^[A-Za-z0-9_-]{1,64}$/;
-const HOSTNAME =
-  /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}$/;
 const IPV4 =
   /^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
 /**
@@ -206,13 +205,13 @@ function toDnsView(row: DnsRow): DnsRecordView {
 function contentFits(type: DnsType, content: string): boolean {
   if (type === "A") return IPV4.test(content);
   if (type === "AAAA") return isIPv6(content);
-  return HOSTNAME.test(content);
+  return isHostname(content);
 }
 
 function typeFor(content: string): DnsType | null {
   if (IPV4.test(content)) return "A";
   if (isIPv6(content)) return "AAAA";
-  return HOSTNAME.test(content) ? "CNAME" : null;
+  return isHostname(content) ? "CNAME" : null;
 }
 
 function isDatabase(resource: ResourceDto): boolean {
@@ -535,7 +534,7 @@ export function createCompanions(
       await requireCompanion(ctx, "dns");
       if (typeof body.fqdn !== "string") throw invalid("fqdn is required");
       const fqdn = body.fqdn.trim().toLowerCase().replace(/\.$/, "");
-      if (!HOSTNAME.test(fqdn)) throw invalid("fqdn must be a host name");
+      if (!isHostname(fqdn)) throw invalid("fqdn must be a host name");
       if (body.type !== undefined && !isDnsType(body.type)) {
         throw invalid("type must be A, AAAA or CNAME");
       }

@@ -36,6 +36,7 @@ function resource(over: Partial<ResourceDto>): ResourceDto {
     parentUuid: null,
     engine: null,
     lastDeployAt: null,
+    buildPack: null,
     ...over,
   };
 }

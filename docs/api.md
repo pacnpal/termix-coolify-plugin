@@ -45,6 +45,11 @@ appear in run history.
 | `coolify.deployment-list`          | `GET /plugin-api/coolify/connections/:id/resources/:uuid/deployments`                         | `/operations/coolify.deployment-list/run`          | `operations:read` or `operations:run` | `coolify__deployment_list`          | `curl -X POST "$TERMIX/operations/coolify.deployment-list/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","uuid":"<application uuid>","skip":0,"take":10}}'`                                        |
 | `coolify.deployment-get`           | `GET /plugin-api/coolify/connections/:id/resources/:uuid/deployments/:deploymentUuid`         | `/operations/coolify.deployment-get/run`           | `operations:read` or `operations:run` | `coolify__deployment_get`           | `curl -X POST "$TERMIX/operations/coolify.deployment-get/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","deploymentUuid":"<deployment uuid>","confirm":true}}'`                                    |
 | `coolify.deployment-cancel`        | `POST /plugin-api/coolify/connections/:id/resources/:uuid/deployments/:deploymentUuid/cancel` | `/operations/coolify.deployment-cancel/run`        | `operations:run`                      | `coolify__deployment_cancel`        | `curl -X POST "$TERMIX/operations/coolify.deployment-cancel/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","deploymentUuid":"<deployment uuid>"},"confirmed":true}'`                               |
+| `coolify.preview-list`             | `GET /plugin-api/coolify/connections/:id/resources/:uuid/previews`                            | `/operations/coolify.preview-list/run`             | `operations:read` or `operations:run` | `coolify__preview_list`             | `curl -X POST "$TERMIX/operations/coolify.preview-list/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","uuid":"<application uuid>"}}'`                                                              |
+| `coolify.preview-create`           | `POST /plugin-api/coolify/connections/:id/resources/:uuid/previews`                           | `/operations/coolify.preview-create/run`           | `operations:run`                      | `coolify__preview_create`           | `curl -X POST "$TERMIX/operations/coolify.preview-create/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","uuid":"<application uuid>","pullRequestId":42,"gitType":"github"}}'`                      |
+| `coolify.preview-domains`          | `PATCH /plugin-api/coolify/connections/:id/resources/:uuid/previews/:pullRequestId`           | `/operations/coolify.preview-domains/run`          | `operations:run`                      | `coolify__preview_domains`          | `curl -X POST "$TERMIX/operations/coolify.preview-domains/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","uuid":"<application uuid>","pullRequestId":42,"domains":"https://pr-42.example.com"}}'`  |
+| `coolify.preview-delete`           | `DELETE /plugin-api/coolify/connections/:id/resources/:uuid/previews/:pullRequestId`          | `/operations/coolify.preview-delete/run`           | `operations:run`                      | `coolify__preview_delete`           | `curl -X POST "$TERMIX/operations/coolify.preview-delete/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","uuid":"<application uuid>","pullRequestId":42},"confirmed":true}'`                        |
+| `coolify.preview-logs`             | `GET /plugin-api/coolify/connections/:id/resources/:uuid/previews/:pullRequestId/logs`        | `/operations/coolify.preview-logs/run`             | `operations:read` or `operations:run` | `coolify__preview_logs`             | `curl -X POST "$TERMIX/operations/coolify.preview-logs/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","uuid":"<application uuid>","pullRequestId":42,"confirm":true}}'`                            |
 | `coolify.rollback-images`          | `GET /plugin-api/coolify/connections/:id/resources/:uuid/rollback-images`                     | `/operations/coolify.rollback-images/run`          | `operations:read` or `operations:run` | `coolify__rollback_images`          | `curl -X POST "$TERMIX/operations/coolify.rollback-images/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7,"resourceKey":"<application uuid>","input":{}}'`                                                           |
 | `coolify.rollback`                 | `POST /plugin-api/coolify/connections/:id/resources/:uuid/rollback`                           | `/operations/coolify.rollback/run`                 | `operations:run`                      | `coolify__rollback`                 | `curl -X POST "$TERMIX/operations/coolify.rollback/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7,"resourceKey":"<application uuid>","input":{"image":"<image tag>"},"confirmed":true}'`                            |
 | `coolify.resource-rollback-images` | `GET /plugin-api/coolify/connections/:id/resources/:uuid/rollback-images`                     | `/operations/coolify.resource-rollback-images/run` | `operations:read` or `operations:run` | `coolify__resource_rollback_images` | `curl -X POST "$TERMIX/operations/coolify.resource-rollback-images/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","uuid":"<application uuid>"}}'`                                                  |
@@ -170,6 +175,11 @@ serves.
 | `GET /plugin-api/coolify/connections/:id/resources/:uuid/deployments`                         | `coolify.deployment-list`                                                                                                                                            |
 | `GET /plugin-api/coolify/connections/:id/resources/:uuid/deployments/:deploymentUuid`         | `coolify.deployment-get`                                                                                                                                             |
 | `POST /plugin-api/coolify/connections/:id/resources/:uuid/deployments/:deploymentUuid/cancel` | `coolify.deployment-cancel`                                                                                                                                          |
+| `GET /plugin-api/coolify/connections/:id/resources/:uuid/previews`                            | `coolify.preview-list`                                                                                                                                               |
+| `POST /plugin-api/coolify/connections/:id/resources/:uuid/previews`                           | `coolify.preview-create`                                                                                                                                             |
+| `PATCH /plugin-api/coolify/connections/:id/resources/:uuid/previews/:pullRequestId`           | `coolify.preview-domains`                                                                                                                                            |
+| `DELETE /plugin-api/coolify/connections/:id/resources/:uuid/previews/:pullRequestId`          | `coolify.preview-delete`                                                                                                                                             |
+| `GET /plugin-api/coolify/connections/:id/resources/:uuid/previews/:pullRequestId/logs`        | `coolify.preview-logs`                                                                                                                                               |
 | `GET /plugin-api/coolify/connections/:id/resources/:uuid/rollback-images`                     | `coolify.resource-rollback-images`; `coolify.rollback-images` on a Linked host                                                                                       |
 | `POST /plugin-api/coolify/connections/:id/resources/:uuid/rollback`                           | `coolify.resource-rollback`; `coolify.rollback` on a Linked host                                                                                                     |
 | `GET /plugin-api/coolify/connections/:id/deployments`                                         | `coolify.deployment-queue`                                                                                                                                           |
@@ -469,6 +479,91 @@ and when an image runs now and is listed, the run records it as `undoInput` (`{ 
 same checks as any rollback, including that the image is still listed. A deploy of a service, a database or
 a Part, or of an application with nothing running, or one whose list can't be read, records no undo; the
 deploy itself goes ahead either way.
+
+## Pull request previews
+
+An application's pull request previews: list, deploy, change domains, delete and container logs. Services
+and databases have no previews, so a uuid that isn't one of the connection's own applications is 404 and
+Coolify isn't asked. Coolify documents its preview API from 4.7.5 (the oldest spec the plugin vendors); an
+older instance that answers 404 gets 409 `unsupported-by-instance` ("This Coolify instance does not have
+this feature; update Coolify"), and the Previews tab says so.
+
+### `GET /plugin-api/coolify/connections/{id}/resources/{uuid}/previews`
+
+The application's previews. Needs **View Coolify** and any access to the connection. It answers `{ rows }`,
+each `{ pullRequestId, uuid, pullRequestUrl, gitType, status, domains, composeDomains, dockerTag,
+lastOnlineAt, createdAt, updatedAt, deploymentUuid, deploymentStatus, portOverrides }`. `domains` are the
+public, portless ones; `portOverrides` maps each portless domain URL to Coolify's internal port for it. A
+save replaces Coolify's overrides with the ports it sends, so an editor puts them back first (the Previews
+tab does). `deploymentUuid` and
+`deploymentStatus` are the newest build of that pull request among the application's latest 50
+deployments, or null; its build log opens with the deployment routes above.
+
+### `POST /plugin-api/coolify/connections/{id}/resources/{uuid}/previews`
+
+Deploys the preview of a pull request: Coolify opens it, or redeploys it when it exists, and queues its
+deployment. Needs **Operate Coolify resources** and the owner or an operate grant, and runs
+`coolify.preview-create` confirmed (the Previews tab asks first). Body: `pullRequestId` (1 to 2147483647) and optionally `pullRequestUrl` (http or https), `gitType` (`github`, `gitlab`, `gitea` or
+`bitbucket`; Coolify needs it unless the application uses a GitHub or GitLab App source), `commit` (a
+SHA of 7 to 40 hex characters; a new Bitbucket preview needs it), `dockerTag` (a Docker image
+tag; a new preview of a Docker image application needs it) and `force` (rebuild
+without cache). A bad value is 400 `invalid-input` before Coolify is asked. A new preview (a pull request
+the application has no preview for yet) of a Bitbucket pull request without `commit`, or of a Docker image
+application without `dockerTag`, is 400 `invalid-input` too, before anything is created; a redeploy needs
+neither. It answers
+`{ pullRequestId, deploymentUuid }`, or 202 `{ "status": "pending", "runId" }` while an approval waits.
+Coolify needs a token with `write` and `deploy` to open a preview.
+
+### `PATCH /plugin-api/coolify/connections/{id}/resources/{uuid}/previews/{pullRequestId}`
+
+Replaces a preview's domains. Needs **Operate Coolify resources** and an operate grant, and runs
+`coolify.preview-domains` confirmed (the Previews tab asks first). Send `domains` for an ordinary
+application, or `composeDomains` (`[{ name, domain }]`, an empty domain clearing that service's) for a
+Docker Compose one. Each list is checked before Coolify is asked, by the same rules in the tab and the
+backend: comma separated `http://` or `https://` URLs with a DNS host name (no IP address or single
+label), an optional port and path, no user name or password, query or fragment, no repeats, at most 20.
+Hosts are lowercased and a trailing slash dropped. A port you give is kept as written, `:80` and `:443`
+included: Coolify keeps a preview's ports as internal routing overrides, so dropping one would change what it
+does. `pullRequestUrl` is also sent as given. A list that fails is 400 `invalid-input` saying what is
+wrong. It answers `{ pullRequestId, domains }` or `{ pullRequestId, composeDomains }`.
+
+### `DELETE /plugin-api/coolify/connections/{id}/resources/{uuid}/previews/{pullRequestId}`
+
+Deletes a preview: Coolify cancels its deployments, stops its containers and removes its volumes and
+networks. Needs **Operate Coolify resources** and an operate grant, and runs `coolify.preview-delete`
+(destructive) confirmed; the Previews tab asks first. It answers `{ pullRequestId }`, or 202 while an
+approval waits. Coolify needs a token with `write` and `deploy`.
+
+### `GET /plugin-api/coolify/connections/{id}/resources/{uuid}/previews/{pullRequestId}/logs?lines=&timestamps=`
+
+The preview's container logs through Coolify (`lines` 1 to 10,000, default 100). Needs **Operate Coolify
+resources** and an operate grant, and a token with `read:sensitive`. It answers `{ pullRequestId, text }`.
+The text is redacted as one stream before it leaves the plugin, so a private key whose lines are split
+still has its body masked, as are the connection's own token and Access secret, passwords in URLs,
+credential query parameters, secret-named fields and `Authorization` credentials.
+
+Every preview call reads the connection once. After every step, and right before each request to Coolify,
+it checks that the connection still points at the same target and that your grant still reaches the level
+the call needs; otherwise it ends with `target-changed` (409) or `forbidden` (403) and Coolify isn't
+asked. Changes also stop before Coolify is asked once their run is cancelled.
+
+### Actions `coolify.preview-list`, `coolify.preview-create`, `coolify.preview-domains`, `coolify.preview-delete` and `coolify.preview-logs`
+
+`coolify.preview-list` is a read offered to the assistant and MCP: `connectionId` and `uuid` (the
+application); its data is the route's answer plus `options` for pickers.
+
+`coolify.preview-create` and `coolify.preview-domains` are changes with the route's inputs plus
+`connectionId`, `uuid` and `pullRequestId` (`composeDomains` as JSON). Over MCP each needs **Allow
+changes over MCP** and `confirmed: true`, or it is refused before core is asked.
+
+`coolify.preview-delete` is destructive, so Termix confirms it first (`confirmed: true` over the API and
+MCP), and over MCP it also needs **Allow changes over MCP**.
+
+`coolify.preview-logs` is a read offered to the assistant and MCP, and needs **Operate Coolify resources**.
+Inputs: `connectionId`, `uuid`, `pullRequestId`, `confirm` (must be `true`: logs can hold secrets),
+and optionally `lines` and `timestamps`. Its data is `{ pullRequestId, lineCount, text, handoffId }`;
+`text` is the redacted log and a sensitive output, so run history never keeps it. Over MCP,
+`coolify__preview_logs` answers it once to the caller.
 
 ## Metrics and traffic
 

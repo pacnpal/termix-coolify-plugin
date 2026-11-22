@@ -358,6 +358,8 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
 
   return {
     holds,
+    open,
+    application,
 
     /**
      * The checks a call makes before anything else, for a route that hands

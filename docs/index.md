@@ -328,6 +328,38 @@ do the same from Operations Center, Automations, the CLI, the Termix API and MCP
 them, and the confirm names the tag. A rollback is also the **undo** of a deploy: deploying an application
 records the image it ran before, and undoing the run in Operations Center rolls back to it.
 
+## Pull request previews
+
+An application's **Previews** view lists its pull request previews: each one's status, domains, pull
+request link and newest build. Services and databases have no Previews view. Anyone who can view the
+connection sees the list; everything else needs **Operate Coolify resources** and a connection you own or a
+Grant at operate or configure.
+
+- **Deploy a preview** opens the preview of a pull request number, or redeploys it, after a confirm, and
+  shows its build log. The Git provider is needed unless the application uses a GitHub or GitLab App
+  source. A new Bitbucket preview also needs the commit to deploy, and a new preview of a Docker image
+  application its image tag; both are checked before anything is sent, and a redeploy needs neither. Coolify needs a token with `write`
+  and `deploy`.
+- **Domains** replaces a preview's domains after a confirm. The list is checked before it is sent: comma
+  separated `http://` or `https://` URLs with a DNS host name, an optional port and path, and no user name,
+  password, query or repeats. A port you give is kept, `:80` and `:443` included, since Coolify uses it
+  for routing, and the editor starts from the preview's domains with Coolify's ports put back, so
+  saving unchanged keeps them. A bad list says what is wrong, next to the field, and sends nothing. A Docker Compose preview has one field per
+  service Coolify lists, an empty one clearing that service's domains; while Coolify lists none, the
+  preview's domains can't be edited here.
+- **Delete** removes a preview (its containers, volumes and networks) after a destructive confirm.
+- **Build log** opens the preview's newest build in the same live view as Deployments; **Logs** shows its
+  container logs, masked as container logs are, with private keys masked across lines.
+- Moving to another application starts empty: a preview of the one you left is never shown, and a confirm
+  answered after you moved on, or closed the view, sends nothing.
+- Coolify documents its preview API from 4.7.5. An older Coolify that lacks it gets a message to update
+  Coolify instead of an error.
+
+The actions `coolify.preview-list`, `coolify.preview-create`, `coolify.preview-domains`,
+`coolify.preview-delete` and `coolify.preview-logs` (with `confirm: true`) do the same from Operations
+Center, Automations, the CLI, the Termix API and MCP. Over MCP, deploying a preview and changing its domains
+need `confirmed: true`. See [the API](api.md).
+
 ## Metrics and traffic
 
 Coolify keeps no metric history itself: Sentinel, its agent on each server, does. The plugin reads it the way
