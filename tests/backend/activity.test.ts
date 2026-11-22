@@ -205,45 +205,31 @@ describe("recent activity: deploys", () => {
     expect(h.mock.activities).toEqual([]);
   });
 
-  it("records once Coolify accepts a waited deploy, even if it then fails", async () => {
-    const { harness: h } = await deploys({
-      overrides: {
-        "GET /deployments/dep-uuid": {
-          json: { deployment_uuid: "dep-uuid", status: "failed" },
+  it.each([
+    ["fails", "failed", "deployment-failed"],
+    ["is skipped by Coolify", "skipped", "skipped"],
+  ])(
+    "records once Coolify accepts a waited deploy, even if it then %s",
+    async (_what, status, code) => {
+      const { harness: h } = await deploys({
+        overrides: {
+          "GET /deployments/dep-uuid": {
+            json: { deployment_uuid: "dep-uuid", status },
+          },
         },
-      },
-    });
-    await expect(
-      h.mock.ctx.operations.run("coolify.deploy", {
-        hostId: HOST_ID,
-        resourceKey: "app-web-uuid",
-        input: { wait: true },
-      }),
-    ).rejects.toMatchObject({ code: "deployment-failed" });
-    expect(h.mock.activities).toEqual([
-      { hostId: HOST_ID, type: "coolify_deploy", hostName: "Deployed web" },
-    ]);
-  });
-
-  it("records once Coolify accepts a waited deploy, even if Coolify then skips it", async () => {
-    const { harness: h } = await deploys({
-      overrides: {
-        "GET /deployments/dep-uuid": {
-          json: { deployment_uuid: "dep-uuid", status: "skipped" },
-        },
-      },
-    });
-    await expect(
-      h.mock.ctx.operations.run("coolify.deploy", {
-        hostId: HOST_ID,
-        resourceKey: "app-web-uuid",
-        input: { wait: true },
-      }),
-    ).rejects.toMatchObject({ code: "skipped" });
-    expect(h.mock.activities).toEqual([
-      { hostId: HOST_ID, type: "coolify_deploy", hostName: "Deployed web" },
-    ]);
-  });
+      });
+      await expect(
+        h.mock.ctx.operations.run("coolify.deploy", {
+          hostId: HOST_ID,
+          resourceKey: "app-web-uuid",
+          input: { wait: true },
+        }),
+      ).rejects.toMatchObject({ code });
+      expect(h.mock.activities).toEqual([
+        { hostId: HOST_ID, type: "coolify_deploy", hostName: "Deployed web" },
+      ]);
+    },
+  );
 
   it("records nothing for a resource whose server has no Linked host", async () => {
     const { harness: h, fake, id } = await deploys({ linked: false });
