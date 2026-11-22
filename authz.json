@@ -42,6 +42,11 @@
         "token": "authz-fake-token"
       }
     },
+    "GET /plugin-api/coolify/attention": {
+      "access": "user",
+      "permission": "coolify.view",
+      "filtered": true
+    },
     "GET /plugin-api/coolify/connections/:id": {
       "access": "user",
       "permission": "coolify.view",

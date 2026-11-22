@@ -15,7 +15,12 @@ import {
 } from "../../../src/frontend/views/useAttention";
 import locales from "../../../locales/en.json";
 import { renderApp } from "../helpers";
-import { stubApi } from "../fixtures";
+import {
+  attentionConnection,
+  degradedApi,
+  queueRow,
+  stubApi,
+} from "../fixtures";
 
 const P = locales.activityPanel;
 
@@ -28,54 +33,16 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-function deployment(uuid: string, status: string, app: string) {
-  return {
-    uuid,
-    resourceUuid: `app-${app}-uuid`,
-    resourceName: app,
-    status,
-    commit: "abc1234",
-    commitMessage: `Commit of ${uuid}`,
-    pullRequestId: 0,
-    rollback: false,
-    serverName: "vps1",
-    createdAt: "2026-11-22T10:00:00.000Z",
-    updatedAt: null,
-    finishedAt: null,
-  };
-}
-
-function conn(id: number, name: string, extra: Record<string, unknown> = {}) {
-  return {
-    id,
-    name,
-    access: "owner",
-    scoped: false,
-    running: [],
-    failed: [],
-    degraded: [],
-    unreachable: [],
-    error: null,
-    ...extra,
-  };
-}
+const deployment = (uuid: string, status: string, app: string) =>
+  queueRow(uuid, status, { uuid: `app-${app}-uuid`, name: app });
+const conn = attentionConnection;
 
 /** Two connections: Prod with one of each item, Staging with a failure. */
 const ANSWER = {
   connections: [
     conn(1, "Prod", {
       running: [deployment("dep-run", "in_progress", "web")],
-      degraded: [
-        {
-          uuid: "app-api-uuid",
-          name: "api",
-          kind: "application",
-          status: "running:unhealthy",
-          serverName: "edge",
-          projectName: "Shop",
-          environmentName: "production",
-        },
-      ],
+      degraded: [degradedApi],
       unreachable: [{ uuid: "srv-edge-uuid", name: "edge" }],
     }),
     conn(2, "Staging", {

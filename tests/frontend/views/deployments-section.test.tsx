@@ -18,7 +18,7 @@ import { CoolifyTab } from "../../../src/frontend/views/CoolifyTab";
 import { QUEUE_POLL_MS } from "../../../src/frontend/views/useDeploymentQueue";
 import manifestJson from "../../../manifest.json";
 import locales from "../../../locales/en.json";
-import { connection, stubApi } from "../fixtures";
+import { connection, queueRow, stubApi } from "../fixtures";
 
 const real = manifestJson as unknown as PluginManifest;
 /** The plugin's manifest plus a test tab that holds CoolifyTab. */
@@ -50,27 +50,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-function row(
-  uuid: string,
-  status: string,
-  app: { uuid: string; name: string },
-  minute = 0,
-) {
-  return {
-    uuid,
-    resourceUuid: app.uuid,
-    resourceName: app.name,
-    status,
-    commit: "abc1234",
-    commitMessage: `Commit of ${uuid}`,
-    pullRequestId: 0,
-    rollback: false,
-    serverName: "vps1",
-    createdAt: `2026-11-19T10:${String(minute).padStart(2, "0")}:00.000Z`,
-    updatedAt: null,
-    finishedAt: null,
-  };
-}
+const row = queueRow;
 
 const WEB = { uuid: "app-web-uuid", name: "web" };
 const API = { uuid: "app-api-uuid", name: "api" };

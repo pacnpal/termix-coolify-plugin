@@ -640,3 +640,16 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   Deployments. Deploy by tag finds the tag's targets itself (`/applications?tag=` and each service's tags)
   and deploys them by uuid: Coolify's own `tag` parameter refuses `pr` and `docker_tag`, and deploying by
   uuid deploys exactly what the confirm listed (`targets`, checked again before Coolify is asked).
+- Activity panel and rail badge (1.1): `src/backend/attention/` and `src/backend/ops/attention.ts`
+  (`GET /attention`, `coolify.attention`) put together, for every connection the actor can view, the
+  queue's running rows, recent failures (`recentFailures`: the application's latest ended deployment per
+  pull request, failed, ended within 24 hours), degraded resources (no Parts) and unreachable servers. It
+  makes no Coolify request of its own: it reads `deployments.queue`, `resources.list` and `servers.list`,
+  whose caches the tab shares, so the panel, the badge and the tab cost one read per connection. A part
+  that fails sets the connection's `error` and keeps the others; a connection whose access went away by
+  the end is dropped. Frontend: `views/useAttention.ts` (one hook; `railBadge` is the `coolify` rail item's
+  `useBadge`, run in the background frame, checking `app.hasPermission("view")` before any read and
+  polling every 60 s) and `views/ActivityPanel.tsx` (panel `coolify-activity` with its own rail item,
+  polling every 15 s while `active`). Panel rows open the tab with data the tab reads in `requestOf`:
+  `uuid` on Resources opens that resource's detail, `resourceUuid` + `deploymentUuid` on Deployments
+  opens the build log, but only with operate (`shownDeployment` in CoolifyTab).

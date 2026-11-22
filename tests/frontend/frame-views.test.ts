@@ -3,37 +3,19 @@ import { checkFrameViews } from "@termix-ssh/plugin-sdk/testing";
 import * as plugin from "../../src/frontend/index";
 import manifest from "../../manifest.json";
 import locales from "../../locales/en.json";
-import { resourceAnswer, resourceRows } from "./fixtures";
+import {
+  attentionConnection,
+  degradedApi,
+  resourceAnswer,
+  resourceRows,
+} from "./fixtures";
 import { connectionFixture } from "./helpers";
 
 const connection = connectionFixture({ teamName: "Ops" });
 
 // What the sidebar panel reads: one connection with a degraded resource.
 const attention = {
-  connections: [
-    {
-      id: 1,
-      name: "Prod",
-      access: "owner",
-      scoped: false,
-      running: [],
-      failed: [],
-      degraded: [
-        {
-          uuid: "app-api-uuid",
-          name: "api",
-          kind: "application",
-          status: "running:unhealthy",
-          serverName: "edge",
-          projectName: "Shop",
-          environmentName: "production",
-        },
-      ],
-      unreachable: [],
-      error: null,
-    },
-  ],
-  counts: { running: 0, failed: 0, degraded: 1, unreachable: 0 },
+  connections: [attentionConnection(1, "Prod", { degraded: [degradedApi] })],
   badge: 0,
   fetchedAt: "2026-11-22T10:00:00.000Z",
 };

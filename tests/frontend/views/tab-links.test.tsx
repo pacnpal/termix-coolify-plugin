@@ -8,7 +8,7 @@ import type { PluginManifest } from "@termix-ssh/plugin-sdk/manifest";
 import * as plugin from "../../../src/frontend/index";
 import manifestJson from "../../../manifest.json";
 import locales from "../../../locales/en.json";
-import { stubApi } from "../fixtures";
+import { queueRow, stubApi } from "../fixtures";
 
 const manifest = manifestJson as unknown as PluginManifest;
 const OPERATE = ["coolify.view", "coolify.operate"];
@@ -33,19 +33,10 @@ function linkApi() {
     if (url === DETAIL) {
       return {
         data: {
-          deployment: {
-            uuid: "dep-failed",
-            resourceUuid: "app-api-uuid",
-            status: "failed",
-            commit: null,
-            commitMessage: null,
-            pullRequestId: 0,
-            rollback: false,
-            serverName: null,
-            createdAt: "2026-11-22T10:00:00.000Z",
-            updatedAt: null,
-            finishedAt: null,
-          },
+          deployment: queueRow("dep-failed", "failed", {
+            uuid: "app-api-uuid",
+            name: "api",
+          }),
           log: { lines: [], truncated: false },
           final: true,
           cancellable: false,

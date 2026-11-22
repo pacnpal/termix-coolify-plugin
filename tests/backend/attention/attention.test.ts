@@ -194,7 +194,10 @@ describe("the attention read behind the sidebar panel and the rail badge", () =>
     ]);
     expect(mine.degraded[0]).toMatchObject({ kind: "application" });
     expect(uuids(mine.unreachable)).toEqual(["srv-edge-uuid"]);
-    expect(mine.unreachable[0]).toEqual({ uuid: "srv-edge-uuid", name: "edge" });
+    expect(mine.unreachable[0]).toEqual({
+      uuid: "srv-edge-uuid",
+      name: "edge",
+    });
     expect(answer.body.counts).toMatchObject({ degraded: 2, unreachable: 1 });
     // Degraded resources and servers are attention items, not badge counts.
     expect(answer.body.badge).toBe(3);
@@ -264,10 +267,9 @@ describe("the attention read behind the sidebar panel and the rail badge", () =>
       surfaces: { assistant: true, mcp: true },
     });
     const { harness } = await start();
-    const outcome = await harness.mock.ctx.operations.run(
-      "coolify.attention",
-      { input: {} },
-    );
+    const outcome = await harness.mock.ctx.operations.run("coolify.attention", {
+      input: {},
+    });
     expect(outcome.summary).toBe(
       "2 deployments in progress, 1 recent failure, 2 degraded resources, 1 unreachable server",
     );
