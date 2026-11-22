@@ -1356,5 +1356,26 @@
       "tooManyTunnels": "You already have 5 forwards open. Stop one first.",
       "tunnelInUse": "Someone else is forwarding this resource right now."
     }
+  },
+  "terminalCompanion": {
+    "title": "Coolify",
+    "loading": "Loading this server's resources",
+    "empty": "No resources run on this server.",
+    "loadFailed": "This server's resources could not be loaded.",
+    "shell": "Open a shell in {{name}}",
+    "logs": "Logs of {{name}}",
+    "restart": "Restart {{name}}",
+    "deploy": "Deploy {{name}}",
+    "back": "Back to resources",
+    "restartConfirm": {
+      "title": "Restart {{name}}?",
+      "description": "Coolify restarts its containers, which interrupts it for a moment.",
+      "confirm": "Restart"
+    },
+    "deployConfirm": {
+      "title": "Deploy {{name}}?",
+      "description": "Coolify builds and starts a new deployment of it.",
+      "confirm": "Deploy"
+    }
   }
 }

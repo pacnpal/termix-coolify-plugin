@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.0
+
+### Added
+
+- A Coolify panel beside terminals on Linked hosts: the resources on that host's Coolify server, each with
+  **Shell** (a new Coolify shell tab), **Logs**, **Restart** and **Deploy**. Restart and Deploy ask first.
+  The actions need **Operate Coolify resources** and the connection's owner or an operate or configure
+  grant. Other hosts get no panel and no request to Coolify
+
 ## 1.0.0
 
 ### Added
