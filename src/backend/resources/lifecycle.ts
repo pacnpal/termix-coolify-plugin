@@ -1,4 +1,9 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
+import {
+  isFinalDeployment,
+  isSkippedDeployment,
+  isSuccessfulDeployment,
+} from "../../shared/deployment-status.js";
 import type { DeployActivity } from "../activity.js";
 import type { CoolifyApi } from "../coolify/api.js";
 import type { ResourceDto } from "../coolify/dto.js";
@@ -81,21 +86,27 @@ const OPERATE_LEVELS: ReadonlySet<AccessLevel> = new Set([
 
 const UUID = /^[A-Za-z0-9_-]{1,64}$/;
 
-/** Deployment statuses that end a wait. */
-const FINISHED = new Set(["finished", "success"]);
-const FAILED = new Set(["failed", "error", "cancelled", "cancelled-by-user"]);
-
 const POLL_MS = 5_000;
 const MAX_WAIT_MS = 30 * 60_000;
 
-/** A deploy that was waited on and did not finish: a failed run. */
+/**
+ * A deploy that was waited on and ended without a successful build: a failed
+ * run. A deployment Coolify skipped has its own cause, `skipped`, and says so
+ * in words; failed and cancelled ones are `deployment-failed`.
+ */
 export class DeploymentFailedError extends Error {
-  readonly code = "deployment-failed";
+  readonly code: "deployment-failed" | "skipped";
   readonly status: string;
 
   constructor(name: string, status: string) {
-    super(`The deployment of ${name} ended as ${status}`);
+    const skipped = isSkippedDeployment(status);
+    super(
+      skipped
+        ? `Coolify skipped the deployment of ${name}, so no new build ran`
+        : `The deployment of ${name} ended as ${status}`,
+    );
     this.name = "DeploymentFailedError";
+    this.code = skipped ? "skipped" : "deployment-failed";
     this.status = status;
   }
 }
@@ -192,7 +203,7 @@ export function createLifecycle(ctx: PluginContext, deps: LifecycleDeps) {
     for (;;) {
       signal?.throwIfAborted();
       const { status } = await api.deployment(deploymentUuid);
-      if (FINISHED.has(status) || FAILED.has(status)) return status;
+      if (isFinalDeployment(status)) return status;
       if (Date.now() - started >= maxWaitMs) return status;
       await sleep(pollMs, signal);
     }
@@ -233,8 +244,10 @@ export function createLifecycle(ctx: PluginContext, deps: LifecycleDeps) {
 
     /**
      * Runs one action on an authorized resource. A deploy with `wait`
-     * follows the deployment until it ends and emits deployment-finished or
-     * deployment-failed (then throws DeploymentFailedError). The cached
+     * follows the deployment until it reaches any final status
+     * (shared/deployment-status.ts) and emits deployment-finished for a
+     * successful build, or deployment-failed and then throws
+     * DeploymentFailedError (cause `skipped` when Coolify skipped it). The cached
      * resource list, and any fetch still running for it, is dropped once
      * Coolify was asked, even when it refused (a timeout may still have
      * changed something), and again when a waited deploy ends, so the next
@@ -285,8 +298,11 @@ export function createLifecycle(ctx: PluginContext, deps: LifecycleDeps) {
       } finally {
         await resources.invalidate(connectionId);
       }
-      const failed = FAILED.has(status);
-      if (failed || FINISHED.has(status)) {
+      // Every final status emits one event: finished for a successful
+      // build, failed for the rest (failed, cancelled, skipped).
+      const final = isFinalDeployment(status);
+      const failed = final && !isSuccessfulDeployment(status);
+      if (final) {
         await ctx.operations.emit(
           failed ? "coolify.deployment-failed" : "coolify.deployment-finished",
           {

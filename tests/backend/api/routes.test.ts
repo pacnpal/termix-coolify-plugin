@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { healthyCoolify, type FakeAnswer } from "../helpers/fake-coolify.js";
+import { expectKeyTailMasked, KEY_TAIL } from "../helpers/key-tail.js";
 import { OTHER, startPlugin, type PluginHarness } from "../helpers/plugin.js";
 
 const TOKEN = "fake-token-api-console";
@@ -285,6 +286,21 @@ describe("API console routes", () => {
     );
     expect(answer.status).toBe(403);
     expect(fake.calls).toEqual([]);
+  });
+
+  it("a confirmed logs call masks a snapshot that starts inside a private key", async () => {
+    const { h, id, fake } = await start();
+    fake.set("GET /applications/app-web-uuid/logs", {
+      json: { logs: KEY_TAIL.text },
+    });
+    const answer = await h.request("POST", `/connections/${id}/api/call`, {
+      operationId: "get-application-logs-by-uuid",
+      params: { uuid: "app-web-uuid" },
+      confirmed: true,
+    });
+    expect(answer.status).toBe(200);
+    expectKeyTailMasked(answer.body.data.logs);
+    expect(answer.body.masked).toContainEqual(["logs"]);
   });
 
   it("reveal needs a token that reads secrets", async () => {

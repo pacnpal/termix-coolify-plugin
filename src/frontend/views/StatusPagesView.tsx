@@ -16,7 +16,6 @@ import {
   TextField,
   cn,
   copyToClipboard,
-  useConfirm,
 } from "@termix-ssh/plugin-sdk/ui";
 import type {
   Api,
@@ -25,6 +24,7 @@ import type {
   StatusPage,
   StatusPageLink,
 } from "../api";
+import { useConfirmFor } from "../confirm";
 import { describeFailure } from "./ConnectionForm";
 
 /** The link right after create or rotate. It lives only in this state, once. */
@@ -173,7 +173,9 @@ export function StatusPagesView({
   onClose: () => void;
 }) {
   const { t } = useTranslation();
-  const confirm = useConfirm();
+  // Rotate and revoke act on this connection's pages: a confirm answered after
+  // the view moved to another connection or target, or closed, runs nothing.
+  const { confirm } = useConfirmFor(`${connection.id}\n${connection.revision}`);
   const [pages, setPages] = useState<StatusPage[] | null>(null);
   const [allowed, setAllowed] = useState(true);
   const [resources, setResources] = useState<Resource[] | null>(null);

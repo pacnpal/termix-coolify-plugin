@@ -4,6 +4,7 @@ import type {
 } from "@termix-ssh/plugin-sdk/backend";
 import en from "../../../locales/en.json";
 import { IMAGE_TAG } from "../coolify/dto.js";
+import { fill } from "../../shared/template.js";
 import { ConnectionError } from "../connections/service.js";
 import type {
   Deployments,
@@ -28,9 +29,7 @@ function imageInput(input: Record<string, unknown>): string {
 
 /** "Would roll back <name> to image <tag>", from locales. */
 export function describeRollback(name: string, image: string): string {
-  return en.ops.rollback.dryRun
-    .replace("{{name}}", name)
-    .replace("{{image}}", image);
+  return fill(en.ops.rollback.dryRun, { name, image });
 }
 
 function imagesResult(answer: RollbackImages) {

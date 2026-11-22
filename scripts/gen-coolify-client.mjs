@@ -7,6 +7,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import * as prettier from "prettier";
+// The order `sort()` gives strings with no compare function: by UTF-16 code unit.
+import { byCodeUnit } from "./registry-lib.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const vendorDir = `${root}vendor/coolify/`;
@@ -46,13 +48,6 @@ function compareVersions(a, b) {
   for (let i = 0; i < 3; i++) {
     if (pa[i] !== pb[i]) return pa[i] - pb[i];
   }
-  return 0;
-}
-
-/** The order `sort()` gives strings with no compare function: by UTF-16 code unit. */
-function byCodeUnit(a, b) {
-  if (a < b) return -1;
-  if (a > b) return 1;
   return 0;
 }
 

@@ -1,13 +1,9 @@
 import { useState } from "react";
 import { Gauge } from "lucide-react";
 import { useTranslation } from "@termix-ssh/plugin-sdk/frontend";
-import {
-  Button,
-  LineChart,
-  NoticePanel,
-  useConfirm,
-} from "@termix-ssh/plugin-sdk/ui";
+import { Button, LineChart, NoticePanel } from "@termix-ssh/plugin-sdk/ui";
 import { failureOf, type Api, type MetricPoint } from "../api";
+import { useConfirmFor } from "../confirm";
 import { describeFailure } from "./ConnectionForm";
 
 type T = ReturnType<typeof useTranslation>["t"];
@@ -126,7 +122,9 @@ export function MetricsOff({
   onEnabled: () => void;
 }) {
   const { t } = useTranslation();
-  const confirm = useConfirm();
+  // Enabling acts on this server: a confirm answered after the view moved to
+  // another connection or server, or closed, turns nothing on.
+  const { confirm } = useConfirmFor(`${connectionId}\n${serverUuid ?? ""}`);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
