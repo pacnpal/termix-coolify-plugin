@@ -47,7 +47,8 @@ _Avoid_: Service application, service database, sub-resource
 
 **Event**:
 One thing that happened in Coolify (a deployment ended, a server became unreachable, a backup failed), kept
-and sent once by the event pipeline, however many times polling or the webhook saw it.
+and sent once per dedupe key by the event pipeline: once per deployment, and otherwise once per kind,
+subject and minute, so sightings in different minutes can be separate events.
 _Avoid_: Alert (an alert is a notification about an event), notification
 
 **Event log**:

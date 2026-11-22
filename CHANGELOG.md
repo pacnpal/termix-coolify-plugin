@@ -13,8 +13,9 @@
 - New operations events for Automations: `coolify.restart-limit`, `coolify.backup-succeeded`,
   `coolify.backup-failed`, `coolify.task-succeeded`, `coolify.task-failed`, `coolify.high-disk`,
   `coolify.certificate-problem` and `coolify.token-expiring`, next to the deployment, restart and
-  unreachable server events. Each event is sent once, even when Coolify reports it more than once, and
-  carries the host only when its server is Linked. Events hold no secrets, tokens, credentials inside
+  unreachable server events. Each event is sent once per dedupe key: once per deployment, and otherwise
+  once per kind, resource (or server) and minute, so the same thing seen in different minutes can be
+  separate events. It carries the host only when its server is Linked. Events hold no secrets, tokens, credentials inside
   URLs or log text. Polling and the Coolify webhook start sending them in a later 1.2 update
 
 ### Changed

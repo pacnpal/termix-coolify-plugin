@@ -1,10 +1,18 @@
 import type { Router } from "express";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { idParam, safe } from "../connections/routes.js";
+import { ConnectionError } from "../connections/service.js";
 import type { Events } from "./service.js";
 
-function query(value: unknown): unknown {
-  return typeof value === "string" ? value : undefined;
+/**
+ * A query parameter: absent is undefined, one value is its text, and
+ * anything else (a repeated key, `name[x]=`) is refused, so it can never
+ * read as "no filter" or "the newest page".
+ */
+function query(value: unknown, name: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "string") return value;
+  throw new ConnectionError("invalid-input", `${name} must be given once`);
 }
 
 /** The event log, a page at a time (coolify.events-list). */
@@ -64,7 +72,7 @@ export function registerEventRoutes(
    *           severity, title, resourceUuid, serverUuid, deploymentUuid,
    *           hostId, name, status, source, fields and createdAt
    *       400:
-   *         description: A malformed limit, before, kind or uuid
+   *         description: A malformed limit, before, kind or uuid, or one given more than once
    *       403:
    *         description: Missing coolify.view
    *       404:
@@ -77,10 +85,10 @@ export function registerEventRoutes(
       const id = idParam(req);
       res.json(
         await events.list(id, {
-          limit: query(req.query.limit),
-          before: query(req.query.before),
-          kind: query(req.query.kind),
-          uuid: query(req.query.uuid),
+          limit: query(req.query.limit, "limit"),
+          before: query(req.query.before, "before"),
+          kind: query(req.query.kind, "kind"),
+          uuid: query(req.query.uuid, "uuid"),
         }),
       );
     }),

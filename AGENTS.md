@@ -639,8 +639,13 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   database or the emit fails, and then keeps nothing that makes a retry a duplicate. A row is inserted
   with a pending key (`pending|<nonce>|<key>`, which neither the dedupe lookup nor the log read matches
   and the nonce keeps off the unique index) and gets its real `dedupeKey` (`store.commit`) only after the
-  emit. Every step after the insert (read-back, the second connection check, prune, persist, emit, commit,
-  persist) shares one catch that deletes by `(connectionId, [pendingKey, dedupeKey])` and rethrows. If
+  emit. Step order: sweep, connection check, owner view, clean, dedupe lookup, insert pending, read-back,
+  prune, persist, then the last check (`current()` and `linkedHostFor` in one `Promise.all`), then the emit
+  with no await between, commit, persist. A failed last check deletes the pending row and answers
+  `dropped` with its reason. `store.commit` answers how many rows it updated (read back by the new key, as
+  no dialect reports affected rows alike); 0 means a removal (under the connections lock, not this queue)
+  deleted the row after the emit, and the answer is `dropped`/`connection-gone`, not `stored`, though the
+  event went out. Every step after the insert shares one catch that deletes by `(connectionId, [pendingKey, dedupeKey])` and rethrows. If
   that delete fails too, the pending row stays, unlisted and ignored, and the next ingest for the
   connection sweeps it (`store.sweep`): fail closed, a retry may send again but is never suppressed. The
   table steps are `createEventStore` (deps.store), so tests make each fail once. Kinds live in `EVENT_KINDS` (kinds.ts) with their subject (`resource`, `server`,
@@ -655,14 +660,16 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   connection run one at a time in memory (single process, like `withLock`), so read, insert and prune
   never interleave. Pruning keeps the newest `EVENT_LOG_LIMIT` (1000) per connection by id, never createdAt (ids
   only grow, so the row just written is never pruned; `prune` also excludes its id). Removing a
-  connection deletes its events in `removeNow`'s batch; an ingest re-checks the connection's revision
-  after its insert and deletes the row when the connection went or was repointed meanwhile. hostId is
-  `sync.linkedHostFor(connectionId, serverUuid)`, so a resource event needs its server's uuid from the
+  connection deletes its events in `removeNow`'s batch; hostId is
+  `sync.linkedHostFor(connectionId, serverUuid)` read in the last check (an unlink or host.deleted doesn't
+  change the revision) and written at commit, so a resource event needs its server's uuid from the
   source. Redaction: uuids must match `^[A-Za-z0-9_-]{1,128}$` (else `invalid`); `name` and `status` go
   through `redactLog` with the connection's own secrets, then keep their first line, capped (255, 64);
-  `fields` keeps at most 20 top-level scalars with plain names, drops log-shaped names (`logs`, `output`,
-  `stdout`, `stderr`, `*_log`...) and nested values, runs `redact()` (secret keys) and then each string
+  `fields` keeps at most 20 top-level scalars with plain names, drops log-shaped names (any name ending in `log`,
+  `logs`, `output`, `stdout` or `stderr` in any case, like `backup_log`, `deploymentLogs` or
+  `commandoutput`, except plain words in `NOT_LOG_FIELDS` such as `catalog` and `dialog`) and nested values, runs `redact()` (secret keys) and then each string
   as `name`, capped at 500. The read is `events.list(connectionId, { limit, before, kind, uuid })`
+  (a list or other non-scalar is 400; the route refuses a repeated query key rather than ignore it)
   (coolify.view, any access, another user's 404), answering `{ rows: EventRecord[], nextBefore }` newest
   first, paged by id.
 - Abort: `registerOperations` hands the ops files a ctx whose `operations.register` wraps every handler in

@@ -101,6 +101,11 @@ describe("GET /connections/:id/events", () => {
       "before=x",
       "kind=nope",
       "uuid=a%20b",
+      // A repeated key is not "no filter" or "the newest page".
+      "kind=deployment-failed&kind=backup-failed",
+      "before=1&before=2",
+      "limit=1&limit=2",
+      "uuid=app-web-uuid&uuid=app-api-uuid",
     ]) {
       const answer = await h.request("GET", `/connections/${id}/events?${bad}`);
       expect(answer.status).toBe(400);
@@ -129,6 +134,20 @@ describe("coolify.events-list", () => {
       permission: "view",
       surfaces: { assistant: true, mcp: true },
     });
+  });
+
+  it.each([
+    ["kind", ["deployment-failed", "backup-failed"]],
+    ["before", [1, 2]],
+    ["limit", [1]],
+    ["uuid", ["app-web-uuid"]],
+  ])("refuses a list as %s", async (key, value) => {
+    const { harness: h, id } = await started();
+    await expect(
+      h.mock.ctx.operations.run("coolify.events-list", {
+        input: { connectionId: String(id), [key]: value },
+      }),
+    ).rejects.toMatchObject({ code: "invalid-input" });
   });
 
   it("answers the route's page and refuses another user's connection", async () => {

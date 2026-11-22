@@ -395,6 +395,30 @@ describe("redaction", () => {
     });
   });
 
+  it("drops log-shaped field names in any case, and keeps words that only end in log", async () => {
+    await ingest(own, {
+      kind: "task-failed",
+      source: "poll",
+      resourceUuid: "app-web-uuid",
+      fields: {
+        deploymentLogs: "camel logs",
+        commandOutput: "camel output",
+        buildStderr: "camel stderr",
+        runStdout: "camel stdout",
+        lastLog: "camel log",
+        deploymentlogs: "joined logs",
+        commandoutput: "joined output",
+        backup_log: "snake log",
+        catalog: "kept",
+        dialog: "kept too",
+      },
+    });
+    expect(JSON.parse(rows(own)[0].detail as string).fields).toEqual({
+      catalog: "kept",
+      dialog: "kept too",
+    });
+  });
+
   it("caps long text", async () => {
     await ingest(own, {
       kind: "task-failed",
@@ -546,17 +570,61 @@ describe("reading the log", () => {
   });
 });
 
-/** Makes the `nth` call of `target[method]` reject once; the rest pass. */
-function failOnce<T extends object>(target: T, method: keyof T, nth = 1) {
-  const real = (target[method] as (...a: unknown[]) => unknown).bind(target);
+/**
+ * Answers the `nth` call of `target[method]` with `action`, which gets the
+ * real call to run (or not); every other call is the real one.
+ */
+function onCall<T extends object>(
+  target: T,
+  method: keyof T,
+  nth: number,
+  action: (real: () => Promise<unknown>) => Promise<unknown>,
+) {
+  const orig = (target[method] as (...a: unknown[]) => unknown).bind(target);
   let calls = 0;
   return vi.spyOn(target, method as never).mockImplementation((async (
     ...args: unknown[]
   ) => {
     calls += 1;
-    if (calls === nth) throw new Error("injected failure");
-    return real(...args);
+    const real = async () => orig(...args);
+    return calls === nth ? action(real) : real();
   }) as never);
+}
+
+/** Makes the `nth` call of `target[method]` reject once; the rest pass. */
+function failOnce<T extends object>(target: T, method: keyof T, nth = 1) {
+  return onCall(target, method, nth, async () => {
+    throw new Error("injected failure");
+  });
+}
+
+/** Runs the `nth` call of `target[method]`, then `change` while it "waits". */
+function landsDuring<T extends object>(
+  target: T,
+  method: keyof T,
+  change: () => Promise<void>,
+  nth = 1,
+) {
+  return onCall(target, method, nth, async (real) => {
+    const result = await real();
+    await change();
+    return result;
+  });
+}
+
+/** The owner removes the connection, under the connections lock. */
+async function removeOwn() {
+  const actor = mock.ctx.currentActor();
+  mock.setActor(OWNER);
+  await connections.remove(own);
+  mock.setActor(actor);
+}
+
+/** The connection now points at another Coolify: a new revision. */
+async function repointOwn() {
+  db.sqlite
+    .prepare("UPDATE p_coolify_connections SET base_url = ? WHERE id = ?")
+    .run("https://coolify-moved.example.test", own);
 }
 
 function dedupeKeys(connectionId: number) {
@@ -604,5 +672,42 @@ describe("a failure after the insert", () => {
     });
     expect(mock.operationEvents).toHaveLength(1);
     expect(dedupeKeys(own)).toEqual(["deployment|dep-1"]);
+  });
+});
+
+describe("a change that lands after the insert", () => {
+  it.each([
+    ["prune", "a removal", removeOwn, "connection-gone"],
+    ["prune", "a repoint", repointOwn, "target-changed"],
+    ["persist", "a removal", removeOwn, "connection-gone"],
+    ["persist", "a repoint", repointOwn, "target-changed"],
+  ] as const)(
+    "%s with %s landing: nothing is sent or kept",
+    async (step, _, change, reason) => {
+      const target = step === "prune" ? store : mock.ctx.db;
+      landsDuring(target as Record<string, unknown>, step, change);
+      expect(await ingest(own, failedDeploy("dep-1"))).toEqual({
+        outcome: "dropped",
+        reason,
+      });
+      expect(mock.operationEvents).toEqual([]);
+      expect(rows(own)).toEqual([]);
+    },
+  );
+
+  it("a row removed between the emit and its commit is not answered stored", async () => {
+    landsDuring(mock.ctx.operations, "emit", removeOwn);
+    expect(await ingest(own, failedDeploy("dep-1"))).toEqual({
+      outcome: "dropped",
+      reason: "connection-gone",
+    });
+    expect(rows(own)).toEqual([]);
+  });
+
+  it("the hostId is the Linked host at emit time", async () => {
+    landsDuring(store, "prune", async () => link(own, "srv-vps1-uuid", 7));
+    await ingest(own, failedDeploy("dep-1"));
+    expect(mock.operationEvents.map((e) => e.hostId)).toEqual([7]);
+    expect(rows(own).map((r) => r.host_id)).toEqual([7]);
   });
 });

@@ -465,7 +465,7 @@ unreachable server".
 
 ## Events and the event log
 
-Things that happen in Coolify become plugin events through one pipeline. Each is sent once as the Termix
+Things that happen in Coolify become plugin events through one pipeline. Each is sent once (per dedupe key, below) as the Termix
 operations event `coolify.<kind>` (Automations and other plugins can react to it) and kept in the
 connection's event log.
 
@@ -504,7 +504,7 @@ for the next page; it is `null` on the last. `limit` is 1 to 200 (50 by default)
 severity, title, resourceUuid, serverUuid, deploymentUuid, hostId, name, status, source, fields, createdAt }`;
 `source` is `poll` or `webhook` and `fields` holds the few plain values Coolify sent with it (like a disk
 percentage). It reads the plugin's own table and asks Coolify nothing. Needs **View Coolify** and access to
-the connection; another user's connection is 404, and a malformed parameter 400.
+the connection; another user's connection is 404, and a malformed or repeated parameter 400.
 
 ### Action `coolify.events-list`
 

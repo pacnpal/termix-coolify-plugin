@@ -55,8 +55,27 @@ const FIELDS_MAX = 20;
 /** A Coolify uuid: one plain segment, never a path. */
 const UUID = /^[A-Za-z0-9_-]{1,128}$/;
 const FIELD_NAME = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
-/** Field names that hold log or command output: dropped whole, never stored. */
-const LOG_FIELD = /(?:^|_)(?:logs?|output|stdout|stderr)$/i;
+/**
+ * Field names that hold log or command output, dropped whole, never stored:
+ * any name ending in log, logs, output, stdout or stderr, in any case
+ * (`logs`, `backup_log`, `deploymentLogs`, `commandoutput`), fail closed.
+ */
+const LOG_FIELD = /(?:logs?|output|stdout|stderr)$/i;
+/** Plain words that only end in "log", kept. */
+const NOT_LOG_FIELDS = new Set([
+  "analog",
+  "blog",
+  "blogs",
+  "catalog",
+  "catalogs",
+  "dialog",
+  "dialogs",
+  "prolog",
+]);
+
+function isLogField(key: string): boolean {
+  return LOG_FIELD.test(key) && !NOT_LOG_FIELDS.has(key.toLowerCase());
+}
 
 /**
  * One thing a source saw happen on one connection's Coolify, as the poller
@@ -203,7 +222,7 @@ function fieldsOf(
   const picked: Record<string, EventField> = {};
   for (const [key, value] of Object.entries(raw)) {
     if (Object.keys(picked).length >= FIELDS_MAX) break;
-    if (!FIELD_NAME.test(key) || LOG_FIELD.test(key)) continue;
+    if (!FIELD_NAME.test(key) || isLogField(key)) continue;
     if (
       value === null ||
       typeof value === "boolean" ||
@@ -455,19 +474,26 @@ export function createEventStore(ctx: PluginContext, tables: Tables) {
         );
     },
 
-    /** Gives a pending row its event's dedupe key: it now dedupes. */
+    /**
+     * Gives a pending row its event's dedupe key (it now dedupes) and its
+     * hostId, and answers how many rows it updated.
+     */
     async commit(
       connectionId: number,
       pendingKey: string,
       dedupeKey: string,
-    ): Promise<void> {
+      hostId: number | null,
+    ): Promise<number> {
       const db = await dbClient(ctx);
       await db
         .update(t)
-        .set({ dedupeKey })
+        .set({ dedupeKey, hostId })
         .where(
           and(eq(t.connectionId, connectionId), eq(t.dedupeKey, pendingKey)),
         );
+      // How many rows it updated, read back by the key it gave (no dialect
+      // reports affected rows the same way): 1, or 0 when the row was gone.
+      return (await this.byKey(connectionId, dedupeKey)) ? 1 : 0;
     },
 
     /** Deletes the connection's rows with these dedupe keys, and persists. */
@@ -571,14 +597,6 @@ export function createEvents(ctx: PluginContext, deps: EventsDeps) {
     if (await store.byKey(connectionId, clean.dedupeKey)) {
       return { outcome: "duplicate" };
     }
-    const linked = clean.serverUuid
-      ? await sync.linkedHostFor(connectionId, clean.serverUuid)
-      : null;
-    const hostId =
-      typeof linked === "number" && Number.isSafeInteger(linked) && linked > 0
-        ? linked
-        : null;
-
     // Written pending, given its dedupe key only once it was emitted.
     const pendingKey = `${PENDING}${randomBytes(6).toString("base64url")}|${clean.dedupeKey}`;
     await store.insert({
@@ -587,7 +605,8 @@ export function createEvents(ctx: PluginContext, deps: EventsDeps) {
       resourceUuid: clean.resourceUuid,
       serverUuid: clean.serverUuid,
       deploymentUuid: clean.deploymentUuid,
-      hostId,
+      // Set at commit, from the link read right before the emit.
+      hostId: null,
       title: titleOf(clean.kind, clean.name),
       detail: JSON.stringify({
         name: clean.name,
@@ -606,23 +625,42 @@ export function createEvents(ctx: PluginContext, deps: EventsDeps) {
       const row = await store.byKey(connectionId, pendingKey);
       const stored = row ? toRecord(row) : null;
       if (!stored) throw new Error("The event could not be stored");
-      // A removal or a repoint that landed meanwhile wins: its rows are
-      // gone (or about another target), so this one goes and nothing is sent.
-      const still = await current(connectionId, revision);
-      if (still.reason) {
-        await store.remove(connectionId, [pendingKey]);
-        return { outcome: "dropped", reason: still.reason };
-      }
       await store.prune(connectionId, stored.id);
       await ctx.db.persist();
+      // The last check, with no await between it and the emit: the
+      // connection as the source read it, and its server's Linked host now
+      // (an unlink or a host.deleted doesn't change the revision). A removal
+      // or a repoint that landed meanwhile wins: nothing is sent or kept.
+      const [last, linked] = await Promise.all([
+        current(connectionId, revision),
+        clean.serverUuid
+          ? sync.linkedHostFor(connectionId, clean.serverUuid)
+          : Promise.resolve(null),
+      ]);
+      if (last.reason) {
+        await store.remove(connectionId, [pendingKey]);
+        return { outcome: "dropped", reason: last.reason };
+      }
+      const hostId =
+        typeof linked === "number" && Number.isSafeInteger(linked) && linked > 0
+          ? linked
+          : null;
+      const event: EventRecord = { ...stored, hostId };
       await ctx.operations.emit(
-        eventId(stored.kind),
-        payloadOf(stored),
+        eventId(event.kind),
+        payloadOf(event),
         hostId ? { hostId } : undefined,
       );
-      await store.commit(connectionId, pendingKey, clean.dedupeKey);
+      // Zero rows: the connection was removed after the emit (removal runs
+      // under the connections lock, not this queue). The event went out,
+      // but there is no log row: answered dropped, not stored.
+      if (
+        !(await store.commit(connectionId, pendingKey, clean.dedupeKey, hostId))
+      ) {
+        return { outcome: "dropped", reason: "connection-gone" };
+      }
       await ctx.db.persist();
-      return { outcome: "stored", event: stored };
+      return { outcome: "stored", event };
     } catch (err) {
       try {
         // Either key: a failure after the commit (its persist) also goes,
