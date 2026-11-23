@@ -32,6 +32,10 @@ appear in run history.
 | `coolify.connection-delete`        | `DELETE /plugin-api/coolify/connections/:id`                                                  | `/operations/coolify.connection-delete/run`        | `operations:run`                      | `coolify__connection_delete`        | `curl -X POST "$TERMIX/operations/coolify.connection-delete/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"},"confirmed":true}'`                                                                    |
 | `coolify.connection-set-exec`      | `PATCH /plugin-api/coolify/connections/:id` with `execEnabled`                                | `/operations/coolify.connection-set-exec/run`      | `operations:run`                      | `coolify__connection_set_exec`      | `curl -X POST "$TERMIX/operations/coolify.connection-set-exec/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","execEnabled":true}}'`                                                                |
 | `coolify.connection-set-poll`      | `PATCH /plugin-api/coolify/connections/:id` with `pollEnabled`                                | `/operations/coolify.connection-set-poll/run`      | `operations:run`                      | `coolify__connection_set_poll`      | `curl -X POST "$TERMIX/operations/coolify.connection-set-poll/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","pollEnabled":true}}'`                                                                |
+| `coolify.webhook-status`           | `GET /plugin-api/coolify/connections/:id/webhook`                                             | `/operations/coolify.webhook-status/run`           | `operations:read` or `operations:run` | `coolify__webhook_status`           | `curl -X POST "$TERMIX/operations/coolify.webhook-status/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'`                                                                                        |
+| `coolify.webhook-setup`            | `POST /plugin-api/coolify/connections/:id/webhook`                                            | `/operations/coolify.webhook-setup/run`            | `operations:run`                      | `coolify__webhook_setup`            | `curl -X POST "$TERMIX/operations/coolify.webhook-setup/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'`                                                                                         |
+| `coolify.webhook-replace`          | `POST /plugin-api/coolify/connections/:id/webhook/replace`                                    | `/operations/coolify.webhook-replace/run`          | `operations:run`                      | `coolify__webhook_replace`          | `curl -X POST "$TERMIX/operations/coolify.webhook-replace/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"},"confirmed":true}'`                                                                      |
+| `coolify.webhook-disable`          | `DELETE /plugin-api/coolify/connections/:id/webhook`                                          | `/operations/coolify.webhook-disable/run`          | `operations:run`                      | `coolify__webhook_disable`          | `curl -X POST "$TERMIX/operations/coolify.webhook-disable/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"},"confirmed":true}'`                                                                      |
 | `coolify.sync-apply`               | `POST /plugin-api/coolify/connections/:id/sync`                                               | `/operations/coolify.sync-apply/run`               | `operations:run`                      | `coolify__sync_apply`               | `curl -X POST "$TERMIX/operations/coolify.sync-apply/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'`                                                                                            |
 | `coolify.unlink`                   | `POST /plugin-api/coolify/connections/:id/servers/:uuid/unlink`                               | `/operations/coolify.unlink/run`                   | `operations:run`                      | `coolify__unlink`                   | `curl -X POST "$TERMIX/operations/coolify.unlink/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","serverUuid":"<server uuid>"}}'`                                                                   |
 | `coolify.list-resources`           | `GET /plugin-api/coolify/connections/:id/resources`                                           | `/operations/coolify.list-resources/run`           | `operations:read` or `operations:run` | `coolify__list_resources`           | `curl -X POST "$TERMIX/operations/coolify.list-resources/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7}'`                                                                                                          |
@@ -260,6 +264,10 @@ serves.
 | `POST /plugin-api/coolify/status-pages/handoff/:handoffId`                                    | none: hands a create or rotate's URL over once; over MCP that is `take_status_page_url`                                                                              |
 | `GET /plugin-api/coolify/status/:token`                                                       | none: the public status page, served with no signed-in user                                                                                                          |
 | `GET /plugin-api/coolify/status/:token.json`                                                  | none: the public status page as JSON, served with no signed-in user                                                                                                  |
+| `GET /plugin-api/coolify/connections/:id/webhook`                                             | `coolify.webhook-status`                                                                                                                                             |
+| `POST /plugin-api/coolify/connections/:id/webhook`                                            | `coolify.webhook-setup`                                                                                                                                              |
+| `POST /plugin-api/coolify/connections/:id/webhook/replace`                                    | `coolify.webhook-replace`                                                                                                                                            |
+| `DELETE /plugin-api/coolify/connections/:id/webhook`                                          | `coolify.webhook-disable`                                                                                                                                            |
 | `POST /plugin-api/coolify/webhook/:token`                                                     | none: Coolify's own webhook deliveries, served with no signed-in user; the events they bring land in the event log                                                   |
 | `WS /plugin-ws/coolify/logs`                                                                  | none: a live follow of a container's logs; `coolify.logs-tail` reads a snapshot                                                                                      |
 | `WS /plugin-ws/coolify/stats`                                                                 | none: a live stream of a container's stats; `coolify.resource-metrics` reads a window                                                                                |
@@ -608,6 +616,50 @@ curl -X POST https://termix.example.com/plugin-api/coolify/webhook/<token> \
   -H 'Content-Type: application/json' \
   -d '{"success":true,"message":"This is a test webhook notification from Coolify.","event":"test","url":"https://coolify.example.com"}'
 ```
+
+### Setting up the team webhook
+
+`GET`, `POST` and `DELETE /plugin-api/coolify/connections/{id}/webhook`, and
+`POST /plugin-api/coolify/connections/{id}/webhook/replace`, set Coolify's team webhook up so it posts to
+the route above. Each needs **Configure Coolify** and owner or configure access to the connection (a view or
+operate grant is 403 `forbidden`; another user's connection is 404), an unscoped token (`scoped-token`), a
+known team (`no-team`) and a token with `read:sensitive`, since Coolify hides the webhook URL from any other
+token (`secrets-unreadable`, 409). Every call reads the team's current setting first
+(`GET /notifications/webhook`) and decides by the URL Coolify holds:
+
+- **Unset, or already ours** (our route, with a token that this team's webhook row verifies): `POST` writes
+  our URL, turns the channel on and ticks the events the plugin receives (deployment success and failure,
+  restart limit, backup and scheduled task success and failure, disk usage, server unreachable). A token is
+  made only when the URL isn't ours already; only its sha256 is kept, and the new row has no last delivery
+  yet, so polling goes on until the first delivery. Other toggles are left as they are.
+- **Someone else's:** `POST` changes nothing and answers `{ "outcome": "replace-needed", "current": ...,
+"basePrivate": ... }`, the current URL shown only as its scheme, host and port
+  (`https://hooks.example.net/[redacted]`). Coolify sends to one place only, so replacing it is a separate,
+  destructive step: `POST .../webhook/replace` with `{ "confirm": true }`. Declining is not asking again;
+  polling stays on.
+- `DELETE` with `{ "confirm": true }` or `?confirm=true` removes our URL (and our webhook row, so polling
+  takes over) only while it is still ours. Someone else's URL is `409 not-ours` and left alone; none set is
+  `{ "outcome": "not-set" }`.
+
+The URL's base is the request's own address (`ctx.http.baseUrl`), as status pages do; an action uses the
+acting user's own last address, never another user's, and refuses with `no-base-url` (409) when there is none.
+Coolify refuses private addresses, so `GET` and every setup answer say `basePrivate` when the base is loopback,
+a private or link-local IP, or a `.local` or `.internal` name; Coolify then answers 422. The token is only in
+the URL sent to Coolify: no answer, run, MCP result, log or audit line holds it. The connection's revision is
+checked right before every request and before the row is written, so a connection repointed between the read
+and the write stops with `target-changed` (409) and nothing is written.
+
+```bash
+curl -X POST https://termix.example.com/plugin-api/coolify/connections/1/webhook \
+  -H 'Content-Type: application/json' -d '{}'
+```
+
+### Actions `coolify.webhook-status`, `coolify.webhook-setup`, `coolify.webhook-replace` and `coolify.webhook-disable`
+
+The same four steps, for the assistant and MCP, each with `connectionId`. `coolify.webhook-status` is a read;
+`coolify.webhook-setup` is a change that answers `replace-needed` rather than replace anything;
+`coolify.webhook-replace` and `coolify.webhook-disable` are destructive, so Termix confirms each run, and over
+MCP they are refused without `confirmed: true`. Their data is the route's answer, never the URL.
 
 ## Dashboard cards and homepage widgets
 

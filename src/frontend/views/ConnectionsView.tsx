@@ -41,6 +41,7 @@ import {
 } from "./ConnectionForm";
 import { McpPanel } from "./McpPanel";
 import { StatusPagesView } from "./StatusPagesView";
+import { WebhookSetup } from "./WebhookSetup";
 
 function ConnectionEditor({
   api,
@@ -84,6 +85,11 @@ function ConnectionEditor({
       />
       {connection && connection.access === "owner" && (
         <>
+          <WebhookSetup
+            key={`${connection.id}:${connection.revision}`}
+            api={api}
+            connection={connection}
+          />
           <PollSwitch api={api} connection={connection} onSaved={onSaved} />
           <ExecSwitch api={api} connection={connection} onSaved={onSaved} />
         </>

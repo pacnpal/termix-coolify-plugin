@@ -487,6 +487,98 @@
           "permission": "configure"
         },
         {
+          "id": "coolify.webhook-status",
+          "titleKey": "ops.webhookStatus.title",
+          "descriptionKey": "ops.webhookStatus.description",
+          "icon": "Webhook",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            }
+          ],
+          "risk": "read",
+          "permission": "configure",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.webhook-setup",
+          "titleKey": "ops.webhookSetup.title",
+          "descriptionKey": "ops.webhookSetup.description",
+          "icon": "Webhook",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            }
+          ],
+          "risk": "change",
+          "permission": "configure",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.webhook-replace",
+          "titleKey": "ops.webhookReplace.title",
+          "descriptionKey": "ops.webhookReplace.description",
+          "icon": "Webhook",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            }
+          ],
+          "risk": "destructive",
+          "permission": "configure",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.webhook-disable",
+          "titleKey": "ops.webhookDisable.title",
+          "descriptionKey": "ops.webhookDisable.description",
+          "icon": "WebhookOff",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            }
+          ],
+          "risk": "destructive",
+          "permission": "configure",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
           "id": "coolify.list-resources-all",
           "titleKey": "ops.listResourcesAll.title",
           "descriptionKey": "ops.listResourcesAll.description",

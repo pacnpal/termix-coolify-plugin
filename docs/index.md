@@ -667,6 +667,27 @@ appear in each connection's event log and as Termix operations events for Automa
 See [Coolify's team webhook](api.md#post-plugin-apicoolifywebhooktoken-coolifys-team-webhook) for the payloads
 it takes.
 
+### Setting it up
+
+Open a connection's settings (the pencil on its row) and use **Set up webhook**. It reads the team's webhook
+in Coolify first:
+
+- **None set, or already this Termix:** it writes this Termix's webhook address into Coolify, turns the
+  webhook on and ticks the notifications the plugin turns into events. Other notifications stay as they are.
+- **Set to somewhere else:** it shows where (only the address's host; anything after it is hidden) and asks
+  before replacing it, because Coolify sends to one place only. Say no and nothing changes; polling stays on.
+- **Turn webhook off** removes this Termix's address from Coolify, only while it is still this Termix's.
+  Polling takes over again.
+
+The webhook address uses the address you opened Termix at. Coolify refuses webhooks to a private network
+(`localhost`, `10.x`, `172.16-31.x`, `192.168.x`, `.local`), so the settings warn you when Termix's address
+is one of those; open Termix by its public address first. The token needs `read:sensitive`, since Coolify
+hides the current webhook address from any other token, and a token limited to projects can't change it.
+The webhook address with its token is only ever sent to Coolify: it isn't shown, kept in run history or
+logged. Setting it up needs **Configure Coolify** and owner or configure access to the connection. The same
+is available as the actions `coolify.webhook-status`, `coolify.webhook-setup`, `coolify.webhook-replace` and
+`coolify.webhook-disable`; see [Setting up the team webhook](api.md#setting-up-the-team-webhook).
+
 ## The full Coolify API
 
 Everything in Coolify's API is reachable from Termix, checked against your permissions:

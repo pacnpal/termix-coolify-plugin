@@ -317,6 +317,20 @@ export function checkTransport(baseUrl: string, allowPrivate: boolean): void {
   );
 }
 
+/**
+ * Whether a URL's host is loopback or a private or link-local IP literal (the
+ * transport check's own reading), so a webhook sent there from elsewhere
+ * can't arrive. Names are "other" here, as in checkTransport. False for a
+ * value that isn't a URL.
+ */
+export function isPrivateAddress(url: string): boolean {
+  try {
+    return hostReach(new URL(url)) !== "other";
+  } catch {
+    return false;
+  }
+}
+
 /** Groups connections to the same Coolify team; null when the team is unknown. */
 export function instanceKeyOf(
   baseUrl: string,
@@ -1041,6 +1055,8 @@ export function createConnections(
      */
     async snapshot(id: number): Promise<{
       view: ConnectionView;
+      /** The Coolify team the same row reaches (the webhook's key), or null. */
+      instanceKey: string | null;
       api: CoolifyApi;
       /** The request layer for that same target, for the generic API. */
       http: CoolifyHttp;
@@ -1061,6 +1077,7 @@ export function createConnections(
       };
       return {
         view: viewOf(found, access),
+        instanceKey: found.instanceKey ?? null,
         api,
         http,
         cfAccess: () => (cfAccess ??= unsealAccess()),

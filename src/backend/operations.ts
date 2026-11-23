@@ -45,6 +45,8 @@ import { registerUpdateOperations } from "./ops/updates.js";
 import type { Sync } from "./sync/service.js";
 import type { Updates } from "./updates/service.js";
 import { registerStatusPageOperations } from "./ops/status-pages.js";
+import { registerWebhookOperations } from "./ops/webhooks.js";
+import type { WebhookSetup } from "./webhooks/setup.js";
 
 export interface Services {
   tables: Tables;
@@ -68,6 +70,7 @@ export interface Services {
   events: Events;
   dashboard: Dashboard;
   serverHealth: ServerHealthService;
+  webhookSetup: WebhookSetup;
 }
 
 /**
@@ -137,6 +140,7 @@ export function registerOperations(
     services.containerCompanions,
   );
   registerStatusPageOperations(ctx, services.statusPages);
+  registerWebhookOperations(ctx, services.webhookSetup);
   registerGenericApiOperations(ctx, services.genericApi);
   registerMetricsOperations(ctx, services.metrics);
   registerAttentionOperations(ctx, services.attention);
