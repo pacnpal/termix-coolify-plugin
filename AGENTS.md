@@ -69,7 +69,7 @@ aren't obvious from the code, and anything that has bitten you before.
   Where things stand: 1.0.0 is feature complete (connections, resources and lifecycle, host sync, shells,
   logs, exec, metrics, server updates, companions, status pages, the full Coolify API, the MCP endpoint and
   the `coolify.client` service). 1.2.0 (Alerts) is under way: the event pipeline and event log (#89) are
-  in; the poller, webhook, alerts and event log view build on them. The read-only smoke test against a real Coolify is the owner's
+  in, and the Events section (#94) reads them; the poller, webhook and alerts build on them. The read-only smoke test against a real Coolify is the owner's
   (`scripts/smoke-readonly.md`). User docs: `docs/index.md`, `tunnels.md`, `permissions.md`,
   `companions.md`, `troubleshooting.md`, `api.md`, `coverage.md`.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
@@ -671,7 +671,29 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   as `name`, capped at 500. The read is `events.list(connectionId, { limit, before, kind, uuid })`
   (a list or other non-scalar is 400; the route refuses a repeated query key rather than ignore it)
   (coolify.view, any access, another user's 404), answering `{ rows: EventRecord[], nextBefore }` newest
-  first, paged by id.
+  first, paged by id. Grant rule (#94): grants are connection-wide levels with no resource scope, and a
+  grant lends the owner's token, so a grant covers what the connection's Coolify has now. The owner
+  sees every row and Coolify is never asked; anyone else gets `grantRule` (service.ts): a resource row
+  needs its uuid in `deps.subjects.resources` (the shared resources cache, Parts included), a server row
+  its uuid in `deps.subjects.servers` (the server statuses cache), `any` rows the resource when they name
+  one, else the server, and team rows always pass. A row naming no subject it needs is hidden. Each list
+  is read once per call and only when a row needs it; a failed read throws (Coolify's cause, usually
+  502), so a grantee never gets a silently partial log. `list` scans chunks of `limit + 1` until the
+  page is full, so `nextBefore` is set only when another visible row is older (bounded at twice
+  `EVENT_LOG_LIMIT` scanned rows; then `nextBefore` is the scan's cursor). `createServerStatuses` is made
+  before `createEvents` in `index.ts` for this.
+- Events section (#94): `src/frontend/views/EventsSection.tsx` and `useEventLog.ts`, a SideNav section
+  of `CoolifyTab` keyed by connection id and `revision` (a change remounts it: empty list, filters reset).
+  `useEventLog` holds rows with a key of connection, revision, kind and uuid; newest-page reads and
+  older-page reads each take a generation, and the effect's cleanup advances both, so a late answer for
+  an old target or filter is dropped. It reads the newest page when active and again `EVENTS_POLL_MS`
+  (60 s, no faster than the poller) after each read settles, a `setTimeout` chain, only while the tab is
+  visible and the section mounted. `mergeNewest` lays a newest page over the rows shown (a page that
+  doesn't reach them replaces them). Older pages use `before`. Filters are server-side (`kind`, `uuid`;
+  the resource select lists top-level resources). `subjectOf` picks a row's link: build log with operate
+  (`mayOperate`), else the resource detail, the server filter on Resources, or nothing for team rows.
+  `EVENT_KIND_IDS` mirrors `EVENT_KINDS` (a test checks it) and each kind has an `eventLog.kinds` label.
+  No dashboard card yet: #95's dashboard wasn't on this branch's base.
 - Abort: `registerOperations` hands the ops files a ctx whose `operations.register` wraps every handler in
   `abortable` (operations.ts), so a cancelled run throws its signal's reason before it starts; the wrapper
   only adds that check, so each handler's own permission and confirm checks still run. Long handlers

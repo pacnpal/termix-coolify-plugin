@@ -363,6 +363,49 @@ function toRecord(row: EventRow): EventRecord | null {
   };
 }
 
+/**
+ * The grant rule: whether a granted user (anyone but the owner) may see a
+ * row. A grant lends the owner's token, so it covers what the connection's
+ * Coolify has now: a resource row needs its resource (or Part) in the
+ * current resource list, a server row its server in the current server
+ * list, and a team row (no subject) shows to any access. A row from an old
+ * target, about something deleted or about what a narrowed token no longer
+ * sees is hidden. Each list is read once per call, and only when a row
+ * needs it; a failed read throws, so "couldn't check" never reads as
+ * "nothing to show".
+ */
+function grantRule(
+  subjects: EventSubjects,
+  connectionId: number,
+): (record: EventRecord) => Promise<boolean> {
+  const sets: {
+    resources?: Promise<Set<string>>;
+    servers?: Promise<Set<string>>;
+  } = {};
+  const uuids = async (rows: Promise<readonly { uuid: string }[]>) =>
+    new Set((await rows).map((r) => r.uuid));
+  const resourceIn = async (uuid: string) => {
+    sets.resources ??= uuids(subjects.resources(connectionId));
+    return (await sets.resources).has(uuid);
+  };
+  const serverIn = async (uuid: string) => {
+    sets.servers ??= uuids(subjects.servers(connectionId));
+    return (await sets.servers).has(uuid);
+  };
+  return async (record) => {
+    const subject = EVENT_KINDS[record.kind].subject;
+    if (subject === "team") return true;
+    if (subject !== "server" && record.resourceUuid) {
+      return resourceIn(record.resourceUuid);
+    }
+    if (subject !== "resource" && record.serverUuid) {
+      return serverIn(record.serverUuid);
+    }
+    // A row naming no subject it needs: fail closed.
+    return false;
+  };
+}
+
 /** The operations event payload: exactly the keys manifest.json declares. */
 function payloadOf(event: EventRecord): Record<string, unknown> {
   const all: Record<string, unknown> = {
@@ -411,10 +454,24 @@ function readQuery(query: EventQuery) {
   return { limit, before, kind, uuid };
 }
 
+/**
+ * What the connection's Coolify has now, as the shared resource (20 s) and
+ * server status (a minute) caches read it under the current revision. The
+ * event log read checks a granted user's rows against it.
+ */
+export interface EventSubjects {
+  /** Every resource and Part uuid; throws when Coolify can't be read. */
+  resources(connectionId: number): Promise<readonly { uuid: string }[]>;
+  /** Every server uuid; throws when Coolify can't be read. */
+  servers(connectionId: number): Promise<readonly { uuid: string }[]>;
+}
+
 export interface EventsDeps {
   tables: Tables;
   connections: Connections;
   sync: Sync;
+  /** The grant rule's source for granted users' reads of the event log. */
+  subjects: EventSubjects;
   /** The clock, in epoch milliseconds; tests pass a fake one. */
   now?: () => number;
   /** The event table's reads and writes; tests pass one with spies. */
@@ -700,44 +757,64 @@ export function createEvents(ctx: PluginContext, deps: EventsDeps) {
 
     /**
      * A page of a connection's event log, newest first. Needs coolify.view
-     * and any access to the connection; another user's is 404.
+     * and any access to the connection; another user's is 404. The owner
+     * sees every row; a granted user only rows the grant rule lets through
+     * (`grantRule`), and the page is filled past hidden rows, so
+     * `nextBefore` is set only when another row they may see is older.
      */
     async list(connectionId: number, query: EventQuery): Promise<EventPage> {
       if (!(await ctx.rbac.has("view"))) {
         throw new ConnectionError("forbidden", "Missing coolify.view");
       }
-      if (!(await connections.access(connectionId))) {
+      const access = await connections.access(connectionId);
+      if (!access) {
         throw new ConnectionError("not-found", "Coolify connection not found");
       }
       const q = readQuery(query);
-      const conditions = [
-        eq(t.connectionId, connectionId),
-        // Pending rows were never emitted: not part of the log.
-        or(isNull(t.dedupeKey), notLike(t.dedupeKey, `${PENDING}%`)),
-      ];
-      if (q.before !== null) conditions.push(lt(t.id, q.before));
-      if (q.kind !== null) conditions.push(eq(t.kind, q.kind));
-      if (q.uuid !== null) {
-        conditions.push(
-          or(eq(t.resourceUuid, q.uuid), eq(t.serverUuid, q.uuid)),
-        );
-      }
+      const visible =
+        access === "owner"
+          ? async () => true
+          : grantRule(deps.subjects, connectionId);
       const db = await dbClient(ctx);
-      const found = (await db
-        .select()
-        .from(t)
-        .where(and(...conditions))
-        .orderBy(desc(t.id))
-        .limit(q.limit + 1)) as EventRow[];
-      const page = found.slice(0, q.limit);
-      const rows = page
-        .map(toRecord)
-        .filter((r): r is EventRecord => r !== null);
-      return {
-        rows,
-        nextBefore:
-          found.length > q.limit ? (page[page.length - 1]?.id ?? null) : null,
-      };
+      const chunk = q.limit + 1;
+      const rows: EventRecord[] = [];
+      let cursor = q.before;
+      // The log keeps EVENT_LOG_LIMIT rows a connection; this only bounds a
+      // scan that rows written meanwhile keep feeding.
+      for (let scanned = 0; scanned < 2 * EVENT_LOG_LIMIT;) {
+        const conditions = [
+          eq(t.connectionId, connectionId),
+          // Pending rows were never emitted: not part of the log.
+          or(isNull(t.dedupeKey), notLike(t.dedupeKey, `${PENDING}%`)),
+        ];
+        if (cursor !== null) conditions.push(lt(t.id, cursor));
+        if (q.kind !== null) conditions.push(eq(t.kind, q.kind));
+        if (q.uuid !== null) {
+          conditions.push(
+            or(eq(t.resourceUuid, q.uuid), eq(t.serverUuid, q.uuid)),
+          );
+        }
+        const found = (await db
+          .select()
+          .from(t)
+          .where(and(...conditions))
+          .orderBy(desc(t.id))
+          .limit(chunk)) as EventRow[];
+        for (const row of found) {
+          const record = toRecord(row);
+          if (!record || !(await visible(record))) continue;
+          // A full page and one more row to show: there is a next page.
+          if (rows.length === q.limit) {
+            return { rows, nextBefore: rows[rows.length - 1].id };
+          }
+          rows.push(record);
+        }
+        if (found.length < chunk) return { rows, nextBefore: null };
+        cursor = found[found.length - 1].id;
+        scanned += found.length;
+      }
+      // Scanned as far as one read goes: the caller pages on from there.
+      return { rows, nextBefore: cursor };
     },
   };
 }

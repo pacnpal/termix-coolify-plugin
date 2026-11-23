@@ -114,6 +114,15 @@ beforeEach(async () => {
     tables,
     connections,
     sync,
+    // Only granted users' reads ask; these tests read as the owner.
+    subjects: {
+      resources: async () => {
+        throw new Error("not asked for the owner");
+      },
+      servers: async () => {
+        throw new Error("not asked for the owner");
+      },
+    },
     now: () => clock,
     store,
   });

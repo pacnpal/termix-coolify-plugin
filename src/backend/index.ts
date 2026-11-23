@@ -58,8 +58,19 @@ export async function activate(ctx: PluginContext): Promise<void> {
   });
   sync = await createSync(ctx, { tables, connections });
   const resources = createResources(ctx, { tables, connections });
-  // The one event pipeline. The poller and the team webhook feed it.
-  const events = createEvents(ctx, { tables, connections, sync });
+  const servers = createServerStatuses(ctx, { tables, connections });
+  // The one event pipeline. The poller and the team webhook feed it. A
+  // granted user's reads of the log are checked against what the shared
+  // resource and server caches say the connection's Coolify has now.
+  const events = createEvents(ctx, {
+    tables,
+    connections,
+    sync,
+    subjects: {
+      resources: (id) => resources.list(id),
+      servers: (id) => servers.list(id),
+    },
+  });
   // The one post-start hook every deploy path shares: recent activity.
   const deployed = createDeployActivity(ctx, sync);
   const lifecycle = createLifecycle(ctx, {
@@ -76,7 +87,6 @@ export async function activate(ctx: PluginContext): Promise<void> {
     deployed,
   });
   const previews = createPreviews(ctx, { deployments });
-  const servers = createServerStatuses(ctx, { tables, connections });
   const exec = createExec(ctx, {
     connections,
     containers,

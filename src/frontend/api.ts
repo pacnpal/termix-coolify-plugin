@@ -322,6 +322,70 @@ function queueRows(value: unknown): QueueDeployment[] {
     : [];
 }
 
+/** One event log row (GET /connections/:id/events). Holds no secret. */
+export interface EventRow {
+  id: number;
+  connectionId: number;
+  kind: string;
+  severity: "info" | "warning" | "critical";
+  title: string;
+  resourceUuid: string | null;
+  serverUuid: string | null;
+  deploymentUuid: string | null;
+  hostId: number | null;
+  name: string | null;
+  status: string | null;
+  source: "poll" | "webhook";
+  createdAt: string | null;
+}
+
+/** A page of the event log, newest first. */
+export interface EventPage {
+  rows: EventRow[];
+  /** Pass as `before` for the next page; null when there is none. */
+  nextBefore: number | null;
+}
+
+/** What one event log read asks for; absent filters read everything. */
+export interface EventQuery {
+  before?: number | null;
+  kind?: string | null;
+  uuid?: string | null;
+  limit?: number;
+}
+
+const SEVERITIES = new Set(["info", "warning", "critical"]);
+const textOrNull = (v: unknown) => (typeof v === "string" ? v : null);
+
+function eventRow(value: unknown): EventRow | null {
+  const r = value as Partial<EventRow> | null;
+  if (
+    !r ||
+    !Number.isSafeInteger(r.id) ||
+    typeof r.kind !== "string" ||
+    typeof r.connectionId !== "number"
+  ) {
+    return null;
+  }
+  return {
+    id: r.id as number,
+    connectionId: r.connectionId,
+    kind: r.kind,
+    severity: SEVERITIES.has(String(r.severity))
+      ? (r.severity as EventRow["severity"])
+      : "info",
+    title: typeof r.title === "string" ? r.title : r.kind,
+    resourceUuid: textOrNull(r.resourceUuid),
+    serverUuid: textOrNull(r.serverUuid),
+    deploymentUuid: textOrNull(r.deploymentUuid),
+    hostId: typeof r.hostId === "number" ? r.hostId : null,
+    name: textOrNull(r.name),
+    status: textOrNull(r.status),
+    source: r.source === "webhook" ? "webhook" : "poll",
+    createdAt: textOrNull(r.createdAt),
+  };
+}
+
 /** One image an application can be rolled back to. */
 export interface RollbackImage {
   tag: string;
@@ -1056,6 +1120,27 @@ export function createApi(api: PluginApiClient) {
         running: queueRows(data?.running),
         recent: queueRows(data?.recent),
         fetchedAt: typeof data?.fetchedAt === "string" ? data.fetchedAt : null,
+      };
+    },
+    /** A page of the connection's event log, newest first. */
+    async events(id: number, query: EventQuery = {}): Promise<EventPage> {
+      const params = new URLSearchParams();
+      if (query.limit !== undefined) params.set("limit", String(query.limit));
+      if (query.before != null) params.set("before", String(query.before));
+      if (query.kind) params.set("kind", query.kind);
+      if (query.uuid) params.set("uuid", query.uuid);
+      const search = params.toString();
+      const data = (
+        await api.get<Partial<EventPage>>(
+          `/connections/${id}/events${search ? `?${search}` : ""}`,
+        )
+      ).data;
+      const rows: unknown[] = Array.isArray(data?.rows) ? data.rows : [];
+      const next = data?.nextBefore;
+      return {
+        rows: rows.map(eventRow).filter((r): r is EventRow => r !== null),
+        nextBefore:
+          typeof next === "number" && Number.isSafeInteger(next) ? next : null,
       };
     },
     /** Deployments in progress and attention items across connections. */

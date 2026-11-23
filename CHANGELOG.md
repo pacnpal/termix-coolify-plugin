@@ -9,7 +9,13 @@
   `GET /plugin-api/coolify/connections/{id}/events`. It lists the connection's events newest first, a page
   at a time, filtered by kind or by resource or server. It keeps the newest 1,000 events per connection,
   and removing a connection removes its events. Needs **View Coolify**; another user's connection is
-  never shown
+  never shown. Someone a connection is granted to sees only rows about what that connection's Coolify
+  has now (its resources and servers) plus team-wide ones; if Coolify can't be read to check, the read
+  fails rather than show a partial log. The owner sees every row
+- An **Events** section in the Coolify tab shows that log: newest first, filtered by event kind or
+  resource, with older pages on request. A row opens its deployment's build log, its resource or its
+  server's resources. It refreshes every minute while shown and starts again when the connection or its
+  target changes
 - New operations events for Automations: `coolify.restart-limit`, `coolify.backup-succeeded`,
   `coolify.backup-failed`, `coolify.task-succeeded`, `coolify.task-failed`, `coolify.high-disk`,
   `coolify.certificate-problem` and `coolify.token-expiring`, next to the deployment, restart and

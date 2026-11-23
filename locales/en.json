@@ -802,7 +802,7 @@
     },
     "eventsList": {
       "title": "Coolify event log",
-      "description": "A page of the connection's event log, newest first: deployments, restarts, unreachable servers, backups, scheduled tasks, disk, certificates and expiring tokens. It holds no secrets or log text.",
+      "description": "A page of the connection's event log, newest first: deployments, restarts, unreachable servers, backups, scheduled tasks, disk, certificates and expiring tokens. It holds no secrets or log text. A granted user sees only events about what the connection's Coolify has now, plus team-wide ones.",
       "kind": {
         "label": "Event kind",
         "description": "Only events of this kind."
@@ -970,7 +970,8 @@
     "resources": "Resources",
     "servers": "Servers",
     "connections": "Connections",
-    "deployments": "Deployments"
+    "deployments": "Deployments",
+    "events": "Events"
   },
   "picker": {
     "label": "Coolify connection"
@@ -1653,6 +1654,44 @@
     "noRunning": "Nothing is queued or running.",
     "noRecent": "No recent deployments.",
     "back": "All deployments"
+  },
+  "eventLog": {
+    "title": "Events",
+    "loading": "Loading events…",
+    "failed": "The event log could not be read.",
+    "retry": "Try again",
+    "refresh": "Refresh events",
+    "empty": "No events yet.",
+    "emptyHint": "Finished and failed deployments, restarts, unreachable servers, backups, scheduled tasks, disk and certificate problems show here as Coolify reports them.",
+    "emptyFiltered": "No events match these filters.",
+    "older": "Load older events",
+    "kindFilter": "Event kind",
+    "allKinds": "All kinds",
+    "resourceFilter": "Resource",
+    "allResources": "All resources",
+    "source": {
+      "poll": "Polled",
+      "webhook": "Webhook"
+    },
+    "severity": {
+      "info": "Info",
+      "warning": "Warning",
+      "critical": "Critical"
+    },
+    "kinds": {
+      "deployment-finished": "Deployment finished",
+      "deployment-failed": "Deployment failed",
+      "container-restarted": "Container restarted",
+      "restart-limit": "Restart limit reached",
+      "server-unreachable": "Server unreachable",
+      "backup-succeeded": "Backup succeeded",
+      "backup-failed": "Backup failed",
+      "task-succeeded": "Scheduled task succeeded",
+      "task-failed": "Scheduled task failed",
+      "high-disk": "High disk usage",
+      "certificate-problem": "Certificate problem",
+      "token-expiring": "API token expiring"
+    }
   },
   "activityPanel": {
     "title": "Coolify activity",
