@@ -31,6 +31,7 @@ appear in run history.
 | `coolify.connection-update`        | `PATCH /plugin-api/coolify/connections/:id`                                                   | `/operations/coolify.connection-update/run`        | `operations:run`                      | `coolify__connection_update`        | `curl -X POST "$TERMIX/operations/coolify.connection-update/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","name":"Production"}}'`                                                                 |
 | `coolify.connection-delete`        | `DELETE /plugin-api/coolify/connections/:id`                                                  | `/operations/coolify.connection-delete/run`        | `operations:run`                      | `coolify__connection_delete`        | `curl -X POST "$TERMIX/operations/coolify.connection-delete/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"},"confirmed":true}'`                                                                    |
 | `coolify.connection-set-exec`      | `PATCH /plugin-api/coolify/connections/:id` with `execEnabled`                                | `/operations/coolify.connection-set-exec/run`      | `operations:run`                      | `coolify__connection_set_exec`      | `curl -X POST "$TERMIX/operations/coolify.connection-set-exec/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","execEnabled":true}}'`                                                                |
+| `coolify.connection-set-poll`      | `PATCH /plugin-api/coolify/connections/:id` with `pollEnabled`                                | `/operations/coolify.connection-set-poll/run`      | `operations:run`                      | `coolify__connection_set_poll`      | `curl -X POST "$TERMIX/operations/coolify.connection-set-poll/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","pollEnabled":true}}'`                                                                |
 | `coolify.sync-apply`               | `POST /plugin-api/coolify/connections/:id/sync`                                               | `/operations/coolify.sync-apply/run`               | `operations:run`                      | `coolify__sync_apply`               | `curl -X POST "$TERMIX/operations/coolify.sync-apply/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'`                                                                                            |
 | `coolify.unlink`                   | `POST /plugin-api/coolify/connections/:id/servers/:uuid/unlink`                               | `/operations/coolify.unlink/run`                   | `operations:run`                      | `coolify__unlink`                   | `curl -X POST "$TERMIX/operations/coolify.unlink/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","serverUuid":"<server uuid>"}}'`                                                                   |
 | `coolify.list-resources`           | `GET /plugin-api/coolify/connections/:id/resources`                                           | `/operations/coolify.list-resources/run`           | `operations:read` or `operations:run` | `coolify__list_resources`           | `curl -X POST "$TERMIX/operations/coolify.list-resources/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7}'`                                                                                                          |
@@ -191,7 +192,7 @@ serves.
 | `GET /plugin-api/coolify/connections`                                                         | `coolify.list-connections`                                                                                                                                           |
 | `POST /plugin-api/coolify/connections`                                                        | `coolify.connection-create`                                                                                                                                          |
 | `GET /plugin-api/coolify/connections/:id`                                                     | `coolify.list-connections` (one row of its list)                                                                                                                     |
-| `PATCH /plugin-api/coolify/connections/:id`                                                   | `coolify.connection-update`, or `coolify.connection-set-exec` for `execEnabled`                                                                                      |
+| `PATCH /plugin-api/coolify/connections/:id`                                                   | `coolify.connection-update`, or `coolify.connection-set-exec` for `execEnabled`, or `coolify.connection-set-poll` for `pollEnabled`                                  |
 | `DELETE /plugin-api/coolify/connections/:id`                                                  | `coolify.connection-delete`                                                                                                                                          |
 | `POST /plugin-api/coolify/connections/:id/probe`                                              | `coolify.connection-probe`                                                                                                                                           |
 | `GET /plugin-api/coolify/connections/:id/resources`                                           | `coolify.list-resources-all`; on a Linked host `coolify.list-resources`, and the signals `coolify.signal-degraded` and `coolify.signal-deploying` read the same list |
@@ -480,6 +481,7 @@ connection's event log.
 | --------------------- | -------------------- | ---------------------------------------------------------- |
 | `deployment-finished` | a resource           | `connectionId`, `uuid`, `name`, `deploymentUuid`, `status` |
 | `deployment-failed`   | a resource           | `connectionId`, `uuid`, `name`, `deploymentUuid`, `status` |
+| `status-changed`      | a resource           | `connectionId`, `uuid`, `name`, `deploymentUuid`, `status` |
 | `container-restarted` | a resource           | `connectionId`, `uuid`, `name`, `deploymentUuid`, `status` |
 | `restart-limit`       | a resource           | `connectionId`, `uuid`, `name`, `deploymentUuid`, `status` |
 | `backup-succeeded`    | a resource           | `connectionId`, `uuid`, `name`, `deploymentUuid`, `status` |
@@ -500,8 +502,52 @@ connection's event log.
   connection's own token are masked, text keeps only its first line, and log or command output is dropped.
 - The log keeps each connection's newest 1,000 events. Removing a connection removes its events.
 
-Polling and the team webhook feed the pipeline in a later release; a deploy with `wait` still sends its
-deployment event directly.
+A deploy with `wait` hands its deployment's end to the same pipeline, so it and a poll of the same
+deployment send one event. The team webhook feeds it in a later 1.2 update.
+
+### Polling
+
+Every connection polls Coolify, with its own token, every minute or more (the admin setting **Minimum poll
+interval**; a value under a minute counts as a minute), with jitter. Each poll reads the connection's
+resources, its deployment queue and recent deployments, and its server statuses, from the same caches the
+tab reads, and every five minutes also its databases' backup runs and its applications' and services'
+scheduled task runs (at most 50 of each). It only reads. The changes since the last poll become events:
+
+| Change                                                                      | Event                                                                  |
+| --------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| A deployment ended (also one that started and ended between two polls)      | `deployment-finished` or `deployment-failed`                           |
+| A resource went between running, degraded and stopped (not while deploying) | `status-changed`, `fields` `from` and `to`                             |
+| A resource started restarting (also from an unhealthy state)                | `container-restarted`                                                  |
+| A server Coolify could reach became unreachable                             | `server-unreachable`                                                   |
+| A backup or scheduled task run ended                                        | `backup-succeeded`, `backup-failed`, `task-succeeded` or `task-failed` |
+
+- **The first poll is a baseline.** A connection's first poll after Termix starts, after its address, token,
+  Access or TLS settings change, after polling was paused or after its owner gets **View Coolify** back
+  records what is there and sends nothing, so existing state never floods the log. Changes while nothing
+  polled are not sent.
+- A connection polls until its team's Coolify webhook has delivered once; from then on it polls only when
+  **Keep polling after a webhook arrives** (`pollEnabled`) is on. Change it in the connection editor, with
+  `PATCH /plugin-api/coolify/connections/{id}` and `pollEnabled`, or with `coolify.connection-set-poll`.
+- Nothing polls while the admin setting **Allow polling** is off, nor for a connection whose owner lost **View
+  Coolify**.
+- **Scoped tokens.** A token limited to projects or resources polls its resources and deployments. Its
+  servers are never asked (Coolify refuses them), so it gets no `server-unreachable`. Any read Coolify
+  refuses for the token's abilities (servers, deployments, one resource's backups or scheduled tasks)
+  counts as not read for that poll: nothing about it is sent, and what was seen before is kept for the
+  next poll. Only other errors fail the poll.
+- After a failed poll the connection waits 1, 2, 5 and then 15 minutes, counted from when it failed, before the next, and shows the cause
+  as `pollError` on the connection (`unreachable`, `unauthorized` and so on, the same words as a failed
+  check). A poll that works clears it and the wait.
+- A poll is about one read of the connection. If its address, token, Access or TLS settings change while it
+  runs, it keeps nothing and sends nothing, and the next poll is a baseline again. Each request checks
+  first, so none is sent with the old token after the change, even one waiting to retry.
+
+### Action `coolify.connection-set-poll`
+
+A change, with inputs `connectionId` and `pollEnabled`. It needs **Configure Coolify**, and only the
+connection's owner can change it; a grantee at any level is refused, and so is
+`PATCH /plugin-api/coolify/connections/:id` with `pollEnabled` from a grantee (403). Each change is
+audited. Connections show `pollEnabled` and `pollError` to everyone who can read them.
 
 ### `GET /plugin-api/coolify/connections/{id}/events?limit=&before=&kind=&uuid=`
 

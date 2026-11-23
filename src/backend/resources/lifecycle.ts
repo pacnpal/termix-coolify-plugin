@@ -15,6 +15,7 @@ import {
   type AccessLevel,
   type Connections,
 } from "../connections/service.js";
+import type { Events } from "../events/service.js";
 import type { Sync } from "../sync/service.js";
 import type { Resources } from "./service.js";
 
@@ -152,6 +153,11 @@ export interface LifecycleDeps {
   sync: Pick<Sync, "linkOfHost" | "linkedHostFor">;
   /** The post-start hook every deploy path shares (recent activity). */
   deployed: DeployActivity;
+  /**
+   * The event pipeline: a waited deploy hands it the deployment's end, so a
+   * poll that sees the same deployment sends no second event.
+   */
+  events: Pick<Events, "ingest">;
   /** Waits between deployment polls; tests pass one that doesn't. */
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   pollMs?: number;
@@ -194,7 +200,7 @@ function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
  * called.
  */
 export function createLifecycle(ctx: PluginContext, deps: LifecycleDeps) {
-  const { connections, resources, sync, deployed } = deps;
+  const { connections, resources, sync, deployed, events } = deps;
   const sleep = deps.sleep ?? abortableSleep;
   const pollMs = deps.pollMs ?? POLL_MS;
   const maxWaitMs = deps.maxWaitMs ?? MAX_WAIT_MS;
@@ -303,8 +309,9 @@ export function createLifecycle(ctx: PluginContext, deps: LifecycleDeps) {
     /**
      * Runs one action on an authorized resource. A deploy with `wait`
      * follows the deployment until it reaches any final status
-     * (shared/deployment-status.ts) and emits deployment-finished for a
-     * successful build, or deployment-failed and then throws
+     * (shared/deployment-status.ts) and hands the event pipeline
+     * deployment-finished for a successful build, or deployment-failed and
+     * then throws
      * DeploymentFailedError (cause `skipped` when Coolify skipped it). A
      * deployment still running when the wait reaches its limit (30 minutes)
      * emits nothing and throws DeploymentFailedError with cause
@@ -326,6 +333,10 @@ export function createLifecycle(ctx: PluginContext, deps: LifecycleDeps) {
       } = {},
     ): Promise<LifecycleOutcome> {
       opts.signal?.throwIfAborted();
+      // The revision before the client: if the target changes in between,
+      // the event is about the new target under the old revision, and the
+      // pipeline drops it rather than keep it.
+      const revision = await connections.revision(connectionId);
       const api = await connections.api(connectionId);
       let result: { deploymentUuid: string | null };
       try {
@@ -367,20 +378,27 @@ export function createLifecycle(ctx: PluginContext, deps: LifecycleDeps) {
           link: deploymentLink(connectionId, resource, result.deploymentUuid),
         });
       }
-      // Every final status emits one event: finished for a successful
-      // build, failed for the rest (failed, cancelled, skipped).
+      // Every final status is one event: finished for a successful build,
+      // failed for the rest (failed, cancelled, skipped). It goes through
+      // the pipeline, deduped by the deployment's uuid, so a poll that sees
+      // the same deployment end sends nothing more. The pipeline gives it
+      // the server's Linked host.
       const failed = !isSuccessfulDeployment(status);
-      await ctx.operations.emit(
-        failed ? "coolify.deployment-failed" : "coolify.deployment-finished",
-        {
+      if (revision) {
+        await events.ingest(
           connectionId,
-          uuid: resource.uuid,
-          name: resource.name,
-          deploymentUuid: result.deploymentUuid,
-          status,
-        },
-        opts.hostId ? { hostId: opts.hostId } : undefined,
-      );
+          {
+            kind: failed ? "deployment-failed" : "deployment-finished",
+            source: "poll",
+            resourceUuid: resource.uuid,
+            serverUuid: resource.serverUuid,
+            deploymentUuid: result.deploymentUuid,
+            name: resource.name,
+            status,
+          },
+          { revision },
+        );
+      }
       if (failed) throw new DeploymentFailedError(resource.name, status);
       return { ...result, status };
     },

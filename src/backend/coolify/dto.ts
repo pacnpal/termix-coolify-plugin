@@ -693,3 +693,59 @@ export function toVulnerability(input: unknown): VulnerabilityDto {
     exploited: count(security.exploited_count),
   };
 }
+/**
+ * One run of a database backup or a scheduled task, as the poller reads it:
+ * its uuid, Coolify's status word and when it ended. The run's message
+ * (backup or command output) is never kept.
+ */
+export interface RunDto {
+  uuid: string;
+  status: string;
+  /** When it finished, else when it was last updated or created; ISO text. */
+  at: string | null;
+}
+
+/** A scheduled task without its command: only what names it. */
+export interface ScheduledTaskDto {
+  uuid: string;
+  name: string;
+  enabled: boolean;
+}
+
+function toRun(input: unknown): RunDto {
+  const raw = obj(input);
+  return {
+    uuid: str(raw.uuid),
+    status: str(raw.status, "unknown"),
+    at:
+      strOrNull(raw.finished_at) ??
+      strOrNull(raw.updated_at) ??
+      strOrNull(raw.created_at),
+  };
+}
+
+/**
+ * The runs of every backup schedule of one database, as
+ * `GET /databases/{uuid}/backups` lists them (each schedule with its
+ * `executions`).
+ */
+export function toBackupRuns(input: unknown): RunDto[] {
+  return list(input).flatMap((config) =>
+    list(obj(config).executions).map(toRun),
+  );
+}
+
+/** One scheduled task, as `GET /<kind>s/{uuid}/scheduled-tasks` lists it. */
+export function toScheduledTask(input: unknown): ScheduledTaskDto {
+  const raw = obj(input);
+  return {
+    uuid: str(raw.uuid),
+    name: str(raw.name),
+    enabled: raw.enabled === undefined ? true : bool(raw.enabled),
+  };
+}
+
+/** One task run, as `.../scheduled-tasks/{task_uuid}/executions` lists it. */
+export function toTaskRun(input: unknown): RunDto {
+  return toRun(input);
+}

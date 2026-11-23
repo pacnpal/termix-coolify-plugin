@@ -97,6 +97,16 @@ function readBody(body: unknown, partial: boolean): ConnectionPatch {
   return out as ConnectionPatch;
 }
 
+/** An optional boolean field of the body; anything else is 400. */
+function flag(body: Record<string, unknown>, key: string): boolean | undefined {
+  const value = body[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "boolean") {
+    throw new ConnectionError("invalid-input", `${key} must be true or false`);
+  }
+  return value;
+}
+
 export function registerConnectionRoutes(
   router: Router,
   ctx: PluginContext,
@@ -223,7 +233,9 @@ export function registerConnectionRoutes(
    *       the stored one; null for both Cloudflare Access values clears them.
    *       Changing the address, token or TLS settings runs the probe again.
    *       execEnabled turns running commands in this connection's containers
-   *       (coolify.exec) on or off; a grantee at any level is refused with 403.
+   *       (coolify.exec) on or off, and pollEnabled whether the connection keeps
+   *       polling Coolify once its team's webhook has delivered; for either, a
+   *       grantee at any level is refused with 403.
    *     tags:
    *       - Coolify
    *     parameters:
@@ -266,6 +278,11 @@ export function registerConnectionRoutes(
    *                 description: >-
    *                   Allow running commands in containers through the API and
    *                   MCP. Also needs the admin setting allowExec.
+   *               pollEnabled:
+   *                 type: boolean
+   *                 description: >-
+   *                   Keep polling Coolify for changes once the team's webhook
+   *                   has delivered. Until then the connection polls anyway.
    *     responses:
    *       200:
    *         description: The changed connection, without any token
@@ -287,25 +304,21 @@ export function registerConnectionRoutes(
     safe(ctx, async (req, res) => {
       const id = idParam(req);
       const patch = readBody(req.body, true);
-      const raw = (req.body as Record<string, unknown>).execEnabled;
-      const exec = typeof raw === "boolean" ? raw : undefined;
-      if (raw !== undefined && exec === undefined) {
-        throw new ConnectionError(
-          "invalid-input",
-          "execEnabled must be true or false",
-        );
-      }
-      // execEnabled is its own owner-only, audited change (as the
-      // coolify.connection-set-exec action); the rest is an ordinary update.
-      if (exec !== undefined && Object.keys(patch).length === 0) {
-        res.json(await connections.setExec(id, exec));
-        return;
-      }
-      // The rest first: a rejected update leaves execEnabled as it was.
-      const updated = await connections.update(id, patch);
-      res.json(
-        exec === undefined ? updated : await connections.setExec(id, exec),
-      );
+      const body = req.body as Record<string, unknown>;
+      const exec = flag(body, "execEnabled");
+      const poll = flag(body, "pollEnabled");
+      // execEnabled and pollEnabled are their own owner-only, audited changes
+      // (as the coolify.connection-set-exec and -set-poll actions); the rest
+      // is an ordinary update, made first, so a rejected update leaves both
+      // as they were.
+      let saved =
+        Object.keys(patch).length > 0 ||
+        (exec === undefined && poll === undefined)
+          ? await connections.update(id, patch)
+          : null;
+      if (exec !== undefined) saved = await connections.setExec(id, exec);
+      if (poll !== undefined) saved = await connections.setPoll(id, poll);
+      res.json(saved);
     }),
   );
 

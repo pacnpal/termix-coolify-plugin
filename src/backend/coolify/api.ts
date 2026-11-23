@@ -17,6 +17,9 @@ import {
   toStorages,
   toTeam,
   toVulnerability,
+  toBackupRuns,
+  toScheduledTask,
+  toTaskRun,
   type DeploymentDto,
   type KeyDto,
   type PreviewDto,
@@ -24,6 +27,8 @@ import {
   type ResourceDto,
   type ResourceKind,
   type RollbackImagesDto,
+  type RunDto,
+  type ScheduledTaskDto,
   type SentinelSettingsDto,
   type ServerDto,
   type StorageDto,
@@ -32,6 +37,11 @@ import {
 } from "./dto.js";
 
 export type LifecycleAction = "start" | "stop" | "restart";
+
+/** Runs right before each request (after budget and retry waits); a throw sends nothing. */
+export interface FetchGuard {
+  beforeFetch?: () => Promise<void>;
+}
 
 const BY_ID = new Map(OPERATIONS.map((op) => [op.id, op]));
 
@@ -211,8 +221,10 @@ export function createCoolifyApi(http: CoolifyHttp) {
       return rows(await call(op("list-projects")), "projects").map(toProject);
     },
 
-    async servers(): Promise<ServerDto[]> {
-      return rows(await call(op("list-servers")), "servers").map(toServer);
+    async servers(opts: FetchGuard = {}): Promise<ServerDto[]> {
+      return rows(await call(op("list-servers"), opts), "servers").map(
+        toServer,
+      );
     },
 
     async server(uuid: string): Promise<ServerDto> {
@@ -247,20 +259,21 @@ export function createCoolifyApi(http: CoolifyHttp) {
       };
     },
 
-    async applications(): Promise<ResourceDto[]> {
-      return rows(await call(op("list-applications")), "applications").map(
-        toApplication,
-      );
+    async applications(opts: FetchGuard = {}): Promise<ResourceDto[]> {
+      return rows(
+        await call(op("list-applications"), opts),
+        "applications",
+      ).map(toApplication);
     },
 
-    async services(): Promise<ResourceDto[]> {
-      return rows(await call(op("list-services")), "services").flatMap(
+    async services(opts: FetchGuard = {}): Promise<ResourceDto[]> {
+      return rows(await call(op("list-services"), opts), "services").flatMap(
         toService,
       );
     },
 
-    async databases(): Promise<ResourceDto[]> {
-      return rows(await call(op("list-databases")), "databases").map(
+    async databases(opts: FetchGuard = {}): Promise<ResourceDto[]> {
+      return rows(await call(op("list-databases"), opts), "databases").map(
         toDatabase,
       );
     },
@@ -398,6 +411,54 @@ export function createCoolifyApi(http: CoolifyHttp) {
           message: text(d.message),
         };
       });
+    },
+
+    /**
+     * The runs of every backup schedule of one database, without their
+     * messages (the poller).
+     */
+    async backupRuns(
+      databaseUuid: string,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<RunDto[]> {
+      return toBackupRuns(
+        await call(op("get-database-backups-by-uuid", { uuid: databaseUuid }), {
+          beforeFetch: opts.beforeFetch,
+        }),
+      );
+    },
+
+    /** An application's or a service's scheduled tasks, without commands. */
+    async scheduledTasks(
+      kind: "application" | "service",
+      uuid: string,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<ScheduledTaskDto[]> {
+      return rows(
+        await call(op(`list-scheduled-tasks-by-${kind}-uuid`, { uuid }), {
+          beforeFetch: opts.beforeFetch,
+        }),
+        "tasks",
+      ).map(toScheduledTask);
+    },
+
+    /** One scheduled task's runs, without their output. */
+    async taskRuns(
+      kind: "application" | "service",
+      uuid: string,
+      taskUuid: string,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<RunDto[]> {
+      return rows(
+        await call(
+          op(`list-scheduled-task-executions-by-${kind}-uuid`, {
+            uuid,
+            task_uuid: taskUuid,
+          }),
+          { beforeFetch: opts.beforeFetch },
+        ),
+        "executions",
+      ).map(toTaskRun);
     },
 
     /** Coolify's queue: the deployments queued or running now, without logs. */

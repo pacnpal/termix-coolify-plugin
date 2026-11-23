@@ -116,6 +116,22 @@ export function registerConnectionOperations(
     },
   });
 
+  ctx.operations.register("coolify.connection-set-poll", {
+    run: async (input) => {
+      const updated = await connections.setPoll(
+        connectionIdInput(input),
+        input.pollEnabled as boolean,
+      );
+      return {
+        summary: updated.pollEnabled
+          ? `${updated.name} keeps polling Coolify after a webhook arrives`
+          : `${updated.name} stops polling Coolify once a webhook arrives`,
+        changed: true,
+        data: updated,
+      };
+    },
+  });
+
   ctx.operations.register("coolify.connection-delete", {
     run: async (input) => {
       const removed = await connections.remove(connectionIdInput(input), {

@@ -36,6 +36,10 @@ export interface Connection {
   autoSync: boolean;
   /** The owner's opt-in to coolify.exec; it also needs the admin's allowExec. */
   execEnabled: boolean;
+  /** Whether it keeps polling once its team's webhook has delivered. */
+  pollEnabled?: boolean;
+  /** The cause of its last failed poll (a key under `causes`), or null. */
+  pollError?: string | null;
   access: "owner" | "view" | "operate" | "configure";
   allowPrivate: boolean;
   caCert: string | null;
@@ -836,6 +840,12 @@ export function createApi(api: PluginApiClient) {
     async setExec(id: number, execEnabled: boolean): Promise<Connection> {
       return (
         await api.patch<Connection>(`/connections/${id}`, { execEnabled })
+      ).data;
+    },
+    /** Owner only: keeps polling Coolify once the team's webhook delivered, or not. */
+    async setPoll(id: number, pollEnabled: boolean): Promise<Connection> {
+      return (
+        await api.patch<Connection>(`/connections/${id}`, { pollEnabled })
       ).data;
     },
     async deleteConnection(id: number): Promise<void> {
