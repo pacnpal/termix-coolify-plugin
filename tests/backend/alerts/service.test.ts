@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { OWNER_ONLY_SUBJECTS } from "../helpers/events.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createMockCtx,
@@ -111,6 +112,7 @@ function build(onStored?: (event: EventRecord) => unknown) {
     tables,
     connections,
     sync,
+    subjects: OWNER_ONLY_SUBJECTS,
     onStored: onStored ?? ((event) => alerts.notify(event)),
   });
 }

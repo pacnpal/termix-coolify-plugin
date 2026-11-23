@@ -9,6 +9,7 @@ import {
 import {
   Boxes,
   Braces,
+  History,
   LayoutDashboard,
   Plug,
   Rocket,
@@ -41,6 +42,7 @@ import type { ResourceHealth } from "../../shared/resource-health";
 import { ApiConsoleView } from "./ApiConsoleView";
 import { ConnectionsView, syncable } from "./ConnectionsView";
 import { DeploymentsSection, type OpenDeployment } from "./DeploymentsSection";
+import { EventsSection, type EventSubject } from "./EventsSection";
 import { OverviewView } from "./OverviewView";
 import { ResourceDetail } from "./ResourceDetail";
 import { ResourcesView } from "./ResourcesView";
@@ -55,12 +57,19 @@ import { useResources } from "./useResources";
  * the API console picks its own connection.
  */
 export type Section =
-  "overview" | "resources" | "deployments" | "servers" | "connections" | "api";
+  | "overview"
+  | "resources"
+  | "deployments"
+  | "events"
+  | "servers"
+  | "connections"
+  | "api";
 
 const SECTIONS: readonly string[] = [
   "overview",
   "resources",
   "deployments",
+  "events",
   "servers",
   "connections",
   "api",
@@ -316,6 +325,7 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
     { id: "overview", label: t("nav.overview"), icon: LayoutDashboard },
     { id: "resources", label: t("nav.resources"), icon: Boxes },
     { id: "deployments", label: t("nav.deployments"), icon: Rocket },
+    { id: "events", label: t("nav.events"), icon: History },
     ...(canConfigure
       ? [{ id: "servers", label: t("nav.servers"), icon: Server }]
       : []),
@@ -346,6 +356,33 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
 
   function openShell(resource: Resource, console: "shell" | "db") {
     if (connection) openShellTab(shell, t, connection, resource, console);
+  }
+
+  /** An event row opens its subject; a build log only with operate. */
+  function openSubject(subject: EventSubject) {
+    if (!connection) return;
+    setIntent(NO_INTENT);
+    if (subject.open === "deployment" && mayOperate) {
+      setOpenDeployment({
+        connectionId: connection.id,
+        resourceUuid: subject.resourceUuid,
+        deploymentUuid: subject.deploymentUuid,
+      });
+      setSection("deployments");
+      return;
+    }
+    setOpenDeployment(null);
+    if (subject.open === "server") {
+      setHealth("all");
+      setServer(subject.uuid);
+      setOpenUuid(null);
+    } else {
+      setServer(null);
+      setOpenUuid(
+        subject.open === "resource" ? subject.uuid : subject.resourceUuid,
+      );
+    }
+    setSection("resources");
   }
 
   /** A pick in the Resources list: a shell once when asked, else the detail. */
@@ -417,6 +454,21 @@ export function CoolifyTab({ tab, shell, isVisible }: TabProps) {
           setServer(null);
           setSection("resources");
         }}
+      />
+    );
+  } else if (section === "events") {
+    body = (
+      // Keyed so a changed connection or target starts empty, filters too.
+      <EventsSection
+        key={`${connection.id}\n${connection.revision ?? ""}`}
+        api={api}
+        connectionId={connection.id}
+        revision={connection.revision ?? null}
+        resources={rows}
+        canOpenLog={mayOperate}
+        isVisible={isVisible}
+        onOpen={openSubject}
+        picker={picker}
       />
     );
   } else if (section === "deployments") {

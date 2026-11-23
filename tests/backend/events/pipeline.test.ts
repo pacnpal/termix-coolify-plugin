@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { OWNER_ONLY_SUBJECTS } from "../helpers/events.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createMockCtx,
@@ -114,6 +115,7 @@ beforeEach(async () => {
     tables,
     connections,
     sync,
+    subjects: OWNER_ONLY_SUBJECTS,
     now: () => clock,
     store,
   });

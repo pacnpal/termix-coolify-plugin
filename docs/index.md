@@ -333,6 +333,21 @@ other resources by then nothing is deployed and you're asked to review again. It
 resources** and operate access. The action `coolify.deploy-by-tag` does the same (a dry run lists the
 resources), and `coolify.deployment-queue` reads the queue.
 
+### The Events section
+
+**Events** in the Coolify tab is the selected connection's event log: finished and failed deployments,
+status changes, container restarts, the restart limit, unreachable servers, backups, scheduled tasks, high disk use,
+certificate problems and expiring API tokens, newest first. Pick an event kind or a resource to narrow it,
+and **Load older events** for the next page. A row opens what it is about: a deployment's build log (with
+**Operate Coolify** and operate access to the connection; otherwise the resource), the resource's detail, or
+the Resources list filtered to the server. Team-wide events, like an expiring token, open nothing.
+
+While the section is shown it reads the log again a minute after each read finishes, which is as often as
+any source adds to it; it stops while the tab or the section is hidden. Picking another connection, or
+changing the selected one's address or token, starts the list again. Someone a connection is granted to
+sees only events about what that connection's Coolify has now, plus team-wide ones; the owner sees all of
+them. The log keeps each connection's newest 1,000 events.
+
 ### The activity panel and the rail badge
 
 The **Coolify activity** panel opens from its own sidebar button. It lists, across every connection you can
