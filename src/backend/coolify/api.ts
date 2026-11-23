@@ -16,6 +16,7 @@ import {
   toService,
   toStorages,
   toTeam,
+  toVulnerability,
   type DeploymentDto,
   type KeyDto,
   type PreviewDto,
@@ -27,6 +28,7 @@ import {
   type ServerDto,
   type StorageDto,
   type TeamDto,
+  type VulnerabilityDto,
 } from "./dto.js";
 
 export type LifecycleAction = "start" | "stop" | "restart";
@@ -406,6 +408,19 @@ export function createCoolifyApi(http: CoolifyHttp) {
         beforeFetch: opts.beforeFetch,
       });
       return rows(body, "deployments").map((d) => toDeployment(d));
+    },
+
+    /**
+     * The team's resources with their stored image scanning status, worst
+     * first. Only counts are kept (dto.ts toVulnerability).
+     */
+    async vulnerabilities(
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<VulnerabilityDto[]> {
+      const body = await call(op("list-vulnerabilities"), {
+        beforeFetch: opts.beforeFetch,
+      });
+      return rows(body, "resources").map(toVulnerability);
     },
 
     /** The applications that carry a tag (Coolify filters by its name). */

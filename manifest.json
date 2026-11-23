@@ -96,6 +96,13 @@
         "icon": "Activity"
       }
     ],
+    "dashboardCards": [
+      {
+        "id": "coolify",
+        "titleKey": "dashboardCard.title",
+        "icon": "Rocket"
+      }
+    ],
     "hostSections": [
       {
         "id": "coolify",
@@ -1516,6 +1523,64 @@
               "type": "number",
               "labelKey": "ops.eventsList.before.label",
               "descriptionKey": "ops.eventsList.before.description"
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.connection-overview",
+          "titleKey": "ops.connectionOverview.title",
+          "descriptionKey": "ops.connectionOverview.description",
+          "icon": "LayoutDashboard",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "refresh",
+              "type": "boolean",
+              "labelKey": "ops.fields.refresh.label",
+              "descriptionKey": "ops.fields.refresh.description"
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.vulnerability-summary",
+          "titleKey": "ops.vulnerabilitySummary.title",
+          "descriptionKey": "ops.vulnerabilitySummary.description",
+          "icon": "ShieldAlert",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "refresh",
+              "type": "boolean",
+              "labelKey": "ops.fields.refresh.label",
+              "descriptionKey": "ops.fields.refresh.description"
             }
           ],
           "risk": "read",
@@ -3234,7 +3299,8 @@
       "terminal.view",
       "files.openHost",
       "files.openEditor",
-      "tunnels.views"
+      "tunnels.views",
+      "homepage.widgets"
     ]
   },
   "locales": "locales",

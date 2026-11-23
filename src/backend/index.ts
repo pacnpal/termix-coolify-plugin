@@ -12,6 +12,8 @@ import { registerContainerCompanionRoutes } from "./companions/container-routes.
 import { createConnections } from "./connections/service.js";
 import { createEvents } from "./events/service.js";
 import { registerEventRoutes } from "./events/routes.js";
+import { createDashboard } from "./dashboard/service.js";
+import { registerDashboardRoutes } from "./dashboard/routes.js";
 import { registerConnectionRoutes } from "./connections/routes.js";
 import { createResources } from "./resources/service.js";
 import { createLifecycle } from "./resources/lifecycle.js";
@@ -115,6 +117,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
     deployments,
     servers,
   });
+  const dashboard = createDashboard(ctx, { connections, resources, servers });
   const statusPages = createStatusPages(ctx, {
     tables,
     connections,
@@ -123,7 +126,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
   const router = ctx.http.router<Router>({ public: PUBLIC_STATUS_PATHS });
   router.use(rememberBaseUrlMiddleware(ctx) as never);
   registerConnectionRoutes(router, ctx, connections);
-  registerResourceRoutes(router, ctx, resources);
+  registerResourceRoutes(router, ctx, resources, connections);
   registerServerHealthRoutes(router, ctx, { resources, servers });
   registerSyncRoutes(router, ctx, sync);
   registerLifecycleRoutes(router, ctx, lifecycle);
@@ -131,6 +134,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
   registerPreviewRoutes(router, ctx, previews);
   registerAttentionRoutes(router, ctx, attention);
   registerEventRoutes(router, ctx, events);
+  registerDashboardRoutes(router, ctx, dashboard);
   registerContainerRoutes(router, ctx, containers, logs);
   registerLogSocket(ctx, { logs });
   registerStatsSocket(ctx, { connections, containers });
@@ -161,6 +165,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
     metrics,
     attention,
     events,
+    dashboard,
   });
   provideClient(ctx);
   await statusPages.start();

@@ -6,6 +6,7 @@ import type { AttentionService } from "./attention/service.js";
 import type { Companions } from "./companions/service.js";
 import type { ContainerCompanions } from "./companions/container-service.js";
 import type { Containers } from "./containers/service.js";
+import type { Dashboard } from "./dashboard/service.js";
 import type { Exec } from "./containers/exec.js";
 import type { Events } from "./events/service.js";
 import type { Logs } from "./containers/logs.js";
@@ -26,6 +27,7 @@ import {
   type GenericApi,
 } from "./ops/api-generic.js";
 import { registerContainerOperations } from "./ops/containers.js";
+import { registerDashboardOperations } from "./ops/dashboard.js";
 import { registerDeploymentOperations } from "./ops/deployments.js";
 import { registerPreviewOperations } from "./ops/previews.js";
 import { registerLifecycleOperations } from "./ops/lifecycle.js";
@@ -62,6 +64,7 @@ export interface Services {
   metrics: Metrics;
   attention: AttentionService;
   events: Events;
+  dashboard: Dashboard;
 }
 
 /**
@@ -135,4 +138,5 @@ export function registerOperations(
   registerMetricsOperations(ctx, services.metrics);
   registerAttentionOperations(ctx, services.attention);
   registerEventOperations(ctx, services.events);
+  registerDashboardOperations(ctx, services.dashboard);
 }

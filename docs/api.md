@@ -57,6 +57,8 @@ appear in run history.
 | `coolify.deployment-queue`         | `GET /plugin-api/coolify/connections/:id/deployments`                                         | `/operations/coolify.deployment-queue/run`         | `operations:read` or `operations:run` | `coolify__deployment_queue`         | `curl -X POST "$TERMIX/operations/coolify.deployment-queue/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'`                                                                                      |
 | `coolify.attention`                | `GET /plugin-api/coolify/attention`                                                           | `/operations/coolify.attention/run`                | `operations:read` or `operations:run` | `coolify__attention`                | `curl -X POST "$TERMIX/operations/coolify.attention/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{}}'`                                                                                                               |
 | `coolify.events-list`              | `GET /plugin-api/coolify/connections/:id/events`                                              | `/operations/coolify.events-list/run`              | `operations:read` or `operations:run` | `coolify__events_list`              | `curl -X POST "$TERMIX/operations/coolify.events-list/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'`                                                                                           |
+| `coolify.connection-overview`      | `GET /plugin-api/coolify/connections/:id/overview`                                            | `/operations/coolify.connection-overview/run`      | `operations:read` or `operations:run` | `coolify__connection_overview`      | `curl -X POST "$TERMIX/operations/coolify.connection-overview/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'`                                                                                   |
+| `coolify.vulnerability-summary`    | `GET /plugin-api/coolify/connections/:id/vulnerabilities`                                     | `/operations/coolify.vulnerability-summary/run`    | `operations:read` or `operations:run` | `coolify__vulnerability_summary`    | `curl -X POST "$TERMIX/operations/coolify.vulnerability-summary/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'`                                                                                 |
 | `coolify.deploy-by-tag`            | `POST /plugin-api/coolify/connections/:id/deploy-by-tag`                                      | `/operations/coolify.deploy-by-tag/run`            | `operations:run`                      | `coolify__deploy_by_tag`            | `curl -X POST "$TERMIX/operations/coolify.deploy-by-tag/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","tag":"prod","force":false}}'`                                                              |
 | `coolify.signal-degraded`          | `GET /plugin-api/coolify/connections/:id/resources`                                           | `/operations/coolify.signal-degraded/run`          | `operations:read` or `operations:run` | `coolify__signal_degraded`          | `curl -X POST "$TERMIX/operations/coolify.signal-degraded/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7}'`                                                                                                         |
 | `coolify.signal-server`            | `GET /plugin-api/coolify/connections/:id/servers`                                             | `/operations/coolify.signal-server/run`            | `operations:read` or `operations:run` | `coolify__signal_server`            | `curl -X POST "$TERMIX/operations/coolify.signal-server/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7}'`                                                                                                           |
@@ -213,6 +215,8 @@ serves.
 | `GET /plugin-api/coolify/connections/:id/deployments`                                         | `coolify.deployment-queue`                                                                                                                                           |
 | `GET /plugin-api/coolify/attention`                                                           | `coolify.attention`                                                                                                                                                  |
 | `GET /plugin-api/coolify/connections/:id/events`                                              | `coolify.events-list`                                                                                                                                                |
+| `GET /plugin-api/coolify/connections/:id/overview`                                            | `coolify.connection-overview`                                                                                                                                        |
+| `GET /plugin-api/coolify/connections/:id/vulnerabilities`                                     | `coolify.vulnerability-summary`                                                                                                                                      |
 | `GET /plugin-api/coolify/connections/:id/deploy-by-tag`                                       | `coolify.deploy-by-tag` (its dry run lists the same resources)                                                                                                       |
 | `POST /plugin-api/coolify/connections/:id/deploy-by-tag`                                      | `coolify.deploy-by-tag`                                                                                                                                              |
 | `POST /plugin-api/coolify/connections/:id/resources/:uuid/shell`                              | `coolify.shell-command`                                                                                                                                              |
@@ -510,6 +514,53 @@ the connection; another user's connection is 404, and a malformed or repeated pa
 
 A read offered to the assistant and MCP: `connectionId` and optionally `kind`, `uuid`, `limit` and `before`.
 Its data is the route's answer and its summary counts the events, like "50 events, more before".
+
+## Dashboard cards and homepage widgets
+
+The Coolify card on Termix's dashboard and the four Coolify widgets on the homepage read through these two
+routes and two existing ones: the single resource card reads `GET /connections/{id}/resources` (and deploys
+through `POST /connections/{id}/resources/{uuid}/deploy`), and the deployments card reads
+`GET /connections/{id}/deployments`. See [the user guide](index.md#dashboard-cards-and-homepage-widgets).
+
+### `GET /plugin-api/coolify/connections/{id}/overview?refresh=`
+
+The connection's resources counted by status, and its servers. Needs **View Coolify** and any access to the
+connection; another user's connection is 404. It answers `{ connectionId, counts, total, servers, fetchedAt }`:
+
+- `counts`: `{ running, degraded, stopped, deploying }`, Parts left out and exited counted as stopped, as the
+  Overview's tiles count them. `total` is their sum.
+- `servers`: `{ total, unreachable, unusable }`, or null when the token can't read servers. No names,
+  addresses or keys.
+
+It asks Coolify nothing of its own: the counts come from the resource cache (20 seconds) and the servers from
+the server status cache (a minute) that the tab, the host dots and the activity panel read through.
+`?refresh=1` skips the resource cache. Both lists are answered only for the target they were read from: when
+the connection's address, token or Access settings change during the read, it ends with `target-changed`
+(409), and so does `GET /connections/{id}/resources`, which the single resource card reads.
+
+### `GET /plugin-api/coolify/connections/{id}/vulnerabilities?refresh=`
+
+How many of the connection's resources have known vulnerabilities, from Coolify's `GET /vulnerabilities`
+(the stored image scanning status of the team's applications, services and databases). Needs **View
+Coolify** and any access to the connection. It answers `{ connectionId, resources, affected, statuses,
+problems, fetchedAt }`:
+
+- `resources`: how many resources Coolify listed; `affected`: those whose status is update now, update
+  available or no fix.
+- `statuses`: `{ updateNow, updateAvailable, noFix, checkNeeded, ok, notChecked }`, one count per status.
+- `problems`: `{ total, critical, high, medium, exploited }`, summed over the resources.
+
+Counts only: no resource names, image names, labels or advice that Coolify wrote leave the plugin. It is
+kept five minutes per connection and shared by every reader; `?refresh=1` skips it. A summary read before
+the connection's address, token or Access settings changed is never served, and a change during the read
+ends with `target-changed` (409).
+
+### Actions `coolify.connection-overview` and `coolify.vulnerability-summary`
+
+Reads offered to the assistant and MCP: `connectionId` and optionally `refresh`. Their data is the route's
+answer. The overview's summary reads like "5 resources: 0 running, 2 degraded, 2 stopped, 1 deploying, 2
+servers (1 unreachable)", the vulnerabilities' like "3 of 5 resources have known vulnerabilities (2
+critical, 4 high)".
 
 ## Rollback
 

@@ -17,6 +17,18 @@
   once per kind, resource (or server) and minute, so the same thing seen in different minutes can be
   separate events. It carries the host only when its server is Linked. Events hold no secrets, tokens, credentials inside
   URLs or log text. Polling and the Coolify webhook start sending them in a later 1.2 update
+- Coolify on Termix's dashboard and homepage: four cards, each with its own connection (and resource) in
+  its settings. **Coolify overview** counts the connection's resources by status and its unreachable
+  servers, **Coolify resource** shows one resource's status with Deploy (for operators only, with a
+  confirm that does nothing once the card has moved to another target), **Coolify deployments** lists
+  deployments in progress and **Coolify vulnerabilities** counts resources with known vulnerabilities and
+  links to Coolify. The dashboard offers them under Coolify in its add list; the Homepage plugin offers
+  the same four as widgets. They read through the caches the tab uses and read again only once those
+  have turned over, and only while shown
+- Actions `coolify.connection-overview` and `coolify.vulnerability-summary`, with the routes
+  `GET /connections/{id}/overview` and `GET /connections/{id}/vulnerabilities`, for Operations Center,
+  Automations, the CLI, the Termix API and MCP. The vulnerability counts come from Coolify's image scanning
+  and are kept five minutes per connection; they carry no resource names or Coolify text
 
 ### Changed
 

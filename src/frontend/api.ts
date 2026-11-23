@@ -1,5 +1,11 @@
 import type { PluginApiClient } from "@termix-ssh/plugin-sdk/frontend";
 import { countResources, type ResourceCounts } from "../shared/resource-health";
+import type {
+  ConnectionOverview,
+  VulnerabilitySummary,
+} from "../shared/dashboard";
+
+export type { ConnectionOverview, VulnerabilitySummary };
 
 export interface Abilities {
   read: boolean;
@@ -702,6 +708,22 @@ export function failureOf(err: unknown): ApiFailure | null {
   return null;
 }
 
+/** The named fields of `value` that are counts (whole, not negative). */
+function pickCounts(value: unknown, keys: string[]): Record<string, number> {
+  const raw =
+    value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : {};
+  const out: Record<string, number> = {};
+  for (const key of keys) {
+    const n = raw[key];
+    if (typeof n === "number" && Number.isSafeInteger(n) && n >= 0) {
+      out[key] = n;
+    }
+  }
+  return out;
+}
+
 /** [timestamp ms, value], oldest first. */
 export type MetricPoint = [number, number];
 
@@ -1056,6 +1078,77 @@ export function createApi(api: PluginApiClient) {
         running: queueRows(data?.running),
         recent: queueRows(data?.recent),
         fetchedAt: typeof data?.fetchedAt === "string" ? data.fetchedAt : null,
+      };
+    },
+    /** Resource counts and servers, from the backend's shared caches. */
+    async connectionOverview(
+      id: number,
+      opts: { refresh?: boolean } = {},
+    ): Promise<ConnectionOverview> {
+      const data = (
+        await api.get<Partial<ConnectionOverview>>(
+          `/connections/${id}/overview${opts.refresh ? "?refresh=1" : ""}`,
+        )
+      ).data;
+      const counts = { running: 0, degraded: 0, stopped: 0, deploying: 0 };
+      Object.assign(counts, pickCounts(data?.counts, Object.keys(counts)));
+      const servers = data?.servers
+        ? {
+            total: 0,
+            unreachable: 0,
+            unusable: 0,
+            ...pickCounts(data.servers, ["total", "unreachable", "unusable"]),
+          }
+        : null;
+      return {
+        connectionId: id,
+        counts,
+        total: Object.values(counts).reduce((a, b) => a + b, 0),
+        servers,
+        fetchedAt: typeof data?.fetchedAt === "string" ? data.fetchedAt : "",
+      };
+    },
+    /** Counts of resources by security status, cached five minutes. */
+    async vulnerabilitySummary(
+      id: number,
+      opts: { refresh?: boolean } = {},
+    ): Promise<VulnerabilitySummary> {
+      const data = (
+        await api.get<Partial<VulnerabilitySummary>>(
+          `/connections/${id}/vulnerabilities${opts.refresh ? "?refresh=1" : ""}`,
+        )
+      ).data;
+      const statuses = {
+        updateNow: 0,
+        updateAvailable: 0,
+        noFix: 0,
+        checkNeeded: 0,
+        ok: 0,
+        notChecked: 0,
+      };
+      Object.assign(
+        statuses,
+        pickCounts(data?.statuses, Object.keys(statuses)),
+      );
+      const problems = {
+        total: 0,
+        critical: 0,
+        high: 0,
+        medium: 0,
+        exploited: 0,
+      };
+      Object.assign(
+        problems,
+        pickCounts(data?.problems, Object.keys(problems)),
+      );
+      const top = pickCounts(data, ["resources", "affected"]);
+      return {
+        connectionId: id,
+        resources: top.resources ?? 0,
+        affected: top.affected ?? 0,
+        statuses,
+        problems,
+        fetchedAt: typeof data?.fetchedAt === "string" ? data.fetchedAt : "",
       };
     },
     /** Deployments in progress and attention items across connections. */
