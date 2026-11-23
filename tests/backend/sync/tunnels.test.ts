@@ -42,7 +42,11 @@ async function preview(h: PluginHarness, id: number) {
   return res.body as any[];
 }
 
-async function apply(h: PluginHarness, id: number, choices = BOTH) {
+async function apply(
+  h: PluginHarness,
+  id: number,
+  choices: Record<string, unknown>[] = BOTH,
+) {
   const res = await h.request("POST", `/connections/${id}/sync`, { choices });
   expect(res.status).toBe(200);
   return res.body as any[];
@@ -744,5 +748,96 @@ describe("the tunnelApplied flag never lags the host", () => {
       cloudflareTunnelClientSecret: "",
     });
     expect(flag()).toBe(0);
+  });
+});
+
+describe("a tunnel added in Termix for a server Coolify reaches directly", () => {
+  const LOCAL_TUNNEL = [
+    {
+      uuid: "srv-local",
+      include: true,
+      addressOverride: "ssh-coolify.example.test",
+      viaTunnel: true,
+    },
+  ];
+
+  it("writes SSH Terminal's tunnel at the address override, and clears it once turned off", async () => {
+    const { harness: h, connectionId } = await start({
+      sshTerminal: "1.2.0",
+      cfAccess: FAKE_ACCESS,
+    });
+    const create = vi.spyOn(h.mock.ctx.hosts, "create");
+    const results = await apply(h, connectionId, LOCAL_TUNNEL);
+    expect(byUuid(results, "srv-local").status).toBe("created");
+    const [input] = create.mock.calls[0];
+    expect(input.ip).toBe("ssh-coolify.example.test");
+    expect(input.port).toBe(22);
+    expect(sshTerminalOf(input)).toEqual({
+      cloudflareTunnelEnabled: true,
+      cloudflareTunnelHostname: "ssh-coolify.example.test",
+      cloudflareTunnelPort: 443,
+      cloudflareTunnelClientId: FAKE_ACCESS.id,
+      cloudflareTunnelClientSecret: FAKE_ACCESS.secret,
+    });
+    const row = byUuid(await preview(h, connectionId), "srv-local");
+    expect(row).toMatchObject({
+      status: "linked",
+      tunnel: true,
+      viaTunnel: true,
+    });
+    expect(row.server.isTunnel).toBe(false);
+
+    // Kept on later syncs without the choice; turning it off clears it.
+    const update = vi.spyOn(h.mock.ctx.hosts, "update");
+    await apply(h, connectionId, [{ uuid: "srv-local", include: true }]);
+    expect(
+      sshTerminalOf(update.mock.calls[0][1] as PluginHostCreateInput),
+    ).toMatchObject({
+      cloudflareTunnelEnabled: true,
+    });
+    await apply(h, connectionId, [
+      { uuid: "srv-local", include: true, viaTunnel: false },
+    ]);
+    expect(
+      sshTerminalOf(update.mock.calls[1][1] as PluginHostCreateInput),
+    ).toEqual({
+      cloudflareTunnelEnabled: false,
+      cloudflareTunnelHostname: "",
+      cloudflareTunnelClientId: "",
+      cloudflareTunnelClientSecret: "",
+    });
+  });
+
+  it("needs the tunnel hostname, never Coolify's own address", async () => {
+    const { harness: h, connectionId } = await start({ sshTerminal: "1.2.0" });
+    const results = await apply(h, connectionId, [
+      { uuid: "srv-web1", include: true, viaTunnel: true },
+    ]);
+    expect(byUuid(results, "srv-web1")).toMatchObject({
+      status: "blocked",
+      cause: "needs-address",
+    });
+    expect(byUuid(await preview(h, connectionId), "srv-web1")).toMatchObject({
+      cause: "needs-address",
+      suggestedAddress: null,
+      viaTunnel: true,
+    });
+  });
+
+  it("needs SSH Terminal like a Coolify tunnel", async () => {
+    const { harness: h, connectionId } = await start();
+    const results = await apply(h, connectionId, LOCAL_TUNNEL);
+    expect(byUuid(results, "srv-local")).toMatchObject({
+      status: "blocked",
+      cause: "needs-ssh-terminal",
+    });
+  });
+
+  it("refuses a viaTunnel that isn't true or false", async () => {
+    const { harness: h, connectionId } = await start();
+    const res = await h.request("POST", `/connections/${connectionId}/sync`, {
+      choices: [{ uuid: "srv-local", viaTunnel: "yes" }],
+    });
+    expect(res.status).toBe(400);
   });
 });

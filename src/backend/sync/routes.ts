@@ -105,6 +105,13 @@ export function registerSyncRoutes(
    *                     credentialId:
    *                       type: integer
    *                       nullable: true
+   *                     viaTunnel:
+   *                       type: boolean
+   *                       description: >-
+   *                         Reach the server through a Cloudflare tunnel
+   *                         Coolify doesn't know about, at addressOverride
+   *                         (the Coolify host, which Coolify reaches
+   *                         directly). Omitted keeps the stored choice.
    *     responses:
    *       200:
    *         description: One result per server

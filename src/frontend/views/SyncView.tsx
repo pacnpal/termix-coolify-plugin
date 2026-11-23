@@ -38,6 +38,7 @@ interface Draft {
   include: boolean;
   address: string;
   credentialId: string;
+  viaTunnel: boolean;
 }
 
 const STATUS_TONE: Record<SyncRow["status"], StatusTone> = {
@@ -80,6 +81,7 @@ function draftOf(row: SyncRow): Draft {
     include: row.status === "new" || row.status === "linked",
     address: row.addressOverride ?? "",
     credentialId: stored,
+    viaTunnel: row.viaTunnel,
   };
 }
 
@@ -87,7 +89,10 @@ function draftOf(row: SyncRow): Draft {
 function ready(row: SyncRow, draft: Draft): boolean {
   if (row.status === "gone") return false;
   if (row.cause && SSH_TERMINAL_CAUSES.has(row.cause)) return false;
-  if (row.cause === "needs-address") return draft.address.trim() !== "";
+  // A tunnel added in Termix connects to the tunnel hostname.
+  if (row.cause === "needs-address" || draft.viaTunnel) {
+    return draft.address.trim() !== "";
+  }
   if (needsCredential(row)) return draft.credentialId !== "";
   return true;
 }
@@ -113,6 +118,7 @@ function choicesOf(
       if (credential !== row.credentialId && credential !== null) {
         choice.credentialId = credential;
       }
+      if (draft.viaTunnel !== row.viaTunnel) choice.viaTunnel = draft.viaTunnel;
       return choice;
     });
 }
@@ -206,13 +212,21 @@ function SyncRowView({
         )}
         {gone ? null : (
           <TextField
-            label={t("sync.address")}
+            label={
+              draft.viaTunnel ? t("sync.tunnelHostname") : t("sync.address")
+            }
             value={draft.address}
-            placeholder={row.suggestedAddress ?? row.server.ip}
+            placeholder={
+              draft.viaTunnel
+                ? t("sync.tunnelHostnamePlaceholder")
+                : (row.suggestedAddress ?? row.server.ip)
+            }
             hint={
-              needsAddress
-                ? t("sync.addressHint", { ip: row.server.ip })
-                : t("sync.addressOptionalHint", { ip: row.server.ip })
+              draft.viaTunnel
+                ? t("sync.tunnelHostnameHint")
+                : needsAddress
+                  ? t("sync.addressHint", { ip: row.server.ip })
+                  : t("sync.addressOptionalHint", { ip: row.server.ip })
             }
             mono
             onChange={(value) =>
@@ -227,7 +241,7 @@ function SyncRowView({
               })
             }
             aside={
-              row.suggestedAddress ? (
+              row.suggestedAddress && !draft.viaTunnel ? (
                 <Button
                   size="sm"
                   variant="outline"
@@ -244,6 +258,20 @@ function SyncRowView({
               ) : undefined
             }
           />
+        )}
+        {!gone && !row.server.isTunnel && (
+          <div className="flex items-center gap-2 text-sm">
+            <Checkbox
+              id={`sync-tunnel-${row.server.uuid}`}
+              checked={draft.viaTunnel}
+              onCheckedChange={(value) =>
+                onDraft({ ...draft, viaTunnel: value === true })
+              }
+            />
+            <label htmlFor={`sync-tunnel-${row.server.uuid}`}>
+              {t("sync.viaTunnel")}
+            </label>
+          </div>
         )}
         {needsCredential(row) && (
           <SelectField

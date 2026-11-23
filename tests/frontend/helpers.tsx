@@ -94,6 +94,7 @@ export function syncRow(
     suggestedAddress: null,
     credentialId: null as number | null,
     tunnel: srv.isTunnel,
+    viaTunnel: false,
     ...extra,
   };
 }

@@ -599,6 +599,11 @@ and `coolify.unlink`.
 Servers Coolify reaches through a Cloudflare tunnel sync into hosts that use SSH Terminal's own tunnel. See
 [Cloudflare tunnels](tunnels.md).
 
+Coolify never tunnels the server it runs on, since it reaches itself directly. To reach that server (or any
+other Coolify reaches directly) through a tunnel you published yourself, tick **Reach through a Cloudflare
+tunnel** on its row and enter the tunnel's SSH hostname. Only the Termix host uses the tunnel; Coolify keeps
+its own address.
+
 ## Server updates
 
 The Coolify card on a Linked host shows the server's pending package updates: how many, how many are

@@ -116,6 +116,10 @@ export const servers = defineTable(
     // Cleared only by a write that turned the tunnel off while SSH Terminal
     // was running, so stale tunnel settings are never left behind.
     tunnelApplied: boolean().notNull().default(false),
+    // The owner asked Termix to reach this server through a Cloudflare
+    // tunnel Coolify doesn't know about (its own host: Coolify reaches
+    // itself directly). The address override is then the tunnel hostname.
+    viaTunnel: boolean().notNull().default(false),
   },
   {
     uniques: [
