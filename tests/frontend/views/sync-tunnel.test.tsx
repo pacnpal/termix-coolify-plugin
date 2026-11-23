@@ -134,6 +134,27 @@ describe("Servers: Reach through a Cloudflare tunnel", () => {
     ]);
   });
 
+  it("a tunnel hostname never stands in for a needed credential", async () => {
+    const needsKey = syncRow(syncServer("srv-web1", "web-1", "203.0.113.11"), {
+      status: "blocked",
+      cause: "needs-credential",
+      mode: "termix",
+    }) as SyncRow;
+    await mount({
+      syncPreview: vi.fn<Api["syncPreview"]>().mockResolvedValue([needsKey]),
+    });
+    fireEvent.click(
+      await screen.findByRole("checkbox", { name: locales.sync.viaTunnel }),
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText(locales.sync.tunnelHostnamePlaceholder),
+      { target: { value: "ssh-web1.example.test" } },
+    );
+    expect(
+      screen.getByRole("checkbox", { name: locales.sync.include }),
+    ).toHaveProperty("disabled", true);
+  });
+
   it("is not offered for a server Coolify already tunnels", async () => {
     const tunnelled = syncRow(
       syncServer("srv-vps1", "vps1", "ssh-vps1.example.test", {

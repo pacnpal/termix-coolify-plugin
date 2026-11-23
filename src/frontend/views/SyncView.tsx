@@ -95,11 +95,11 @@ function ready(row: SyncRow, draft: Draft): boolean {
   if (row.cause && SSH_TERMINAL_CAUSES.has(row.cause) && !tunnelDropped) {
     return false;
   }
-  // A tunnel added in Termix connects to the tunnel hostname.
-  if (row.cause === "needs-address" || draft.viaTunnel) {
-    return draft.address.trim() !== "";
-  }
-  if (needsCredential(row)) return draft.credentialId !== "";
+  // A tunnel added in Termix connects to the tunnel hostname. Each need is
+  // checked on its own: a hostname never stands in for a credential.
+  const needsAddress = row.cause === "needs-address" || draft.viaTunnel;
+  if (needsAddress && draft.address.trim() === "") return false;
+  if (needsCredential(row) && draft.credentialId === "") return false;
   return true;
 }
 

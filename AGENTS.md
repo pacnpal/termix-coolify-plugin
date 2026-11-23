@@ -360,8 +360,9 @@ aren't obvious from the code, and anything that has bitten you before.
   off and its hostname and token cleared once, and only while SSH Terminal runs (core skips settings for
   a plugin that doesn't); otherwise `planHost` blocks it with `needs-ssh-terminal-to-clear-tunnel` and
   the host is left untouched. Plain hosts that were never tunnelled get no SSH Terminal settings. `servers.viaTunnel` (migration 0005) is
-  the owner's **Reach through a Cloudflare tunnel** for a server Coolify reaches directly (its own host:
-  Coolify must keep reaching itself without Cloudflare, so its own flag is never set). It sends the row
+  the owner's **Reach through a Cloudflare tunnel** for a server Coolify reaches directly, offered on every row Coolify
+  doesn't tunnel. It is meant for Coolify's own host: the plugin never sets Coolify's `is_cloudflare_tunnel`
+  there, because Coolify must keep reaching itself without Cloudflare. It sends the row
   through `planTunnel` like Coolify's flag, with the address override as the hostname (`needs-address`
   without one, never Coolify's address); the sync service treats `isTunnel || viaTunnel` as tunnelled
   everywhere it checks, and turning it off clears the tunnel through `tunnelApplied` as usual. `pluginEnable.docker` is only ever true and only
