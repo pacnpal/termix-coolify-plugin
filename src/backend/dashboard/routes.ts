@@ -51,6 +51,8 @@ export function registerDashboardRoutes(
    *         description: Missing coolify.view
    *       404:
    *         description: No such connection, or another user's
+   *       409:
+   *         description: target-changed, the connection was repointed during the read
    *       502:
    *         description: Coolify failed, with a cause
    */

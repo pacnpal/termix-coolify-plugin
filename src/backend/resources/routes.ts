@@ -4,7 +4,8 @@ import type {
   PluginOperationInvokeOptions,
   PluginOperationOutcome,
 } from "@termix-ssh/plugin-sdk/backend";
-import { ConnectionError } from "../connections/service.js";
+import { forRevision } from "../connections/hold.js";
+import { ConnectionError, type Connections } from "../connections/service.js";
 import { idParam, safe } from "../connections/routes.js";
 import {
   CAUSE_MESSAGES,
@@ -40,6 +41,7 @@ export function registerResourceRoutes(
   router: Router,
   ctx: PluginContext,
   resources: Resources,
+  connections: Pick<Connections, "revision">,
 ): void {
   const view = ctx.rbac.require("view") as never;
 
@@ -78,6 +80,8 @@ export function registerResourceRoutes(
    *         description: Missing coolify.view
    *       404:
    *         description: No such connection, or another user's
+   *       409:
+   *         description: target-changed, the connection was repointed during the read
    *       502:
    *         description: Coolify failed, with a cause
    */
@@ -86,9 +90,11 @@ export function registerResourceRoutes(
     view,
     safe(ctx, async (req, res) => {
       const id = idParam(req);
-      const list = await resources.load(id, {
-        refresh: flag(req.query.refresh),
-      });
+      // The list is answered only for the target it was read from: load()
+      // returns what it fetched even across a repoint.
+      const list = await forRevision(connections, id, () =>
+        resources.load(id, { refresh: flag(req.query.refresh) }),
+      );
       const serverUuid =
         typeof req.query.serverUuid === "string" ? req.query.serverUuid : "";
       const rows = serverUuid

@@ -3,9 +3,11 @@ import type { FakeCall } from "../helpers/fake-coolify.js";
 import {
   grant,
   LIFECYCLE_TOKEN,
+  lifecycleAnswers,
   startLifecycle,
 } from "../helpers/lifecycle.js";
 import { OTHER, type PluginHarness } from "../helpers/plugin.js";
+import { resourceLists } from "../helpers/resources.js";
 
 let harness: PluginHarness | null = null;
 
@@ -245,4 +247,31 @@ describe("the vulnerability summary behind the dashboard card", () => {
     expect(refused.status).toBe(403);
     expect(readsOf(fake.calls, from, "/vulnerabilities")).toBe(0);
   });
+});
+
+describe("dashboard reads answer only for the target they started on", () => {
+  const FIXTURES = { ...resourceLists(), ...lifecycleAnswers() };
+
+  it.each([
+    ["the overview", "/overview", "GET /applications"],
+    ["the overview", "/overview", "GET /servers"],
+    ["the resource card's list", "/resources", "GET /applications"],
+  ])(
+    "%s (%s) answers target-changed when the connection moves during %s",
+    async (_what, path, route) => {
+      const { harness, fake, id } = await start();
+      const body = (FIXTURES[route] as { json: unknown }).json;
+      // The connection gets a new address (so a new revision) while this
+      // read is out, as an edit landing at that moment would.
+      fake.set(route, () => {
+        harness.db.sqlite
+          .prepare("UPDATE p_coolify_connections SET base_url = ? WHERE id = ?")
+          .run("https://coolify-moved.example.test", id);
+        return Response.json(body);
+      });
+      const answer = await harness.request("GET", `/connections/${id}${path}`);
+      expect(answer.status).toBe(409);
+      expect(answer.body.cause).toBe("target-changed");
+    },
+  );
 });

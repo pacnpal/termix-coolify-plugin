@@ -534,7 +534,9 @@ connection; another user's connection is 404. It answers `{ connectionId, counts
 
 It asks Coolify nothing of its own: the counts come from the resource cache (20 seconds) and the servers from
 the server status cache (a minute) that the tab, the host dots and the activity panel read through.
-`?refresh=1` skips the resource cache.
+`?refresh=1` skips the resource cache. Both lists are answered only for the target they were read from: when
+the connection's address, token or Access settings change during the read, it ends with `target-changed`
+(409), and so does `GET /connections/{id}/resources`, which the single resource card reads.
 
 ### `GET /plugin-api/coolify/connections/{id}/vulnerabilities?refresh=`
 

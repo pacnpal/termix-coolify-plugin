@@ -867,4 +867,11 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   `/vulnerabilities` summarized to counts (`dashboard/vulnerabilities.ts`, in memory five minutes, keyed
   by revision, shared in-flight, kept only if the revision held; no names or Coolify text, so nothing to
   redact) and links to the connection's `baseUrl`. No recent events on any card: the event pipeline (#89)
-  is separate, and an events card belongs to the event log ticket.
+  is separate, and an events card belongs to the event log ticket. `resources.load()` and
+  `servers.list()` return what they fetched even across a repoint (their revision only gates the cache),
+  so the overview and `GET /connections/:id/resources` wrap them in `forRevision`
+  (`connections/hold.ts`: revision before, checked again before answering, else `target-changed` 409);
+  the queue (`holds`) and vulnerabilities (snapshot revision) check it themselves. `server-health` (host
+  dots) still answers without that check. The vulnerabilities card counts only completed scans as
+  scanned (`ok` plus affected); `check_needed` and `not_checked` are "not scanned yet", and with nothing
+  scanned it never shows the clean state.

@@ -20,6 +20,11 @@ import { renderApp, stubClient } from "../helpers";
 import { connection, queueRow, resourceAnswer } from "../fixtures";
 
 const D = locales.dashboard;
+const scannedText = (n: number) =>
+  D.vulnerabilities.scanned.replace("{{count}}", String(n));
+const unscannedText = (n: number) =>
+  D.vulnerabilities.unscanned.replace("{{count}}", String(n));
+const UNSCANNED_WORDS = D.vulnerabilities.unscanned.replace("{{count}} ", "");
 const VIEW = ["coolify.view"];
 const OPERATE = ["coolify.view", "coolify.operate"];
 
@@ -363,20 +368,49 @@ describe("the vulnerabilities card", () => {
       name: D.vulnerabilities.open,
     });
     expect(link.getAttribute("href")).toBe(connection.baseUrl);
+    // The fixture has one resource Coolify hasn't scanned.
+    expect(view.container.textContent).toContain(unscannedText(1));
   });
 
-  it("says so when nothing has known vulnerabilities", async () => {
-    const api = client({
-      "/connections/1/vulnerabilities": () => ({
-        ...VULNERABILITIES,
-        affected: 0,
-      }),
-    });
-    const { view } = await card({ kind: "vulnerabilities" }, { api });
-    expect(
-      await within(view.container).findByText(D.vulnerabilities.empty),
-    ).toBeTruthy();
-  });
+  const NO_STATUSES = {
+    updateNow: 0,
+    updateAvailable: 0,
+    noFix: 0,
+    checkNeeded: 0,
+    ok: 0,
+    notChecked: 0,
+  };
+
+  // [case, ok, checkNeeded, notChecked, clean state shown, texts shown]
+  it.each([
+    ["nothing scanned", 0, 1, 2, false, [unscannedText(3)]],
+    ["some scanned", 2, 0, 1, true, [scannedText(2), unscannedText(1)]],
+    ["everything scanned and clean", 3, 0, 0, true, [scannedText(3)]],
+  ] as const)(
+    "with no known vulnerabilities and %s, counts only completed scans",
+    async (_case, ok, checkNeeded, notChecked, clean, texts) => {
+      const api = client({
+        "/connections/1/vulnerabilities": () => ({
+          ...VULNERABILITIES,
+          resources: ok + checkNeeded + notChecked,
+          affected: 0,
+          statuses: { ...NO_STATUSES, ok, checkNeeded, notChecked },
+        }),
+      });
+      const { view } = await card({ kind: "vulnerabilities" }, { api });
+      await within(view.container).findByRole("link", {
+        name: D.vulnerabilities.open,
+      });
+      const text = view.container.textContent ?? "";
+      for (const shown of texts) expect(text).toContain(shown);
+      expect(text.includes(D.vulnerabilities.empty)).toBe(clean);
+      // The check mark only when every resource was scanned and is clean.
+      expect(!!view.container.querySelector(".lucide-shield-check")).toBe(
+        clean && checkNeeded + notChecked === 0,
+      );
+      expect(text.includes(UNSCANNED_WORDS)).toBe(checkNeeded + notChecked > 0);
+    },
+  );
 });
 
 describe.each([

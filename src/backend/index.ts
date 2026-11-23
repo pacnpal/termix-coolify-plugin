@@ -126,7 +126,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
   const router = ctx.http.router<Router>({ public: PUBLIC_STATUS_PATHS });
   router.use(rememberBaseUrlMiddleware(ctx) as never);
   registerConnectionRoutes(router, ctx, connections);
-  registerResourceRoutes(router, ctx, resources);
+  registerResourceRoutes(router, ctx, resources, connections);
   registerServerHealthRoutes(router, ctx, { resources, servers });
   registerSyncRoutes(router, ctx, sync);
   registerLifecycleRoutes(router, ctx, lifecycle);

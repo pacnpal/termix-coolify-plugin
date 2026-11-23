@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Rocket, ShieldCheck } from "lucide-react";
+import { Rocket, Shield, ShieldCheck, ShieldQuestion } from "lucide-react";
 import {
   usePermission,
   usePluginApi,
@@ -16,7 +16,13 @@ import {
   StatusBadge,
   TileWall,
 } from "@termix-ssh/plugin-sdk/ui";
-import { createApi, type Api, type Connection, type Resource } from "../../api";
+import {
+  createApi,
+  type Api,
+  type Connection,
+  type Resource,
+  type VulnerabilitySummary,
+} from "../../api";
 import {
   CARD_POLL_MS,
   readCardConfig,
@@ -318,48 +324,82 @@ function VulnerabilitiesBody({ connectionId, targetKey, active }: BodyProps) {
   );
   return (
     <Shown state={state} t={t}>
-      {(connection, data) => {
-        // The connection's own address: Coolify shows the scan details.
-        const link = (
-          <a
-            href={connection.baseUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs underline"
-          >
-            {t("dashboard.vulnerabilities.open")}
-          </a>
-        );
-        if (data.affected === 0) {
-          return (
-            <EmptyState
-              icon={ShieldCheck}
-              title={t("dashboard.vulnerabilities.empty")}
-              hint={t("dashboard.vulnerabilities.scanned", {
-                count: data.resources,
-              })}
-              action={link}
-            />
-          );
-        }
-        return (
-          <div className="flex flex-col">
-            <TileWall gridClassName="grid-cols-1">
-              <StatTile
-                label={t("dashboard.vulnerabilities.affected")}
-                value={data.affected}
-                tone={data.problems.critical > 0 ? "bad" : "warn"}
-                hint={t("dashboard.vulnerabilities.severity", {
-                  critical: data.problems.critical,
-                  high: data.problems.high,
-                })}
-              />
-            </TileWall>
-            <div className="px-3 py-2">{link}</div>
+      {(connection, data) => (
+        <div className="flex flex-col">
+          <VulnerabilityCounts data={data} t={t} />
+          <div className="px-3 py-2">
+            {/* The connection's own address: Coolify shows the scan details. */}
+            <a
+              href={connection.baseUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs underline"
+            >
+              {t("dashboard.vulnerabilities.open")}
+            </a>
           </div>
-        );
-      }}
+        </div>
+      )}
     </Shown>
+  );
+}
+
+/**
+ * What the counts say. Only completed scans count as scanned: a resource
+ * Coolify hasn't checked yet (or needs to check again) is said to be
+ * unscanned, never clean. The check mark is for every resource scanned and
+ * none with known vulnerabilities; with nothing scanned there is no clean
+ * state at all.
+ */
+function VulnerabilityCounts({
+  data,
+  t,
+}: {
+  data: VulnerabilitySummary;
+  t: T;
+}) {
+  const { statuses } = data;
+  const unscanned = statuses.checkNeeded + statuses.notChecked;
+  const scanned = statuses.ok + data.affected;
+  const lines = [
+    scanned > 0 && t("dashboard.vulnerabilities.scanned", { count: scanned }),
+    unscanned > 0 &&
+      t("dashboard.vulnerabilities.unscanned", { count: unscanned }),
+  ].filter((line): line is string => typeof line === "string");
+  if (data.affected > 0) {
+    return (
+      <TileWall gridClassName="grid-cols-1">
+        <StatTile
+          label={t("dashboard.vulnerabilities.affected")}
+          value={data.affected}
+          tone={data.problems.critical > 0 ? "bad" : "warn"}
+          hint={t("dashboard.vulnerabilities.severity", {
+            critical: data.problems.critical,
+            high: data.problems.high,
+          })}
+        >
+          {unscanned > 0 && <span className="text-xs">{lines.at(-1)}</span>}
+        </StatTile>
+      </TileWall>
+    );
+  }
+  let icon = ShieldCheck;
+  if (scanned === 0) icon = ShieldQuestion;
+  else if (unscanned > 0) icon = Shield;
+  return (
+    <>
+      <EmptyState
+        icon={icon}
+        title={t(
+          scanned === 0
+            ? "dashboard.vulnerabilities.noneScanned"
+            : "dashboard.vulnerabilities.empty",
+        )}
+      />
+      <p className="px-3 text-center text-xs text-muted-foreground">
+        {lines.join(" · ")}
+      </p>
+    </>
   );
 }
 

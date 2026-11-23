@@ -1,4 +1,5 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
+import { forRevision } from "../connections/hold.js";
 import { ConnectionError, type Connections } from "../connections/service.js";
 import type { ServerStatuses } from "../ops/signals.js";
 import type { Resources } from "../resources/service.js";
@@ -57,16 +58,23 @@ export function createDashboard(
       opts: { refresh?: boolean; signal?: AbortSignal } = {},
     ): Promise<ConnectionOverview> {
       await needView();
-      if (!(await connections.access(connectionId))) throw notFound();
-      opts.signal?.throwIfAborted();
-      // Each checks the actor's access and the connection's revision itself.
-      const [list, statuses] = await Promise.allSettled([
-        resources.load(connectionId, { refresh: opts.refresh }),
-        servers.list(connectionId),
-      ]);
+      // Both lists return what they fetched even across a repoint (their
+      // revision only decides what they cache), so the answer is given only
+      // while the revision is the one taken before them; access is checked
+      // before and after with it.
+      const [list, statuses] = await forRevision(
+        connections,
+        connectionId,
+        () => {
+          opts.signal?.throwIfAborted();
+          return Promise.allSettled([
+            resources.load(connectionId, { refresh: opts.refresh }),
+            servers.list(connectionId),
+          ]);
+        },
+      );
       opts.signal?.throwIfAborted();
       if (list.status === "rejected") throw list.reason;
-      if (!(await connections.access(connectionId))) throw notFound();
       const counts = countResources(list.value.rows);
       const rows = statuses.status === "fulfilled" ? statuses.value : null;
       return {

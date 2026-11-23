@@ -1706,6 +1706,8 @@
       "description": "How many of a connection's resources have known vulnerabilities.",
       "empty": "No known vulnerabilities.",
       "scanned": "{{count}} resources scanned",
+      "unscanned": "{{count}} not scanned yet",
+      "noneScanned": "Not scanned yet",
       "affected": "Resources with vulnerabilities",
       "severity": "{{critical}} critical, {{high}} high",
       "open": "Open Coolify"

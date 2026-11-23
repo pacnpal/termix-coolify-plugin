@@ -395,7 +395,9 @@ change them while arranging it, on the homepage in the widget's edit form.
   closed, deploys nothing.
 - **Coolify deployments**: the connection's deployments in progress.
 - **Coolify vulnerabilities**: how many of the connection's resources Coolify's image scanning found
-  vulnerabilities in, with the critical and high counts and a link to your Coolify.
+  vulnerabilities in, with the critical and high counts and a link to your Coolify. Only completed scans
+  count: resources Coolify hasn't scanned yet are counted as not scanned, and with none scanned the card
+  never says there are no known vulnerabilities.
 
 Every card needs **View Coolify** and access to its connection, and says so when either is missing. They
 read through the same cached reads as the tab: a card reads again only once that cache has turned over
