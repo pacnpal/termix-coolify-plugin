@@ -497,8 +497,9 @@ connection's event log.
 - An event carries the host when the server it is about (or its resource's server) is Linked to a Termix
   host, and no host otherwise.
 - The same event seen twice (by polling and by the webhook, or twice by one of them) is sent and kept once:
-  events of one deployment share its deployment uuid, and any other event is the same when its kind,
-  resource (or server) and minute are.
+  events of one deployment share its deployment uuid, scheduled task runs are the same when their kind,
+  task and minute are (Coolify's webhook names the task, not the run), and any other event is the same
+  when its kind, resource (or server) and minute are.
 - Nothing Coolify sent reaches an event unredacted: tokens, passwords, keys, credentials inside URLs and the
   connection's own token are masked, text keeps only its first line, and log or command output is dropped.
 - The log keeps each connection's newest 1,000 events. Removing a connection removes its events.
@@ -579,32 +580,41 @@ time. Core's limit of 120 public requests a minute per address applies.
   refused whole.
 - An accepted delivery answers `200 {"ok":true}` at once and stamps the webhook's last delivery time. An
   unknown token, an oversized body and a body of any other shape all answer the same
-  `400 {"error":"Bad request"}`. Neither answer holds anything that was sent.
+  `400 {"error":"Bad request"}`. Neither answer holds anything that was sent. A body that isn't JSON at all
+  never reaches the plugin: Termix's body parser refuses it, and that answer is Termix's own.
+- While 32 deliveries of one team are still being checked, a delivery with an event to send answers
+  `503 {"error":"Busy"}`. Coolify's webhook job retries a 503 (and any 5xx or 429; it counts 401, 403, 404
+  and 410 against the channel and only logs other 4xx), and the delivery doesn't stamp the last delivery
+  time, so polling never stops on a delivery whose event wasn't sent.
 - Each event then goes to every connection to that Coolify team whose own token can read what it is about,
   checked live with one `GET` per event and connection: the application, service or database itself, or
   `GET /servers/{uuid}` for a server. Only a 200 lets it through; a 401, 403 or 404, a timeout or any other
   error drops it for that connection, with no retry. These checks count against the connection's request
   budget (150 a minute). A connection whose owner no longer has **View Coolify** isn't asked.
 
-| Coolify `event`                                                                                                                                                                                                               | Event kind                         | Checked with                           |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | -------------------------------------- |
-| `deployment_success`                                                                                                                                                                                                          | `deployment-finished`              | `GET /applications/{application_uuid}` |
-| `deployment_failed`                                                                                                                                                                                                           | `deployment-failed`                | `GET /applications/{application_uuid}` |
-| `restart_limit_reached`                                                                                                                                                                                                       | `restart-limit`                    | `GET /applications/{application_uuid}` |
-| `backup_success`, `backup_success_with_s3_warning`                                                                                                                                                                            | `backup-succeeded`                 | `GET /databases/{database_uuid}`       |
-| `backup_failed`                                                                                                                                                                                                               | `backup-failed`                    | `GET /databases/{database_uuid}`       |
-| `task_success`                                                                                                                                                                                                                | `task-succeeded`                   | the task's application or service      |
-| `task_failed`, `task_disabled`                                                                                                                                                                                                | `task-failed`                      | the task's application or service      |
-| `high_disk_usage`                                                                                                                                                                                                             | `high-disk`                        | `GET /servers/{server_uuid}`           |
-| `server_unreachable`                                                                                                                                                                                                          | `server-unreachable`               | `GET /servers/{server_uuid}`           |
-| `test`, `general`, `status_changed`, `container_restarted`, `docker_cleanup_*`, `server_reachable`, `server_force_*`, `server_patch_check*`, `traefik_version_outdated`, `ssl_certificate_renewal`, `hetzner_deletion_failed` | none: accepted, nothing is sent on | nothing                                |
+| Coolify `event`                                                                                                                                                                                             | Event kind                         | Checked with                             |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | ---------------------------------------- |
+| `deployment_success`                                                                                                                                                                                        | `deployment-finished`              | `GET /applications/{application_uuid}`   |
+| `deployment_failed`                                                                                                                                                                                         | `deployment-failed`                | `GET /applications/{application_uuid}`   |
+| `restart_limit_reached`                                                                                                                                                                                     | `restart-limit`                    | `GET /applications/{application_uuid}`   |
+| `backup_success`, `backup_success_with_s3_warning`                                                                                                                                                          | `backup-succeeded`                 | `GET /databases/{database_uuid}`         |
+| `backup_failed`                                                                                                                                                                                             | `backup-failed`                    | `GET /databases/{database_uuid}`         |
+| `task_success`                                                                                                                                                                                              | `task-succeeded`                   | the task's application or service        |
+| `task_failed`, `task_disabled`                                                                                                                                                                              | `task-failed`                      | the task's application or service        |
+| `high_disk_usage`                                                                                                                                                                                           | `high-disk`                        | `GET /servers/{server_uuid}`             |
+| `server_unreachable`                                                                                                                                                                                        | `server-unreachable`               | `GET /servers/{server_uuid}`             |
+| `status_changed` (Coolify's "Resource stopped")                                                                                                                                                             | `status-changed`                   | the application or database in its `url` |
+| `test`, `general`, `container_restarted`, `docker_cleanup_*`, `server_reachable`, `server_force_*`, `server_patch_check*`, `traefik_version_outdated`, `ssl_certificate_renewal`, `hetzner_deletion_failed` | none: accepted, nothing is sent on | nothing                                  |
 
 A backup of a database inside a service, or a restart limit on anything but an application, fails its check
 (Coolify names it in a field the plugin can only check as a standalone database or an application) and is
-dropped. Image vulnerability digests aren't in the table yet and are refused.
+dropped. `status_changed` carries no resource type, so the type comes from Coolify's own link in `url`
+(`…/application/{uuid}` or `…/database/{uuid}`, matching `resource_uuid`); a preview or a service's part,
+whose link names its parent, sends nothing on, as the poller counts neither. Image vulnerability digests
+aren't in the table yet and are refused.
 
 ```bash
-curl -X POST https://termix.example.com/plugin-api/coolify/webhook/<token> \
+curl -X POST "https://termix.example.com/plugin-api/coolify/webhook/${WEBHOOK_TOKEN}" \
   -H 'Content-Type: application/json' \
   -d '{"success":true,"message":"This is a test webhook notification from Coolify.","event":"test","url":"https://coolify.example.com"}'
 ```

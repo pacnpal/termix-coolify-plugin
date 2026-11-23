@@ -247,6 +247,7 @@ export function createPoller(ctx: PluginContext, deps: PollerDeps) {
           type: "backup",
           resource: db,
           task: null,
+          taskUuid: null,
         }),
       ),
     );
@@ -279,6 +280,7 @@ export function createPoller(ctx: PluginContext, deps: PollerDeps) {
           type: "task",
           resource: owner,
           task: task.name || null,
+          taskUuid: task.uuid,
         })),
     );
     return {

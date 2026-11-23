@@ -4,7 +4,10 @@ import { eventually } from "../../shared/timing.js";
 import { healthyCoolify } from "../helpers/fake-coolify.js";
 import { ANON, startPlugin, type PluginHarness } from "../helpers/plugin.js";
 import { byText } from "../helpers/order.js";
-import { issueWebhookToken } from "../../../src/backend/webhooks/service.js";
+import {
+  issueWebhookToken,
+  WEBHOOK_FANOUT_MAX,
+} from "../../../src/backend/webhooks/service.js";
 import { COOLIFY_WEBHOOKS } from "../fixtures/coolify-webhooks.js";
 import { POLL_AWAKE_REASON } from "../../../src/backend/poll/service.js";
 
@@ -156,6 +159,23 @@ describe("POST /webhook/:token", () => {
         expect(answer.text).not.toContain(token);
       }
     }
+  });
+
+  it("answers 503 at the fan-out cap, which Coolify's job retries, and stamps nothing", async () => {
+    const { harness: h, token } = await start({
+      "GET /servers/srv-vps1-uuid": () =>
+        new Promise<Response>(() => {}) as unknown as Response,
+    });
+    const event = JSON.stringify(COOLIFY_WEBHOOKS.server_unreachable);
+    for (let i = 0; i < WEBHOOK_FANOUT_MAX; i++) {
+      expect((await post(h, `/webhook/${token}`, event)).status).toBe(200);
+    }
+    h.db.sqlite
+      .prepare("UPDATE p_coolify_webhooks SET last_received_at = NULL")
+      .run();
+    const busy = await post(h, `/webhook/${token}`, event);
+    expect(busy).toEqual({ status: 503, text: '{"error":"Busy"}' });
+    expect(lastReceived(h)).toBeNull();
   });
 
   it("is declared public on the router, without raising core's public rate limit", async () => {

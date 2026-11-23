@@ -113,6 +113,7 @@ describe("the webhook body's strict shape", () => {
         kind: "task-failed",
         source: "webhook",
         resourceUuid: "svc-n8n-uuid",
+        taskUuid: "task-uuid",
         name: "nightly",
         status: "failed",
         fields: { consecutiveFailures: 3 },
@@ -153,6 +154,42 @@ describe("the webhook body's strict shape", () => {
     });
   });
 
+  it("maps a stopped application or database to status-changed, by the type in Coolify's own link", () => {
+    expect(readWebhook(body("status_changed"))?.ingest).toEqual({
+      subject: { type: "application", uuid: "app-web-uuid" },
+      event: {
+        kind: "status-changed",
+        source: "webhook",
+        resourceUuid: "app-web-uuid",
+        name: "web",
+        status: "exited",
+        fields: { to: "stopped" },
+      },
+    });
+    const database = readWebhook(
+      body("status_changed", {
+        application_uuid: "db-pg-uuid",
+        resource_uuid: "db-pg-uuid",
+        url: "https://coolify.example.test/project/p/environment/e/database/db-pg-uuid",
+      }),
+    );
+    expect(database?.ingest?.subject).toEqual({
+      type: "database",
+      uuid: "db-pg-uuid",
+    });
+    // A preview or a service's part: the link names its parent, not it, and
+    // the poller counts neither, so nothing is ingested.
+    for (const url of [
+      "https://coolify.example.test/project/p/environment/e/application/parent-uuid",
+      "https://coolify.example.test/project/p/environment/e/service/svc-n8n-uuid",
+      null,
+    ]) {
+      const read = readWebhook(body("status_changed", { url }));
+      expect(read?.event).toBe("status_changed");
+      expect(read?.ingest).toBeNull();
+    }
+  });
+
   it("never carries log or command output, or Coolify's own text, into the event", () => {
     for (const event of Object.keys(COOLIFY_WEBHOOKS)) {
       const mapped = JSON.stringify(readWebhook(body(event))?.ingest ?? null);
@@ -172,7 +209,6 @@ describe("the webhook body's strict shape", () => {
     for (const event of [
       "test",
       "general",
-      "status_changed",
       "container_restarted",
       "docker_cleanup_failed",
       "server_reachable",
