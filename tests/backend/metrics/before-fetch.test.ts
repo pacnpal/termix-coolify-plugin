@@ -44,6 +44,15 @@ function setup(changeDuringWait: (method: string, path: string) => boolean) {
       ) as T;
     },
   };
+  const metrics = metricsOver(http, () => changed);
+  return { metrics, sent, guarded };
+}
+
+/**
+ * The metrics service over `http` for an owner, with no SSH: the snapshot
+ * check fails with target-changed once `changed()` says the connection moved.
+ */
+function metricsOver(http: CoolifyHttp, changed: () => boolean) {
   const snap = {
     view: { access: "owner", revision: "r1" },
     api: createCoolifyApi(http),
@@ -52,7 +61,7 @@ function setup(changeDuringWait: (method: string, path: string) => boolean) {
   const ctx = {
     rbac: { has: async () => true },
   } as unknown as PluginContext;
-  const metrics = createMetrics(ctx, {
+  return createMetrics(ctx, {
     connections: {
       snapshot: async () => snap,
       access: async () => "owner",
@@ -63,7 +72,7 @@ function setup(changeDuringWait: (method: string, path: string) => boolean) {
       },
       assertHostAccess: async () => undefined,
       assertSnapshotHolds: async () => {
-        if (changed) {
+        if (changed()) {
           throw new ConnectionError("target-changed", "changed");
         }
       },
@@ -73,7 +82,6 @@ function setup(changeDuringWait: (method: string, path: string) => boolean) {
       throw new Error("no SSH in this test");
     },
   });
-  return { metrics, sent, guarded };
 }
 
 describe("metrics: the snapshot check runs right before each fetch", () => {
@@ -83,6 +91,37 @@ describe("metrics: the snapshot check runs right before each fetch", () => {
       metrics.enableMetrics(1, SERVER, { confirm: true }),
     ).rejects.toMatchObject({ code: "target-changed" });
     expect(sent).toEqual([`GET /servers/${SERVER}`]);
+  });
+
+  it("metrics from Coolify's MCP that arrive after a repoint end target-changed", async () => {
+    let changed = false;
+    const http: CoolifyHttp = {
+      async request<T>(method: string, path: string): Promise<T> {
+        if (changed) throw new ConnectionError("target-changed", "changed");
+        if (path === "/mcp") {
+          // Answered by the old target; the connection moves meanwhile.
+          changed = true;
+          const data = {
+            data: { current: { cpu_percent: 1 }, series: {} },
+          };
+          return JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: { content: [{ type: "text", text: JSON.stringify(data) }] },
+          }) as T;
+        }
+        return {
+          uuid: SERVER,
+          name: "vps1",
+          settings: { is_metrics_enabled: true },
+        } as T;
+      },
+    };
+    const metrics = metricsOver(http, () => changed);
+    await expect(metrics.serverMetrics(1, SERVER)).rejects.toMatchObject({
+      code: "target-changed",
+    });
+    expect(changed).toBe(true);
   });
 
   it("every Coolify call a read makes carries the check", async () => {

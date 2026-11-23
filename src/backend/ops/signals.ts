@@ -4,6 +4,7 @@ import type { SignalResult } from "@termix-ssh/plugin-sdk/operations";
 import { createCache } from "../cache.js";
 import type { CoolifyApi } from "../coolify/api.js";
 import type { ServerDto } from "../coolify/dto.js";
+import { stillAt } from "../connections/hold.js";
 import { ConnectionError, type Connections } from "../connections/service.js";
 import type { Tables } from "../db.js";
 import type { Resources } from "../resources/service.js";
@@ -50,6 +51,9 @@ function statusOf(s: ServerDto): ServerStatus {
  * fetches are keyed by both, so a fetch that started before an invalidate
  * (an install or a reboot) is never served or cached. Generations are unique
  * to each instance (`<epoch>:<n>`), so rows an old instance wrote never match.
+ * A read answers only for the revision it started under: a fetch that ends
+ * after a repoint rejects with target-changed for everyone sharing it, and
+ * `list` checks the revision once more when its answer is in (#123).
  */
 export function createServerStatuses(
   ctx: PluginContext,
@@ -105,13 +109,12 @@ export function createServerStatuses(
         }
       };
       const list = (await (await api()).servers({ beforeFetch })).map(statusOf);
-      // Cached only while the revision and generation the fetch started
-      // under are still current. The row carries both, so a change that
-      // lands after this check still never serves it.
-      if (
-        generationOf(connectionId) === generation &&
-        (await current()) === revision
-      ) {
+      // The old target's statuses go to nobody (#123), and are not cached.
+      // Cached only while the generation the fetch started under is still
+      // current too. The row carries both, so a change that lands after this
+      // check still never serves it.
+      await beforeFetch();
+      if (generationOf(connectionId) === generation) {
         const row: CachedServers = { revision, generation, rows: list };
         await cache.write(connectionId, SERVERS_CACHE_KIND, row, now());
       }
@@ -129,12 +132,16 @@ export function createServerStatuses(
       // the target, so rows read from an old address or token are never served.
       const revision = await connections.revision(connectionId);
       if (!revision) throw new Error("No access to this connection");
-      return load(
+      const list = await load(
         connectionId,
         revision,
         () => connections.api(connectionId),
         () => connections.revision(connectionId),
       );
+      // Only for the revision it began under, whether from the cache or a
+      // fetch it joined: a repoint meanwhile is target-changed.
+      await stillAt(connections, connectionId, revision);
+      return list;
     },
 
     /**

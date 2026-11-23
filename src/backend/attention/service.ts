@@ -128,7 +128,11 @@ function degradedOf(rows: ResourceDto[]): AttentionResource[] {
  * seconds; resources, 20 seconds; server statuses, a minute), so the panel,
  * the badge and the tab together cost one read per connection. Each of
  * those checks the actor's access first; a connection the actor lost access
- * to meanwhile is left out of the answer.
+ * to meanwhile is left out of the answer. Each part answers only for the
+ * revision it started under, and the connection's revision is checked
+ * against the one it was listed with once every part is in: a repoint
+ * meanwhile shows that connection with target-changed and none of its rows,
+ * never a mix of two targets.
  */
 export function createAttention(
   ctx: PluginContext,
@@ -159,14 +163,33 @@ export function createAttention(
     opts.signal?.throwIfAborted();
     // Still the actor's to view once every part is in.
     if (!(await connections.access(view.id))) return null;
-    const failed = [queue, rows, statuses].find(
-      (r): r is PromiseRejectedResult => r.status === "rejected",
-    );
-    return {
+    const base = {
       id: view.id,
       name: view.name,
       access: view.access,
       scoped: view.scoped,
+    };
+    // Still the target it was listed with: otherwise no part is kept.
+    if ((await connections.revision(view.id)) !== view.revision) {
+      return {
+        ...base,
+        running: [],
+        failed: [],
+        degraded: [],
+        unreachable: [],
+        error: failureOf(
+          new ConnectionError(
+            "target-changed",
+            "The connection's address, token or Access settings changed. Try again.",
+          ),
+        ),
+      };
+    }
+    const failed = [queue, rows, statuses].find(
+      (r): r is PromiseRejectedResult => r.status === "rejected",
+    );
+    return {
+      ...base,
       running: queue.status === "fulfilled" ? queue.value.running : [],
       failed:
         queue.status === "fulfilled"

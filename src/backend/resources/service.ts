@@ -3,6 +3,7 @@ import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import { createCache } from "../cache.js";
 import type { CoolifyApi } from "../coolify/api.js";
 import type { ResourceDto } from "../coolify/dto.js";
+import { stillAt } from "../connections/hold.js";
 import { ConnectionError, type Connections } from "../connections/service.js";
 import type { Tables } from "../db.js";
 import {
@@ -65,6 +66,12 @@ const targetChanged = () =>
  * Generations are unique to each instance (`<epoch>:<n>`, the epoch a random
  * uuid), so after a restart no row an old instance wrote ever matches: the
  * cache starts cold, which costs one fetch.
+ *
+ * A read answers only for the revision it started under: a fetch that ends
+ * after the revision moved rejects with target-changed (409) for everyone
+ * sharing it, and each signed-in read checks the revision once more when its
+ * answer is in (`stillAt`), so a caller that joined a fetch, or read the
+ * cache, never gets the old target's rows. A connection gone by then is a 404.
  */
 export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
   const cache = createCache(ctx, deps.tables);
@@ -139,12 +146,14 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
       rows: [...applications, ...services, ...databases],
       fetchedAt: now(),
     };
-    // Cached only while the connection still has the revision the fetch
-    // started under and nothing invalidated it since. The rows carry both, so
-    // a change or an invalidate that lands after this check (even one whose
-    // drop finishes before this write does) never serves them.
-    const current = await source.revision();
-    if (current === revision && generationOf(connectionId) === generation) {
+    // The rows are the target the fetch started on only while the revision
+    // still holds: otherwise nobody gets them (#123), and nothing is cached.
+    // Cached only while nothing invalidated them either. The rows carry both,
+    // so a change or an invalidate that lands after this check (even one
+    // whose drop finishes before this write does) never serves them. Rows
+    // from before an invalidate are still the right target, so they answer.
+    if ((await source.revision()) !== revision) throw targetChanged();
+    if (generationOf(connectionId) === generation) {
       const value: CachedRows = { revision, generation, rows: list.rows };
       await cache.write(
         connectionId,
@@ -189,16 +198,22 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
     };
   }
 
+  /**
+   * The signed-in read behind every list, get and count: it answers only for
+   * the revision it began under, checked again once the cached or fetched
+   * rows are in, so a repoint during the read is target-changed (409) and a
+   * removal or lost access is not-found.
+   */
   async function load(
     connectionId: number,
     opts: { refresh?: boolean } = {},
   ): Promise<ResourceList> {
     const revision = await reach(connectionId);
-    if (!opts.refresh) {
-      const hit = await freshHit(connectionId, revision);
-      if (hit) return hit;
-    }
-    return shared(connectionId, revision);
+    const list =
+      (!opts.refresh && (await freshHit(connectionId, revision))) ||
+      (await shared(connectionId, revision));
+    await stillAt(deps.connections, connectionId, revision);
+    return list;
   }
 
   return {
@@ -260,11 +275,20 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
     async refreshUnattended(connectionId: number): Promise<void> {
       const snap = await deps.connections.unattendedSnapshot(connectionId);
       if (!snap) throw notFound();
-      await shared(
-        connectionId,
-        snap.revision,
-        unattendedSource(connectionId, snap.api),
-      );
+      try {
+        await shared(
+          connectionId,
+          snap.revision,
+          unattendedSource(connectionId, snap.api),
+        );
+      } catch (err) {
+        // A repoint during the fetch is not Coolify failing: nothing was
+        // cached, and the next tick reads the new target (no back-off).
+        if (err instanceof ConnectionError && err.code === "target-changed") {
+          return;
+        }
+        throw err;
+      }
     },
 
     /**

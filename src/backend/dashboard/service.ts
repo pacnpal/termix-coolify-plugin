@@ -58,10 +58,10 @@ export function createDashboard(
       opts: { refresh?: boolean; signal?: AbortSignal } = {},
     ): Promise<ConnectionOverview> {
       await needView();
-      // Both lists return what they fetched even across a repoint (their
-      // revision only decides what they cache), so the answer is given only
-      // while the revision is the one taken before them; access is checked
-      // before and after with it.
+      // Each list answers only for the revision it started under; the
+      // answer is given only while the revision is the one taken before
+      // both, so the two parts share one target. Access is checked before
+      // and after with it.
       const [list, statuses] = await forRevision(
         connections,
         connectionId,

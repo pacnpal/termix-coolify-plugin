@@ -784,6 +784,8 @@ export function createUpdates(
         uuid,
         snap.view.revision,
       );
+      // Coolify's answer is the snapshot's target only while it holds.
+      await holds(connectionId, snap);
       return {
         server: { uuid, name: server.name },
         hostId,
