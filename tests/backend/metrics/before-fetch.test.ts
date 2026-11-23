@@ -85,6 +85,65 @@ describe("metrics: the snapshot check runs right before each fetch", () => {
     expect(sent).toEqual([`GET /servers/${SERVER}`]);
   });
 
+  it("metrics from Coolify's MCP that arrive after a repoint end target-changed", async () => {
+    let changed = false;
+    const http: CoolifyHttp = {
+      async request<T>(method: string, path: string): Promise<T> {
+        if (changed) throw new ConnectionError("target-changed", "changed");
+        if (path === "/mcp") {
+          // Answered by the old target; the connection moves meanwhile.
+          changed = true;
+          const data = {
+            data: { current: { cpu_percent: 1 }, series: {} },
+          };
+          return JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: { content: [{ type: "text", text: JSON.stringify(data) }] },
+          }) as T;
+        }
+        return {
+          uuid: SERVER,
+          name: "vps1",
+          settings: { is_metrics_enabled: true },
+        } as T;
+      },
+    };
+    const snap = {
+      view: { access: "owner", revision: "r1" },
+      api: createCoolifyApi(http),
+      http,
+    };
+    const metrics = createMetrics(
+      { rbac: { has: async () => true } } as unknown as PluginContext,
+      {
+        connections: {
+          snapshot: async () => snap,
+          access: async () => "owner",
+        } as never,
+        containers: {
+          target: async () => {
+            throw new Error("unused");
+          },
+          assertHostAccess: async () => undefined,
+          assertSnapshotHolds: async () => {
+            if (changed) {
+              throw new ConnectionError("target-changed", "changed");
+            }
+          },
+        },
+        sync: { linkedHostFor: async () => null },
+        run: async () => {
+          throw new Error("no SSH in this test");
+        },
+      },
+    );
+    await expect(metrics.serverMetrics(1, SERVER)).rejects.toMatchObject({
+      code: "target-changed",
+    });
+    expect(changed).toBe(true);
+  });
+
   it("every Coolify call a read makes carries the check", async () => {
     const { metrics, guarded } = setup(() => false);
     await expect(metrics.serverMetrics(1, SERVER)).rejects.toMatchObject({

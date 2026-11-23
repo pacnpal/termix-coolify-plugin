@@ -109,8 +109,9 @@ describe("server signals and a changed connection target", () => {
     expect(update.status).toBe(200);
     fake.set("GET /servers", REACHABLE_EDGE);
     hold.release();
-    // The caller from before the change gets the old target's answer.
-    expect(await stale).toMatchObject({ status: "fail" });
+    // The caller from before the change gets no answer from the old target:
+    // unknown, never its "fail".
+    expect(await stale).toMatchObject({ status: "unknown", value: null });
     expect(await signal()).toMatchObject({ status: "ok" });
   });
 });

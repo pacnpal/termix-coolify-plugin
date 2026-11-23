@@ -936,6 +936,8 @@ export function createLogs(ctx: PluginContext, deps: LogsDeps) {
       const text = await fromCoolify(snap, res, request);
       signal?.throwIfAborted();
       if (text !== null) {
+        // The snapshot's target answered only while it still holds.
+        await deps.containers.assertSnapshotHolds(connectionId, snap);
         return {
           source: "coolify",
           text: redactLog(lastLines(text, request.lines), await snap.secrets()),

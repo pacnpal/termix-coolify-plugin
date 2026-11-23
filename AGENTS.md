@@ -223,7 +223,14 @@ aren't obvious from the code, and anything that has bitten you before.
   user never gets a cached row) and answers a hash of the address, sealed token, sealed Cloudflare Access
   values and TLS settings. The cached rows carry that revision and in-flight fetches are keyed by it, so a
   changed target never serves old rows, a caller after a change never joins an older fetch, and a fetch
-  that finishes after a change is not cached. Concurrent misses share one fetch. `invalidate(connectionId)`
+  that finishes after a change is not cached. A read answers only for the revision it started under
+  (#123): a fetch that ends after a change rejects with `target-changed` for everyone sharing it, and
+  `load` (behind `list`, `get`, `byServer`, `counts`) checks the revision once more with
+  `stillAt` (`connections/hold.ts`, also behind `forRevision`) when its rows are in, so a caller that
+  joined a fetch or read the cache just before a repoint gets 409, and a removed connection 404. Rows
+  from before an invalidate are still the right target: they answer, uncached. `refreshUnattended`
+  swallows `target-changed` (nothing cached, no status-page back-off); `readUnattended` lets it through
+  and the poller starts again from a baseline. Concurrent misses share one fetch. `invalidate(connectionId)`
   is the hook for lifecycle actions: it advances an in-memory per-connection generation, drops the
   in-flight fetches and the cached row. Cached rows carry their generation too, and a hit needs both the
   revision and the generation to be current, so a write that lands after the drop is never served.
@@ -640,7 +647,12 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   `index.ts`. That cache works like the resources cache: rows carry `connections.revision(id)` and a
   per-instance generation (`<epoch>:<n>`) that `invalidate` advances, a hit needs both to be current,
   in-flight fetches are keyed by id, revision and generation (invalidate drops them), and a fetch is
-  cached only if neither changed while it ran. The degraded
+  cached only if neither changed while it ran. A fetch that ends after a repoint rejects with
+  `target-changed` and `list` checks the revision again when its answer is in (#123), so every signal
+  catches it and reads unknown, never the old target's state or a zero; `coolify.signal-deploying` is
+  unknown only when no connection could be read (the others still add up). The activity panel
+  (`attention/service.ts`) also checks each connection's revision against the one it was listed with
+  once every part is in, and shows `target-changed` with no rows when it moved. The degraded
   count is `countResources`, so exited (with any health suffix) is stopped and never counts; bare
   `unhealthy` does. `coolify.updates` takes the newer (`newestSecurity`, parsed timestamps, an unparsable
   one counts as oldest) of Coolify's patch check (`ServerDto.patch`) and the updates service's own last
@@ -1051,8 +1063,8 @@ EventRecord) => unknown`, called by `afterStored` in `createEvents` after the co
   by revision, shared in-flight, kept only if the revision held; no names or Coolify text, so nothing to
   redact) and links to the connection's `baseUrl`. No recent events on any card: the event pipeline (#89)
   is separate, and an events card belongs to the event log ticket. `resources.load()` and
-  `servers.list()` return what they fetched even across a repoint (their revision only gates the cache),
-  so the overview and `GET /connections/:id/resources` wrap them in `forRevision`
+  `servers.list()` answer only for the revision they started under (#123); the overview and
+  `GET /connections/:id/resources` still wrap them in `forRevision`, so the parts share one target
   (`connections/hold.ts`: revision before, checked again before answering, else `target-changed` 409);
   the queue (`holds`) and vulnerabilities (snapshot revision) check it themselves. `server-health` (host
   dots and host rows, `resources/server-health.ts`) wraps its reads in `forRevision` too. The vulnerabilities card counts only completed scans as
