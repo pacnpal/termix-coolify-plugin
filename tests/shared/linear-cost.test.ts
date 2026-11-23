@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { growth, LINEAR_GROWTH } from "./linear-cost";
+import { growth, LINEAR_GROWTH, WARM_UP_CALLS } from "./linear-cost";
 import { HEAVY_TEST_MS } from "./timing";
 
 /**
@@ -26,14 +26,12 @@ function pause(): number {
   return spins;
 }
 
-/** `call`, pausing once, on its first run. */
+/** `call`, pausing once, on its first timed run (after growth()'s warm-up). */
 function pausingOnce(call: () => unknown): () => unknown {
-  let paused = false;
+  let calls = 0;
   return () => {
-    if (!paused) {
-      paused = true;
-      pause();
-    }
+    calls += 1;
+    if (calls === WARM_UP_CALLS + 1) pause();
     return call();
   };
 }

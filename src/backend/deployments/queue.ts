@@ -16,6 +16,13 @@ export const HISTORY_PER_APP = 5;
 export const RECENT_MAX = 25;
 /** History pages read at the same time. */
 const HISTORY_CONCURRENCY = 4;
+/**
+ * An application's history page is read again after this long even with no
+ * sign of news: the backstop for a deployment that starts and ends between
+ * two reads. Kept well inside the poller's CLOCK_SLACK_MS (5 minutes), so such
+ * a deployment still counts as news when a poll finds it.
+ */
+export const HISTORY_REFRESH_MS = 3 * 60_000;
 
 /** A deployment of one of the connection's own applications, with its name. */
 export interface QueueRow extends DeploymentDto {
@@ -33,11 +40,19 @@ export interface DeploymentQueue {
   recent: QueueRow[];
   /** When it was read from Coolify, in epoch milliseconds. */
   fetchedAt: number;
+  /**
+   * When the oldest history page in `recent` was read from Coolify (a page
+   * can be reused for up to HISTORY_REFRESH_MS). The poller's watermark for
+   * "ended since the last read", so a reused page never eats into its
+   * CLOCK_SLACK_MS. Not answered to callers.
+   */
+  historyReadAt: number;
 }
 
 /** The queue as routes and operations answer it: times as ISO strings. */
 export function queueBody(queue: DeploymentQueue) {
-  return { ...queue, fetchedAt: new Date(queue.fetchedAt).toISOString() };
+  const { historyReadAt: _historyReadAt, ...answer } = queue;
+  return { ...answer, fetchedAt: new Date(queue.fetchedAt).toISOString() };
 }
 
 /** Whether a query or input flag asks to skip the cache. */
@@ -49,6 +64,20 @@ interface Cached {
   revision: string;
   generation: string;
   value: DeploymentQueue;
+}
+
+/**
+ * The history pages last read for one connection's applications, so a read
+ * asks Coolify again only for applications with news. Only for one revision.
+ */
+interface Histories {
+  revision: string;
+  pages: Map<string, { rows: DeploymentDto[]; readAt: number }>;
+  /**
+   * The deployments queued or running at the last read, each to its
+   * application: one that has left the queue since is news for its page.
+   */
+  running: Map<string, string>;
 }
 
 /** Runs `fn` over `items`, at most `limit` at a time, keeping their order. */
@@ -103,6 +132,7 @@ export function createQueueCache(deps: {
   const epoch = randomUUID();
   const generations = new Map<number, number>();
   const generationOf = (id: number) => `${epoch}:${generations.get(id) ?? 0}`;
+  const histories = new Map<number, Histories>();
 
   async function fetchQueue(
     connectionId: number,
@@ -136,25 +166,51 @@ export function createQueueCache(deps: {
       .map(own)
       .filter((r): r is QueueRow => r !== null);
     const picked = [...applications].sort(byLastDeploy).slice(0, HISTORY_APPS);
+    // Each application's page is read again only when it may hold news: a
+    // deployment that was running at the last read has ended, the page was
+    // never read, or it is older than HISTORY_REFRESH_MS. Every other page is
+    // the one read before, so a steady connection costs one request a read.
+    const prior = histories.get(connectionId);
+    const known = prior?.revision === revision ? prior : null;
+    const runningNow = new Map(running.map((r) => [r.uuid, r.resourceUuid]));
+    // Applications with a deployment that was queued or running at the last
+    // read and isn't now: it ended (or was cancelled), whatever else of that
+    // application is still queued.
+    const ended = new Set(
+      [...(known?.running ?? [])]
+        .filter(([deployment]) => !runningNow.has(deployment))
+        .map(([, app]) => app),
+    );
+    const readAt = now();
+    const fresh = (uuid: string, page: { readAt: number }) => {
+      if (ended.has(uuid)) return false;
+      const age = readAt - page.readAt;
+      return age >= 0 && age < HISTORY_REFRESH_MS;
+    };
     const pages = await mapLimit(picked, HISTORY_CONCURRENCY, async (app) => {
+      const kept = known?.pages.get(app.uuid);
+      if (kept && fresh(app.uuid, kept)) return { uuid: app.uuid, ...kept };
       try {
-        return (
+        const rows = (
           await api.deploymentPage(app.uuid, {
             skip: 0,
             take: HISTORY_PER_APP,
             beforeFetch: guard,
           })
         ).rows;
+        return { uuid: app.uuid, rows, readAt };
       } catch (err) {
         // An application Coolify no longer has: no history, not a failure.
-        if (err instanceof CoolifyError && err.cause === "not-found") return [];
+        if (err instanceof CoolifyError && err.cause === "not-found") {
+          return { uuid: app.uuid, rows: [], readAt };
+        }
         throw err;
       }
     });
     const live = new Set(running.map((r) => r.uuid));
     const seen = new Set<string>();
     const recent = pages
-      .flat()
+      .flatMap((page) => page.rows)
       .map(own)
       .filter((r): r is QueueRow => {
         if (!r || live.has(r.uuid) || seen.has(r.uuid)) return false;
@@ -163,12 +219,25 @@ export function createQueueCache(deps: {
       })
       .sort(newestFirst)
       .slice(0, RECENT_MAX);
-    const value = { running, recent, fetchedAt: now() };
+    const fetchedAt = now();
+    const value = {
+      running,
+      recent,
+      fetchedAt,
+      historyReadAt: Math.min(fetchedAt, ...pages.map((p) => p.readAt)),
+    };
     if (
       (await currentRevision()) === revision &&
       generationOf(connectionId) === generation
     ) {
       cache.set(connectionId, { revision, generation, value });
+      histories.set(connectionId, {
+        revision,
+        pages: new Map(
+          pages.map((p) => [p.uuid, { rows: p.rows, readAt: p.readAt }]),
+        ),
+        running: runningNow,
+      });
     }
     return value;
   }
@@ -224,6 +293,8 @@ export function createQueueCache(deps: {
     invalidate(connectionId: number): void {
       generations.set(connectionId, (generations.get(connectionId) ?? 0) + 1);
       cache.delete(connectionId);
+      // A deploy, cancel or rollback: the next read asks for every page.
+      histories.delete(connectionId);
       for (const key of [...inflight.keys()]) {
         if (key.startsWith(`${connectionId}:`)) inflight.delete(key);
       }

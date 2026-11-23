@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PluginOperationContext } from "@termix-ssh/plugin-sdk/backend";
 import { handleMcp } from "../../../src/backend/mcp/server.js";
 import {
@@ -19,6 +19,7 @@ import {
   type PluginHarness,
 } from "../helpers/plugin.js";
 import { resourceLists } from "../helpers/resources.js";
+import { HISTORY_REFRESH_MS } from "../../../src/backend/deployments/queue.js";
 
 let harness: PluginHarness | null = null;
 
@@ -160,6 +161,111 @@ describe("the connection's deployment queue", () => {
     // refresh skips the cache.
     await harness.request("GET", `/connections/${id}/deployments?refresh=1`);
     expect(queueReads(fake)).toBe(2);
+  });
+
+  it("asks for an application's history again only when its deployment ended, or after HISTORY_REFRESH_MS", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const T0 = Date.parse("2026-11-23T10:00:00.000Z");
+      vi.setSystemTime(T0);
+      const { harness, fake, id } = await start();
+      const pageReads = (uuid: string) =>
+        fake.calls.filter(
+          (c) =>
+            c.method === "GET" &&
+            c.path === `/deployments/applications/${uuid}`,
+        ).length;
+      const read = async () =>
+        (
+          await harness.request(
+            "GET",
+            `/connections/${id}/deployments?refresh=1`,
+          )
+        ).body;
+
+      await read();
+      expect([pageReads("app-web-uuid"), pageReads("app-api-uuid")]).toEqual([
+        1, 1,
+      ]);
+      // Nothing ended: the pages read before are used again.
+      const same = await read();
+      expect(queueReads(fake)).toBe(2);
+      expect([pageReads("app-web-uuid"), pageReads("app-api-uuid")]).toEqual([
+        1, 1,
+      ]);
+      expect(uuids(same.recent)).toEqual([
+        "dep-api-old",
+        "dep-done",
+        "dep-failed",
+      ]);
+
+      // web's deployment ended (api's is still queued): only web's page.
+      const queue = queueAnswers()["GET /deployments"] as {
+        json: { deployment_uuid: string }[];
+      };
+      fake.set("GET /deployments", {
+        json: queue.json.filter((row) => row.deployment_uuid !== "dep-run"),
+      });
+      await read();
+      expect([pageReads("app-web-uuid"), pageReads("app-api-uuid")]).toEqual([
+        2, 1,
+      ]);
+
+      // The backstop: every page again once it is HISTORY_REFRESH_MS old.
+      vi.setSystemTime(T0 + HISTORY_REFRESH_MS);
+      await read();
+      expect([pageReads("app-web-uuid"), pageReads("app-api-uuid")]).toEqual([
+        3, 2,
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("asks for a page again when one of its deployments ended while another is still queued", async () => {
+    const { harness, fake, id } = await start();
+    const webReads = () =>
+      fake.calls.filter(
+        (c) =>
+          c.method === "GET" &&
+          c.path === "/deployments/applications/app-web-uuid",
+      ).length;
+    const queue = queueAnswers()["GET /deployments"] as {
+      json: { deployment_uuid: string }[];
+    };
+    const read = () =>
+      harness.request("GET", `/connections/${id}/deployments?refresh=1`);
+    // web has dep-run and a second queued deployment.
+    const second = deploymentRaw("dep-web-next", "queued");
+    fake.set("GET /deployments", { json: [...queue.json, second] });
+    await read();
+    expect(webReads()).toBe(1);
+    // dep-run ended; dep-web-next is still queued.
+    fake.set("GET /deployments", {
+      json: [
+        ...queue.json.filter((row) => row.deployment_uuid !== "dep-run"),
+        second,
+      ],
+    });
+    await read();
+    expect(webReads()).toBe(2);
+  });
+
+  it("asks for every page again after a cancel", async () => {
+    const { harness, fake, id } = await start();
+    const pageReads = () =>
+      fake.calls.filter(
+        (c) =>
+          c.method === "GET" &&
+          c.path === "/deployments/applications/app-api-uuid",
+      ).length;
+    await harness.request("GET", `/connections/${id}/deployments`);
+    await harness.request(
+      "POST",
+      `/connections/${id}/resources/app-web-uuid/deployments/dep-run/cancel`,
+    );
+    await harness.request("GET", `/connections/${id}/deployments`);
+    expect(pageReads()).toBe(2);
   });
 
   it("reads again once a cancel changed the queue", async () => {

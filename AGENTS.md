@@ -66,7 +66,7 @@ Keep this section current when the plugin changes: what it does, how it is put t
 aren't obvious from the code, and anything that has bitten you before.
 
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
-  Where things stand: the plugin is at 1.0.2 (1.0.0 was its first release). It holds connections, resources and
+  Where things stand: the plugin is at 1.0.3 (1.0.0 was its first release). It holds connections, resources and
   lifecycle, host sync, shells, logs, exec, metrics, server updates, companions, status pages, deployments,
   previews and rollback, recent activity, the activity panel, dashboard cards and homepage widgets, the
   event pipeline and event log (#89), the poller (#90), the team webhook (#91) and its one-click setup
@@ -149,7 +149,8 @@ aren't obvious from the code, and anything that has bitten you before.
   `linearLimit(32)` = 96). One sample never decides a check (#124): a pause on the thread (a major
   GC, a deopt) counts as its CPU time. Each of up to three tries takes the median of three
   interleaved sub-samples per size, the best try of each size counts, and only a pass stops early;
-  a failure takes every try. `tests/shared/linear-cost.test.ts` (run with the backend tests) checks
+  a failure takes every try. Each size is called `WARM_UP_CALLS` (3) times first, untimed: cold calls
+  ran before the JIT and read a quadratic call as linear on CI. `tests/shared/linear-cost.test.ts` (run with the backend tests) checks
   that one paused call reads a linear call as linear and a quadratic one as quadratic.
   `LINEAR_COST_LOG=1` prints each check's growth and CPU time (vitest `--silent=false`). Waits use `WAIT_MS` (`tests/shared/timing.ts`): `eventually()` for vi.waitFor, and `tests/frontend/setup.ts` (loaded by
   `vitest.config.ts`) for every findBy and waitFor. Tests with heavy fixed work or a real timer in the
@@ -1051,9 +1052,16 @@ EventRecord) => unknown`, called by `afterStored` in `createEvents` after the co
   Manager frontend actions run with `invokeAction`.
 - Deployments: `src/backend/deployments/` (service, log, routes, queue, by-tag) and
   `src/backend/ops/deployments.ts`. `deployments.queue(connectionId)` is the one connection-wide read of
-  Coolify's queue (`GET /deployments`) plus the recent history of the ten most recently deployed
-  applications; it is cached 10 seconds in memory (`queue.ts`), keyed by revision and an invalidate
-  generation like the resources cache, shared by the Deployments section, the Overview, the
+  Coolify's queue (`GET /deployments`) plus the recent history of ten applications (sorted by
+  `lastDeployAt`, which Coolify v4.7.x never sends, so in practice the first ten by name); it is cached 10
+  seconds in memory (`queue.ts`), keyed by revision and an invalidate generation like the resources cache,
+  and each history page is kept per connection and revision (`histories`) and asked for again only when
+  any deployment of that application seen queued or running at the last read (tracked by deployment uuid,
+  so a second queued one doesn't hide it) has left the queue, the page is new, or it is
+  `HISTORY_REFRESH_MS` (3 minutes) old, so a steady read is one request, not eleven (every request is an
+  audit entry in core). An invalidate forgets the pages. The queue's `historyReadAt` (oldest page used,
+  never answered to callers) is the poller's `deploymentsReadAt` watermark, so a reused page never eats
+  into `CLOCK_SLACK_MS` and a deployment that started and ended between two polls is still news when found; shared by the Deployments section, the Overview, the
   `coolify.deployment-queue` action and anything later (the sidebar panel, rail badge). Rows whose link
   names no application of the connection are dropped. Cancel, deploy by tag and rollback invalidate it. In the
   frontend, `useDeploymentQueue` is held by CoolifyTab and polls only while the tab shows Overview or

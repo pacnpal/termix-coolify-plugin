@@ -47,6 +47,11 @@ export interface RunsRead {
 export interface PollRead {
   resources: ResourceDto[];
   deployments: QueueRow[] | null;
+  /**
+   * When the oldest history behind `deployments` was read from Coolify (the
+   * queue reuses pages); the poll's own time when not given.
+   */
+  deploymentsReadAt?: number;
   servers: ServerStatus[] | null;
   runs: RunsRead | null;
 }
@@ -284,7 +289,11 @@ export function diffPoll(
     next: {
       readAt: at,
       deployments: deployments?.seen ?? prev?.deployments ?? new Map(),
-      deploymentsReadAt: deployments ? at : (prev?.deploymentsReadAt ?? 0),
+      // The oldest history this read used, not the poll's time: a reused
+      // page must not move the window past deployments it hasn't seen.
+      deploymentsReadAt: deployments
+        ? Math.min(at, read.deploymentsReadAt ?? at)
+        : (prev?.deploymentsReadAt ?? 0),
       health: statuses.health,
       statuses: statuses.statuses,
       reachable: reach?.seen ?? prev?.reachable ?? new Map(),

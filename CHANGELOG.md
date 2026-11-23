@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.3
+
+### Changed
+
+- The deployment queue asks Coolify for an application's recent deployments only when one of its
+  deployments just left the queue, or every 3 minutes, instead of on every read. With polling on, a
+  connection now makes about a fifth of the requests it did, and Termix's audit log, which records every
+  request a plugin makes, fills far more slowly. A deployment that starts and ends between two polls is
+  reported within about 4 minutes instead of 1
+
 ## 1.0.2
 
 ### Added
