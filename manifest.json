@@ -1,7 +1,7 @@
 {
   "id": "coolify",
   "name": "Coolify for Termix",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Coolify inside Termix: servers become hosts (tunnels included), one-click container shells, deploys, logs, variables, backups and alerts, and the full Coolify API.",
   "author": {
     "name": "pacnpal",
@@ -43,7 +43,6 @@
     "notify:send",
     "events:core",
     "plugins:read",
-    "users:read",
     "operations:invoke"
   ],
   "optionalDependencies": {
@@ -76,7 +75,7 @@
         "every": 60000
       }
     ],
-    "events": ["host.deleted", "host.updated"]
+    "events": ["host.deleted"]
   },
   "contributes": {
     "tabs": [
@@ -3606,7 +3605,7 @@
   "provides": [
     {
       "service": "coolify.client",
-      "version": "1.0.3",
+      "version": "1.0.4",
       "permission": "coolify.view"
     }
   ],

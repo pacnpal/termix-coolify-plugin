@@ -66,7 +66,7 @@ Keep this section current when the plugin changes: what it does, how it is put t
 aren't obvious from the code, and anything that has bitten you before.
 
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
-  Where things stand: the plugin is at 1.0.3 (1.0.0 was its first release). It holds connections, resources and
+  Where things stand: the plugin is at 1.0.4 (1.0.0 was its first release). It holds connections, resources and
   lifecycle, host sync, shells, logs, exec, metrics, server updates, companions, status pages, deployments,
   previews and rollback, recent activity, the activity panel, dashboard cards and homepage widgets, the
   event pipeline and event log (#89), the poller (#90), the team webhook (#91) and its one-click setup
