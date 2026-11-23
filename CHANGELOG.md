@@ -107,6 +107,13 @@
   deployment events, since they carry a host only when the server is Linked, and their payloads gained
   `status` (and `deploymentUuid` for a container restart). Neither was sent before this release
 
+### Fixed
+
+- On Postgres or MySQL, two cache writes for the same connection at once could collide, and the
+  resource list, a server signal or an update check then failed although Coolify had answered. Writes
+  of the same cached list now run one at a time, and a cache write that still fails no longer fails
+  the read
+
 ## 1.1.2
 
 ### Fixed

@@ -23,6 +23,7 @@ import { healthyCoolify } from "../helpers/fake-coolify.js";
 import { resourceLists, SECRET } from "../helpers/resources.js";
 import { byText } from "../helpers/order.js";
 import { HEAVY_TEST_MS } from "../../shared/timing.js";
+import { failCacheWrites } from "../helpers/cache.js";
 
 const pluginDir = fileURLToPath(new URL("../../..", import.meta.url));
 const manifest = manifestJson as unknown as PluginManifest;
@@ -251,6 +252,13 @@ describe("resource service", () => {
     });
   });
 
+  it("answers the list when the cache write fails", async () => {
+    const refused = failCacheWrites(mock.ctx);
+    const rows = await resources.list(connectionId);
+    expect(rows).toHaveLength(13);
+    expect(refused()).toBe(1);
+  });
+
   it("second call within 20s uses the cache", async () => {
     await resources.list(connectionId);
     const fetched = fake.calls.length;
@@ -310,13 +318,14 @@ describe("resource service", () => {
   });
 
   it("a cache write held past an invalidate is never served", async () => {
-    // The write lands after invalidate has run to completion.
+    // The write is held past invalidate's generation change; its drop is
+    // queued behind the write (cache.ts), so it lands first.
     const hold = holdNextCacheWrite();
     const stale = resources.list(connectionId);
     await hold.atWrite;
-    await resources.invalidate(connectionId);
+    const invalidated = resources.invalidate(connectionId);
     hold.release();
-    await stale;
+    await Promise.all([stale, invalidated]);
 
     fake.set("GET /applications", NARROWER);
     fake.calls.length = 0;
@@ -330,9 +339,9 @@ describe("resource service", () => {
     const hold = holdNextCacheWrite();
     const stale = resources.list(connectionId);
     await hold.atWrite;
-    await resources.invalidate(connectionId);
+    const invalidated = resources.invalidate(connectionId);
     hold.release();
-    await stale;
+    await Promise.all([stale, invalidated]);
 
     // A restart: a new instance over the same tables, with the row still there.
     const restarted = createResources(mock.ctx, {

@@ -230,6 +230,16 @@ aren't obvious from the code, and anything that has bitten you before.
   revision and the generation to be current, so a write that lands after the drop is never served.
   Generations are unique to each `createResources` instance (`<epoch>:<n>`, the epoch a random uuid), so
   after a restart no row an old instance wrote matches and the cache starts cold.
+  The `cache` table (`src/backend/cache.ts`, shared by resources, server statuses and kept update
+  checks): a write is a delete then an insert under the unique (connectionId, kind) index, which on
+  Postgres or MySQL two overlapping batches of one key can both pass and then collide on (#120). So
+  `write` and `drop` of one `connectionId:kind` run one at a time in call order, in an in-process
+  queue entered before any await and shared by every `createCache` over the same table (a WeakMap on
+  the table object). A `drop` with no kind waits for every queued write and drop of that connection,
+  and anything of that connection called after it waits for it. Like the other locks this relies on
+  one backend process per Termix server. `write` never rejects: a failed write is logged by its
+  error's name only and the read that produced the value still answers. An invalidate's drop now
+  lands after a write already queued, so the generation check is the second guard, not the only one.
   `ResourceDto.serverName` comes from `server.name` or `destination.server.name` in the payload.
   The MCP tool `list_resources` (`src/backend/mcp/server.ts`) runs `coolify.list-resources-all`.
 - Status pages: `src/backend/status/` (service, render, routes, base-url) and `src/backend/ops/status-pages.ts`.
