@@ -833,6 +833,26 @@ describe("a tunnel added in Termix for a server Coolify reaches directly", () =>
     });
   });
 
+  it("a stored tunnel blocked on SSH Terminal can be turned off and syncs plain", async () => {
+    const { harness: h, connectionId } = await start();
+    await apply(h, connectionId, LOCAL_TUNNEL);
+    expect(byUuid(await preview(h, connectionId), "srv-local")).toMatchObject({
+      cause: "needs-ssh-terminal",
+      viaTunnel: true,
+    });
+    const create = vi.spyOn(h.mock.ctx.hosts, "create");
+    const results = await apply(h, connectionId, [
+      { uuid: "srv-local", include: true, viaTunnel: false },
+    ]);
+    expect(byUuid(results, "srv-local").status).toBe("created");
+    expect(sshTerminalOf(create.mock.calls[0][0])).toBeUndefined();
+    expect(byUuid(await preview(h, connectionId), "srv-local")).toMatchObject({
+      status: "linked",
+      viaTunnel: false,
+      tunnel: false,
+    });
+  });
+
   it("refuses a viaTunnel that isn't true or false", async () => {
     const { harness: h, connectionId } = await start();
     const res = await h.request("POST", `/connections/${connectionId}/sync`, {

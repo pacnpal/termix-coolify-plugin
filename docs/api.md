@@ -1152,7 +1152,7 @@ each reveal is audited and nothing is kept.
 
 ## The `coolify.client` service
 
-Other Termix plugins can use Coolify through the `coolify.client` service (version 1.1.0). Declare it in your
+Other Termix plugins can use Coolify through the `coolify.client` service (version 1.0.2). Declare it in your
 manifest's `requires` and get it as the acting user:
 
 ```json

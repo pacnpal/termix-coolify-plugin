@@ -106,6 +106,34 @@ describe("Servers: Reach through a Cloudflare tunnel", () => {
     ]);
   });
 
+  it("turning off a stored tunnel blocked on SSH Terminal includes the row again", async () => {
+    const blocked = syncRow(
+      syncServer("srv-local", "localhost", "host.docker.internal", {
+        isCoolifyHost: true,
+      }),
+      {
+        status: "blocked",
+        cause: "needs-ssh-terminal",
+        addressOverride: "203.0.113.5",
+        viaTunnel: true,
+        tunnel: true,
+      },
+    ) as SyncRow;
+    const syncApply = vi.fn<Api["syncApply"]>().mockResolvedValue([]);
+    await mount({
+      syncPreview: vi.fn<Api["syncPreview"]>().mockResolvedValue([blocked]),
+      syncApply,
+    });
+    fireEvent.click(
+      await screen.findByRole("checkbox", { name: locales.sync.viaTunnel }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: locales.sync.apply }));
+    await waitFor(() => expect(syncApply).toHaveBeenCalled());
+    expect(syncApply.mock.calls[0][1]).toEqual([
+      { uuid: "srv-local", include: true, viaTunnel: false },
+    ]);
+  });
+
   it("is not offered for a server Coolify already tunnels", async () => {
     const tunnelled = syncRow(
       syncServer("srv-vps1", "vps1", "ssh-vps1.example.test", {

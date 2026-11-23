@@ -88,7 +88,13 @@ function draftOf(row: SyncRow): Draft {
 /** Whether a row can be included with what has been entered so far. */
 function ready(row: SyncRow, draft: Draft): boolean {
   if (row.status === "gone") return false;
-  if (row.cause && SSH_TERMINAL_CAUSES.has(row.cause)) return false;
+  // Turning off a tunnel added in Termix drops the SSH Terminal it needed; the
+  // backend still refuses while the host has tunnel settings to clear.
+  const tunnelDropped =
+    row.viaTunnel && !draft.viaTunnel && !row.server.isTunnel;
+  if (row.cause && SSH_TERMINAL_CAUSES.has(row.cause) && !tunnelDropped) {
+    return false;
+  }
   // A tunnel added in Termix connects to the tunnel hostname.
   if (row.cause === "needs-address" || draft.viaTunnel) {
     return draft.address.trim() !== "";
@@ -265,7 +271,13 @@ function SyncRowView({
               id={`sync-tunnel-${row.server.uuid}`}
               checked={draft.viaTunnel}
               onCheckedChange={(value) =>
-                onDraft({ ...draft, viaTunnel: value === true })
+                onDraft({
+                  ...draft,
+                  viaTunnel: value === true,
+                  // Unticking a stored tunnel includes the row, so the
+                  // change is sent (a left-out row saves nothing).
+                  include: draft.include || (value !== true && row.viaTunnel),
+                })
               }
             />
             <label htmlFor={`sync-tunnel-${row.server.uuid}`}>
