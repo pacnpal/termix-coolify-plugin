@@ -1063,8 +1063,10 @@ EventRecord) => unknown`, called by `afterStored` in `createEvents` after the co
   audit entry in core). An invalidate forgets the pages. The queue's `historyReadAt` (oldest page used,
   never answered to callers) is the poller's `deploymentsReadAt` watermark, so a reused page never eats
   into `CLOCK_SLACK_MS` and a deployment that started and ended between two polls is still news when found.
-  A poller baseline asks with `freshHistory` (no cache, no kept pages, no joined read), so a page from
-  before polling stopped never lets a deployment that ended meanwhile come up later as news; shared by the Deployments section, the Overview, the
+  A poller baseline asks with `freshHistory`, which supersedes the connection first (`supersede`, what
+  invalidate does: a new generation, no cache, no kept pages, no running reads), so a read already
+  running can't write older pages over it and a deployment that ended while polling was off never comes up
+  later as news; shared by the Deployments section, the Overview, the
   `coolify.deployment-queue` action and anything later (the sidebar panel, rail badge). Rows whose link
   names no application of the connection are dropped. Cancel, deploy by tag and rollback invalidate it. In the
   frontend, `useDeploymentQueue` is held by CoolifyTab and polls only while the tab shows Overview or
