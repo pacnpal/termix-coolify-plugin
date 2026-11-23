@@ -495,9 +495,13 @@ describe("webhook refusals", () => {
     expect(await webhooks.verify(42)).toBeNull();
   });
 
-  it(`holds at most ${WEBHOOK_FANOUT_MAX} fan-outs in flight per webhook, dropping the rest`, async () => {
+  it(`at ${WEBHOOK_FANOUT_MAX} fan-outs in flight, refuses a delivery as busy so Coolify retries it`, async () => {
     perToken.set(TOKEN_A, { "GET /servers/srv-vps1-uuid": "hang" });
     perToken.set(TOKEN_B, { "GET /servers/srv-vps1-uuid": "hang" });
+    vi.useFakeTimers({
+      toFake: ["Date"],
+      now: Date.parse("2026-11-23T10:00:00.000Z"),
+    });
     mock.setActor(undefined);
     for (let i = 0; i < WEBHOOK_FANOUT_MAX; i++) {
       const held = await webhooks.receive(
@@ -507,13 +511,85 @@ describe("webhook refusals", () => {
       );
       expect(held.accepted).toBe(true);
     }
+    vi.setSystemTime(Date.parse("2026-11-23T10:05:00.000Z"));
     const over = await webhooks.receive(
       token,
-      COOLIFY_WEBHOOKS.server_unreachable,
+      COOLIFY_WEBHOOKS.backup_failed,
       200,
     );
+    expect(over).toEqual({ accepted: false, busy: true });
+    // Not counted as delivered, and nothing asked or ingested for it.
+    expect(webhookRow().last_received_at).toBe("2026-11-23T10:00:00.000Z");
+    expect(calls.some((x) => x.route === "GET /databases/db-pg-uuid")).toBe(
+      false,
+    );
+    expect(rows(a)).toHaveLength(0);
+    // An event no kind covers holds no slot, so it is still accepted.
+    const test = await webhooks.receive(token, COOLIFY_WEBHOOKS.test, 200);
     mock.setActor(OWNER);
-    expect(over.accepted).toBe(true);
-    expect(over.accepted ? await over.fanout : null).toEqual([]);
+    expect(test.accepted).toBe(true);
+  });
+});
+
+describe("run identity and status changes", () => {
+  const taskRun = (taskUuid: string) => ({
+    ...COOLIFY_WEBHOOKS.task_failed,
+    task_uuid: taskUuid,
+  });
+
+  it("two different tasks of one resource failing in the same minute are two events", async () => {
+    vi.useFakeTimers({
+      toFake: ["Date"],
+      now: Date.parse("2026-11-23T10:00:10.000Z"),
+    });
+    await deliver(taskRun("task-one"));
+    vi.setSystemTime(Date.parse("2026-11-23T10:00:20.000Z"));
+    await deliver(taskRun("task-two"));
+    expect(rows(a).map((r) => r.dedupe_key)).toEqual([
+      expect.stringMatching(/^task\|task-failed\|task-one\|/),
+      expect.stringMatching(/^task\|task-failed\|task-two\|/),
+    ]);
+    // Coolify's retry of the same delivery is one event.
+    vi.setSystemTime(Date.parse("2026-11-23T10:00:40.000Z"));
+    expect((await deliver(taskRun("task-one"))).results).toContainEqual({
+      connectionId: a,
+      outcome: "duplicate",
+    });
+    expect(rows(a)).toHaveLength(2);
+  });
+
+  it("a poll and a webhook of the same task run are one event", async () => {
+    vi.useFakeTimers({
+      toFake: ["Date"],
+      now: Date.parse("2026-11-23T10:00:30.000Z"),
+    });
+    const revision = (await connections.unattendedSnapshot(a))!.revision;
+    // What the poller's diff hands the pipeline for that run.
+    const polled = await events.ingest(
+      a,
+      {
+        kind: "task-failed",
+        source: "poll",
+        resourceUuid: "svc-n8n-uuid",
+        taskUuid: "task-uuid",
+        name: "svc",
+        status: "failed",
+        at: Date.parse("2026-11-23T10:00:05.000Z"),
+      },
+      { revision },
+    );
+    expect(polled.outcome).toBe("stored");
+    await deliver(COOLIFY_WEBHOOKS.task_failed);
+    expect(rows(a)).toHaveLength(1);
+  });
+
+  it("a status_changed delivery is one status-changed event", async () => {
+    await deliver(COOLIFY_WEBHOOKS.status_changed);
+    expect(rows(a)).toHaveLength(1);
+    expect(rows(a)[0]).toMatchObject({
+      kind: "status-changed",
+      resource_uuid: "app-web-uuid",
+    });
+    expect(checks(TOKEN_A)).toEqual(["GET /applications/app-web-uuid"]);
   });
 });

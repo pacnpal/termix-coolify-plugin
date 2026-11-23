@@ -1,5 +1,6 @@
 import type { ReadableSubject } from "../coolify/api.js";
 import type { SourceEvent } from "../events/service.js";
+import { resourceHealth } from "../../shared/resource-health.js";
 
 /**
  * The strict shape of a Coolify webhook body (#91).
@@ -156,6 +157,36 @@ const RESOURCE_STATUS: Record<string, FieldType> = {
   fqdn: "text",
 };
 
+/**
+ * The resource in StatusChanged's own link (base_url/project/{p}/
+ * environment/{e}/{type}/{uuid}): Coolify sends no type field, and for a
+ * preview or a service's part the link names the parent instead.
+ */
+const STATUS_LINK = /\/(application|database)\/([A-Za-z0-9_-]{1,128})$/;
+
+/**
+ * "Resource stopped" (Coolify's StatusChanged, sent with status exited) as
+ * status-changed for a standalone application or database, the resources
+ * the poller sends it for. A preview or a service's part ingests nothing.
+ */
+function stopped(b: Body): WebhookIngest | null {
+  const link = STATUS_LINK.exec(str(b.url) ?? "");
+  const uuid = str(b.resource_uuid) ?? str(b.application_uuid);
+  if (!link || link[2] !== uuid) return null;
+  return {
+    subject: { type: link[1] as "application" | "database", uuid },
+    event: {
+      kind: "status-changed",
+      source: "webhook",
+      resourceUuid: uuid,
+      name: str(b.resource_name) ?? str(b.application_name),
+      status: str(b.status),
+      // The poller's health word (exited is stopped); Coolify sends no "from".
+      fields: { to: resourceHealth(str(b.status)) },
+    },
+  };
+}
+
 const BACKUP: Record<string, FieldType> = {
   database_name: "text",
   database_uuid: "uuid",
@@ -208,6 +239,8 @@ function task(kind: "task-succeeded" | "task-failed", status: string) {
         kind,
         source: "webhook",
         resourceUuid: subject.uuid,
+        // The task (Coolify sends no run uuid): dedupes with the poller's run.
+        taskUuid: plainUuid(b.task_uuid),
         name: str(b.task_name),
         status,
         fields: present({ consecutiveFailures: int(b.consecutive_failures) }),
@@ -234,10 +267,10 @@ export const COOLIFY_WEBHOOK_EVENTS: Record<string, EventShape> = {
     required: ["application_uuid", "deployment_uuid"],
     map: deployment("deployment-failed"),
   },
-  // "Resource stopped": no event kind for it yet.
   status_changed: {
     fields: { ...RESOURCE_STATUS, status: "text" },
     required: ["application_uuid"],
+    map: stopped,
   },
   restart_limit_reached: {
     fields: {

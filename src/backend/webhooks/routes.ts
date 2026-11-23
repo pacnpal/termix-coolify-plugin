@@ -70,6 +70,8 @@ export function registerWebhookRoutes(
    *         description: '{ "error": "Bad request" } for an unknown token, an oversized body or any other shape, alike'
    *       500:
    *         description: The plugin's database failed; Coolify retries
+   *       503:
+   *         description: '{ "error": "Busy" }: too many deliveries are still being checked; Coolify retries, and the delivery is not counted'
    */
   router.post("/webhook/:token", async (req: Request, res: Response) => {
     try {
@@ -79,7 +81,10 @@ export function registerWebhookRoutes(
         declaredBytes(req),
       );
       if (!delivery.accepted) {
-        return answer(res, 400, { error: "Bad request" });
+        // Busy is only ever said to a known token with a valid body.
+        return "busy" in delivery && delivery.busy
+          ? answer(res, 503, { error: "Busy" })
+          : answer(res, 400, { error: "Bad request" });
       }
       // The fan-out runs on after the answer and never rejects.
       void delivery.fanout;

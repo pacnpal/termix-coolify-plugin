@@ -10,9 +10,10 @@ import { plainUuid, readWebhook, type WebhookIngest } from "./shape.js";
 export const WEBHOOK_BODY_MAX = 65_536;
 
 /**
- * Fan-outs one webhook row may have in flight; a delivery past it is still
- * accepted, but its event is dropped (logged). Bounds the work a burst of
- * deliveries can queue behind Coolify's request budget.
+ * Fan-outs one webhook row may have in flight. A delivery with an event to
+ * fan out past it is refused as busy (503, which Coolify's job retries) and
+ * not counted as delivered. Bounds the work a burst of deliveries can queue
+ * behind Coolify's request budget.
  */
 export const WEBHOOK_FANOUT_MAX = 32;
 
@@ -33,7 +34,8 @@ export interface FanoutResult {
 }
 
 export type Delivery =
-  | { accepted: false }
+  /** `busy`: the fan-out cap was reached; nothing was stored. */
+  | { accepted: false; busy?: true }
   | {
       accepted: true;
       /**
@@ -153,17 +155,25 @@ export function createWebhooks(ctx: PluginContext, deps: WebhooksDeps) {
     }
   }
 
+  /** Takes one of the row's fan-out slots, or answers false when full. */
+  function reserve(rowId: number): boolean {
+    const held = inFlight.get(rowId) ?? 0;
+    if (held >= WEBHOOK_FANOUT_MAX) return false;
+    inFlight.set(rowId, held + 1);
+    return true;
+  }
+
+  function release(rowId: number): void {
+    const left = (inFlight.get(rowId) ?? 1) - 1;
+    if (left > 0) inFlight.set(rowId, left);
+    else inFlight.delete(rowId);
+  }
+
+  /** The fan-out of one event; runs on the slot `receive` reserved. */
   async function fanOut(
     row: WebhookRow,
-    ingest: WebhookIngest | null,
+    ingest: WebhookIngest,
   ): Promise<FanoutResult[]> {
-    if (!ingest) return [];
-    const held = inFlight.get(row.id) ?? 0;
-    if (held >= WEBHOOK_FANOUT_MAX) {
-      ctx.log.warn("coolify webhook busy: event dropped");
-      return [];
-    }
-    inFlight.set(row.id, held + 1);
     try {
       const db = await dbClient(ctx);
       const ids = (
@@ -183,9 +193,7 @@ export function createWebhooks(ctx: PluginContext, deps: WebhooksDeps) {
       );
       return [];
     } finally {
-      const left = (inFlight.get(row.id) ?? 1) - 1;
-      if (left > 0) inFlight.set(row.id, left);
-      else inFlight.delete(row.id);
+      release(row.id);
     }
   }
 
@@ -221,13 +229,27 @@ export function createWebhooks(ctx: PluginContext, deps: WebhooksDeps) {
       if (!read) return { accepted: false };
       const row = await verify(token);
       if (!row) return { accepted: false };
-      const db = await dbClient(ctx);
-      await db
-        .update(t.webhooks)
-        .set({ lastReceivedAt: new Date().toISOString() })
-        .where(eq(t.webhooks.id, row.id));
-      await ctx.db.persist();
-      return { accepted: true, fanout: fanOut(row, read.ingest) };
+      const { ingest } = read;
+      // Reserved before the delivery counts, so a refusal stamps nothing.
+      if (ingest && !reserve(row.id)) {
+        ctx.log.warn("coolify webhook busy: delivery refused");
+        return { accepted: false, busy: true };
+      }
+      try {
+        const db = await dbClient(ctx);
+        await db
+          .update(t.webhooks)
+          .set({ lastReceivedAt: new Date().toISOString() })
+          .where(eq(t.webhooks.id, row.id));
+        await ctx.db.persist();
+      } catch (err) {
+        if (ingest) release(row.id);
+        throw err;
+      }
+      return {
+        accepted: true,
+        fanout: ingest ? fanOut(row, ingest) : Promise.resolve([]),
+      };
     },
   };
 }

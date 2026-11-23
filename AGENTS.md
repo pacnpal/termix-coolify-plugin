@@ -704,7 +704,7 @@ queueUnattended` (the 10 s queue cache, running plus recent, its `revision` sour
   (#93) and the event log view (#94) read it. The source interface, made in `index.ts` right after
   `createResources` and passed to whatever feeds it:
   `events.ingest(connectionId: number, event: SourceEvent, read: { revision: string }): Promise<IngestResult>`.
-  `SourceEvent` is `{ kind, source: "poll" | "webhook", resourceUuid?, serverUuid?, deploymentUuid?,
+  `SourceEvent` is `{ kind, source: "poll" | "webhook", resourceUuid?, serverUuid?, deploymentUuid?, taskUuid?,
 name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snapshot's, as the source
   read Coolify. `IngestResult` is `stored` (with the `EventRecord`), `duplicate`, or `dropped` with
   `invalid`, `connection-gone`, `target-changed` or `no-access` (owner lost `coolify.view`). It needs no
@@ -726,7 +726,7 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   `server` (hostId only when Linked, so no event needs one) and the payload `PAYLOAD_KEYS[subject]`; a
   test checks both lists and every emitted payload's keys. A new kind adds a row there, a manifest event
   and its `ops.events.*` locale. Dedupe: `deployment|<deploymentUuid>` when there is one (one event per
-  deployment, whatever its kind), else `<kind>|<resourceUuid or serverUuid>|<minute>`, the minute from
+  deployment, whatever its kind), else `task|<kind>|<taskUuid>|<minute>` for a task run, else `<kind>|<resourceUuid or serverUuid>|<minute>`, the minute from
   the source's `at` unless it is missing, invalid or more than a minute ahead of the clock (then the
   pipeline's `now`). The key is the `dedupeKey` column with a unique `(connectionId, dedupeKey)` index
   (migration 0003 hand-adds it: the generator writes no index for an existing table); ingests for one
@@ -754,11 +754,20 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   channel, so a refusal is never one of those). Order: size, shape, then `verify` (token shape
   `^[A-Za-z0-9_-]{43}$`, lookup by sha256, `tokenMatches`' `timingSafeEqual`, from status/service.ts), then
   `lastReceivedAt` (#90 reads it) and persist, then the answer; the fan-out runs on unawaited and never
-  rejects, at most `WEBHOOK_FANOUT_MAX` (32) per row in flight (past it the event is dropped, logged).
+  rejects. At most `WEBHOOK_FANOUT_MAX` (32) fan-outs per row are in flight: `receive` reserves a slot
+  right after `verify` and before `lastReceivedAt`, and a full row answers `{ accepted: false, busy }`,
+  which the route sends as `503 {"error":"Busy"}` (Coolify's `SendWebhookJob` retries 429 and 5xx) with
+  nothing stamped, so the poller never stops on a dropped event. Events with no kind take no slot.
   `shape.ts` is the strict shape: `COOLIFY_WEBHOOK_EVENTS` is every event Coolify v4.7.5 sends, by its
   `event` word, with each `toWebhook()`'s keys and types read from Coolify's source
   (app/Notifications/**, tag v4.7.5; main the same): only own keys of a plain object, every key known
-  and typed, the required ones present. Events with no kind (test, general, status_changed,
+  and typed, the required ones present. `status_changed` ("Resource stopped") maps to `status-changed`
+  (`fields: { to }` by `resourceHealth`) only when its `url` ends `/application|database/<resource_uuid>`
+  (`STATUS_LINK`; Coolify sends no type, and a preview's or a service part's link names the parent).
+  Task events carry `taskUuid` (the scheduled task: Coolify's payload has no run uuid), and the pipeline's
+  `dedupeKeyOf` keys them `task|<kind>|<taskUuid>|<minute>`; the poller's `PolledRun.taskUuid` gives its
+  task runs the same. Backups keep the resource key: the backup webhook names no schedule or execution, so
+  a poll-only identity would stop poll and webhook deduping. Events with no kind (test, general,
   container_restarted, Docker cleanup, patch checks, ...) are accepted and ingest nothing; image
   vulnerability digests aren't in it yet (refused). Mapped events carry only uuids, the name, a fixed
   status word and a few numbers; never `message`, URLs or log fields (`output`, `error_output`,
@@ -796,7 +805,7 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   `webhooks.verify(token)` finds this instanceKey's row; ours keeps its token and row (the URL is
   rewritten on today's base), unset and replace give the row a new `tokenHash` (write-ahead, before the
   PATCH; the old token wasn't in Coolify) and reset `lastReceivedAt`, so polling goes on until the new URL
-  delivers. Someone else's URL is shown only through `maskWebhookUrl` (scheme, host, port, then
+  delivers (a busy 503 refusal stamps nothing, so polling also stays on through those). Someone else's URL is shown only through `maskWebhookUrl` (scheme, host, port, then
   `/[redacted]`). Disable writes `{ webhook_url: null, webhook_enabled: false }` only when ours, then
   deletes that row (by instanceKey and token hash). The base is `baseUrlOf(req)` on routes and
   `knownBaseUrl(ctx, actor)` in operations. `privateBase` is `isPrivateAddress` (connections/service.ts,
