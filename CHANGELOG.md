@@ -59,7 +59,15 @@
   reaches only the connections whose own token can read what it is about, checked live with one request per
   event and connection that counts against that connection's request budget; any refusal or error drops it
   there. The token is 32 random bytes, stored only as a hash. Bodies over 64 KB, of any shape but Coolify's,
-  or with an unknown token get the same refusal, and nothing sent is ever echoed back
+  or with an unknown token get the same refusal, and the plugin's answers never echo what was sent. A
+  body that isn't JSON at all is refused by Termix's own body parser before it reaches the plugin, and
+  that refusal is Termix's. A Coolify "resource stopped" notification becomes a `coolify.status-changed`
+  event for a standalone application or database (not for a preview or a service's part, which the
+  poller doesn't count either). While the plugin is still checking 32 deliveries of one team it answers
+  `503`, which Coolify retries, and doesn't count the delivery, so polling never stops on a delivery
+  whose event was not sent
+- Scheduled task events are told apart by their task: two tasks of one application ending in the same
+  minute are two events, while a poll and the webhook seeing the same task run are still one
 
 ### Changed
 

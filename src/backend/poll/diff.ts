@@ -25,6 +25,8 @@ export interface PolledRun extends RunDto {
   resource: ResourceDto;
   /** The scheduled task's name, for task runs. */
   task: string | null;
+  /** The scheduled task's uuid, for task runs: the run's dedupe identity. */
+  taskUuid: string | null;
 }
 
 /** The backup and task runs one poll read. */
@@ -239,6 +241,7 @@ function diffRuns(
       source: "poll",
       resourceUuid: run.resource.uuid,
       serverUuid: run.resource.serverUuid,
+      taskUuid: run.taskUuid,
       name: run.resource.name,
       status: run.status,
       at: Number.isFinite(ended) ? ended : null,

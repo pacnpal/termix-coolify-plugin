@@ -43,7 +43,8 @@ export const COOLIFY_WEBHOOKS: Record<string, Record<string, unknown>> = {
     application_uuid: "app-web-uuid",
     resource_name: "web",
     resource_uuid: "app-web-uuid",
-    url: "https://coolify.example.test/project/p",
+    // base_url()/project/{p}/environment/{e}/{type}/{uuid}, as Coolify builds it.
+    url: "https://coolify.example.test/project/p/environment/e/application/app-web-uuid",
     project: "Shop",
     environment: "production",
     fqdn: null,

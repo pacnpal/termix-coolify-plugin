@@ -676,7 +676,7 @@ describe("backups and scheduled tasks", () => {
   }
 
   it("are read at most every five minutes, and a finished run is one event", async () => {
-    const { harness, fake } = await start({
+    const { harness, fake, id } = await start({
       "GET /databases/db-main-uuid/backups": backups("running", T0),
       "GET /applications/app-web-uuid/scheduled-tasks": {
         json: [{ uuid: "task-1", name: "nightly", enabled: true }],
@@ -724,6 +724,11 @@ describe("backups and scheduled tasks", () => {
       "coolify.backup-failed",
       "coolify.task-succeeded",
     ]);
+    // A task run carries its task, so it dedupes with the webhook's
+    // task_uuid and apart from the resource's other tasks.
+    expect(eventRows(harness, id).map((r) => r.dedupe_key)).toContainEqual(
+      expect.stringMatching(/^task\|task-succeeded\|task-1\|\d+$/),
+    );
     expect(JSON.stringify(harness.mock.operationEvents)).not.toMatch(
       /never leaves Coolify/,
     );
