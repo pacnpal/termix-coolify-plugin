@@ -139,6 +139,7 @@ describe("lifecycle, resource and signal operations", () => {
       "coolify.high-disk",
       "coolify.restart-limit",
       "coolify.server-unreachable",
+      "coolify.status-changed",
       "coolify.task-failed",
       "coolify.task-succeeded",
       "coolify.token-expiring",
@@ -265,7 +266,9 @@ describe("lifecycle, resource and signal operations", () => {
         (e.payload as { status?: string }).status,
       ]),
     ).toEqual([
-      ["coolify.deployment-failed", "skipped"],
+      // Both runs followed the same deployment (dep-uuid): the event
+      // pipeline sends one event per deployment, however many runs or polls
+      // see it end (#90).
       ["coolify.deployment-failed", "skipped"],
     ]);
   });

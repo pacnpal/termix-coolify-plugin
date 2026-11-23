@@ -464,6 +464,10 @@
       "previewDockerTag": {
         "label": "Docker tag",
         "description": "The image tag, for an application built from a Docker image."
+      },
+      "pollEnabled": {
+        "label": "Keep polling",
+        "description": "On keeps polling Coolify once the team's webhook has delivered; off leaves changes to the webhook."
       }
     },
     "listConnections": {
@@ -556,6 +560,14 @@
       "title": "Coolify security updates",
       "description": "Security updates Coolify's last update check found on this Linked host's server."
     },
+    "hostSummary": {
+      "title": "Coolify resources on this host",
+      "description": "How many resources on this Linked host's Coolify server are running, degraded, stopped or being deployed."
+    },
+    "hostMetrics": {
+      "title": "Container CPU and memory on this host",
+      "description": "The CPU and memory all running containers use on this Linked host, from one docker stats reading over SSH, read at most every 30 seconds."
+    },
     "signalDeploying": {
       "title": "Coolify deployments running",
       "description": "How many resources are deploying now, across your Coolify connections."
@@ -627,6 +639,10 @@
       "tokenExpiring": {
         "title": "Coolify API token expiring",
         "description": "A Coolify API token expires soon."
+      },
+      "statusChanged": {
+        "title": "Coolify status changed",
+        "description": "A resource went from running to degraded or stopped, or back, as polling saw it."
       }
     },
     "shellCommand": {
@@ -776,6 +792,14 @@
       "title": "Coolify activity",
       "description": "Deployments in progress, recent failed deployments, degraded resources and unreachable servers across every connection you can view."
     },
+    "connectionOverview": {
+      "title": "Coolify connection overview",
+      "description": "The connection's resources counted by status and its servers, with how many Coolify can't reach."
+    },
+    "vulnerabilitySummary": {
+      "title": "Coolify vulnerabilities",
+      "description": "How many of the connection's resources have known vulnerabilities, from Coolify's image scanning, with counts by severity."
+    },
     "deployByTag": {
       "title": "Deploy Coolify resources by tag",
       "description": "Deploys every application and service on the connection that carries a tag. A dry run lists them."
@@ -819,6 +843,26 @@
         "label": "Older than",
         "description": "Only events older than this event log entry: the last page's nextBefore."
       }
+    },
+    "connectionSetPoll": {
+      "title": "Keep polling a Coolify connection after its webhook",
+      "description": "Whether this connection keeps polling Coolify for changes once its team's webhook has delivered. Until a webhook arrives it polls anyway. Only the connection's owner can change it."
+    },
+    "webhookStatus": {
+      "title": "Read a Coolify team's webhook",
+      "description": "Whether the team's Coolify webhook is unset, already points at this Termix or points somewhere else (shown masked), and whether Termix's own address is a private one Coolify refuses. Needs configure access to the connection."
+    },
+    "webhookSetup": {
+      "title": "Set up the Coolify webhook",
+      "description": "Points the team's Coolify webhook at this Termix so events arrive at once. When it is unset or already ours, writes our URL and ticks the events; when it points somewhere else, changes nothing and answers the current URL masked (use Replace the Coolify webhook). The URL is never shown. Needs configure access to the connection."
+    },
+    "webhookReplace": {
+      "title": "Replace the Coolify webhook",
+      "description": "Points the team's Coolify webhook at this Termix even when it points somewhere else now. Coolify sends to one place only, so the other receiver stops getting events. Needs configure access to the connection."
+    },
+    "webhookDisable": {
+      "title": "Turn the Coolify webhook off",
+      "description": "Removes this Termix's URL from the team's Coolify webhook, only while it is still ours. Someone else's URL is left alone. Polling takes over again. Needs configure access to the connection."
     },
     "alertPrefs": {
       "title": "Get Coolify alert preferences",
@@ -936,6 +980,45 @@
       "description": "Lets coolify.exec run one command at a time in this connection's containers, for API keys and MCP clients. An admin must also allow it in the plugin settings.",
       "warning": "Anyone with edit access to a Linked host and Operate Coolify resources can then run any command in its containers, including reading their secrets. Each run is audited.",
       "failed": "The setting was not changed."
+    },
+    "poll": {
+      "label": "Keep polling after a webhook arrives",
+      "description": "This connection polls Coolify every minute for deployments, statuses, backups and scheduled tasks. Once Coolify's webhook for its team has delivered, it polls only while this is on.",
+      "failed": "The setting was not changed.",
+      "error": "Polling failed: {{cause}}"
+    },
+    "webhook": {
+      "title": "Coolify webhook",
+      "description": "Coolify sends deployments, backups, scheduled tasks and server problems here as they happen, instead of waiting for the next poll. Coolify keeps one webhook per team.",
+      "privateWarning": "Coolify refuses webhook addresses on a private network (localhost, 10.x, 172.16-31.x, 192.168.x, .local). Termix must be reachable from Coolify by a public address.",
+      "basePrivate": "This Termix's address, {{base}}, is private, so Coolify will refuse it. Open Termix by its public address and try again.",
+      "noBase": "Termix's own address isn't known yet. Open Termix by the address Coolify should use.",
+      "loading": "Reading the team's webhook...",
+      "loadFailed": "The team's webhook couldn't be read.",
+      "state": {
+        "unset": "No webhook is set for this Coolify team.",
+        "ours": "The team's webhook sends to this Termix.",
+        "foreign": "The team's webhook sends somewhere else: {{current}}"
+      },
+      "disabledNote": "The webhook is set but turned off in Coolify.",
+      "setup": "Set up webhook",
+      "working": "Working...",
+      "configured": "The webhook is set up. Coolify now sends events to this Termix.",
+      "declined": "The webhook was left as it is. Polling stays on.",
+      "disabled": "The webhook is off. Polling takes over.",
+      "notSet": "No webhook was set.",
+      "cancel": "Cancel",
+      "replace": {
+        "title": "Replace the team's webhook?",
+        "description": "It sends to {{current}} now. Coolify sends to one place only, so that receiver will stop getting Coolify's events.",
+        "confirm": "Replace"
+      },
+      "disable": {
+        "action": "Turn webhook off",
+        "title": "Turn the team's webhook off?",
+        "description": "Coolify stops sending events to this Termix, and polling takes over.",
+        "confirm": "Turn off"
+      }
     }
   },
   "causes": {
@@ -961,7 +1044,11 @@
     "confirm-required": "This needs a confirm first.",
     "not-masked": "That value is not a masked one.",
     "secrets-unreadable": "The token can't read secrets.",
-    "token-ability": "This connection's token can't run this operation."
+    "token-ability": "This connection's token can't run this operation.",
+    "no-base-url": "Termix's own address isn't known. Open Termix by the address Coolify should use, then try again.",
+    "no-team": "This connection's Coolify team is unknown. Check the connection again.",
+    "scoped-token": "A token limited to projects or resources can't change the team's webhook.",
+    "not-ours": "The team's webhook points somewhere else, so it was left as it is."
   },
   "fixes": {
     "unreachable": "Check the URL. If Coolify is on your local network, turn on \"On my local network\" under Advanced.",
@@ -1173,6 +1260,16 @@
     "degraded": "Coolify reports this server as not usable",
     "gone": "This server is gone from Coolify",
     "resourcesDegraded": "Degraded Coolify resources on this server: {{count}}"
+  },
+  "hostSlots": {
+    "rowTitle": "Coolify resources",
+    "badgeTitle": "Coolify deployments",
+    "metricsTitle": "Coolify containers",
+    "deploying": "Deploying",
+    "deployingHint": "Coolify deployments running on this server: {{count}}",
+    "containerCpu": "Container CPU",
+    "containerMemory": "Container memory",
+    "containers": "Running containers: {{count}}"
   },
   "hostMenu": {
     "resources": "Coolify resources",
@@ -1670,6 +1767,57 @@
     "noRecent": "No recent deployments.",
     "back": "All deployments"
   },
+  "dashboardCard": {
+    "title": "Coolify"
+  },
+  "dashboard": {
+    "loading": "Loading Coolify…",
+    "failed": "Couldn't read Coolify.",
+    "noPermission": "You don't have access to Coolify.",
+    "noAccess": "This Coolify connection isn't available to you.",
+    "pickHint": "Pick a Coolify connection in this card's settings.",
+    "settings": {
+      "connection": "Connection",
+      "resource": "Resource",
+      "none": "No Coolify connections yet. Add one in the Coolify tab.",
+      "noResources": "This connection has no resources.",
+      "failed": "Couldn't load the list."
+    },
+    "overview": {
+      "title": "Coolify overview",
+      "description": "A connection's resources by status, and its servers.",
+      "empty": "This connection has no resources yet.",
+      "servers": "{{total}} servers, {{unreachable}} unreachable",
+      "noServers": "This token can't read servers."
+    },
+    "resource": {
+      "title": "Coolify resource",
+      "description": "One resource's status, with Deploy.",
+      "gone": "This resource is no longer in Coolify.",
+      "deploy": "Deploy",
+      "deployConfirm": {
+        "title": "Deploy {{name}}?",
+        "description": "Coolify starts a new deployment of this resource.",
+        "confirm": "Deploy"
+      }
+    },
+    "deployments": {
+      "title": "Coolify deployments",
+      "description": "A connection's deployments in progress.",
+      "empty": "No deployments in progress."
+    },
+    "vulnerabilities": {
+      "title": "Coolify vulnerabilities",
+      "description": "How many of a connection's resources have known vulnerabilities.",
+      "empty": "No known vulnerabilities.",
+      "scanned": "{{count}} resources scanned",
+      "unscanned": "{{count}} not scanned yet",
+      "noneScanned": "Not scanned yet",
+      "affected": "Resources with vulnerabilities",
+      "severity": "{{critical}} critical, {{high}} high",
+      "open": "Open Coolify"
+    }
+  },
   "activityPanel": {
     "title": "Coolify activity",
     "refresh": "Refresh Coolify activity",
@@ -1854,6 +2002,7 @@
     "kinds": {
       "deployment-finished": "Deployment finished",
       "deployment-failed": "Deployment failed",
+      "status-changed": "Status changed",
       "container-restarted": "Container restarted",
       "restart-limit": "Restart limit reached",
       "server-unreachable": "Server unreachable",

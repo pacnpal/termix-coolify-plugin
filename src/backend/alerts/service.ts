@@ -68,6 +68,33 @@ function readKinds(raw: unknown): EventKind[] {
 }
 
 /**
+ * Conditions that repeat on one subject while they last: while a person's
+ * alert about one is unread, the hub drops the next for the same subject.
+ */
+const REPEATING: ReadonlySet<EventKind> = new Set<EventKind>([
+  "container-restarted",
+  "restart-limit",
+  "server-unreachable",
+  "high-disk",
+  "certificate-problem",
+  "token-expiring",
+]);
+
+/**
+ * What an alert's dedupe key is about: the deployment, a repeating
+ * condition's subject, or else the event itself, so two scheduled tasks of
+ * one resource (the pipeline keeps them apart by task), two backups or a
+ * status change and the change back are each their own alert.
+ */
+function dedupeSubject(event: EventRecord): string {
+  if (event.deploymentUuid) return `deployment:${event.deploymentUuid}`;
+  if (REPEATING.has(event.kind)) {
+    return `on:${event.resourceUuid ?? event.serverUuid ?? "team"}`;
+  }
+  return `event:${event.id}`;
+}
+
+/**
  * What the alert says, in words, from the stored event only: the pipeline
  * already redacted its name and status (#89), and every line is masked once
  * more on the way out, failing closed. Filled in one pass, so a `$&` or a
@@ -150,8 +177,7 @@ export function createAlerts(ctx: PluginContext, deps: AlertsDeps) {
     // The grant (or ownership) as it is now, the last read before the send.
     if (!(await connections.accessFor(event.connectionId, userId))) return;
     const { title, body } = alertText(event, connectionName);
-    const subject =
-      event.deploymentUuid ?? event.resourceUuid ?? event.serverUuid ?? "team";
+    const subject = dedupeSubject(event);
     const notification: PluginNotification = {
       title,
       body,

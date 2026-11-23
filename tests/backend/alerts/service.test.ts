@@ -272,6 +272,54 @@ describe("alerts for stored events", () => {
     expect(new Set(keys).size).toBe(4);
   });
 
+  it("keeps two tasks of one resource, ending together, as two alerts", async () => {
+    // The pipeline keeps them apart by taskUuid (#118); the hub must not
+    // fold the second into the first while it is unread.
+    const task = (taskUuid: string): SourceEvent => ({
+      kind: "task-failed",
+      source: "webhook",
+      resourceUuid: "app-web-uuid",
+      taskUuid,
+      name: "web",
+    });
+    expect((await ingest(task("task-a"))).outcome).toBe("stored");
+    expect((await ingest(task("task-b"))).outcome).toBe("stored");
+    const keys = sentTo(OWNER).map((n) => n.dedupeKey);
+    expect(keys).toHaveLength(2);
+    expect(new Set(keys).size).toBe(2);
+  });
+
+  it("keeps a status change back to running apart from the one before", async () => {
+    await alerts.setPrefs(own, ["status-changed"]);
+    const change = (to: string, at: number): SourceEvent => ({
+      kind: "status-changed",
+      source: "poll",
+      resourceUuid: "app-web-uuid",
+      name: "web",
+      status: to,
+      at,
+    });
+    await ingest(change("degraded", Date.parse("2026-11-19T10:00:00Z")));
+    await ingest(change("running", Date.parse("2026-11-19T10:05:00Z")));
+    const keys = sentTo(OWNER).map((n) => n.dedupeKey);
+    expect(new Set(keys).size).toBe(2);
+  });
+
+  it("folds a repeating condition on one subject while it is unread", async () => {
+    const disk = (at: number): SourceEvent => ({
+      kind: "high-disk",
+      source: "poll",
+      serverUuid: "srv-vps1-uuid",
+      name: "vps1",
+      at,
+    });
+    await ingest(disk(Date.parse("2026-11-19T10:00:00Z")));
+    await ingest(disk(Date.parse("2026-11-19T10:05:00Z")));
+    const keys = sentTo(OWNER).map((n) => n.dedupeKey);
+    expect(keys).toHaveLength(2);
+    expect(new Set(keys).size).toBe(1);
+  });
+
   it("leaves ingest stored when the hook throws or rejects", async () => {
     const warn = vi.spyOn(mock.ctx.log, "warn");
     build(() => {

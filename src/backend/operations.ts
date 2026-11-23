@@ -6,6 +6,7 @@ import type { AttentionService } from "./attention/service.js";
 import type { Companions } from "./companions/service.js";
 import type { ContainerCompanions } from "./companions/container-service.js";
 import type { Containers } from "./containers/service.js";
+import type { Dashboard } from "./dashboard/service.js";
 import type { Exec } from "./containers/exec.js";
 import type { Alerts } from "./alerts/service.js";
 import type { Events } from "./events/service.js";
@@ -16,6 +17,7 @@ import type { Connections } from "./connections/service.js";
 import type { Tables } from "./db.js";
 import type { Lifecycle } from "./resources/lifecycle.js";
 import type { Metrics } from "./metrics/service.js";
+import type { ServerHealthService } from "./resources/server-health.js";
 import type { Resources } from "./resources/service.js";
 import { registerAttentionOperations } from "./ops/attention.js";
 import { registerCompanionOperations } from "./ops/companions.js";
@@ -28,9 +30,11 @@ import {
   type GenericApi,
 } from "./ops/api-generic.js";
 import { registerContainerOperations } from "./ops/containers.js";
+import { registerDashboardOperations } from "./ops/dashboard.js";
 import { registerDeploymentOperations } from "./ops/deployments.js";
 import { registerPreviewOperations } from "./ops/previews.js";
 import { registerLifecycleOperations } from "./ops/lifecycle.js";
+import { registerHostSlotOperations } from "./ops/host-slots.js";
 import { registerMetricsOperations } from "./ops/metrics.js";
 import { registerResourceOperations } from "./ops/resources.js";
 import { registerRollbackOperations } from "./ops/rollback.js";
@@ -43,6 +47,8 @@ import { registerUpdateOperations } from "./ops/updates.js";
 import type { Sync } from "./sync/service.js";
 import type { Updates } from "./updates/service.js";
 import { registerStatusPageOperations } from "./ops/status-pages.js";
+import { registerWebhookOperations } from "./ops/webhooks.js";
+import type { WebhookSetup } from "./webhooks/setup.js";
 
 export interface Services {
   tables: Tables;
@@ -64,6 +70,9 @@ export interface Services {
   metrics: Metrics;
   attention: AttentionService;
   events: Events;
+  dashboard: Dashboard;
+  serverHealth: ServerHealthService;
+  webhookSetup: WebhookSetup;
   alerts: Alerts;
 }
 
@@ -134,9 +143,12 @@ export function registerOperations(
     services.containerCompanions,
   );
   registerStatusPageOperations(ctx, services.statusPages);
+  registerWebhookOperations(ctx, services.webhookSetup);
   registerGenericApiOperations(ctx, services.genericApi);
   registerMetricsOperations(ctx, services.metrics);
   registerAttentionOperations(ctx, services.attention);
   registerEventOperations(ctx, services.events);
+  registerDashboardOperations(ctx, services.dashboard);
+  registerHostSlotOperations(ctx, services);
   registerAlertOperations(ctx, services.alerts);
 }

@@ -98,6 +98,13 @@ export interface SourceEvent {
   serverUuid?: string | null;
   /** When set, the event is deduped by it alone: one event per deployment. */
   deploymentUuid?: string | null;
+  /**
+   * The scheduled task a task run belongs to (not the run: Coolify's webhook
+   * names only the task). When set, the event is deduped by the kind, this
+   * task and the minute, so two tasks of one resource ending in the same
+   * minute stay two events, and a poll and a webhook of one run are one.
+   */
+  taskUuid?: string | null;
   /** The subject's name, as Coolify has it. */
   name?: string | null;
   /** Coolify's status word (finished, failed, ...). */
@@ -257,15 +264,21 @@ function minuteOf(at: unknown, now: number): number {
 
 /**
  * The one key two sightings of the same event share: the deployment uuid
- * when there is one, else the kind, the subject and the minute.
+ * when there is one, else the kind, the scheduled task (for a task run) and
+ * the minute, else the kind, the subject and the minute.
  */
 export function dedupeKeyOf(
   kind: EventKind,
-  subject: { resourceUuid: string | null; serverUuid: string | null },
+  subject: {
+    resourceUuid: string | null;
+    serverUuid: string | null;
+    taskUuid?: string | null;
+  },
   deploymentUuid: string | null,
   minute: number,
 ): string {
   if (deploymentUuid) return `deployment|${deploymentUuid}`;
+  if (subject.taskUuid) return `task|${kind}|${subject.taskUuid}|${minute}`;
   const on = subject.resourceUuid ?? subject.serverUuid ?? "";
   return `${kind}|${on}|${minute}`;
 }
@@ -284,10 +297,12 @@ function cleanEvent(
   let resourceUuid = uuidOf(e.resourceUuid);
   let serverUuid = uuidOf(e.serverUuid);
   const deploymentUuid = uuidOf(e.deploymentUuid);
+  const taskUuid = uuidOf(e.taskUuid);
   if (
     resourceUuid === undefined ||
     serverUuid === undefined ||
-    deploymentUuid === undefined
+    deploymentUuid === undefined ||
+    taskUuid === undefined
   ) {
     return null;
   }
@@ -313,7 +328,7 @@ function cleanEvent(
     fields: fieldsOf(e.fields, secrets),
     dedupeKey: dedupeKeyOf(
       e.kind,
-      { resourceUuid, serverUuid },
+      { resourceUuid, serverUuid, taskUuid },
       deploymentUuid,
       minuteOf(e.at, now),
     ),
