@@ -141,6 +141,7 @@ export function createQueueCache(deps: {
     revision: string,
     generation: string,
     currentRevision: () => Promise<string | null>,
+    freshHistory: boolean,
   ): Promise<DeploymentQueue> {
     // Checked right before each request: the connection still points at
     // the target the read began on.
@@ -171,7 +172,7 @@ export function createQueueCache(deps: {
     // never read, or it is older than HISTORY_REFRESH_MS. Every other page is
     // the one read before, so a steady connection costs one request a read.
     const prior = histories.get(connectionId);
-    const known = prior?.revision === revision ? prior : null;
+    const known = !freshHistory && prior?.revision === revision ? prior : null;
     const runningNow = new Map(running.map((r) => [r.uuid, r.resourceUuid]));
     // Applications with a deployment that was queued or running at the last
     // read and isn't now: it ended (or was cancelled), whatever else of that
@@ -259,12 +260,22 @@ export function createQueueCache(deps: {
          */
         revision?: () => Promise<string | null>;
       },
-      opts: { refresh?: boolean } = {},
+      opts: {
+        refresh?: boolean;
+        /**
+         * Every history page read now, none reused and no read already
+         * running joined: the poller's baseline, which must not take in
+         * pages from before polling stopped.
+         */
+        freshHistory?: boolean;
+      } = {},
     ): Promise<DeploymentQueue> {
       const generation = generationOf(connectionId);
       const hit = cache.get(connectionId);
+      const fresh = opts.freshHistory === true;
       if (
         !opts.refresh &&
+        !fresh &&
         hit &&
         hit.revision === revision &&
         hit.generation === generation
@@ -274,7 +285,7 @@ export function createQueueCache(deps: {
       }
       const key = `${connectionId}:${revision}:${generation}`;
       const pending = inflight.get(key);
-      if (pending) return pending;
+      if (pending && !fresh) return pending;
       const started = fetchQueue(
         connectionId,
         source.api,
@@ -282,6 +293,7 @@ export function createQueueCache(deps: {
         revision,
         generation,
         source.revision ?? (() => deps.revision(connectionId)),
+        fresh,
       ).finally(() => {
         if (inflight.get(key) === started) inflight.delete(key);
       });
