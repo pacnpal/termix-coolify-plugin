@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { OWNER_ONLY_SUBJECTS } from "../helpers/events.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createMockCtx,
@@ -146,7 +147,12 @@ beforeEach(async () => {
   tables = await defineTables(mock.ctx);
   connections = createConnections(mock.ctx, tables);
   const sync = await createSync(mock.ctx, { tables, connections });
-  const events = createEvents(mock.ctx, { tables, connections, sync });
+  const events = createEvents(mock.ctx, {
+    tables,
+    connections,
+    sync,
+    subjects: OWNER_ONLY_SUBJECTS,
+  });
   webhooks = createWebhooks(mock.ctx, { tables, connections, events });
   setup = createWebhookSetup(mock.ctx, { tables, connections, webhooks });
   id = (

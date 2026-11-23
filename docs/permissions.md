@@ -35,6 +35,12 @@ Anything that reaches a Linked host over SSH also needs your own access to that 
 for shells, logs, tunnels and update checks, and **edit** for running commands, installing updates and
 rebooting.
 
+The event log follows the same access, with one more rule for anyone who isn't the owner: a grant lends
+the owner's token, so it covers what that connection's Coolify has now. Someone granted a connection sees
+only events about its current resources and servers, plus team-wide ones (an expiring token); events from
+an earlier address or token, or about something deleted, stay hidden. If Coolify can't be read to check,
+their read fails instead of showing part of the log. The owner always sees every event.
+
 ## Changes over MCP
 
 The plugin's MCP endpoint always runs reads, and deploy and restart (`coolify__deploy`, `coolify__restart`,

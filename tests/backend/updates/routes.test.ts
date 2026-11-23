@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PLATFORM_PROBE_COMMAND } from "@termix-ssh/plugin-sdk/host-commands";
 import type { PluginHarness } from "../helpers/plugin.js";
 import { fakePackageManager, fakeSsh, startLinked } from "./fixtures.js";
+import { failCacheWrites } from "../helpers/cache.js";
 
 let harness: PluginHarness | null = null;
 
@@ -95,6 +96,16 @@ describe("server updates", () => {
       changed: true,
     });
     expect(ssh.calls).toEqual([]);
+  });
+
+  it("answers the check when keeping it in the cache fails", async () => {
+    const { h, web1 } = await start();
+    fakeSsh(h);
+    const refused = failCacheWrites(h.mock.ctx);
+    const checked = await h.request("POST", `${web1}/updates/check`, {});
+    expect(checked.status).toBe(200);
+    expect(checked.body.fresh).toMatchObject({ updates: 5, security: 1 });
+    expect(refused()).toBe(1);
   });
 
   it("falls back to ssh on the Linked host", async () => {

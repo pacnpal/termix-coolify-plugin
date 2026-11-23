@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { OWNER_ONLY_SUBJECTS } from "../helpers/events.js";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -157,7 +158,12 @@ beforeEach(async () => {
   tables = await defineTables(mock.ctx);
   connections = createConnections(mock.ctx, tables);
   const sync = await createSync(mock.ctx, { tables, connections });
-  events = createEvents(mock.ctx, { tables, connections, sync });
+  events = createEvents(mock.ctx, {
+    tables,
+    connections,
+    sync,
+    subjects: OWNER_ONLY_SUBJECTS,
+  });
   webhooks = createWebhooks(mock.ctx, { tables, connections, events });
   a = (await connections.create({ name: "A", baseUrl: BASE, token: TOKEN_A }))
     .id;

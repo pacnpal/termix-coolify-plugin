@@ -574,13 +574,22 @@ for the next page; it is `null` on the last. `limit` is 1 to 200 (50 by default)
 (like `deployment-failed`) and `uuid` a resource or server uuid. Each row is `{ id, connectionId, kind,
 severity, title, resourceUuid, serverUuid, deploymentUuid, hostId, name, status, source, fields, createdAt }`;
 `source` is `poll` or `webhook` and `fields` holds the few plain values Coolify sent with it (like a disk
-percentage). It reads the plugin's own table and asks Coolify nothing. Needs **View Coolify** and access to
-the connection; another user's connection is 404, and a malformed or repeated parameter 400.
+percentage). Needs **View Coolify** and access to the connection; another user's connection is 404, and a
+malformed or repeated parameter 400.
+
+The owner sees every row, read from the plugin's own table without asking Coolify. Someone the connection is
+granted to sees only rows about what the connection's Coolify has now: a resource event needs its resource
+in the connection's resource list, a server event its server in its server list (both from the caches the
+tab shares, 20 seconds and a minute), and team-wide events (an expiring API token) always show. Rows from
+an earlier address or token, or about something deleted or out of the token's sight, are left out, and the
+page is filled past them, so `nextBefore` is set only when there is another row they may see. When Coolify
+can't be read to check, the read fails (Coolify's cause, usually 502) rather than show a partial log.
 
 ### Action `coolify.events-list`
 
 A read offered to the assistant and MCP: `connectionId` and optionally `kind`, `uuid`, `limit` and `before`.
-Its data is the route's answer and its summary counts the events, like "50 events, more before".
+Its data is the route's answer, with the same rule for granted users, and its summary counts the events,
+like "50 events, more before".
 
 ### `POST /plugin-api/coolify/webhook/{token}` (Coolify's team webhook)
 

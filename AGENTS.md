@@ -69,7 +69,8 @@ aren't obvious from the code, and anything that has bitten you before.
   Where things stand: 1.0.0 is feature complete (connections, resources and lifecycle, host sync, shells,
   logs, exec, metrics, server updates, companions, status pages, the full Coolify API, the MCP endpoint and
   the `coolify.client` service). 1.2.0 (Alerts) is under way: the event pipeline and event log (#89), the
-  poller (#90), the team webhook (#91) and its one-click setup (#92), alerts with per-person preferences (#93) are in; the event log view builds on them. The read-only smoke test against a real Coolify is the owner's
+  poller (#90), the team webhook (#91) and its one-click setup (#92), alerts with per-person preferences (#93)
+  and the Events section that reads the log (#94) are in. The read-only smoke test against a real Coolify is the owner's
   (`scripts/smoke-readonly.md`). User docs: `docs/index.md`, `tunnels.md`, `permissions.md`,
   `companions.md`, `troubleshooting.md`, `api.md`, `coverage.md`.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
@@ -236,6 +237,16 @@ aren't obvious from the code, and anything that has bitten you before.
   revision and the generation to be current, so a write that lands after the drop is never served.
   Generations are unique to each `createResources` instance (`<epoch>:<n>`, the epoch a random uuid), so
   after a restart no row an old instance wrote matches and the cache starts cold.
+  The `cache` table (`src/backend/cache.ts`, shared by resources, server statuses and kept update
+  checks): a write is a delete then an insert under the unique (connectionId, kind) index, which on
+  Postgres or MySQL two overlapping batches of one key can both pass and then collide on (#120). So
+  `write` and `drop` of one `connectionId:kind` run one at a time in call order, in an in-process
+  queue entered before any await and shared by every `createCache` over the same table (a WeakMap on
+  the table object). A `drop` with no kind waits for every queued write and drop of that connection,
+  and anything of that connection called after it waits for it. Like the other locks this relies on
+  one backend process per Termix server. `write` never rejects: a failed write is logged by its
+  error's name only and the read that produced the value still answers. An invalidate's drop now
+  lands after a write already queued, so the generation check is the second guard, not the only one.
   `ResourceDto.serverName` comes from `server.name` or `destination.server.name` in the payload.
   The MCP tool `list_resources` (`src/backend/mcp/server.ts`) runs `coolify.list-resources-all`.
 - Status pages: `src/backend/status/` (service, render, routes, base-url) and `src/backend/ops/status-pages.ts`.
@@ -756,7 +767,34 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   as `name`, capped at 500. The read is `events.list(connectionId, { limit, before, kind, uuid })`
   (a list or other non-scalar is 400; the route refuses a repeated query key rather than ignore it)
   (coolify.view, any access, another user's 404), answering `{ rows: EventRecord[], nextBefore }` newest
-  first, paged by id.
+  first, paged by id. Grant rule (#94): grants are connection-wide levels with no resource scope, and a
+  grant lends the owner's token, so a grant covers what the connection's Coolify has now. The owner
+  sees every row and Coolify is never asked; anyone else gets `grantRule` (service.ts): a resource row
+  needs its uuid in `deps.subjects.resources` (the shared resources cache, Parts included), a server row
+  its uuid in `deps.subjects.servers` (the server statuses cache), `any` rows the resource when they name
+  one, else the server, and team rows always pass. A row naming no subject it needs is hidden. Each list
+  is read once per call and only when a row needs it; a failed read throws (Coolify's cause, usually
+  502), so a grantee never gets a silently partial log. The resources and server lists answer only for
+  the revision they started under (#123: a move mid-fetch is `target-changed` from the list itself);
+  a granted read still runs whole (lookups, scan, page) inside `forRevision` (connections/hold.ts), and `grantRule`'s
+  `holds` checks the revision the read started under before and after each lookup (a lookup that threw
+  after a move is target-changed too): a list from an old target never authorizes a row, and a move
+  mid-read is 409 `target-changed` with no rows. The owner path makes no lookup and skips both. `list` scans chunks of `limit + 1` until the
+  page is full, so `nextBefore` is set only when another visible row is older (bounded at twice
+  `EVENT_LOG_LIMIT` scanned rows; then `nextBefore` is the scan's cursor). `createServerStatuses` is made
+  before `createEvents` in `index.ts` for this.
+- Events section (#94): `src/frontend/views/EventsSection.tsx` and `useEventLog.ts`, a SideNav section
+  of `CoolifyTab` keyed by connection id and `revision` (a change remounts it: empty list, filters reset).
+  `useEventLog` holds rows with a key of connection, revision, kind and uuid; newest-page reads and
+  older-page reads each take a generation, and the effect's cleanup advances both, so a late answer for
+  an old target or filter is dropped. It reads the newest page when active and again `EVENTS_POLL_MS`
+  (60 s, no faster than the poller) after each read settles, a `setTimeout` chain, only while the tab is
+  visible and the section mounted. `mergeNewest` lays a newest page over the rows shown (a page that
+  doesn't reach them replaces them). Older pages use `before`. Filters are server-side (`kind`, `uuid`;
+  the resource select lists top-level resources). `subjectOf` picks a row's link: build log with operate
+  (`mayOperate`), else the resource detail, the server filter on Resources, or nothing for team rows.
+  `EVENT_KIND_IDS` mirrors `EVENT_KINDS` (a test checks it) and each kind has an `eventLog.kinds` label.
+  No dashboard card or widget for the log yet; it would reuse `coolify.events-list`.
 - Team webhook (1.2.0, #91): `src/backend/webhooks/` (`shape.ts`, `service.ts` `createWebhooks`,
   `routes.ts`), made in `index.ts` after `createEvents`; `PUBLIC_WEBHOOK_PATHS` joins the router's `public`
   list (no `publicRateLimit`). `POST /webhook/:token` answers `200 {"ok":true}` or one fixed
