@@ -686,10 +686,11 @@ curl -X POST https://termix.example.com/plugin-api/coolify/connections/1/webhook
 
 ### Actions `coolify.webhook-status`, `coolify.webhook-setup`, `coolify.webhook-replace` and `coolify.webhook-disable`
 
-The same four steps, for the assistant and MCP, each with `connectionId`. `coolify.webhook-status` is a read;
-`coolify.webhook-setup` is a change that answers `replace-needed` rather than replace anything;
-`coolify.webhook-replace` and `coolify.webhook-disable` are destructive, so Termix confirms each run, and over
-MCP they are refused without `confirmed: true`. Their data is the route's answer, never the URL.
+The same four steps as actions, each with `connectionId`. `coolify.webhook-status` is a read and
+`coolify.webhook-setup` a change that answers `replace-needed` rather than replace anything; both are offered
+to the assistant and MCP. `coolify.webhook-replace` and `coolify.webhook-disable` are destructive: Termix
+confirms each run, they aren't offered to the assistant or Termix's MCP, and the plugin's own MCP endpoint
+refuses them without `confirmed: true`. Their data is the route's answer, never the URL.
 
 ## Dashboard cards and homepage widgets
 
@@ -820,9 +821,10 @@ route's answer plus `options` for pickers: every image but the one running now.
 (server scope: `connectionId` and `uuid`) take `image`, whose choices come from the matching read
 (`optionsFrom`). Both are destructive and need **Operate Coolify resources**; on a Linked host,
 `coolify.rollback` needs the host shared at `edit`. Termix confirms them first, and their dry run (the
-confirm text) names the image tag: "Would roll back web to image 0ld3r00". Over MCP they need
+confirm text) names the image tag: "Would roll back web to image 0ld3r00". Like every destructive action,
+they aren't offered to the assistant or Termix's MCP. Over the plugin's own MCP endpoint they need
 `confirmed: true` (the plugin refuses with `confirm-required` before core is asked) and **Allow changes over
-MCP**; they are off for the assistant. Each declares its image read as `check`.
+MCP**. Each declares its image read as `check`.
 
 **Undo for deploy.** `coolify.deploy` declares `coolify.rollback` as its undo, and `coolify.resource-deploy`
 declares `coolify.resource-rollback`. Before deploying an application, the deploy reads its rollback images,
@@ -1152,7 +1154,7 @@ each reveal is audited and nothing is kept.
 
 ## The `coolify.client` service
 
-Other Termix plugins can use Coolify through the `coolify.client` service (version 1.0.4). Declare it in your
+Other Termix plugins can use Coolify through the `coolify.client` service (version 1.0.5). Declare it in your
 manifest's `requires` and get it as the acting user:
 
 ```json

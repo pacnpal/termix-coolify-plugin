@@ -90,7 +90,7 @@ describe("rollback declarations", () => {
       hostAccess: "edit",
       dryRun: "describe",
       check: "coolify.rollback-images",
-      surfaces: { mcp: true },
+      surfaces: { assistant: false, mcp: false },
     });
     expect(
       action("coolify.rollback")!.inputs!.find((i) => i.key === "image"),
@@ -105,7 +105,7 @@ describe("rollback declarations", () => {
       permission: "operate",
       dryRun: "describe",
       check: "coolify.resource-rollback-images",
-      surfaces: { mcp: true },
+      surfaces: { assistant: false, mcp: false },
     });
     expect(
       action("coolify.resource-rollback")!.inputs!.find(
