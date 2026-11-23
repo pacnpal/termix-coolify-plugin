@@ -48,3 +48,144 @@ When you add a connection and Coolify has tunnelled servers, the setup checklist
 A tunnelled Linked host's Coolify card says **Tunnel: through SSH Terminal (Cloudflare)** and has **Open
 tunnel settings**, which opens the host editor. SSH Terminal's tunnel fields there stay read only while the
 host is linked; unlink it to change them by hand.
+
+## The server Coolify runs on
+
+Coolify reaches the server it runs on directly (as `host.docker.internal`), so it never tunnels it and its
+dashboard has no tunnel setting for it. Don't turn on Coolify's own tunnel setting for that server: Coolify
+would then try to reach itself through Cloudflare. Instead, publish the server's SSH on a tunnel yourself
+and tell Termix to use it. Coolify keeps reaching its host directly; only the Termix host goes through
+Cloudflare. That lets you close the server's SSH port to the internet.
+
+You need Coolify for Termix 1.0.2 or newer and SSH Terminal 1.2.0 or newer. The examples use
+`ssh-coolify.example.com`; use a name in one of your own Cloudflare zones.
+
+### 1. Create a tunnel on the server
+
+1. In Cloudflare, open **Networking → Tunnels** and choose **Create Tunnel**, type **Cloudflared**.
+2. Pick the server's system and run the install command Cloudflare shows on the server, as root. It
+   installs `cloudflared` as a system service (`cloudflared service install <token>`). Copy it straight from
+   the dashboard; the token in it lets anyone run your tunnel, so keep it out of chat and notes.
+3. The tunnel's **Overview** should say **Healthy**, with one replica named after the server.
+
+### 2. Publish SSH on it
+
+1. On the tunnel's **Routes** tab, choose **Add route → Published application**.
+2. Enter the subdomain and domain (`ssh-coolify` on `example.com`) and set **Service URL** to
+   `ssh://127.0.0.1:22`, with the port sshd listens on (the port Coolify shows for the server).
+3. Choose **Add route**. Cloudflare creates the DNS record pointing the name at the tunnel.
+
+Cloudflare Access is optional. Without an Access application on the name, anyone who knows it can reach the
+server's sshd through Cloudflare, so turn off password logins (step 5). With one, allow a service token in
+its policy and enter that token under **Advanced** on the Termix connection, as in
+[Coolify behind Cloudflare Access](#coolify-behind-cloudflare-access); sync gives it to every tunnelled host.
+
+To try it from your own computer before going further, with `cloudflared` installed there:
+
+```bash
+ssh -o ProxyCommand="cloudflared access ssh --hostname %h" root@ssh-coolify.example.com
+```
+
+### 3. Point the Termix host at it
+
+1. In the Coolify tab, open **Servers**.
+2. On the row of the server Coolify runs on, tick **Reach through a Cloudflare tunnel**. The address field
+   becomes **Tunnel hostname**; enter `ssh-coolify.example.com`.
+3. Choose **Create and update hosts**, then open a terminal on the host. Sync writes SSH Terminal's tunnel
+   settings, as for [servers behind a tunnel](#servers-behind-a-tunnel), and the key copied from Coolify
+   still logs in.
+
+To go back to a direct address, untick the box, replace the tunnel hostname with an address that reaches the
+server directly (the tunnel hostname points at Cloudflare, not the server), and sync again. Sync then
+clears the tunnel from the host. The server Coolify runs on always needs an address here, since Coolify's
+own (`host.docker.internal`) can't be used from Termix.
+
+### 4. Close SSH to the internet
+
+Do this only once the Termix host connects through the tunnel, and keep your provider's web console open in
+case you lock yourself out. Run these on the server as root. They use port 22; if sshd listens on another
+port (the one in step 2's **Service URL**), use that port in every rule below, in the rule you delete, and in
+the check in step 6.
+
+First check what is there:
+
+```bash
+ufw status verbose
+```
+
+```bash
+ss -tlnp | grep -v '127.0.0.1\|::1'
+```
+
+If ufw already allows SSH (`22/tcp`, your sshd's port or `OpenSSH`), delete that rule first, or it matches before the block
+below. If anything that isn't Docker listens on the host besides sshd, allow it before turning ufw on.
+
+Coolify reaches its own host over the Docker bridge (from an address like `10.0.1.7`), and `cloudflared`
+connects from `127.0.0.1`, which ufw always allows. Allow the private ranges Docker uses, then block the
+port for everyone else and turn ufw on:
+
+```bash
+ufw allow from 10.0.0.0/8 to any port 22 proto tcp
+```
+
+```bash
+ufw allow from 172.16.0.0/12 to any port 22 proto tcp
+```
+
+```bash
+ufw allow from 192.168.0.0/16 to any port 22 proto tcp
+```
+
+```bash
+ufw deny 22/tcp
+```
+
+```bash
+ufw default deny incoming
+```
+
+```bash
+ufw enable
+```
+
+An SSH session that is already open stays up; new ones from the internet are refused. Ports Docker publishes
+(Traefik's 80 and 443, Coolify's 8000, 6001 and 6002, Traefik's 8080) are routed around ufw, so ufw neither
+breaks nor closes them. To close the ones you don't need from outside (with a domain set for Coolify, only
+80 and 443 are), use your provider's network firewall.
+
+### 5. Turn off password logins
+
+Coolify and Termix both log in with keys. Ubuntu cloud images turn passwords on in
+`/etc/ssh/sshd_config.d/50-cloud-init.conf`, and sshd keeps the first value it reads, so put the change in a
+file that sorts first:
+
+```bash
+cat > /etc/ssh/sshd_config.d/00-hardening.conf <<'CONF'
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin prohibit-password
+CONF
+```
+
+```bash
+sshd -t && systemctl reload ssh
+```
+
+```bash
+sshd -T | grep -Ei 'passwordauthentication|kbdinteractive|permitrootlogin'
+```
+
+The last command should print `passwordauthentication no`, `kbdinteractiveauthentication no` and
+`permitrootlogin without-password`.
+
+### 6. Check it
+
+- In Coolify, open the server and run **Validate**: Coolify still reaches its own host.
+- In Termix, open a terminal on the host. On the server, `journalctl -u ssh` shows the login coming from
+  `127.0.0.1`: that is `cloudflared`, so it came through the tunnel.
+- From outside, `nc -vz <the server's public IP> 22` times out, and the password guesses bots send to every
+  public SSH port stop showing up in the log.
+
+With ufw on, the log also shows `[UFW BLOCK]` lines from Cloudflare addresses on port 443 to high ports on
+the server, with `ACK PSH`. Those are late replies to outbound HTTPS connections that already closed, not
+attempts to get in; `ufw logging off` hides them.
