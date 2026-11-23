@@ -54,3 +54,12 @@ _Avoid_: Alert (an alert is a notification about an event), notification
 **Event log**:
 A connection's stored events, its newest 1,000.
 _Avoid_: History, audit log
+
+**Alert**:
+A notification about one stored event, sent through Termix's Alerts hub to one person who can view the
+connection and picked that event's kind.
+_Avoid_: Notification (as the plugin's word), event
+
+**Alert preferences**:
+The event kinds one person gets alerts for from one connection; the default kinds until they pick.
+_Avoid_: Alert settings, subscriptions

@@ -7,6 +7,7 @@ import type { Companions } from "./companions/service.js";
 import type { ContainerCompanions } from "./companions/container-service.js";
 import type { Containers } from "./containers/service.js";
 import type { Exec } from "./containers/exec.js";
+import type { Alerts } from "./alerts/service.js";
 import type { Events } from "./events/service.js";
 import type { Logs } from "./containers/logs.js";
 import type { Deployments } from "./deployments/service.js";
@@ -20,6 +21,7 @@ import { registerAttentionOperations } from "./ops/attention.js";
 import { registerCompanionOperations } from "./ops/companions.js";
 import type { StatusPages } from "./status/service.js";
 import { registerConnectionOperations } from "./ops/connections.js";
+import { registerAlertOperations } from "./ops/alerts.js";
 import { registerEventOperations } from "./ops/events.js";
 import {
   registerGenericApiOperations,
@@ -62,6 +64,7 @@ export interface Services {
   metrics: Metrics;
   attention: AttentionService;
   events: Events;
+  alerts: Alerts;
 }
 
 /**
@@ -135,4 +138,5 @@ export function registerOperations(
   registerMetricsOperations(ctx, services.metrics);
   registerAttentionOperations(ctx, services.attention);
   registerEventOperations(ctx, services.events);
+  registerAlertOperations(ctx, services.alerts);
 }

@@ -17,6 +17,18 @@
   once per kind, resource (or server) and minute, so the same thing seen in different minutes can be
   separate events. It carries the host only when its server is Linked. Events hold no secrets, tokens, credentials inside
   URLs or log text. Polling and the Coolify webhook start sending them in a later 1.2 update
+- Alerts: every stored event reaches the Termix Alerts inbox (and the delivery channels set up there) of
+  the connection's owner and of each person it is shared with, for the kinds each of them picked. Until
+  someone picks, they get deploy failed, restart limit, server unreachable, backup failed, task failed,
+  high disk, certificate problems and API token expiring. Each alert names the resource and what happened,
+  carries no secrets, has the category `coolify.<kind>` for routing, is sent once per event, and opens the
+  resource, server or connection in the Coolify tab. Losing **View Coolify** or access to the connection
+  stops a person's alerts at once
+- Alert preferences per person and per connection: the new **Alerts** action on each connection (also for
+  connections shared with you) picks the kinds and links to the Alerts delivery channels. Also as the
+  `coolify.alert-prefs` and `coolify.alert-prefs-set` actions (MCP tools `coolify__alert_prefs` and
+  `coolify__alert_prefs_set`) and `GET`/`PUT /plugin-api/coolify/connections/{id}/alert-prefs`. Each
+  person reads and changes only their own; unknown kinds are refused
 
 ### Changed
 

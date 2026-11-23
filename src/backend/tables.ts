@@ -282,6 +282,30 @@ export const recent = defineTable(
   },
 );
 
+/**
+ * One person's alert kinds for one connection they own or were granted
+ * (#93). No row: the default kinds. Only that person reads or writes it.
+ */
+export const alertPrefs = defineTable(
+  "alert_prefs",
+  {
+    id: id(),
+    connectionId: integer().notNull(),
+    userId: refUser(),
+    // The event kinds this person gets alerts for, as a JSON list.
+    kinds: json().notNull(),
+    updatedAt: timestamp().notNull().defaultNow(),
+  },
+  {
+    uniques: [
+      {
+        name: "idx_p_coolify_alert_prefs_connection_user",
+        columns: ["connectionId", "userId"],
+      },
+    ],
+  },
+);
+
 // termix-plugin migrations reads this list.
 export const tables = [
   connections,
@@ -294,4 +318,5 @@ export const tables = [
   statusPages,
   dnsRecords,
   recent,
+  alertPrefs,
 ];

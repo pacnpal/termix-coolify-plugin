@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Bell,
   Globe,
   Pencil,
   RefreshCw,
@@ -39,6 +40,7 @@ import {
   describeFailure,
   useConnectionForm,
 } from "./ConnectionForm";
+import { AlertPrefsView } from "./AlertPrefsView";
 import { McpPanel } from "./McpPanel";
 import { StatusPagesView } from "./StatusPagesView";
 
@@ -183,6 +185,7 @@ export function ConnectionsView({
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Connection | "new" | null>(null);
   const [publishing, setPublishing] = useState<Connection | null>(null);
+  const [alerting, setAlerting] = useState<Connection | null>(null);
 
   // Request generations: a list answer is applied only when it is the latest
   // load and no change (save, probe, removal) landed after it was asked for.
@@ -336,6 +339,12 @@ export function ConnectionsView({
                     </ListRowAction>
                   )}
                   <ListRowAction
+                    label={t("alerts.prefs.open")}
+                    onClick={() => setAlerting(c)}
+                  >
+                    <Bell className="size-3.5" />
+                  </ListRowAction>
+                  <ListRowAction
                     label={t("connections.actions.probe")}
                     onClick={() => void probe(c)}
                   >
@@ -362,6 +371,14 @@ export function ConnectionsView({
           api={api}
           connection={publishing}
           onClose={() => setPublishing(null)}
+        />
+      )}
+      {alerting && (
+        <AlertPrefsView
+          key={alerting.id}
+          api={api}
+          connection={alerting}
+          onClose={() => setAlerting(null)}
         />
       )}
       {editing !== null && (

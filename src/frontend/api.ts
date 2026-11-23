@@ -773,6 +773,17 @@ export function metricsOffOf(err: unknown): { canEnable: boolean } | null {
 }
 
 /** Typed calls to this plugin's own routes, one per route. */
+/** Your own alert kinds for one connection (GET/PUT .../alert-prefs). */
+export interface AlertPrefs {
+  connectionId: number;
+  kinds: string[];
+  /** True while you picked none of your own: the defaults apply. */
+  isDefault: boolean;
+  defaults: string[];
+  /** Every event kind there is, in order. */
+  available: string[];
+}
+
 export function createApi(api: PluginApiClient) {
   return {
     async listConnections(): Promise<Connection[]> {
@@ -794,6 +805,18 @@ export function createApi(api: PluginApiClient) {
     async setExec(id: number, execEnabled: boolean): Promise<Connection> {
       return (
         await api.patch<Connection>(`/connections/${id}`, { execEnabled })
+      ).data;
+    },
+    async alertPrefs(id: number): Promise<AlertPrefs> {
+      return (await api.get<AlertPrefs>(`/connections/${id}/alert-prefs`)).data;
+    },
+    /** Saves your alert kinds; null goes back to the defaults. */
+    async setAlertPrefs(
+      id: number,
+      kinds: string[] | null,
+    ): Promise<AlertPrefs> {
+      return (
+        await api.put<AlertPrefs>(`/connections/${id}/alert-prefs`, { kinds })
       ).data;
     },
     async deleteConnection(id: number): Promise<void> {
