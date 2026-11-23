@@ -555,7 +555,7 @@ export function createGenericApi(ctx: PluginContext, deps: GenericApiDeps) {
     const { path, query } = buildRequest(op, params);
     await assertSnapshotHolds(snap);
     try {
-      return await snap.http.request<unknown>(op.method, path, {
+      const answer = await snap.http.request<unknown>(op.method, path, {
         query,
         scrubSecrets: true,
         // The spec lists only a text type for these (Coolify's /version and
@@ -566,6 +566,10 @@ export function createGenericApi(ctx: PluginContext, deps: GenericApiDeps) {
         beforeFetch: () => assertSnapshotHolds(snap),
         ...(body !== undefined ? { body } : {}),
       });
+      // A read answers only while the target still holds. A change that was
+      // sent is reported as done: Coolify made it.
+      if (op.method === "GET") await assertSnapshotHolds(snap);
+      return answer;
     } catch (err) {
       // Feature detection: an instance older than the spec that documents the
       // operation answers 404 when it doesn't have the endpoint (405 is mapped

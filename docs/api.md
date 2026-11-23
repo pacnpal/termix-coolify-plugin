@@ -96,6 +96,10 @@ answers `status: "unknown"` without asking Coolify. `coolify.signal-updates` giv
 patch check and the plugin's last `coolify.server-updates-check`, with the source in `label`; it never runs a
 check or SSH itself.
 
+A read answers only for the connection's target as it was when the read started. When the address, token,
+Access token or TLS settings change while a read is out, the read ends with `target-changed` (409) instead of
+the old target's data, and a signal answers `status: "unknown"`. Run it again.
+
 Every action stops before it calls Coolify, SSH or another plugin when its run is already cancelled, and a
 deploy with `wait` stops following the deployment when the run is cancelled.
 

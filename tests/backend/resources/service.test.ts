@@ -23,6 +23,7 @@ import { healthyCoolify } from "../helpers/fake-coolify.js";
 import { resourceLists, SECRET } from "../helpers/resources.js";
 import { byText } from "../helpers/order.js";
 import { HEAVY_TEST_MS } from "../../shared/timing.js";
+import { failCacheWrites } from "../helpers/cache.js";
 
 const pluginDir = fileURLToPath(new URL("../../..", import.meta.url));
 const manifest = manifestJson as unknown as PluginManifest;
@@ -251,6 +252,13 @@ describe("resource service", () => {
     });
   });
 
+  it("answers the list when the cache write fails", async () => {
+    const refused = failCacheWrites(mock.ctx);
+    const rows = await resources.list(connectionId);
+    expect(rows).toHaveLength(13);
+    expect(refused()).toBe(1);
+  });
+
   it("second call within 20s uses the cache", async () => {
     await resources.list(connectionId);
     const fetched = fake.calls.length;
@@ -310,13 +318,14 @@ describe("resource service", () => {
   });
 
   it("a cache write held past an invalidate is never served", async () => {
-    // The write lands after invalidate has run to completion.
+    // The write is held past invalidate's generation change; its drop is
+    // queued behind the write (cache.ts), so it lands first.
     const hold = holdNextCacheWrite();
     const stale = resources.list(connectionId);
     await hold.atWrite;
-    await resources.invalidate(connectionId);
+    const invalidated = resources.invalidate(connectionId);
     hold.release();
-    await stale;
+    await Promise.all([stale, invalidated]);
 
     fake.set("GET /applications", NARROWER);
     fake.calls.length = 0;
@@ -330,9 +339,9 @@ describe("resource service", () => {
     const hold = holdNextCacheWrite();
     const stale = resources.list(connectionId);
     await hold.atWrite;
-    await resources.invalidate(connectionId);
+    const invalidated = resources.invalidate(connectionId);
     hold.release();
-    await stale;
+    await Promise.all([stale, invalidated]);
 
     // A restart: a new instance over the same tables, with the row still there.
     const restarted = createResources(mock.ctx, {
@@ -385,7 +394,12 @@ describe("resource service", () => {
     const fresh = (await resources.list(connectionId)).map((r) => r.uuid);
     expect(fresh).toContain("app-only-uuid");
     hold.release();
-    await stale;
+    // The caller from before the change gets no rows: they are the old
+    // token's view.
+    await expect(stale).rejects.toMatchObject({
+      status: 409,
+      code: "target-changed",
+    });
     fake.calls.length = 0;
     const uuids = (await resources.list(connectionId)).map((r) => r.uuid);
     expect(uuids).toContain("app-only-uuid");
@@ -393,6 +407,80 @@ describe("resource service", () => {
     for (const auth of authorizations()) {
       expect(auth).toBe(`Bearer ${NEW_TOKEN}`);
     }
+  });
+
+  it("a caller that joined a fetch before a repoint gets target-changed, not its rows", async () => {
+    const hold = holdNextApplications();
+    const first = resources.list(connectionId);
+    await hold.atFetch;
+    // Joins the fetch in flight: same revision, same generation.
+    const joined = resources.get(connectionId, "app-web-uuid");
+    const counts = resources.counts(connectionId);
+    await connections.update(connectionId, { baseUrl: MOVED_URL });
+    hold.release();
+    for (const read of [first, joined, counts]) {
+      await expect(read).rejects.toMatchObject({ code: "target-changed" });
+    }
+    // Nothing of the old target was cached: the next read asks the new one.
+    moved.calls.length = 0;
+    expect((await resources.list(connectionId)).map((r) => r.uuid)).toEqual([
+      "app-only-uuid",
+    ]);
+    expect(moved.calls.filter((c) => c.path === "/applications")).toHaveLength(
+      1,
+    );
+  });
+
+  it("a repoint after the fetch's own check still fails the read", async () => {
+    // The fetch checks the revision, then its cache write is slow; the
+    // connection moves meanwhile. The rows were the old target's.
+    const write = holdNextCacheWrite();
+    const read = resources.load(connectionId);
+    await write.atWrite;
+    db.sqlite
+      .prepare("UPDATE p_coolify_connections SET base_url = ? WHERE id = ?")
+      .run(MOVED_URL, connectionId);
+    write.release();
+    await expect(read).rejects.toMatchObject({ code: "target-changed" });
+  });
+
+  it("an unattended refresh across a repoint caches nothing and does not fail", async () => {
+    const hold = holdNextApplications();
+    const refresh = resources.refreshUnattended(connectionId);
+    await hold.atFetch;
+    db.sqlite
+      .prepare("UPDATE p_coolify_connections SET base_url = ? WHERE id = ?")
+      .run(MOVED_URL, connectionId);
+    hold.release();
+    // Not a Coolify failure, so the status pages don't back off for it.
+    await expect(refresh).resolves.toBeUndefined();
+    const cached = db.sqlite
+      .prepare("SELECT count(*) AS n FROM p_coolify_cache")
+      .get() as { n: number };
+    expect(cached.n).toBe(0);
+  });
+
+  it("an unattended read across a repoint ends target-changed", async () => {
+    const snap = await connections.unattendedSnapshot(connectionId);
+    const hold = holdNextApplications();
+    const read = resources.readUnattended(connectionId, snap!);
+    await hold.atFetch;
+    db.sqlite
+      .prepare("UPDATE p_coolify_connections SET base_url = ? WHERE id = ?")
+      .run(MOVED_URL, connectionId);
+    hold.release();
+    await expect(read).rejects.toMatchObject({ code: "target-changed" });
+  });
+
+  it("a connection removed during the read is not-found", async () => {
+    const write = holdNextCacheWrite();
+    const read = resources.list(connectionId);
+    await write.atWrite;
+    db.sqlite
+      .prepare("DELETE FROM p_coolify_connections WHERE id = ?")
+      .run(connectionId);
+    write.release();
+    await expect(read).rejects.toMatchObject({ status: 404 });
   });
 
   it("other user 404", async () => {

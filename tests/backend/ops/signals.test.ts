@@ -8,6 +8,7 @@ import {
 } from "../helpers/lifecycle.js";
 import { startPlugin, type PluginHarness } from "../helpers/plugin.js";
 import { resourceLists } from "../helpers/resources.js";
+import { failCacheWrites } from "../helpers/cache.js";
 
 const NEW_TOKEN = "fake-token-signals-new";
 
@@ -83,6 +84,13 @@ async function start() {
 }
 
 describe("server signals and a changed connection target", () => {
+  it("answers the server statuses when the cache write fails", async () => {
+    const { signal } = await start();
+    const refused = failCacheWrites(harness!.mock.ctx);
+    expect(await signal()).toMatchObject({ status: "fail" });
+    expect(refused()).toBeGreaterThan(0);
+  });
+
   it("a token change within the cache's minute reads the new target", async () => {
     const { fake, id, signal, serverCalls } = await start();
     expect(await signal()).toMatchObject({ status: "fail" });
@@ -109,8 +117,9 @@ describe("server signals and a changed connection target", () => {
     expect(update.status).toBe(200);
     fake.set("GET /servers", REACHABLE_EDGE);
     hold.release();
-    // The caller from before the change gets the old target's answer.
-    expect(await stale).toMatchObject({ status: "fail" });
+    // The caller from before the change gets no answer from the old target:
+    // unknown, never its "fail".
+    expect(await stale).toMatchObject({ status: "unknown", value: null });
     expect(await signal()).toMatchObject({ status: "ok" });
   });
 });

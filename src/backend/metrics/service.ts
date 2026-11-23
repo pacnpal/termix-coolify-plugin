@@ -749,6 +749,8 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
           serverUuid,
           minutes,
         );
+        // The snapshot's target answered only while it still holds.
+        await read.holds();
         return {
           source: "mcp",
           minutes,

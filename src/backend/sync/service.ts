@@ -5,6 +5,7 @@ import type {
 } from "@termix-ssh/plugin-sdk/backend";
 import { toServer, type ServerDto } from "../coolify/dto.js";
 import { CoolifyError } from "../coolify/http.js";
+import { stillAt } from "../connections/hold.js";
 import {
   ConnectionError,
   type ConnectionView,
@@ -784,9 +785,13 @@ export async function createSync(
     /** Every Coolify server and the host it would become. Read only. */
     async preview(connectionId: number): Promise<SyncRow[]> {
       // The address, abilities and client come from one read, so the rows
-      // describe one target. The Access token is never read here.
+      // describe one target. The Access token is never read here. The list
+      // answers only while the connection still points there (#123).
       const { view, api } = await connections.snapshot(connectionId);
-      const servers = await api.servers();
+      const sameTarget = () =>
+        stillAt(connections, connectionId, view.revision);
+      const servers = await api.servers({ beforeFetch: sameTarget });
+      await sameTarget();
       const rows = await rowsOf(connectionId);
       const byUuid = new Map(rows.map((r) => [r.serverUuid, r]));
       const copy = await copyAllowed(view);

@@ -107,6 +107,18 @@
   deployment events, since they carry a host only when the server is Linked, and their payloads gained
   `status` (and `deploymentUuid` for a container restart). Neither was sent before this release
 
+### Fixed
+
+- On Postgres or MySQL, two cache writes for the same connection at once could collide, and the
+  resource list, a server signal or an update check then failed although Coolify had answered. Writes
+  of the same cached list now run one at a time, and a cache write that still fails no longer fails
+  the read
+- A read that finished after its connection's address, token or Access settings changed no longer
+  answers the old target's data: resource lists (`coolify.list-resources-all`, the MCP tool
+  `list_resources`, `coolify.resource-get`, a Linked host's resources), the status signals, the activity
+  panel, the host sync preview, server update status, generic API reads, Coolify metrics and Coolify logs
+  now end with `target-changed` (409), or read unknown, and you can try again
+
 ## 1.1.2
 
 ### Fixed

@@ -390,9 +390,9 @@ function toRecord(row: EventRow): EventRecord | null {
  * needs it; a failed read throws, so "couldn't check" never reads as
  * "nothing to show".
  *
- * The lists' own caches only stop caching when the connection moves during
- * a fetch; they still answer what they fetched. So `holds` (the revision the
- * read started under) runs before and after each lookup, and a lookup that
+ * The lists answer only for the revision they started under (#123), and
+ * `holds` (the revision this read started under) runs before and after each
+ * lookup as well, so the lookups and the scan share one target, and a lookup that
  * failed because the target moved ends as target-changed too: a list from
  * the old target never authorizes a row.
  */
