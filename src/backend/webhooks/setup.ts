@@ -12,22 +12,32 @@ import { hashToken } from "../status/service.js";
 import { issueWebhookToken, type Webhooks } from "./service.js";
 
 /**
- * The event toggles setup ticks: every Coolify v4.7.5 webhook notification
- * the receiver (shape.ts) turns into an event kind. Names read from Coolify's
- * NotificationsController and WebhookNotificationSettings (tag v4.7.5); the
- * vendored specs describe no body. Other toggles are left as they are.
+ * For each Coolify webhook event the receiver (shape.ts) turns into an event
+ * kind, the Coolify setting that lets it be sent: the key its notification
+ * class passes to `getEnabledChannels(...)`, which Coolify's
+ * HasNotificationSettings reads as `<key>_webhook_notifications` (tag
+ * v4.7.5; the vendored specs describe no body). A test keeps the keys equal
+ * to the receiver's mapped events.
  */
-export const WEBHOOK_EVENT_FIELDS = [
-  "deployment_success_webhook_notifications",
-  "deployment_failure_webhook_notifications",
-  "restart_limit_reached_webhook_notifications",
-  "backup_success_webhook_notifications",
-  "backup_failure_webhook_notifications",
-  "scheduled_task_success_webhook_notifications",
-  "scheduled_task_failure_webhook_notifications",
-  "server_disk_usage_webhook_notifications",
-  "server_unreachable_webhook_notifications",
-] as const;
+export const WEBHOOK_EVENT_TOGGLES: Readonly<Record<string, string>> = {
+  deployment_success: "deployment_success",
+  deployment_failed: "deployment_failure",
+  status_changed: "status_change",
+  restart_limit_reached: "restart_limit_reached",
+  backup_success: "backup_success",
+  backup_success_with_s3_warning: "backup_failure",
+  backup_failed: "backup_failure",
+  task_success: "scheduled_task_success",
+  task_failed: "scheduled_task_failure",
+  task_disabled: "scheduled_task_failure",
+  high_disk_usage: "server_disk_usage",
+  server_unreachable: "server_unreachable",
+};
+
+/** The toggles setup ticks; other toggles are left as they are. */
+export const WEBHOOK_EVENT_FIELDS: readonly string[] = [
+  ...new Set(Object.values(WEBHOOK_EVENT_TOGGLES)),
+].map((key) => `${key}_webhook_notifications`);
 
 /** Access levels that may change the team's webhook. */
 const CONFIGURE_ACCESS: ReadonlySet<AccessLevel> = new Set([
@@ -311,6 +321,24 @@ export function createWebhookSetup(ctx: PluginContext, deps: WebhookSetupDeps) {
     return issued.token;
   }
 
+  /**
+   * Deletes this team's row, or only the one with `tokenHash`. Called when
+   * Coolify doesn't hold (or no longer holds) the row's token: a dead row
+   * whose lastReceivedAt is set would keep polling off, so a retry after an
+   * interrupted disable, or a decline, converges on polling (fail closed).
+   * No `holds` first: the row is dead whatever happens to the connection
+   * after Coolify was read (or cleared), and removing it only turns polling
+   * back on.
+   */
+  async function dropRow(b: Begun, tokenHash?: string): Promise<void> {
+    const db = await dbClient(ctx);
+    const team = eq(t.webhooks.instanceKey, b.instanceKey);
+    await db
+      .delete(t.webhooks)
+      .where(tokenHash ? and(team, eq(t.webhooks.tokenHash, tokenHash)) : team);
+    await ctx.db.persist();
+  }
+
   async function audit(
     action: string,
     connectionId: number,
@@ -373,7 +401,7 @@ export function createWebhookSetup(ctx: PluginContext, deps: WebhookSetupDeps) {
         const channel = await readChannel(b);
         const found = await classify(channel.url, b.instanceKey);
         if (found.state === "foreign" && !opts.replace) {
-          await b.holds();
+          await dropRow(b);
           return {
             outcome: "replace-needed",
             current: maskWebhookUrl(channel.url ?? ""),
@@ -415,10 +443,11 @@ export function createWebhookSetup(ctx: PluginContext, deps: WebhookSetupDeps) {
         const channel = await readChannel(b);
         const found = await classify(channel.url, b.instanceKey);
         if (found.state === "unset") {
-          await b.holds();
+          await dropRow(b);
           return { outcome: "not-set" };
         }
         if (found.state === "foreign" || !found.token) {
+          await dropRow(b);
           throw new WebhookSetupError(
             "not-ours",
             "The team's webhook points somewhere else; it was left as it is.",
@@ -429,16 +458,7 @@ export function createWebhookSetup(ctx: PluginContext, deps: WebhookSetupDeps) {
           { beforeFetch: b.holds },
         );
         // Only the row the URL held: polling follows the default again.
-        const db = await dbClient(ctx);
-        await db
-          .delete(t.webhooks)
-          .where(
-            and(
-              eq(t.webhooks.instanceKey, b.instanceKey),
-              eq(t.webhooks.tokenHash, hashToken(found.token)),
-            ),
-          );
-        await ctx.db.persist();
+        await dropRow(b, hashToken(found.token));
         await audit("coolify_webhook_disable", connectionId, b.snap.view.name, {
           outcome: "disabled",
         });

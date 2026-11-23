@@ -33,7 +33,10 @@ async function start(options: { permissions?: string[] } = {}) {
     webhook_url: null,
   };
   const patches: Record<string, unknown>[] = [];
-  const fake = healthyCoolify();
+  const fake = healthyCoolify({
+    "GET /deployments": { json: [] },
+    "GET /servers": { json: [] },
+  });
   const fetch = async (url: string, init?: PluginFetchInit) => {
     const method = (init?.method ?? "GET").toUpperCase();
     const path = new URL(url).pathname.replace(/^\/api\/v1/, "");
@@ -79,6 +82,8 @@ async function start(options: { permissions?: string[] } = {}) {
     h,
     id,
     patches,
+    /** How many polls read the deployment queue. */
+    polls: () => fake.calls.filter((c) => c.path === "/deployments").length,
     setChannel(next: Record<string, unknown>) {
       channel = { ...channel, ...next };
     },
@@ -357,5 +362,42 @@ describe("webhook routes", () => {
       expect(answer.status, `${method} ${path}`).toBe(403);
     }
     expect(patches).toEqual([]);
+  });
+});
+
+describe("an interrupted disable and the poller", () => {
+  it("a retry clears the stale row, so the poller polls again", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const T0 = Date.parse("2026-11-23T10:00:00.000Z");
+    vi.setSystemTime(T0);
+    const { h, id, patches, polls, seedOurs, setChannel } = await start();
+    const pollAt = async (ms: number) => {
+      vi.setSystemTime(ms);
+      h.mock.setActor(undefined);
+      try {
+        await h.mock.runScheduled();
+      } finally {
+        h.mock.setActor(OWNER);
+      }
+    };
+    // A webhook that delivered, then a disable that cleared Coolify but
+    // stopped before its row went: pollEnabled is off, so nothing polls.
+    seedOurs();
+    h.db.sqlite
+      .prepare("UPDATE p_coolify_webhooks SET last_received_at = ?")
+      .run("2026-11-23T09:00:00.000Z");
+    setChannel({ webhook_url: null, webhook_enabled: false });
+    await pollAt(T0);
+    expect(polls()).toBe(0);
+
+    const retry = await h.request(
+      "DELETE",
+      `/connections/${id}/webhook?confirm=true`,
+    );
+    expect(retry.body).toEqual({ outcome: "not-set" });
+    expect(patches).toEqual([]);
+    await pollAt(T0 + 60_000);
+    expect(polls()).toBe(1);
+    vi.useRealTimers();
   });
 });

@@ -26,8 +26,10 @@ import {
   maskWebhookUrl,
   privateBase,
   WEBHOOK_EVENT_FIELDS,
+  WEBHOOK_EVENT_TOGGLES,
   type WebhookSetup,
 } from "../../../src/backend/webhooks/setup.js";
+import { COOLIFY_WEBHOOK_EVENTS } from "../../../src/backend/webhooks/shape.js";
 import { healthyCoolify } from "../helpers/fake-coolify.js";
 
 const pluginDir = fileURLToPath(new URL("../../..", import.meta.url));
@@ -54,6 +56,8 @@ let channel: Record<string, unknown>;
 let hidden: boolean;
 let patches: Record<string, unknown>[];
 let notificationCalls: string[];
+/** PATCHes the fake refuses with a 500 before it accepts one. */
+let patchFailures: number;
 /** Runs after the fake answers a GET of the channel. */
 let afterRead: (() => void) | null;
 
@@ -103,6 +107,7 @@ beforeEach(async () => {
   patches = [];
   notificationCalls = [];
   afterRead = null;
+  patchFailures = 0;
   const fake = healthyCoolify();
   const fetch = async (url: string, init?: PluginFetchInit) => {
     const method = (init?.method ?? "GET").toUpperCase();
@@ -117,6 +122,10 @@ beforeEach(async () => {
         return answer;
       }
       if (method === "PATCH") {
+        if (patchFailures > 0) {
+          patchFailures -= 1;
+          return json({ message: "Server error" }, 500);
+        }
         const body = JSON.parse(String(init?.body ?? "{}"));
         patches.push(body);
         channel = { ...channel, ...body };
@@ -311,8 +320,8 @@ describe("webhook disable", () => {
     expect(JSON.stringify(result)).not.toContain(token);
   });
 
-  it("leaves someone else's URL alone", async () => {
-    const token = seedRow();
+  it("leaves someone else's URL alone, and drops our row Coolify no longer holds", async () => {
+    seedRow("2026-11-20T10:00:00.000Z");
     channel.webhook_url = FOREIGN;
     channel.webhook_enabled = true;
     await expect(setup.disable(id, { confirmed: true })).rejects.toMatchObject({
@@ -320,14 +329,89 @@ describe("webhook disable", () => {
       status: 409,
     });
     expect(patches).toEqual([]);
-    expect(webhookRows()).toHaveLength(1);
-    expect(await webhooks.verify(token)).not.toBeNull();
+    expect(channel.webhook_url).toBe(FOREIGN);
+    // Its token isn't in Coolify: kept, its lastReceivedAt would stop polling.
+    expect(webhookRows()).toEqual([]);
   });
 
-  it("does nothing when no URL is set", async () => {
+  it("does nothing in Coolify when no URL is set", async () => {
     const result = await setup.disable(id, { confirmed: true });
     expect(result).toEqual({ outcome: "not-set" });
     expect(patches).toEqual([]);
+  });
+
+  it("a retry after Coolify was cleared but the row wasn't deleted removes the stale row", async () => {
+    // A disable that cleared Coolify, then stopped (row delete failed, or
+    // the process exited) before the row went: the row still says the
+    // webhook delivered, which keeps polling off.
+    seedRow("2026-11-20T10:00:00.000Z");
+    channel.webhook_url = null;
+    channel.webhook_enabled = false;
+    const result = await setup.disable(id, { confirmed: true });
+    expect(result).toEqual({ outcome: "not-set" });
+    expect(patches).toEqual([]);
+    expect(webhookRows()).toEqual([]);
+  });
+});
+
+describe("webhook setup: stale rows", () => {
+  it("declining someone else's webhook drops our row Coolify no longer holds, so polling stays on", async () => {
+    seedRow("2026-11-20T10:00:00.000Z");
+    channel.webhook_url = FOREIGN;
+    const result = await setup.setup(id, { base: BASE });
+    expect(result.outcome).toBe("replace-needed");
+    expect(patches).toEqual([]);
+    expect(webhookRows()).toEqual([]);
+  });
+
+  it("a setup whose write to Coolify failed is retried into one working token", async () => {
+    patchFailures = 1;
+    await expect(setup.setup(id, { base: BASE })).rejects.toThrow();
+    expect(channel.webhook_url).toBeNull();
+    // The write-ahead row has no lastReceivedAt: polling goes on meanwhile.
+    expect(webhookRows()).toHaveLength(1);
+    expect(webhookRows()[0].last_received_at).toBeNull();
+    await setup.setup(id, { base: BASE });
+    const token = /webhook\/([A-Za-z0-9_-]{43})$/.exec(
+      String(channel.webhook_url),
+    )![1];
+    expect(webhookRows()).toHaveLength(1);
+    expect(await webhooks.verify(token)).not.toBeNull();
+  });
+});
+
+describe("the event toggles", () => {
+  it("cover exactly the events the receiver turns into an event kind", () => {
+    const mapped = Object.entries(COOLIFY_WEBHOOK_EVENTS)
+      .filter(([, shape]) => shape.map)
+      .map(([event]) => event)
+      .sort();
+    expect(Object.keys(WEBHOOK_EVENT_TOGGLES).sort()).toEqual(mapped);
+  });
+
+  it("setup ticks each one's Coolify toggle, status change included", async () => {
+    await setup.setup(id, { base: BASE });
+    // `<key>_webhook_notifications`, each key from the notification's own
+    // getEnabledChannels(...) in Coolify v4.7.5.
+    expect(Object.keys(patches[0]).sort()).toEqual(
+      [
+        "webhook_url",
+        "webhook_enabled",
+        "deployment_success_webhook_notifications",
+        "deployment_failure_webhook_notifications",
+        "status_change_webhook_notifications",
+        "restart_limit_reached_webhook_notifications",
+        "backup_success_webhook_notifications",
+        "backup_failure_webhook_notifications",
+        "scheduled_task_success_webhook_notifications",
+        "scheduled_task_failure_webhook_notifications",
+        "server_disk_usage_webhook_notifications",
+        "server_unreachable_webhook_notifications",
+      ].sort(),
+    );
+    for (const field of WEBHOOK_EVENT_FIELDS) {
+      expect(patches[0][field]).toBe(true);
+    }
   });
 });
 

@@ -639,7 +639,8 @@ token (`secrets-unreadable`, 409). Every call reads the team's current setting f
 
 - **Unset, or already ours** (our route, with a token that this team's webhook row verifies): `POST` writes
   our URL, turns the channel on and ticks the events the plugin receives (deployment success and failure,
-  restart limit, backup and scheduled task success and failure, disk usage, server unreachable). A token is
+  status change, restart limit, backup and scheduled task success and failure, disk usage, server
+  unreachable). A token is
   made only when the URL isn't ours already; only its sha256 is kept, and the new row has no last delivery
   yet, so polling goes on until the first delivery. Other toggles are left as they are.
 - **Someone else's:** `POST` changes nothing and answers `{ "outcome": "replace-needed", "current": ...,
@@ -649,7 +650,9 @@ token (`secrets-unreadable`, 409). Every call reads the team's current setting f
   polling stays on.
 - `DELETE` with `{ "confirm": true }` or `?confirm=true` removes our URL (and our webhook row, so polling
   takes over) only while it is still ours. Someone else's URL is `409 not-ours` and left alone; none set is
-  `{ "outcome": "not-set" }`.
+  `{ "outcome": "not-set" }`. Whenever Coolify doesn't hold our token (none set, someone else's, a declined
+  replace), our own webhook row is removed too, so a disable that stopped part way is finished by trying
+  again and polling never stays off for a webhook that can't deliver.
 
 The URL's base is the request's own address (`ctx.http.baseUrl`), as status pages do; an action uses the
 acting user's own last address, never another user's, and refuses with `no-base-url` (409) when there is none.

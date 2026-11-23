@@ -794,7 +794,10 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   in `MCP_CONFIRM_REQUIRED`; the handlers pass `confirmed` because core confirms every destructive run).
   Coolify's specs describe no body for `/notifications/webhook`: the field names (`webhook_url`,
   `webhook_enabled`, `*_webhook_notifications`) come from Coolify's NotificationsController and
-  WebhookNotificationSettings at tag v4.7.5. `webhook_url` is hidden unless the token has
+  WebhookNotificationSettings at tag v4.7.5. `WEBHOOK_EVENT_TOGGLES` maps each event `shape.ts` gives a
+  kind to the key its notification passes to `getEnabledChannels` (`<key>_webhook_notifications`, so
+  `status_changed` needs `status_change`); a test keeps its keys equal to the mapped events, so a new
+  mapped event must add its toggle. `webhook_url` is hidden unless the token has
   read:sensitive, so a GET without the key is `secrets-unreadable` (409), never "unset". The URL is read
   only by `api.webhookChannelForSetup()` (`WebhookChannelForSetup`, like `KeyForCopy` not a DTO) and the
   PATCH answer is dropped unread. Order: `coolify.configure`, `connections.snapshot` once (its new
@@ -807,7 +810,12 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   PATCH; the old token wasn't in Coolify) and reset `lastReceivedAt`, so polling goes on until the new URL
   delivers (a busy 503 refusal stamps nothing, so polling also stays on through those). Someone else's URL is shown only through `maskWebhookUrl` (scheme, host, port, then
   `/[redacted]`). Disable writes `{ webhook_url: null, webhook_enabled: false }` only when ours, then
-  deletes that row (by instanceKey and token hash). The base is `baseUrlOf(req)` on routes and
+  deletes that row (by instanceKey and token hash). Every partial failure converges on a retry:
+  `dropRow` removes this team's row whenever Coolify doesn't hold its token (disable finding unset or
+  someone else's, and a declined replace), with no `holds` first since the row is dead either way, so a
+  disable that cleared Coolify but lost its row delete, or a URL someone replaced, never leaves a
+  `lastReceivedAt` that keeps polling off (fail closed: polling resumes). A setup whose PATCH failed
+  left only a write-ahead row with no `lastReceivedAt`; its retry rotates the token again. The base is `baseUrlOf(req)` on routes and
   `knownBaseUrl(ctx, actor)` in operations. `privateBase` is `isPrivateAddress` (connections/service.ts,
   the transport check's `hostReach`) plus Coolify's blocked `.local`/`.internal` names; it only warns.
   Nothing returns, logs or audits the URL: answers carry `outcome`, `replaced`, `basePrivate`; the audit
