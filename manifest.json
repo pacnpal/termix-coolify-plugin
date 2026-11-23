@@ -1,7 +1,7 @@
 {
   "id": "coolify",
   "name": "Coolify for Termix",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Coolify inside Termix: servers become hosts (tunnels included), one-click container shells, deploys, logs, variables, backups and alerts, and the full Coolify API.",
   "author": {
     "name": "pacnpal",
@@ -550,8 +550,8 @@
           "risk": "destructive",
           "permission": "configure",
           "surfaces": {
-            "assistant": true,
-            "mcp": true
+            "assistant": false,
+            "mcp": false
           }
         },
         {
@@ -573,8 +573,8 @@
           "risk": "destructive",
           "permission": "configure",
           "surfaces": {
-            "assistant": true,
-            "mcp": true
+            "assistant": false,
+            "mcp": false
           }
         },
         {
@@ -1431,7 +1431,7 @@
           "check": "coolify.rollback-images",
           "surfaces": {
             "assistant": false,
-            "mcp": true
+            "mcp": false
           }
         },
         {
@@ -1503,7 +1503,7 @@
           "check": "coolify.resource-rollback-images",
           "surfaces": {
             "assistant": false,
-            "mcp": true
+            "mcp": false
           }
         },
         {
@@ -3605,7 +3605,7 @@
   "provides": [
     {
       "service": "coolify.client",
-      "version": "1.0.4",
+      "version": "1.0.5",
       "permission": "coolify.view"
     }
   ],

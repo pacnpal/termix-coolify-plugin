@@ -66,7 +66,7 @@ Keep this section current when the plugin changes: what it does, how it is put t
 aren't obvious from the code, and anything that has bitten you before.
 
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
-  Where things stand: the plugin is at 1.0.4 (1.0.0 was its first release). It holds connections, resources and
+  Where things stand: the plugin is at 1.0.5 (1.0.0 was its first release). It holds connections, resources and
   lifecycle, host sync, shells, logs, exec, metrics, server updates, companions, status pages, deployments,
   previews and rollback, recent activity, the activity panel, dashboard cards and homepage widgets, the
   event pipeline and event log (#89), the poller (#90), the team webhook (#91) and its one-click setup
@@ -640,6 +640,9 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   The audit holds only lengths and the exit code. Resources and server-status caches are invalidated
   after a run reaches SSH. `connections.setExec` is owner only and checks `configure` itself.
 - MCP may deploy and restart without `allowMcpChanges` (`MCP_CHANGES_EXEMPT` in `mcp/server.ts`).
+- Every destructive action has `surfaces` `{ assistant: false, mcp: false }` (the community registry's review
+  refuses anything else; `destructive-surfaces.test.ts` checks it). The plugin's own MCP endpoint doesn't read
+  `surfaces`: it still serves them, behind `MCP_CONFIRM_REQUIRED`.
 - Metrics: `src/backend/coolify/mcp.ts` is the client for Coolify's own MCP (`<url>/mcp`, JSON-RPC
   `tools/call`). It is built on a connection's `CoolifyHttp` (`request(..., { mcp: true, text: true })`), so
   it shares the snapshot's headers, transport check, budget and fixed errors; tool answers go through

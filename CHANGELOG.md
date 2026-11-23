@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.5
+
+### Changed
+
+- Rolling back an application and replacing or turning off the team webhook are no longer offered to
+  Termix's assistant or Termix's MCP, like every other destructive action. The plugin's own MCP endpoint
+  still offers them, and still refuses them without `confirmed: true`
+
 ## 1.0.4
 
 ### Changed
