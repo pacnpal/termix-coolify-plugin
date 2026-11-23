@@ -91,7 +91,7 @@ describe("the status scan", () => {
     expect(decidesStatus('status === "error"')).toBe(true);
   });
 
-  // Fixed work: growth() samples each size for 25 clock steps, a few tenths
+  // Fixed work: growth() samples both sizes for a few tenths
   // of a second of CPU; an explicit timeout keeps a busy machine from failing
   // it on Vitest's 5 s (#105).
   it(

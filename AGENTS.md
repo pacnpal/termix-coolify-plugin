@@ -143,10 +143,15 @@ aren't obvious from the code, and anything that has bitten you before.
   the SDK's own `parseOperationInput` and `redactFields` around `ctx.operations.run`, as core does.
 - Tests and time (#105): no test budgets milliseconds; a busy machine failed them with nothing wrong.
   Linear-time checks use `growth()` (`tests/shared/linear-cost.ts`): the same call on an input 8 times as
-  long, timed by the thread's CPU time (which steps in 4 ms ticks on some kernels, so samples run 25
-  steps), must cost less than 24 times as much (linear about 8, quadratic about 64). storagePaths
+  long, timed by the thread's CPU time (which steps in 4 ms ticks on some kernels, so sub-samples run
+  10 steps), must cost less than 24 times as much (linear about 8, quadratic about 64). storagePaths
   can't take a longer path (4096 cap), so it compares against a 32nd (`growth(at, 32)`, bound
-  `linearLimit(32)` = 96). Waits use `WAIT_MS` (`tests/shared/timing.ts`): `eventually()` for vi.waitFor, and `tests/frontend/setup.ts` (loaded by
+  `linearLimit(32)` = 96). One sample never decides a check (#124): a pause on the thread (a major
+  GC, a deopt) counts as its CPU time. Each of up to three tries takes the median of three
+  interleaved sub-samples per size, the best try of each size counts, and only a pass stops early;
+  a failure takes every try. `tests/shared/linear-cost.test.ts` (run with the backend tests) checks
+  that one paused call reads a linear call as linear and a quadratic one as quadratic.
+  `LINEAR_COST_LOG=1` prints each check's growth and CPU time (vitest `--silent=false`). Waits use `WAIT_MS` (`tests/shared/timing.ts`): `eventually()` for vi.waitFor, and `tests/frontend/setup.ts` (loaded by
   `vitest.config.ts`) for every findBy and waitFor. Tests with heavy fixed work or a real timer in the
   code take `HEAVY_TEST_MS`. A fixed sleep is only for checking that nothing happened.
   `tests/backend/wall-clock-guard.test.ts` refuses `performance.now`, `expect(Date.now()`, `vi.waitFor`,
