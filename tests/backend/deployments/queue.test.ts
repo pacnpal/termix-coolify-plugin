@@ -222,6 +222,35 @@ describe("the connection's deployment queue", () => {
     }
   });
 
+  it("asks for a page again when one of its deployments ended while another is still queued", async () => {
+    const { harness, fake, id } = await start();
+    const webReads = () =>
+      fake.calls.filter(
+        (c) =>
+          c.method === "GET" &&
+          c.path === "/deployments/applications/app-web-uuid",
+      ).length;
+    const queue = queueAnswers()["GET /deployments"] as {
+      json: { deployment_uuid: string }[];
+    };
+    const read = () =>
+      harness.request("GET", `/connections/${id}/deployments?refresh=1`);
+    // web has dep-run and a second queued deployment.
+    const second = deploymentRaw("dep-web-next", "queued");
+    fake.set("GET /deployments", { json: [...queue.json, second] });
+    await read();
+    expect(webReads()).toBe(1);
+    // dep-run ended; dep-web-next is still queued.
+    fake.set("GET /deployments", {
+      json: [
+        ...queue.json.filter((row) => row.deployment_uuid !== "dep-run"),
+        second,
+      ],
+    });
+    await read();
+    expect(webReads()).toBe(2);
+  });
+
   it("asks for every page again after a cancel", async () => {
     const { harness, fake, id } = await start();
     const pageReads = () =>

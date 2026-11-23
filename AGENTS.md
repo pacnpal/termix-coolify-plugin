@@ -1056,10 +1056,12 @@ EventRecord) => unknown`, called by `afterStored` in `createEvents` after the co
   `lastDeployAt`, which Coolify v4.7.x never sends, so in practice the first ten by name); it is cached 10
   seconds in memory (`queue.ts`), keyed by revision and an invalidate generation like the resources cache,
   and each history page is kept per connection and revision (`histories`) and asked for again only when
-  that application's queued or running deployment has left the queue, the page is new, or it is
+  any deployment of that application seen queued or running at the last read (tracked by deployment uuid,
+  so a second queued one doesn't hide it) has left the queue, the page is new, or it is
   `HISTORY_REFRESH_MS` (3 minutes) old, so a steady read is one request, not eleven (every request is an
-  audit entry in core). An invalidate forgets the pages. The backstop delay stays inside the poller's
-  `CLOCK_SLACK_MS`, so a deployment that started and ended between two polls is still news when found; shared by the Deployments section, the Overview, the
+  audit entry in core). An invalidate forgets the pages. The queue's `historyReadAt` (oldest page used,
+  never answered to callers) is the poller's `deploymentsReadAt` watermark, so a reused page never eats
+  into `CLOCK_SLACK_MS` and a deployment that started and ended between two polls is still news when found; shared by the Deployments section, the Overview, the
   `coolify.deployment-queue` action and anything later (the sidebar panel, rail badge). Rows whose link
   names no application of the connection are dropped. Cancel, deploy by tag and rollback invalidate it. In the
   frontend, `useDeploymentQueue` is held by CoolifyTab and polls only while the tab shows Overview or

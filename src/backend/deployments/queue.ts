@@ -40,11 +40,19 @@ export interface DeploymentQueue {
   recent: QueueRow[];
   /** When it was read from Coolify, in epoch milliseconds. */
   fetchedAt: number;
+  /**
+   * When the oldest history page in `recent` was read from Coolify (a page
+   * can be reused for up to HISTORY_REFRESH_MS). The poller's watermark for
+   * "ended since the last read", so a reused page never eats into its
+   * CLOCK_SLACK_MS. Not answered to callers.
+   */
+  historyReadAt: number;
 }
 
 /** The queue as routes and operations answer it: times as ISO strings. */
 export function queueBody(queue: DeploymentQueue) {
-  return { ...queue, fetchedAt: new Date(queue.fetchedAt).toISOString() };
+  const { historyReadAt: _historyReadAt, ...answer } = queue;
+  return { ...answer, fetchedAt: new Date(queue.fetchedAt).toISOString() };
 }
 
 /** Whether a query or input flag asks to skip the cache. */
@@ -65,8 +73,11 @@ interface Cached {
 interface Histories {
   revision: string;
   pages: Map<string, { rows: DeploymentDto[]; readAt: number }>;
-  /** Applications that had a deployment queued or running at the last read. */
-  running: Set<string>;
+  /**
+   * The deployments queued or running at the last read, each to its
+   * application: one that has left the queue since is news for its page.
+   */
+  running: Map<string, string>;
 }
 
 /** Runs `fn` over `items`, at most `limit` at a time, keeping their order. */
@@ -161,10 +172,18 @@ export function createQueueCache(deps: {
     // the one read before, so a steady connection costs one request a read.
     const prior = histories.get(connectionId);
     const known = prior?.revision === revision ? prior : null;
-    const runningNow = new Set(running.map((r) => r.resourceUuid));
+    const runningNow = new Map(running.map((r) => [r.uuid, r.resourceUuid]));
+    // Applications with a deployment that was queued or running at the last
+    // read and isn't now: it ended (or was cancelled), whatever else of that
+    // application is still queued.
+    const ended = new Set(
+      [...(known?.running ?? [])]
+        .filter(([deployment]) => !runningNow.has(deployment))
+        .map(([, app]) => app),
+    );
     const readAt = now();
     const fresh = (uuid: string, page: { readAt: number }) => {
-      if (known!.running.has(uuid) && !runningNow.has(uuid)) return false;
+      if (ended.has(uuid)) return false;
       const age = readAt - page.readAt;
       return age >= 0 && age < HISTORY_REFRESH_MS;
     };
@@ -200,7 +219,13 @@ export function createQueueCache(deps: {
       })
       .sort(newestFirst)
       .slice(0, RECENT_MAX);
-    const value = { running, recent, fetchedAt: now() };
+    const fetchedAt = now();
+    const value = {
+      running,
+      recent,
+      fetchedAt,
+      historyReadAt: Math.min(fetchedAt, ...pages.map((p) => p.readAt)),
+    };
     if (
       (await currentRevision()) === revision &&
       generationOf(connectionId) === generation

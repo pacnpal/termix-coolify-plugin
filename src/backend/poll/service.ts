@@ -318,6 +318,7 @@ export function createPoller(ctx: PluginContext, deps: PollerDeps) {
     return {
       resources,
       deployments: queue ? [...queue.running, ...queue.recent] : null,
+      deploymentsReadAt: queue?.historyReadAt,
       servers,
       runs,
     };
