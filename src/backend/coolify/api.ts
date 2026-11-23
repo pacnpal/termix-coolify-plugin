@@ -2,6 +2,7 @@ import { OPERATIONS } from "./generated/operations.js";
 import { CoolifyError, type CoolifyHttp } from "./http.js";
 import { fillPath, pathRules } from "./path.js";
 import {
+  resourceServerUuid,
   toApplication,
   toDatabase,
   toDeployment,
@@ -35,6 +36,24 @@ import {
   type TeamDto,
   type VulnerabilityDto,
 } from "./dto.js";
+
+/** Something a token can be asked whether it reads (`canRead`). */
+export type ReadableSubject =
+  | { type: "application" | "service" | "database" | "server"; uuid: string }
+  | { type: "team" };
+
+/** What canRead keeps of a readable subject's answer. */
+export interface SubjectRead {
+  /** A resource's server, by field name; unchecked text, or null. */
+  serverUuid: string | null;
+}
+
+const READ_SUBJECT = {
+  application: "get-application-by-uuid",
+  service: "get-service-by-uuid",
+  database: "get-database-by-uuid",
+  server: "get-server-by-uuid",
+} as const;
 
 export type LifecycleAction = "start" | "stop" | "restart";
 
@@ -211,6 +230,40 @@ export function createCoolifyApi(http: CoolifyHttp) {
         throw new CoolifyError("not-coolify", 200);
       }
       return text;
+    },
+
+    /**
+     * Whether this token reads `subject`: one GET of the subject itself
+     * (`GET /team` for the team), never retried, readable only on a 200. Any
+     * other answer, a malformed uuid, a timeout or any error is null. Of
+     * what it read, only a resource's server uuid is returned. It counts against the request
+     * budget like any call. For the webhook's per-connection check (#91).
+     * `beforeFetch` runs right before the request (after the budget wait);
+     * a throw sends nothing and answers false.
+     */
+    async canRead(
+      subject: ReadableSubject,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<SubjectRead | null> {
+      try {
+        const target =
+          subject.type === "team"
+            ? op("get-token-team")
+            : op(READ_SUBJECT[subject.type], { uuid: subject.uuid });
+        const body = await call(target, {
+          retry: false,
+          exactStatus: 200,
+          beforeFetch: opts.beforeFetch,
+        });
+        return {
+          serverUuid:
+            subject.type === "team" || subject.type === "server"
+              ? null
+              : resourceServerUuid(body),
+        };
+      } catch {
+        return null;
+      }
     },
 
     async team(): Promise<TeamDto> {

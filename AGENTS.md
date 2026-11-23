@@ -68,8 +68,8 @@ aren't obvious from the code, and anything that has bitten you before.
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
   Where things stand: 1.0.0 is feature complete (connections, resources and lifecycle, host sync, shells,
   logs, exec, metrics, server updates, companions, status pages, the full Coolify API, the MCP endpoint and
-  the `coolify.client` service). 1.2.0 (Alerts) is under way: the event pipeline and event log (#89) and
-  the poller (#90) are in; the webhook, alerts and event log view build on them. The read-only smoke test against a real Coolify is the owner's
+  the `coolify.client` service). 1.2.0 (Alerts) is under way: the event pipeline and event log (#89), the
+  poller (#90) and the team webhook (#91) are in; alerts and the event log view build on them. The read-only smoke test against a real Coolify is the owner's
   (`scripts/smoke-readonly.md`). User docs: `docs/index.md`, `tunnels.md`, `permissions.md`,
   `companions.md`, `troubleshooting.md`, `api.md`, `coverage.md`.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
@@ -745,6 +745,39 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   (a list or other non-scalar is 400; the route refuses a repeated query key rather than ignore it)
   (coolify.view, any access, another user's 404), answering `{ rows: EventRecord[], nextBefore }` newest
   first, paged by id.
+- Team webhook (1.2.0, #91): `src/backend/webhooks/` (`shape.ts`, `service.ts` `createWebhooks`,
+  `routes.ts`), made in `index.ts` after `createEvents`; `PUBLIC_WEBHOOK_PATHS` joins the router's `public`
+  list (no `publicRateLimit`). `POST /webhook/:token` answers `200 {"ok":true}` or one fixed
+  `400 {"error":"Bad request"}` for an unknown token, a body over `WEBHOOK_BODY_MAX` (65,536 bytes: the
+  content-length or the parsed body's own JSON size, whichever is larger) and any body `readWebhook` refuses,
+  alike; a database failure is 500 (Coolify retries 5xx and 429, and counts 401/403/404/410 against its
+  channel, so a refusal is never one of those). Order: size, shape, then `verify` (token shape
+  `^[A-Za-z0-9_-]{43}$`, lookup by sha256, `tokenMatches`' `timingSafeEqual`, from status/service.ts), then
+  `lastReceivedAt` (#90 reads it) and persist, then the answer; the fan-out runs on unawaited and never
+  rejects, at most `WEBHOOK_FANOUT_MAX` (32) per row in flight (past it the event is dropped, logged).
+  `shape.ts` is the strict shape: `COOLIFY_WEBHOOK_EVENTS` is every event Coolify v4.7.5 sends, by its
+  `event` word, with each `toWebhook()`'s keys and types read from Coolify's source
+  (app/Notifications/**, tag v4.7.5; main the same): only own keys of a plain object, every key known
+  and typed, the required ones present. Events with no kind (test, general, status_changed,
+  container_restarted, Docker cleanup, patch checks, ...) are accepted and ingest nothing; image
+  vulnerability digests aren't in it yet (refused). Mapped events carry only uuids, the name, a fixed
+  status word and a few numbers; never `message`, URLs or log fields (`output`, `error_output`,
+  `s3_error`). Fan-out: every connection with the row's `instanceKey`, in parallel: `unattendedSnapshot`,
+  owner `hasFor(view)` (else skipped, not asked), `snap.api()` (the connection's cached client, so the
+  check shares its 150 a minute budget), `api.canRead(subject)` (api.ts: one GET of the subject itself,
+  `retry: false`, `exactStatus: 200`, any throw false; `GET /team` for a team subject, which no v4.7.5
+  event maps to yet; its `beforeFetch` re-reads `unattendedSnapshot` right before the GET, after the budget
+  wait, and a changed revision sends nothing and answers `dropped`), then
+  `events.ingest(id, event, { revision: snap.revision })`. `deliverTo` gets the row's `instanceKey` and
+  drops the event when the snapshot's own `instanceKey` (now on `unattendedSnapshot`, from the same row)
+  or the `beforeFetch` re-read differs, so a connection repointed after it was picked sends nothing. A
+  resource event's `serverUuid` comes from the check's own 200 body (`canRead` answers
+  `{ serverUuid }`, picked by `resourceServerUuid` in dto.ts, the same fields as `ResourceDto.serverUuid`;
+  `plainUuid` or null), so the pipeline gives it the Linked host; no extra request. #90's poller reads `lastReceivedAt` to make
+  polling follow `pollEnabled` (cross-checked in `webhooks/routes.test.ts`). A task's subject is
+  its application or service, a backup's `/databases/{uuid}`, restart limit `/applications/{uuid}`
+  (Coolify names any resource application_uuid; others fail closed). `issueWebhookToken()` gives #92
+  `{ token, tokenHash }`; `webhooks.verify(token)` answers `{ id, instanceKey }` or null.
 - Abort: `registerOperations` hands the ops files a ctx whose `operations.register` wraps every handler in
   `abortable` (operations.ts), so a cancelled run throws its signal's reason before it starts; the wrapper
   only adds that check, so each handler's own permission and confirm checks still run. Long handlers

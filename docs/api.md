@@ -260,6 +260,7 @@ serves.
 | `POST /plugin-api/coolify/status-pages/handoff/:handoffId`                                    | none: hands a create or rotate's URL over once; over MCP that is `take_status_page_url`                                                                              |
 | `GET /plugin-api/coolify/status/:token`                                                       | none: the public status page, served with no signed-in user                                                                                                          |
 | `GET /plugin-api/coolify/status/:token.json`                                                  | none: the public status page as JSON, served with no signed-in user                                                                                                  |
+| `POST /plugin-api/coolify/webhook/:token`                                                     | none: Coolify's own webhook deliveries, served with no signed-in user; the events they bring land in the event log                                                   |
 | `WS /plugin-ws/coolify/logs`                                                                  | none: a live follow of a container's logs; `coolify.logs-tail` reads a snapshot                                                                                      |
 | `WS /plugin-ws/coolify/stats`                                                                 | none: a live stream of a container's stats; `coolify.resource-metrics` reads a window                                                                                |
 
@@ -503,7 +504,7 @@ connection's event log.
 - The log keeps each connection's newest 1,000 events. Removing a connection removes its events.
 
 A deploy with `wait` hands its deployment's end to the same pipeline, so it and a poll of the same
-deployment send one event. The team webhook feeds it in a later 1.2 update.
+deployment send one event. The team webhook (below) feeds it too.
 
 ### Polling
 
@@ -563,6 +564,50 @@ the connection; another user's connection is 404, and a malformed or repeated pa
 
 A read offered to the assistant and MCP: `connectionId` and optionally `kind`, `uuid`, `limit` and `before`.
 Its data is the route's answer and its summary counts the events, like "50 events, more before".
+
+### `POST /plugin-api/coolify/webhook/{token}` (Coolify's team webhook)
+
+Coolify allows one webhook per team, so the plugin keeps one webhook token per Coolify team (connections to
+the same Coolify address and team share it). This is the URL Coolify's webhook notification channel posts to;
+nothing else needs to call it, and no action stands for it. It needs no login: the token in the path is the
+only credential. The token is 32 random bytes; the plugin stores only its sha256 and compares it in constant
+time. Core's limit of 120 public requests a minute per address applies.
+
+- The body is one of Coolify's notification payloads as Coolify 4.7.5 sends them (each notification's
+  `toWebhook()` in Coolify's source): `success`, `message` and `event`, plus exactly that event's keys. At
+  most 64 KB. A body with any other key, a missing or mistyped one, or an `event` the plugin doesn't know is
+  refused whole.
+- An accepted delivery answers `200 {"ok":true}` at once and stamps the webhook's last delivery time. An
+  unknown token, an oversized body and a body of any other shape all answer the same
+  `400 {"error":"Bad request"}`. Neither answer holds anything that was sent.
+- Each event then goes to every connection to that Coolify team whose own token can read what it is about,
+  checked live with one `GET` per event and connection: the application, service or database itself, or
+  `GET /servers/{uuid}` for a server. Only a 200 lets it through; a 401, 403 or 404, a timeout or any other
+  error drops it for that connection, with no retry. These checks count against the connection's request
+  budget (150 a minute). A connection whose owner no longer has **View Coolify** isn't asked.
+
+| Coolify `event`                                                                                                                                                                                                               | Event kind                         | Checked with                           |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | -------------------------------------- |
+| `deployment_success`                                                                                                                                                                                                          | `deployment-finished`              | `GET /applications/{application_uuid}` |
+| `deployment_failed`                                                                                                                                                                                                           | `deployment-failed`                | `GET /applications/{application_uuid}` |
+| `restart_limit_reached`                                                                                                                                                                                                       | `restart-limit`                    | `GET /applications/{application_uuid}` |
+| `backup_success`, `backup_success_with_s3_warning`                                                                                                                                                                            | `backup-succeeded`                 | `GET /databases/{database_uuid}`       |
+| `backup_failed`                                                                                                                                                                                                               | `backup-failed`                    | `GET /databases/{database_uuid}`       |
+| `task_success`                                                                                                                                                                                                                | `task-succeeded`                   | the task's application or service      |
+| `task_failed`, `task_disabled`                                                                                                                                                                                                | `task-failed`                      | the task's application or service      |
+| `high_disk_usage`                                                                                                                                                                                                             | `high-disk`                        | `GET /servers/{server_uuid}`           |
+| `server_unreachable`                                                                                                                                                                                                          | `server-unreachable`               | `GET /servers/{server_uuid}`           |
+| `test`, `general`, `status_changed`, `container_restarted`, `docker_cleanup_*`, `server_reachable`, `server_force_*`, `server_patch_check*`, `traefik_version_outdated`, `ssl_certificate_renewal`, `hetzner_deletion_failed` | none: accepted, nothing is sent on | nothing                                |
+
+A backup of a database inside a service, or a restart limit on anything but an application, fails its check
+(Coolify names it in a field the plugin can only check as a standalone database or an application) and is
+dropped. Image vulnerability digests aren't in the table yet and are refused.
+
+```bash
+curl -X POST https://termix.example.com/plugin-api/coolify/webhook/<token> \
+  -H 'Content-Type: application/json' \
+  -d '{"success":true,"message":"This is a test webhook notification from Coolify.","event":"test","url":"https://coolify.example.com"}'
+```
 
 ## Dashboard cards and homepage widgets
 

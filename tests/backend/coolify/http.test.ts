@@ -379,6 +379,27 @@ describe("Coolify HTTP layer", () => {
     expect(once.calls).toHaveLength(1);
   });
 
+  it("with exactStatus, refuses any other 2xx as upstream", async () => {
+    const http = (r: () => Response) =>
+      createCoolifyHttp(scripted(r).fetch, target, noSleep);
+    expect(
+      await http(() => json(200, { uuid: "a" })).request("GET", "/x", {
+        exactStatus: 200,
+      }),
+    ).toEqual({ uuid: "a" });
+    for (const status of [201, 202, 204]) {
+      const err = await caught(
+        http(() =>
+          status === 204
+            ? new Response(null, { status })
+            : json(status, { uuid: "a" }),
+        ).request("GET", "/x", { exactStatus: 200 }),
+      );
+      expect(err.cause, String(status)).toBe("upstream");
+      expect(err.status, String(status)).toBe(status);
+    }
+  });
+
   it("holds requests to perMinute (default 150, under Coolify's 200)", async () => {
     let clock = 0;
     const slept: number[] = [];

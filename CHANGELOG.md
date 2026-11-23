@@ -53,6 +53,13 @@
   `coolify.connection-set-poll` action (MCP tool `coolify__connection_set_poll`, or `pollEnabled` on
   `PATCH /plugin-api/coolify/connections/{id}`). After failures it waits 1, 2, 5, then 15 minutes, and
   the connection shows why its last poll failed. The admin setting **Allow polling** turns it off
+- Coolify's team webhook: `POST /plugin-api/coolify/webhook/{token}` takes Coolify's own notifications
+  (deployments, restart limits, backups, scheduled tasks, high disk usage, unreachable servers) and turns
+  them into events at once. One webhook serves every connection to the same Coolify team, and each event
+  reaches only the connections whose own token can read what it is about, checked live with one request per
+  event and connection that counts against that connection's request budget; any refusal or error drops it
+  there. The token is 32 random bytes, stored only as a hash. Bodies over 64 KB, of any shape but Coolify's,
+  or with an unknown token get the same refusal, and nothing sent is ever echoed back
 
 ### Changed
 
