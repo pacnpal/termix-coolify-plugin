@@ -1,5 +1,6 @@
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import type { DeployActivity } from "../activity.js";
+import type { CoolifyApi } from "../coolify/api.js";
 import {
   IMAGE_TAG,
   type DeploymentDto,
@@ -515,6 +516,27 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
       );
       await holds(connectionId, snap, "view");
       return value;
+    },
+
+    /**
+     * The same cached queue for background work with no actor (the
+     * poller), read through its unattended snapshot and the applications it
+     * read with it. Every request and the cache write check that snapshot's
+     * revision. The caller checks the owner's access and keeps the rows to
+     * itself.
+     */
+    async queueUnattended(
+      connectionId: number,
+      snap: { revision: string; api: () => Promise<CoolifyApi> },
+      applications: ResourceDto[],
+    ): Promise<DeploymentQueue> {
+      return queueCache.read(connectionId, snap.revision, {
+        api: await snap.api(),
+        applications: applications.filter((r) => r.kind === "application"),
+        revision: async () =>
+          (await connections.unattendedSnapshot(connectionId))?.revision ??
+          null,
+      });
     },
 
     /** Drops the cached queue, so the next read asks Coolify. */

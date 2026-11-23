@@ -43,6 +43,13 @@ export interface ConnectionView {
    * admin setting allowExec.
    */
   execEnabled: boolean;
+  /**
+   * Whether the poller keeps polling once the team's webhook has delivered.
+   * Until then the connection polls whatever this says.
+   */
+  pollEnabled: boolean;
+  /** The cause of the last failed poll (a CoolifyCause), or null. */
+  pollError: string | null;
   /** The actor's access: "owner", or the level of a grant. */
   access: AccessLevel;
   allowPrivate: boolean;
@@ -130,8 +137,23 @@ export type ReleaseLinkedHosts = (
   deleteRows: () => Promise<void>,
 ) => Promise<void>;
 
+/** What the poller needs to know about every connection. Holds no secret. */
+export interface PollTarget {
+  id: number;
+  userId: string;
+  instanceKey: string | null;
+  pollEnabled: boolean;
+}
+
 export interface ConnectionsOptions {
   releaseLinkedHosts?: ReleaseLinkedHosts;
+  /**
+   * Told after a connection is created or removed, or its pollEnabled
+   * changes (the poller re-reads whether anything polls). Must not throw.
+   */
+  changed?: (id: number) => void | Promise<void>;
+  /** The cause of the connection's last failed poll, or null (the poller). */
+  pollError?: (id: number) => string | null;
 }
 
 /** What the abilities column holds: the probe's summary, never key material. */
@@ -155,6 +177,7 @@ interface ConnectionRow {
   instanceKey: string | null;
   autoSync: boolean;
   execEnabled: boolean;
+  pollEnabled: boolean;
   abilities: string | null;
   coolifyVersion: string | null;
   teamName: string | null;
@@ -294,6 +317,20 @@ export function checkTransport(baseUrl: string, allowPrivate: boolean): void {
   );
 }
 
+/**
+ * Whether a URL's host is loopback or a private or link-local IP literal (the
+ * transport check's own reading), so a webhook sent there from elsewhere
+ * can't arrive. Names are "other" here, as in checkTransport. False for a
+ * value that isn't a URL.
+ */
+export function isPrivateAddress(url: string): boolean {
+  try {
+    return hostReach(new URL(url)) !== "other";
+  } catch {
+    return false;
+  }
+}
+
 /** Groups connections to the same Coolify team; null when the team is unknown. */
 export function instanceKeyOf(
   baseUrl: string,
@@ -376,7 +413,11 @@ function revisionOf(found: ConnectionRow): string {
   return createHash("sha256").update(targetKey(found)).digest("hex");
 }
 
-function toView(row: ConnectionRow, access: AccessLevel): ConnectionView {
+function toView(
+  row: ConnectionRow,
+  access: AccessLevel,
+  pollError: string | null = null,
+): ConnectionView {
   const stored = parseStored(row.abilities);
   return {
     id: row.id,
@@ -389,6 +430,8 @@ function toView(row: ConnectionRow, access: AccessLevel): ConnectionView {
     lastError: row.lastError,
     autoSync: row.autoSync === true,
     execEnabled: row.execEnabled === true,
+    pollEnabled: row.pollEnabled === true,
+    pollError,
     access,
     allowPrivate: row.allowPrivate === true,
     caCert: row.caCert,
@@ -443,6 +486,19 @@ export function createConnections(
   const release: ReleaseLinkedHosts =
     options.releaseLinkedHosts ??
     (async (_id, _opts, deleteRows) => deleteRows());
+  const viewOf = (found: ConnectionRow, access: AccessLevel) =>
+    toView(found, access, options.pollError?.(found.id) ?? null);
+  /** Tells the poller; never lets its failure fail the change. */
+  const changed = async (id: number): Promise<void> => {
+    try {
+      await options.changed?.(id);
+    } catch (err) {
+      // The poller reads it again on its next tick.
+      ctx.log.warn(
+        `coolify poll update failed: ${(err as Error)?.name ?? "error"}`,
+      );
+    }
+  };
   const clients = new Map<
     number,
     { key: string; http: CoolifyHttp; api: CoolifyApi }
@@ -597,7 +653,7 @@ export function createConnections(
 
   async function view(id: number): Promise<ConnectionView> {
     const { row: found, access } = await reach(id);
-    return toView(found, access);
+    return viewOf(found, access);
   }
 
   /**
@@ -722,7 +778,7 @@ export function createConnections(
     opts: { removeHosts?: boolean },
   ): Promise<ConnectionView> {
     const found = await owned(id);
-    const gone = toView(found, "owner");
+    const gone = viewOf(found, "owner");
     // Lock order: this connection lock, then host sync's queue (inside
     // release). Host sync never takes this lock, so the two can't deadlock.
     await release(
@@ -739,6 +795,7 @@ export function createConnections(
           t.statusPages,
           t.dnsRecords,
           t.recent,
+          t.alertPrefs,
         ].map((table) =>
           db.delete(table).where(eq(table.connectionId, found.id)),
         );
@@ -783,22 +840,63 @@ export function createConnections(
             .orderBy(t.connections.id)) as ConnectionRow[])
         : [];
       return [
-        ...own.map((r) => toView(r, "owner")),
+        ...own.map((r) => viewOf(r, "owner")),
         ...shared
           .filter((r) => r.userId !== userId)
-          .map((r) => toView(r, levels.get(r.id)!)),
+          .map((r) => viewOf(r, levels.get(r.id)!)),
       ];
     },
 
     async get(id: number): Promise<ConnectionView | null> {
       const found = await row(id);
       const access = found ? await accessTo(found, actor()) : null;
-      return found && access ? toView(found, access) : null;
+      return found && access ? viewOf(found, access) : null;
     },
 
     async access(id: number): Promise<AccessLevel | null> {
       const found = await row(id);
       return found ? accessTo(found, actor()) : null;
+    },
+
+    /**
+     * Who may see connection `id` right now, with no actor (the alerts):
+     * its name, its owner and every user with a grant of a known level.
+     * Null when the connection is gone. The caller checks each person's
+     * permission itself.
+     */
+    async audience(id: number): Promise<{
+      name: string;
+      ownerId: string;
+      grantees: string[];
+    } | null> {
+      const found = await row(id);
+      if (!found) return null;
+      const db = await dbClient(ctx);
+      const grants = (await db
+        .select()
+        .from(t.grants)
+        .where(eq(t.grants.connectionId, found.id))
+        .orderBy(t.grants.id)) as { userId: string; level: string }[];
+      const grantees: string[] = [];
+      for (const g of grants) {
+        if (
+          GRANT_LEVELS.has(g.level) &&
+          g.userId !== found.userId &&
+          !grantees.includes(g.userId)
+        ) {
+          grantees.push(g.userId);
+        }
+      }
+      return { name: found.name, ownerId: found.userId, grantees };
+    },
+
+    /**
+     * What `userId` may do on connection `id` right now, with no actor:
+     * owner, a known grant level, or null (gone or no access).
+     */
+    async accessFor(id: number, userId: string): Promise<AccessLevel | null> {
+      const found = await row(id);
+      return found ? accessTo(found, userId) : null;
     },
 
     /** Probes first; refuses Coolify older than 4.4 and stores nothing then. */
@@ -859,7 +957,8 @@ export function createConnections(
         )
         .orderBy(desc(t.connections.id))
         .limit(1)) as ConnectionRow[];
-      return toView(created, "owner");
+      await changed(created.id);
+      return viewOf(created, "owner");
     },
 
     /**
@@ -906,6 +1005,58 @@ export function createConnections(
     },
 
     /**
+     * Owner only, with Configure Coolify: whether the poller keeps polling
+     * once the team's webhook has delivered. Audited.
+     */
+    async setPoll(id: number, enabled: boolean): Promise<ConnectionView> {
+      if (typeof enabled !== "boolean") {
+        throw invalid("pollEnabled must be true or false");
+      }
+      if ((await ctx.rbac.has("configure")) !== true) {
+        throw new ConnectionError(
+          "forbidden",
+          "Changing this needs Configure Coolify.",
+        );
+      }
+      const found = await owned(id);
+      const db = await dbClient(ctx);
+      await db
+        .update(t.connections)
+        .set({ pollEnabled: enabled })
+        .where(eq(t.connections.id, found.id));
+      await ctx.db.persist();
+      await ctx.audit.record({
+        action: "coolify_poll_setting_changed",
+        resourceType: "coolify_connection",
+        resourceId: String(found.id),
+        resourceName: found.name,
+        details: JSON.stringify({ pollEnabled: enabled }),
+        success: true,
+      });
+      await changed(found.id);
+      return view(found.id);
+    },
+
+    /**
+     * Every connection's id, owner, team key and poll setting, with no
+     * access check: only for the poller, which checks each owner's access
+     * itself and returns none of it.
+     */
+    async pollTargets(): Promise<PollTarget[]> {
+      const db = await dbClient(ctx);
+      const rows = (await db
+        .select({
+          id: t.connections.id,
+          userId: t.connections.userId,
+          instanceKey: t.connections.instanceKey,
+          pollEnabled: t.connections.pollEnabled,
+        })
+        .from(t.connections)
+        .orderBy(t.connections.id)) as PollTarget[];
+      return rows.map((r) => ({ ...r, pollEnabled: r.pollEnabled === true }));
+    },
+
+    /**
      * Owner only. Releases the Linked hosts first (unlinks them, or removes
      * them with `removeHosts`), then deletes the connection and every plugin
      * row that belongs to it. The team webhook row stays: other connections
@@ -915,7 +1066,9 @@ export function createConnections(
       id: number,
       opts: { removeHosts?: boolean } = {},
     ): Promise<ConnectionView> {
-      return withLock(id, () => removeNow(id, opts));
+      const gone = await withLock(id, () => removeNow(id, opts));
+      await changed(gone.id);
+      return gone;
     },
 
     /** The unsealed target. Only for calling Coolify; never return or log it. */
@@ -944,6 +1097,8 @@ export function createConnections(
      */
     async snapshot(id: number): Promise<{
       view: ConnectionView;
+      /** The Coolify team the same row reaches (the webhook's key), or null. */
+      instanceKey: string | null;
       api: CoolifyApi;
       /** The request layer for that same target, for the generic API. */
       http: CoolifyHttp;
@@ -963,7 +1118,8 @@ export function createConnections(
         return cfId && cfSecret ? { id: cfId, secret: cfSecret } : null;
       };
       return {
-        view: toView(found, access),
+        view: viewOf(found, access),
+        instanceKey: found.instanceKey ?? null,
         api,
         http,
         cfAccess: () => (cfAccess ??= unsealAccess()),
@@ -985,6 +1141,13 @@ export function createConnections(
     async unattendedSnapshot(id: number): Promise<{
       userId: string;
       revision: string;
+      /**
+       * Whether the last probe found the token scoped to projects or
+       * resources (no /team, /servers or /security/keys).
+       */
+      scoped: boolean;
+      /** The Coolify team the same row reaches (the webhook's key), or null. */
+      instanceKey: string | null;
       api: () => Promise<CoolifyApi>;
       /**
        * The token and Access secret of that same row, for masking them in
@@ -997,6 +1160,8 @@ export function createConnections(
       return {
         userId: found.userId,
         revision: revisionOf(found),
+        instanceKey: found.instanceKey ?? null,
+        scoped: parseStored(found.abilities).scoped,
         api: async () => (await cachedClient(found)).api,
         secrets: async () =>
           [

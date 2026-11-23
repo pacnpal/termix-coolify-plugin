@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import type { SignalResult } from "@termix-ssh/plugin-sdk/operations";
 import { createCache } from "../cache.js";
+import type { CoolifyApi } from "../coolify/api.js";
 import type { ServerDto } from "../coolify/dto.js";
-import type { Connections } from "../connections/service.js";
+import { ConnectionError, type Connections } from "../connections/service.js";
 import type { Tables } from "../db.js";
 import type { Resources } from "../resources/service.js";
 import type { Sync } from "../sync/service.js";
@@ -14,7 +15,7 @@ export const SERVERS_TTL_MS = 60_000;
 export const SERVERS_CACHE_KIND = "servers";
 
 /** What a server signal keeps of a server: no addresses, keys or users. */
-interface ServerStatus {
+export interface ServerStatus {
   uuid: string;
   name: string;
   reachable: boolean;
@@ -63,50 +64,96 @@ export function createServerStatuses(
   const generationOf = (connectionId: number) =>
     `${epoch}:${generations.get(connectionId) ?? 0}`;
 
+  /**
+   * The statuses for `revision`, cached a minute, else read through `api`
+   * (shared with a read already running for them) and cached only while
+   * `current()` still answers that revision and nothing invalidated them.
+   */
+  async function load(
+    connectionId: number,
+    revision: string,
+    api: () => Promise<CoolifyApi>,
+    current: () => Promise<string | null>,
+  ): Promise<ServerStatus[]> {
+    const generation = generationOf(connectionId);
+    const hit = await cache.fresh<Partial<CachedServers>>(
+      connectionId,
+      SERVERS_CACHE_KIND,
+      SERVERS_TTL_MS,
+      now(),
+    );
+    const value = hit?.value;
+    if (
+      value?.revision === revision &&
+      value.generation === generation &&
+      Array.isArray(value.rows)
+    ) {
+      return value.rows;
+    }
+    const key = `${connectionId}:${revision}:${generation}`;
+    const pending = inflight.get(key);
+    if (pending) return pending;
+    const started = (async () => {
+      // Each request checks the revision right before it is sent (after
+      // any budget or retry wait), so a repoint sends nothing more.
+      const beforeFetch = async () => {
+        if ((await current()) !== revision) {
+          throw new ConnectionError(
+            "target-changed",
+            "The connection's address, token or Access settings changed. Try again.",
+          );
+        }
+      };
+      const list = (await (await api()).servers({ beforeFetch })).map(statusOf);
+      // Cached only while the revision and generation the fetch started
+      // under are still current. The row carries both, so a change that
+      // lands after this check still never serves it.
+      if (
+        generationOf(connectionId) === generation &&
+        (await current()) === revision
+      ) {
+        const row: CachedServers = { revision, generation, rows: list };
+        await cache.write(connectionId, SERVERS_CACHE_KIND, row, now());
+      }
+      return list;
+    })().finally(() => {
+      if (inflight.get(key) === started) inflight.delete(key);
+    });
+    inflight.set(key, started);
+    return started;
+  }
+
   return {
     async list(connectionId: number): Promise<ServerStatus[]> {
       // revision() checks access before the cache, as in resources, and names
       // the target, so rows read from an old address or token are never served.
       const revision = await connections.revision(connectionId);
       if (!revision) throw new Error("No access to this connection");
-      const generation = generationOf(connectionId);
-      const hit = await cache.fresh<Partial<CachedServers>>(
+      return load(
         connectionId,
-        SERVERS_CACHE_KIND,
-        SERVERS_TTL_MS,
-        now(),
+        revision,
+        () => connections.api(connectionId),
+        () => connections.revision(connectionId),
       );
-      const value = hit?.value;
-      if (
-        value?.revision === revision &&
-        value.generation === generation &&
-        Array.isArray(value.rows)
-      ) {
-        return value.rows;
-      }
-      const key = `${connectionId}:${revision}:${generation}`;
-      const pending = inflight.get(key);
-      if (pending) return pending;
-      const started = (async () => {
-        const list = (
-          await (await connections.api(connectionId)).servers()
-        ).map(statusOf);
-        // Cached only while the revision and generation the fetch started
-        // under are still current. The row carries both, so a change that
-        // lands after this check still never serves it.
-        if (
-          generationOf(connectionId) === generation &&
-          (await connections.revision(connectionId)) === revision
-        ) {
-          const row: CachedServers = { revision, generation, rows: list };
-          await cache.write(connectionId, SERVERS_CACHE_KIND, row, now());
-        }
-        return list;
-      })().finally(() => {
-        if (inflight.get(key) === started) inflight.delete(key);
-      });
-      inflight.set(key, started);
-      return started;
+    },
+
+    /**
+     * The same cached statuses for background work with no actor (the
+     * poller), read through its unattended snapshot. The caller checks the
+     * owner's access and keeps the rows to itself.
+     */
+    async listUnattended(
+      connectionId: number,
+      snap: { revision: string; api: () => Promise<CoolifyApi> },
+    ): Promise<ServerStatus[]> {
+      return load(
+        connectionId,
+        snap.revision,
+        snap.api,
+        async () =>
+          (await connections.unattendedSnapshot(connectionId))?.revision ??
+          null,
+      );
     },
 
     /** Drops the cached statuses and any fetch still running for them. */

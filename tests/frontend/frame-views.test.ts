@@ -95,6 +95,21 @@ describe("sandboxed frame views", () => {
       // The terminal companion draws for the Linked host, from a frame.
       expect(rendered.map(String)).toContain("companion:coolify.coolify");
       expect(rendered.map(String)).toContain("panel:coolify-activity");
+      // The dashboard card and every homepage widget draw in a frame.
+      const drawn = rendered.map(String);
+      expect(drawn.some((r) => /card.*coolify/i.test(r))).toBe(true);
+      for (const kind of [
+        "overview",
+        "resource",
+        "deployments",
+        "vulnerabilities",
+      ]) {
+        expect(
+          drawn.some((r) =>
+            new RegExp(`homepage\\.widgets.*coolify\\.${kind}`).test(r),
+          ),
+        ).toBe(true);
+      }
       expect(rendered.length).toBeGreaterThan(0);
     },
     HEAVY_TEST_MS,

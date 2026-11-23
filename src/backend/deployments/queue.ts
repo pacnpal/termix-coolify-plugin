@@ -110,11 +110,12 @@ export function createQueueCache(deps: {
     applications: ResourceDto[],
     revision: string,
     generation: string,
+    currentRevision: () => Promise<string | null>,
   ): Promise<DeploymentQueue> {
     // Checked right before each request: the connection still points at
     // the target the read began on.
     const guard = async () => {
-      if ((await deps.revision(connectionId)) !== revision) {
+      if ((await currentRevision()) !== revision) {
         throw new ConnectionError(
           "target-changed",
           "The connection's address, token or Access settings changed. Try again.",
@@ -164,7 +165,7 @@ export function createQueueCache(deps: {
       .slice(0, RECENT_MAX);
     const value = { running, recent, fetchedAt: now() };
     if (
-      (await deps.revision(connectionId)) === revision &&
+      (await currentRevision()) === revision &&
       generationOf(connectionId) === generation
     ) {
       cache.set(connectionId, { revision, generation, value });
@@ -180,7 +181,15 @@ export function createQueueCache(deps: {
     async read(
       connectionId: number,
       revision: string,
-      source: { api: CoolifyApi; applications: ResourceDto[] },
+      source: {
+        api: CoolifyApi;
+        applications: ResourceDto[];
+        /**
+         * The connection's revision now, for a reader with no actor (the
+         * poller, through its unattended snapshot); the actor's otherwise.
+         */
+        revision?: () => Promise<string | null>;
+      },
       opts: { refresh?: boolean } = {},
     ): Promise<DeploymentQueue> {
       const generation = generationOf(connectionId);
@@ -203,6 +212,7 @@ export function createQueueCache(deps: {
         source.applications,
         revision,
         generation,
+        source.revision ?? (() => deps.revision(connectionId)),
       ).finally(() => {
         if (inflight.get(key) === started) inflight.delete(key);
       });

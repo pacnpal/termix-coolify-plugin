@@ -25,6 +25,7 @@ const TABLES = [
   "p_coolify_status_pages",
   "p_coolify_dns_records",
   "p_coolify_recent",
+  "p_coolify_alert_prefs",
 ];
 
 let db: TestDb | null = null;

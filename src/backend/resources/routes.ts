@@ -4,7 +4,8 @@ import type {
   PluginOperationInvokeOptions,
   PluginOperationOutcome,
 } from "@termix-ssh/plugin-sdk/backend";
-import { ConnectionError } from "../connections/service.js";
+import { forRevision } from "../connections/hold.js";
+import { ConnectionError, type Connections } from "../connections/service.js";
 import { idParam, safe } from "../connections/routes.js";
 import {
   CAUSE_MESSAGES,
@@ -12,13 +13,13 @@ import {
   toRouteError,
   type CoolifyCause,
 } from "../coolify/http.js";
-import { countResources } from "../../shared/resource-health.js";
-import type { ServerStatuses } from "../ops/signals.js";
 import {
   DeploymentFailedError,
   type Lifecycle,
   type LifecycleVerb,
 } from "./lifecycle.js";
+import { countResources } from "../../shared/resource-health.js";
+import type { ServerHealthService } from "./server-health.js";
 import type { Resources } from "./service.js";
 
 const UUID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -40,6 +41,7 @@ export function registerResourceRoutes(
   router: Router,
   ctx: PluginContext,
   resources: Resources,
+  connections: Pick<Connections, "revision">,
 ): void {
   const view = ctx.rbac.require("view") as never;
 
@@ -78,6 +80,8 @@ export function registerResourceRoutes(
    *         description: Missing coolify.view
    *       404:
    *         description: No such connection, or another user's
+   *       409:
+   *         description: target-changed, the connection was repointed during the read
    *       502:
    *         description: Coolify failed, with a cause
    */
@@ -86,9 +90,11 @@ export function registerResourceRoutes(
     view,
     safe(ctx, async (req, res) => {
       const id = idParam(req);
-      const list = await resources.load(id, {
-        refresh: flag(req.query.refresh),
-      });
+      // The list is answered only for the target it was read from: load()
+      // returns what it fetched even across a repoint.
+      const list = await forRevision(connections, id, () =>
+        resources.load(id, { refresh: flag(req.query.refresh) }),
+      );
       const serverUuid =
         typeof req.query.serverUuid === "string" ? req.query.serverUuid : "";
       const rows = serverUuid
@@ -237,21 +243,18 @@ function forceOf(body: unknown): boolean {
 }
 
 /**
- * Each server's reachability and degraded resource count, for the status dot
- * on Linked host rows. Both come from the shared caches the status signals
- * read (servers a minute, resources 20 seconds), so every host row of a
- * connection costs one request here and at most one Coolify read per list.
- * `servers` is null when the token can't read servers (a scoped token);
- * `degraded` is null when the resources can't be read. When neither can,
- * the resources error answers (404 for another user's connection).
+ * Each server's reachability, resource counts and deployments, for Linked
+ * host rows: the status dot, the counts on a dashboard row and its deploying
+ * badge (resources/server-health.ts). Every part comes from the shared
+ * caches the status signals read, so every host row of a connection costs one
+ * request here and at most one Coolify read per list. When neither servers
+ * nor resources can be read, the resources error answers (404 for another
+ * user's connection).
  */
 export function registerServerHealthRoutes(
   router: Router,
   ctx: PluginContext,
-  deps: {
-    resources: Pick<Resources, "load">;
-    servers: Pick<ServerStatuses, "list">;
-  },
+  health: ServerHealthService,
 ): void {
   const view = ctx.rbac.require("view") as never;
 
@@ -259,14 +262,18 @@ export function registerServerHealthRoutes(
    * @openapi
    * /plugin-api/coolify/connections/{id}/server-health:
    *   get:
-   *     summary: Each Coolify server's reachability and degraded count
+   *     summary: Each Coolify server's reachability, resource counts and deployments
    *     description: >-
-   *       For the status dot on Linked host rows. Reads the cached server
-   *       statuses (a minute) and resources (20 seconds), so one request
-   *       serves every host of the connection. servers is null when the token
-   *       can't read servers; degraded (resources by server uuid, Parts left
-   *       out, exited never degraded) is null when resources can't be read.
-   *       No addresses, keys or tokens.
+   *       For Linked host rows (the status dot, resource counts and the
+   *       deploying badge). Reads the cached server statuses (a minute),
+   *       resources (20 seconds) and deployment queue (10 seconds), so one
+   *       request serves every host of the connection. servers is null when
+   *       the token can't read servers; degraded, counts (running, degraded,
+   *       stopped, deploying by server uuid, Parts left out, exited stopped)
+   *       and deploying (resources with a queued or running deployment or a
+   *       deploying status) are null when resources can't be read. A change
+   *       of the connection's target while it reads answers 409
+   *       target-changed. No addresses, keys or tokens.
    *     tags:
    *       - Coolify
    *     parameters:
@@ -279,11 +286,15 @@ export function registerServerHealthRoutes(
    *       200:
    *         description: >-
    *           { servers: [{ uuid, reachable, usable }] or null,
-   *           degraded: { serverUuid: count } or null }
+   *           degraded: { serverUuid: count } or null,
+   *           counts: { serverUuid: { running, degraded, stopped, deploying } }
+   *           or null, deploying: { serverUuid: count } or null }
    *       403:
    *         description: Missing coolify.view
    *       404:
    *         description: No such connection, or another user's
+   *       409:
+   *         description: target-changed
    *       502:
    *         description: Coolify failed, with a cause
    */
@@ -291,42 +302,7 @@ export function registerServerHealthRoutes(
     "/connections/:id/server-health",
     view,
     safe(ctx, async (req, res) => {
-      const id = idParam(req);
-      // Each checks the actor's access to the connection before reading Coolify.
-      const [list, servers] = await Promise.allSettled([
-        deps.resources.load(id),
-        deps.servers.list(id),
-      ]);
-      if (list.status === "rejected" && servers.status === "rejected") {
-        throw list.reason;
-      }
-      let degraded: Record<string, number> | null = null;
-      if (list.status === "fulfilled") {
-        const byServer = new Map<string, typeof list.value.rows>();
-        for (const row of list.value.rows) {
-          if (!row.serverUuid) continue;
-          const rows = byServer.get(row.serverUuid) ?? [];
-          rows.push(row);
-          byServer.set(row.serverUuid, rows);
-        }
-        degraded = Object.fromEntries(
-          [...byServer].map(([uuid, rows]) => [
-            uuid,
-            countResources(rows).degraded,
-          ]),
-        );
-      }
-      res.json({
-        servers:
-          servers.status === "fulfilled"
-            ? servers.value.map((s) => ({
-                uuid: s.uuid,
-                reachable: s.reachable,
-                usable: s.usable,
-              }))
-            : null,
-        degraded,
-      });
+      res.json(await health.read(idParam(req)));
     }),
   );
 }

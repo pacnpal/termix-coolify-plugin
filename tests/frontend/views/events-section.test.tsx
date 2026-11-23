@@ -245,6 +245,26 @@ describe("events section", () => {
     expect(last.get("uuid")).toBe("app-api-uuid");
   });
 
+  it("filters by every kind the pipeline stores, status changes included", async () => {
+    const api = eventsApi((q) => ({
+      rows:
+        q.get("kind") === "status-changed"
+          ? [ev({ id: 2, kind: "status-changed", name: "now-stopped" })]
+          : [ev({ id: 1, kind: "backup-failed" })],
+      nextBefore: null,
+    }));
+    await openTab(api);
+    openEvents();
+    await screen.findByText(E.kinds["backup-failed"]);
+    await choose(E.kindFilter, E.kinds["status-changed"]);
+    expect(await screen.findByText(/now-stopped/)).toBeTruthy();
+    // Labelled in the row too, not shown by its raw title.
+    expect(
+      screen.getAllByText(E.kinds["status-changed"]).length,
+    ).toBeGreaterThan(0);
+    expect(eventCalls(api).at(-1)!.query.get("kind")).toBe("status-changed");
+  });
+
   it("says when the log is empty, and when a read fails, with a retry", async () => {
     let fail = true;
     const api = eventsApi(() => {

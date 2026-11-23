@@ -23,9 +23,86 @@
   once per kind, resource (or server) and minute, so the same thing seen in different minutes can be
   separate events. It carries the host only when its server is Linked. Events hold no secrets, tokens, credentials inside
   URLs or log text. Polling and the Coolify webhook start sending them in a later 1.2 update
+- Coolify on Termix's dashboard and homepage: four cards, each with its own connection (and resource) in
+  its settings. **Coolify overview** counts the connection's resources by status and its unreachable
+  servers, **Coolify resource** shows one resource's status with Deploy (for operators only, with a
+  confirm that does nothing once the card has moved to another target), **Coolify deployments** lists
+  deployments in progress and **Coolify vulnerabilities** counts resources with known vulnerabilities and
+  links to Coolify. The dashboard offers them under Coolify in its add list; the Homepage plugin offers
+  the same four as widgets. They read through the caches the tab uses and read again only once those
+  have turned over, and only while shown
+- Actions `coolify.connection-overview` and `coolify.vulnerability-summary`, with the routes
+  `GET /connections/{id}/overview` and `GET /connections/{id}/vulnerabilities`, for Operations Center,
+  Automations, the CLI, the Termix API and MCP. The vulnerability counts come from Coolify's image scanning
+  and are kept five minutes per connection; they carry no resource names or Coolify text
+- Linked hosts on Termix's dashboard show their Coolify server's resources: how many are running, degraded
+  and stopped, by the same rules as the Coolify tab (exited is stopped, Parts aren't counted). While a
+  deployment on that server is queued or running, the row's status badge shows **Deploying**. The
+  homepage's host metrics show the CPU and memory all running containers use on a Linked host, from one
+  `docker stats` reading over SSH, for people with **Operate Coolify resources** and owner or operate
+  access to the connection (the Stats tab's rule). Hosts that aren't linked show nothing. Every host of a
+  connection shares one request, the counts come from the plugin's shared caches, and a host's container
+  stats are read over SSH at most once every 30 seconds however many people look
+- Actions `coolify.host-summary` (a Linked host's resource counts and deployments) and
+  `coolify.host-metrics` (its container CPU and memory), in Operations Center, Automations, the CLI, the
+  operations API and MCP, and the route `GET /plugin-api/coolify/connections/{id}/host-metrics`.
+  `GET /plugin-api/coolify/connections/{id}/server-health` also answers each server's resource counts
+  and deployments
+- Polling: every connection checks Coolify with its own token every minute (or the admin's **Minimum poll
+  interval**), and its backups and scheduled tasks every five minutes, and sends what changed as events:
+  a deployment that finished or failed, a resource that went between running, degraded and stopped (the
+  new `coolify.status-changed` event) or started restarting, a server that became unreachable, and a
+  backup or scheduled task run that succeeded or failed. The first poll after Termix starts, or after the
+  connection's address or token changes, only notes what is there, so nothing that already happened is
+  sent. A connection polls until its team's Coolify webhook has delivered once, and after that only with
+  **Keep polling after a webhook arrives** on, in the connection editor or with the new
+  `coolify.connection-set-poll` action (MCP tool `coolify__connection_set_poll`, or `pollEnabled` on
+  `PATCH /plugin-api/coolify/connections/{id}`). After failures it waits 1, 2, 5, then 15 minutes, and
+  the connection shows why its last poll failed. The admin setting **Allow polling** turns it off
+- Coolify's team webhook: `POST /plugin-api/coolify/webhook/{token}` takes Coolify's own notifications
+  (deployments, restart limits, backups, scheduled tasks, high disk usage, unreachable servers) and turns
+  them into events at once. One webhook serves every connection to the same Coolify team, and each event
+  reaches only the connections whose own token can read what it is about, checked live with one request per
+  event and connection that counts against that connection's request budget; any refusal or error drops it
+  there. The token is 32 random bytes, stored only as a hash. Bodies over 64 KB, of any shape but Coolify's,
+  or with an unknown token get the same refusal, and the plugin's answers never echo what was sent. A
+  body that isn't JSON at all is refused by Termix's own body parser before it reaches the plugin, and
+  that refusal is Termix's. A Coolify "resource stopped" notification becomes a `coolify.status-changed`
+  event for a standalone application or database (not for a preview or a service's part, which the
+  poller doesn't count either). While the plugin is still checking 32 deliveries of one team it answers
+  `503`, which Coolify retries, and doesn't count the delivery, so polling never stops on a delivery
+  whose event was not sent
+- Scheduled task events are told apart by their task: two tasks of one application ending in the same
+  minute are two events, while a poll and the webhook seeing the same task run are still one
+- One-click Coolify webhook setup: **Set up webhook** in a connection's settings, the actions
+  `coolify.webhook-status`, `coolify.webhook-setup`, `coolify.webhook-replace` and
+  `coolify.webhook-disable` (Operations Center, Automations, the CLI, the Termix API and MCP), and
+  `GET`, `POST` and `DELETE /plugin-api/coolify/connections/{id}/webhook` with
+  `POST .../webhook/replace`. It reads the team's webhook first: none set, or already this Termix, and it
+  writes this Termix's address and ticks the notifications the plugin turns into events; set to somewhere
+  else, and it shows only that address's host and asks before replacing it (declining changes nothing and
+  leaves polling on). Turning it off removes only this Termix's own address. The address is the one Termix
+  was opened at, never guessed, and the settings warn when it is private, which Coolify refuses. The
+  webhook token is only ever sent to Coolify, never shown, kept in run history or logged. Needs
+  **Configure Coolify** and owner or configure access to the connection; replacing and turning off ask
+  for a confirm, and over MCP need `confirmed: true`
+- Alerts: every stored event reaches the Termix Alerts inbox (and the delivery channels set up there) of
+  the connection's owner and of each person it is shared with, for the kinds each of them picked. Until
+  someone picks, they get deploy failed, restart limit, server unreachable, backup failed, task failed,
+  high disk, certificate problems and API token expiring. Each alert names the resource and what happened,
+  carries no secrets, has the category `coolify.<kind>` for routing, is sent once per event, and opens the
+  resource, server or connection in the Coolify tab. Losing **View Coolify** or access to the connection
+  stops a person's alerts at once
+- Alert preferences per person and per connection: the new **Alerts** action on each connection (also for
+  connections shared with you) picks the kinds and links to the Alerts delivery channels. Also as the
+  `coolify.alert-prefs` and `coolify.alert-prefs-set` actions (MCP tools `coolify__alert_prefs` and
+  `coolify__alert_prefs_set`) and `GET`/`PUT /plugin-api/coolify/connections/{id}/alert-prefs`. Each
+  person reads and changes only their own; unknown kinds are refused
 
 ### Changed
 
+- A deploy with `wait` now sends its deployment event through the event pipeline, so it is in the event
+  log, and a poll that sees the same deployment end sends no second event
 - `coolify.container-restarted` and `coolify.server-unreachable` are now Termix-wide events like the
   deployment events, since they carry a host only when the server is Linked, and their payloads gained
   `status` (and `deploymentUuid` for a container restart). Neither was sent before this release

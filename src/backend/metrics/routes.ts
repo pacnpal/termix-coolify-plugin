@@ -100,6 +100,65 @@ export function registerMetricsRoutes(
 
   /**
    * @openapi
+   * /plugin-api/coolify/connections/{id}/host-metrics:
+   *   get:
+   *     summary: Container CPU and memory on Linked hosts
+   *     description: >-
+   *       For host metrics rows: one request answers every Linked host of the
+   *       connection that is asked for. Each server's summary is one docker
+   *       stats reading over SSH on its Linked host (summed CPU and memory,
+   *       the container count, the host's CPUs and memory), read at most once
+   *       every 30 seconds per server and kept per connection target. Needs
+   *       coolify.operate, owner or an operate grant, and the caller's own
+   *       connect access to each Linked host. No container names, addresses
+   *       or keys.
+   *     tags:
+   *       - Coolify
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: servers
+   *         required: true
+   *         description: Comma separated Coolify server uuids, 1 to 20
+   *         schema:
+   *           type: string
+   *     responses:
+   *       200:
+   *         description: >-
+   *           { servers: { serverUuid: { containers, cpuPercent, memoryBytes,
+   *           cpus, memoryTotalBytes, at } }, errors: { serverUuid: cause } }
+   *           where cause is not-linked, no-host-access, not-found, host-key
+   *           or ssh-failed
+   *       400:
+   *         description: servers is missing, malformed or longer than 20
+   *       403:
+   *         description: Missing coolify.operate, or only view access
+   *       404:
+   *         description: No such connection, or another user's
+   *       409:
+   *         description: target-changed
+   */
+  router.get("/connections/:id/host-metrics", operate, async (req, res) => {
+    try {
+      const servers = req.query.servers;
+      // A repeated parameter is an array: refuse it rather than pick one.
+      res.json(
+        await metrics.hostStats(
+          idParam(req),
+          typeof servers === "string" ? servers : "",
+        ),
+      );
+    } catch (err) {
+      send(ctx, res, err);
+    }
+  });
+
+  /**
+   * @openapi
    * /plugin-api/coolify/connections/{id}/servers/{uuid}/metrics/enable:
    *   post:
    *     summary: Turn on metrics for a Coolify server

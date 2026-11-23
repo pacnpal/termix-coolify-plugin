@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { OWNER_ONLY_SUBJECTS } from "../helpers/events.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createMockCtx,
@@ -114,15 +115,7 @@ beforeEach(async () => {
     tables,
     connections,
     sync,
-    // Only granted users' reads ask; these tests read as the owner.
-    subjects: {
-      resources: async () => {
-        throw new Error("not asked for the owner");
-      },
-      servers: async () => {
-        throw new Error("not asked for the owner");
-      },
-    },
+    subjects: OWNER_ONLY_SUBJECTS,
     now: () => clock,
     store,
   });
@@ -240,6 +233,36 @@ describe("dedupe", () => {
       await ingest(own, { ...disk, at: clock + 24 * 60 * 60_000 }),
     ).toMatchObject({ outcome: "stored" });
     expect(await ingest(own, disk)).toMatchObject({ outcome: "duplicate" });
+  });
+
+  it("task runs dedupe by their own task, not just their resource", async () => {
+    const run = (taskUuid: unknown): SourceEvent =>
+      ({
+        kind: "task-failed",
+        source: "poll",
+        resourceUuid: "app-web-uuid",
+        taskUuid,
+      }) as SourceEvent;
+    expect(await ingest(own, run("task-a"))).toMatchObject({
+      outcome: "stored",
+    });
+    expect(await ingest(own, run("task-b"))).toMatchObject({
+      outcome: "stored",
+    });
+    expect(await ingest(own, { ...run("task-a"), source: "webhook" })).toEqual({
+      outcome: "duplicate",
+    });
+    expect(rows(own).map((r) => r.dedupe_key)).toEqual([
+      expect.stringMatching(/^task\|task-failed\|task-a\|\d+$/),
+      expect.stringMatching(/^task\|task-failed\|task-b\|\d+$/),
+    ]);
+    // Checked like every other uuid.
+    for (const bad of ["../x", "a/b", 7]) {
+      expect(await ingest(own, run(bad))).toEqual({
+        outcome: "dropped",
+        reason: "invalid",
+      });
+    }
   });
 
   it("the same event on two connections is stored on each", async () => {

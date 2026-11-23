@@ -31,6 +31,11 @@ appear in run history.
 | `coolify.connection-update`        | `PATCH /plugin-api/coolify/connections/:id`                                                   | `/operations/coolify.connection-update/run`        | `operations:run`                      | `coolify__connection_update`        | `curl -X POST "$TERMIX/operations/coolify.connection-update/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","name":"Production"}}'`                                                                 |
 | `coolify.connection-delete`        | `DELETE /plugin-api/coolify/connections/:id`                                                  | `/operations/coolify.connection-delete/run`        | `operations:run`                      | `coolify__connection_delete`        | `curl -X POST "$TERMIX/operations/coolify.connection-delete/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"},"confirmed":true}'`                                                                    |
 | `coolify.connection-set-exec`      | `PATCH /plugin-api/coolify/connections/:id` with `execEnabled`                                | `/operations/coolify.connection-set-exec/run`      | `operations:run`                      | `coolify__connection_set_exec`      | `curl -X POST "$TERMIX/operations/coolify.connection-set-exec/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","execEnabled":true}}'`                                                                |
+| `coolify.connection-set-poll`      | `PATCH /plugin-api/coolify/connections/:id` with `pollEnabled`                                | `/operations/coolify.connection-set-poll/run`      | `operations:run`                      | `coolify__connection_set_poll`      | `curl -X POST "$TERMIX/operations/coolify.connection-set-poll/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","pollEnabled":true}}'`                                                                |
+| `coolify.webhook-status`           | `GET /plugin-api/coolify/connections/:id/webhook`                                             | `/operations/coolify.webhook-status/run`           | `operations:read` or `operations:run` | `coolify__webhook_status`           | `curl -X POST "$TERMIX/operations/coolify.webhook-status/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'`                                                                                        |
+| `coolify.webhook-setup`            | `POST /plugin-api/coolify/connections/:id/webhook`                                            | `/operations/coolify.webhook-setup/run`            | `operations:run`                      | `coolify__webhook_setup`            | `curl -X POST "$TERMIX/operations/coolify.webhook-setup/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'`                                                                                         |
+| `coolify.webhook-replace`          | `POST /plugin-api/coolify/connections/:id/webhook/replace`                                    | `/operations/coolify.webhook-replace/run`          | `operations:run`                      | `coolify__webhook_replace`          | `curl -X POST "$TERMIX/operations/coolify.webhook-replace/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"},"confirmed":true}'`                                                                      |
+| `coolify.webhook-disable`          | `DELETE /plugin-api/coolify/connections/:id/webhook`                                          | `/operations/coolify.webhook-disable/run`          | `operations:run`                      | `coolify__webhook_disable`          | `curl -X POST "$TERMIX/operations/coolify.webhook-disable/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"},"confirmed":true}'`                                                                      |
 | `coolify.sync-apply`               | `POST /plugin-api/coolify/connections/:id/sync`                                               | `/operations/coolify.sync-apply/run`               | `operations:run`                      | `coolify__sync_apply`               | `curl -X POST "$TERMIX/operations/coolify.sync-apply/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'`                                                                                            |
 | `coolify.unlink`                   | `POST /plugin-api/coolify/connections/:id/servers/:uuid/unlink`                               | `/operations/coolify.unlink/run`                   | `operations:run`                      | `coolify__unlink`                   | `curl -X POST "$TERMIX/operations/coolify.unlink/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","serverUuid":"<server uuid>"}}'`                                                                   |
 | `coolify.list-resources`           | `GET /plugin-api/coolify/connections/:id/resources`                                           | `/operations/coolify.list-resources/run`           | `operations:read` or `operations:run` | `coolify__list_resources`           | `curl -X POST "$TERMIX/operations/coolify.list-resources/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7}'`                                                                                                          |
@@ -57,10 +62,16 @@ appear in run history.
 | `coolify.deployment-queue`         | `GET /plugin-api/coolify/connections/:id/deployments`                                         | `/operations/coolify.deployment-queue/run`         | `operations:read` or `operations:run` | `coolify__deployment_queue`         | `curl -X POST "$TERMIX/operations/coolify.deployment-queue/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'`                                                                                      |
 | `coolify.attention`                | `GET /plugin-api/coolify/attention`                                                           | `/operations/coolify.attention/run`                | `operations:read` or `operations:run` | `coolify__attention`                | `curl -X POST "$TERMIX/operations/coolify.attention/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{}}'`                                                                                                               |
 | `coolify.events-list`              | `GET /plugin-api/coolify/connections/:id/events`                                              | `/operations/coolify.events-list/run`              | `operations:read` or `operations:run` | `coolify__events_list`              | `curl -X POST "$TERMIX/operations/coolify.events-list/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'`                                                                                           |
+| `coolify.connection-overview`      | `GET /plugin-api/coolify/connections/:id/overview`                                            | `/operations/coolify.connection-overview/run`      | `operations:read` or `operations:run` | `coolify__connection_overview`      | `curl -X POST "$TERMIX/operations/coolify.connection-overview/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'`                                                                                   |
+| `coolify.vulnerability-summary`    | `GET /plugin-api/coolify/connections/:id/vulnerabilities`                                     | `/operations/coolify.vulnerability-summary/run`    | `operations:read` or `operations:run` | `coolify__vulnerability_summary`    | `curl -X POST "$TERMIX/operations/coolify.vulnerability-summary/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'`                                                                                 |
+| `coolify.alert-prefs`              | `GET /plugin-api/coolify/connections/:id/alert-prefs`                                         | `/operations/coolify.alert-prefs/run`              | `operations:read` or `operations:run` | `coolify__alert_prefs`              | `curl -X POST "$TERMIX/operations/coolify.alert-prefs/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'`                                                                                           |
+| `coolify.alert-prefs-set`          | `PUT /plugin-api/coolify/connections/:id/alert-prefs`                                         | `/operations/coolify.alert-prefs-set/run`          | `operations:run`                      | `coolify__alert_prefs_set`          | `curl -X POST "$TERMIX/operations/coolify.alert-prefs-set/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","kinds":["deployment-failed","server-unreachable"]}}'`                                    |
 | `coolify.deploy-by-tag`            | `POST /plugin-api/coolify/connections/:id/deploy-by-tag`                                      | `/operations/coolify.deploy-by-tag/run`            | `operations:run`                      | `coolify__deploy_by_tag`            | `curl -X POST "$TERMIX/operations/coolify.deploy-by-tag/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","tag":"prod","force":false}}'`                                                              |
 | `coolify.signal-degraded`          | `GET /plugin-api/coolify/connections/:id/resources`                                           | `/operations/coolify.signal-degraded/run`          | `operations:read` or `operations:run` | `coolify__signal_degraded`          | `curl -X POST "$TERMIX/operations/coolify.signal-degraded/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7}'`                                                                                                         |
 | `coolify.signal-server`            | `GET /plugin-api/coolify/connections/:id/servers`                                             | `/operations/coolify.signal-server/run`            | `operations:read` or `operations:run` | `coolify__signal_server`            | `curl -X POST "$TERMIX/operations/coolify.signal-server/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7}'`                                                                                                           |
 | `coolify.signal-updates`           | `GET /plugin-api/coolify/connections/:id/servers`                                             | `/operations/coolify.signal-updates/run`           | `operations:read` or `operations:run` | `coolify__signal_updates`           | `curl -X POST "$TERMIX/operations/coolify.signal-updates/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7}'`                                                                                                          |
+| `coolify.host-summary`             | `GET /plugin-api/coolify/connections/:id/server-health`                                       | `/operations/coolify.host-summary/run`             | `operations:read` or `operations:run` | `coolify__host_summary`             | `curl -X POST "$TERMIX/operations/coolify.host-summary/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7}'`                                                                                                            |
+| `coolify.host-metrics`             | `GET /plugin-api/coolify/connections/:id/host-metrics`                                        | `/operations/coolify.host-metrics/run`             | `operations:read` or `operations:run` | `coolify__host_metrics`             | `curl -X POST "$TERMIX/operations/coolify.host-metrics/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7}'`                                                                                                            |
 | `coolify.signal-deploying`         | `GET /plugin-api/coolify/connections/:id/resources`                                           | `/operations/coolify.signal-deploying/run`         | `operations:read` or `operations:run` | `coolify__signal_deploying`         | `curl -X POST "$TERMIX/operations/coolify.signal-deploying/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{}}'`                                                                                                        |
 | `coolify.shell-command`            | `POST /plugin-api/coolify/connections/:id/resources/:uuid/shell`                              | `/operations/coolify.shell-command/run`            | `operations:read` or `operations:run` | `coolify__shell_command`            | `curl -X POST "$TERMIX/operations/coolify.shell-command/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","uuid":"<resource uuid>","console":"shell"}}'`                                              |
 | `coolify.logs-tail`                | `GET /plugin-api/coolify/connections/:id/resources/:uuid/logs`                                | `/operations/coolify.logs-tail/run`                | `operations:read` or `operations:run` | `coolify__logs_tail`                | `curl -X POST "$TERMIX/operations/coolify.logs-tail/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","uuid":"<resource uuid>","lines":100,"confirm":true}}'`                                         |
@@ -187,12 +198,12 @@ serves.
 | `GET /plugin-api/coolify/connections`                                                         | `coolify.list-connections`                                                                                                                                           |
 | `POST /plugin-api/coolify/connections`                                                        | `coolify.connection-create`                                                                                                                                          |
 | `GET /plugin-api/coolify/connections/:id`                                                     | `coolify.list-connections` (one row of its list)                                                                                                                     |
-| `PATCH /plugin-api/coolify/connections/:id`                                                   | `coolify.connection-update`, or `coolify.connection-set-exec` for `execEnabled`                                                                                      |
+| `PATCH /plugin-api/coolify/connections/:id`                                                   | `coolify.connection-update`, or `coolify.connection-set-exec` for `execEnabled`, or `coolify.connection-set-poll` for `pollEnabled`                                  |
 | `DELETE /plugin-api/coolify/connections/:id`                                                  | `coolify.connection-delete`                                                                                                                                          |
 | `POST /plugin-api/coolify/connections/:id/probe`                                              | `coolify.connection-probe`                                                                                                                                           |
 | `GET /plugin-api/coolify/connections/:id/resources`                                           | `coolify.list-resources-all`; on a Linked host `coolify.list-resources`, and the signals `coolify.signal-degraded` and `coolify.signal-deploying` read the same list |
 | `GET /plugin-api/coolify/connections/:id/resources/:uuid`                                     | `coolify.resource-get`                                                                                                                                               |
-| `GET /plugin-api/coolify/connections/:id/server-health`                                       | the signals `coolify.signal-server` and `coolify.signal-degraded` read the same cached servers and resources for one Linked host                                     |
+| `GET /plugin-api/coolify/connections/:id/server-health`                                       | `coolify.host-summary` for one Linked host; the signals `coolify.signal-server` and `coolify.signal-degraded` read the same cached servers and resources             |
 | `GET /plugin-api/coolify/connections/:id/servers`                                             | `coolify.sync-preview`; the signals `coolify.signal-server` and `coolify.signal-updates` read the same servers                                                       |
 | `POST /plugin-api/coolify/connections/:id/sync`                                               | `coolify.sync-apply`; `coolify.sync-host` for one Linked host                                                                                                        |
 | `POST /plugin-api/coolify/connections/:id/servers/:uuid/unlink`                               | `coolify.unlink`                                                                                                                                                     |
@@ -213,6 +224,10 @@ serves.
 | `GET /plugin-api/coolify/connections/:id/deployments`                                         | `coolify.deployment-queue`                                                                                                                                           |
 | `GET /plugin-api/coolify/attention`                                                           | `coolify.attention`                                                                                                                                                  |
 | `GET /plugin-api/coolify/connections/:id/events`                                              | `coolify.events-list`                                                                                                                                                |
+| `GET /plugin-api/coolify/connections/:id/overview`                                            | `coolify.connection-overview`                                                                                                                                        |
+| `GET /plugin-api/coolify/connections/:id/vulnerabilities`                                     | `coolify.vulnerability-summary`                                                                                                                                      |
+| `GET /plugin-api/coolify/connections/:id/alert-prefs`                                         | `coolify.alert-prefs`                                                                                                                                                |
+| `PUT /plugin-api/coolify/connections/:id/alert-prefs`                                         | `coolify.alert-prefs-set`                                                                                                                                            |
 | `GET /plugin-api/coolify/connections/:id/deploy-by-tag`                                       | `coolify.deploy-by-tag` (its dry run lists the same resources)                                                                                                       |
 | `POST /plugin-api/coolify/connections/:id/deploy-by-tag`                                      | `coolify.deploy-by-tag`                                                                                                                                              |
 | `POST /plugin-api/coolify/connections/:id/resources/:uuid/shell`                              | `coolify.shell-command`                                                                                                                                              |
@@ -243,6 +258,7 @@ serves.
 | `GET /plugin-api/coolify/connections/:id/api/operations`                                      | `coolify.list-api-operations`; `?reads=1` is `coolify.list-api-reads`                                                                                                |
 | `POST /plugin-api/coolify/connections/:id/api/call`                                           | `coolify.api-read` for a GET, `coolify.api-call` for anything else                                                                                                   |
 | `GET /plugin-api/coolify/connections/:id/servers/:uuid/metrics`                               | `coolify.server-metrics`                                                                                                                                             |
+| `GET /plugin-api/coolify/connections/:id/host-metrics`                                        | `coolify.host-metrics` for one Linked host                                                                                                                           |
 | `POST /plugin-api/coolify/connections/:id/servers/:uuid/metrics/enable`                       | `coolify.enable-metrics`                                                                                                                                             |
 | `GET /plugin-api/coolify/connections/:id/resources/:uuid/metrics`                             | `coolify.resource-metrics`                                                                                                                                           |
 | `GET /plugin-api/coolify/connections/:id/resources/:uuid/traffic`                             | `coolify.resource-traffic`                                                                                                                                           |
@@ -252,6 +268,11 @@ serves.
 | `POST /plugin-api/coolify/status-pages/handoff/:handoffId`                                    | none: hands a create or rotate's URL over once; over MCP that is `take_status_page_url`                                                                              |
 | `GET /plugin-api/coolify/status/:token`                                                       | none: the public status page, served with no signed-in user                                                                                                          |
 | `GET /plugin-api/coolify/status/:token.json`                                                  | none: the public status page as JSON, served with no signed-in user                                                                                                  |
+| `GET /plugin-api/coolify/connections/:id/webhook`                                             | `coolify.webhook-status`                                                                                                                                             |
+| `POST /plugin-api/coolify/connections/:id/webhook`                                            | `coolify.webhook-setup`                                                                                                                                              |
+| `POST /plugin-api/coolify/connections/:id/webhook/replace`                                    | `coolify.webhook-replace`                                                                                                                                            |
+| `DELETE /plugin-api/coolify/connections/:id/webhook`                                          | `coolify.webhook-disable`                                                                                                                                            |
+| `POST /plugin-api/coolify/webhook/:token`                                                     | none: Coolify's own webhook deliveries, served with no signed-in user; the events they bring land in the event log                                                   |
 | `WS /plugin-ws/coolify/logs`                                                                  | none: a live follow of a container's logs; `coolify.logs-tail` reads a snapshot                                                                                      |
 | `WS /plugin-ws/coolify/stats`                                                                 | none: a live stream of a container's stats; `coolify.resource-metrics` reads a window                                                                                |
 
@@ -473,6 +494,7 @@ connection's event log.
 | --------------------- | -------------------- | ---------------------------------------------------------- |
 | `deployment-finished` | a resource           | `connectionId`, `uuid`, `name`, `deploymentUuid`, `status` |
 | `deployment-failed`   | a resource           | `connectionId`, `uuid`, `name`, `deploymentUuid`, `status` |
+| `status-changed`      | a resource           | `connectionId`, `uuid`, `name`, `deploymentUuid`, `status` |
 | `container-restarted` | a resource           | `connectionId`, `uuid`, `name`, `deploymentUuid`, `status` |
 | `restart-limit`       | a resource           | `connectionId`, `uuid`, `name`, `deploymentUuid`, `status` |
 | `backup-succeeded`    | a resource           | `connectionId`, `uuid`, `name`, `deploymentUuid`, `status` |
@@ -487,14 +509,59 @@ connection's event log.
 - An event carries the host when the server it is about (or its resource's server) is Linked to a Termix
   host, and no host otherwise.
 - The same event seen twice (by polling and by the webhook, or twice by one of them) is sent and kept once:
-  events of one deployment share its deployment uuid, and any other event is the same when its kind,
-  resource (or server) and minute are.
+  events of one deployment share its deployment uuid, scheduled task runs are the same when their kind,
+  task and minute are (Coolify's webhook names the task, not the run), and any other event is the same
+  when its kind, resource (or server) and minute are.
 - Nothing Coolify sent reaches an event unredacted: tokens, passwords, keys, credentials inside URLs and the
   connection's own token are masked, text keeps only its first line, and log or command output is dropped.
 - The log keeps each connection's newest 1,000 events. Removing a connection removes its events.
 
-Polling and the team webhook feed the pipeline in a later release; a deploy with `wait` still sends its
-deployment event directly.
+A deploy with `wait` hands its deployment's end to the same pipeline, so it and a poll of the same
+deployment send one event. The team webhook (below) feeds it too.
+
+### Polling
+
+Every connection polls Coolify, with its own token, every minute or more (the admin setting **Minimum poll
+interval**; a value under a minute counts as a minute), with jitter. Each poll reads the connection's
+resources, its deployment queue and recent deployments, and its server statuses, from the same caches the
+tab reads, and every five minutes also its databases' backup runs and its applications' and services'
+scheduled task runs (at most 50 of each). It only reads. The changes since the last poll become events:
+
+| Change                                                                      | Event                                                                  |
+| --------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| A deployment ended (also one that started and ended between two polls)      | `deployment-finished` or `deployment-failed`                           |
+| A resource went between running, degraded and stopped (not while deploying) | `status-changed`, `fields` `from` and `to`                             |
+| A resource started restarting (also from an unhealthy state)                | `container-restarted`                                                  |
+| A server Coolify could reach became unreachable                             | `server-unreachable`                                                   |
+| A backup or scheduled task run ended                                        | `backup-succeeded`, `backup-failed`, `task-succeeded` or `task-failed` |
+
+- **The first poll is a baseline.** A connection's first poll after Termix starts, after its address, token,
+  Access or TLS settings change, after polling was paused or after its owner gets **View Coolify** back
+  records what is there and sends nothing, so existing state never floods the log. Changes while nothing
+  polled are not sent.
+- A connection polls until its team's Coolify webhook has delivered once; from then on it polls only when
+  **Keep polling after a webhook arrives** (`pollEnabled`) is on. Change it in the connection editor, with
+  `PATCH /plugin-api/coolify/connections/{id}` and `pollEnabled`, or with `coolify.connection-set-poll`.
+- Nothing polls while the admin setting **Allow polling** is off, nor for a connection whose owner lost **View
+  Coolify**.
+- **Scoped tokens.** A token limited to projects or resources polls its resources and deployments. Its
+  servers are never asked (Coolify refuses them), so it gets no `server-unreachable`. Any read Coolify
+  refuses for the token's abilities (servers, deployments, one resource's backups or scheduled tasks)
+  counts as not read for that poll: nothing about it is sent, and what was seen before is kept for the
+  next poll. Only other errors fail the poll.
+- After a failed poll the connection waits 1, 2, 5 and then 15 minutes, counted from when it failed, before the next, and shows the cause
+  as `pollError` on the connection (`unreachable`, `unauthorized` and so on, the same words as a failed
+  check). A poll that works clears it and the wait.
+- A poll is about one read of the connection. If its address, token, Access or TLS settings change while it
+  runs, it keeps nothing and sends nothing, and the next poll is a baseline again. Each request checks
+  first, so none is sent with the old token after the change, even one waiting to retry.
+
+### Action `coolify.connection-set-poll`
+
+A change, with inputs `connectionId` and `pollEnabled`. It needs **Configure Coolify**, and only the
+connection's owner can change it; a grantee at any level is refused, and so is
+`PATCH /plugin-api/coolify/connections/:id` with `pollEnabled` from a grantee (403). Each change is
+audited. Connections show `pollEnabled` and `pollError` to everyone who can read them.
 
 ### `GET /plugin-api/coolify/connections/{id}/events?limit=&before=&kind=&uuid=`
 
@@ -519,6 +586,197 @@ can't be read to check, the read fails (Coolify's cause, usually 502) rather tha
 A read offered to the assistant and MCP: `connectionId` and optionally `kind`, `uuid`, `limit` and `before`.
 Its data is the route's answer, with the same rule for granted users, and its summary counts the events,
 like "50 events, more before".
+
+### `POST /plugin-api/coolify/webhook/{token}` (Coolify's team webhook)
+
+Coolify allows one webhook per team, so the plugin keeps one webhook token per Coolify team (connections to
+the same Coolify address and team share it). This is the URL Coolify's webhook notification channel posts to;
+nothing else needs to call it, and no action stands for it. It needs no login: the token in the path is the
+only credential. The token is 32 random bytes; the plugin stores only its sha256 and compares it in constant
+time. Core's limit of 120 public requests a minute per address applies.
+
+- The body is one of Coolify's notification payloads as Coolify 4.7.5 sends them (each notification's
+  `toWebhook()` in Coolify's source): `success`, `message` and `event`, plus exactly that event's keys. At
+  most 64 KB. A body with any other key, a missing or mistyped one, or an `event` the plugin doesn't know is
+  refused whole.
+- An accepted delivery answers `200 {"ok":true}` at once and stamps the webhook's last delivery time. An
+  unknown token, an oversized body and a body of any other shape all answer the same
+  `400 {"error":"Bad request"}`. Neither answer holds anything that was sent. A body that isn't JSON at all
+  never reaches the plugin: Termix's body parser refuses it, and that answer is Termix's own.
+- While 32 deliveries of one team are still being checked, a delivery with an event to send answers
+  `503 {"error":"Busy"}`. Coolify's webhook job retries a 503 (and any 5xx or 429; it counts 401, 403, 404
+  and 410 against the channel and only logs other 4xx), and the delivery doesn't stamp the last delivery
+  time, so polling never stops on a delivery whose event wasn't sent.
+- Each event then goes to every connection to that Coolify team whose own token can read what it is about,
+  checked live with one `GET` per event and connection: the application, service or database itself, or
+  `GET /servers/{uuid}` for a server. Only a 200 lets it through; a 401, 403 or 404, a timeout or any other
+  error drops it for that connection, with no retry. These checks count against the connection's request
+  budget (150 a minute). A connection whose owner no longer has **View Coolify** isn't asked.
+
+| Coolify `event`                                                                                                                                                                                             | Event kind                         | Checked with                             |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | ---------------------------------------- |
+| `deployment_success`                                                                                                                                                                                        | `deployment-finished`              | `GET /applications/{application_uuid}`   |
+| `deployment_failed`                                                                                                                                                                                         | `deployment-failed`                | `GET /applications/{application_uuid}`   |
+| `restart_limit_reached`                                                                                                                                                                                     | `restart-limit`                    | `GET /applications/{application_uuid}`   |
+| `backup_success`, `backup_success_with_s3_warning`                                                                                                                                                          | `backup-succeeded`                 | `GET /databases/{database_uuid}`         |
+| `backup_failed`                                                                                                                                                                                             | `backup-failed`                    | `GET /databases/{database_uuid}`         |
+| `task_success`                                                                                                                                                                                              | `task-succeeded`                   | the task's application or service        |
+| `task_failed`, `task_disabled`                                                                                                                                                                              | `task-failed`                      | the task's application or service        |
+| `high_disk_usage`                                                                                                                                                                                           | `high-disk`                        | `GET /servers/{server_uuid}`             |
+| `server_unreachable`                                                                                                                                                                                        | `server-unreachable`               | `GET /servers/{server_uuid}`             |
+| `status_changed` (Coolify's "Resource stopped")                                                                                                                                                             | `status-changed`                   | the application or database in its `url` |
+| `test`, `general`, `container_restarted`, `docker_cleanup_*`, `server_reachable`, `server_force_*`, `server_patch_check*`, `traefik_version_outdated`, `ssl_certificate_renewal`, `hetzner_deletion_failed` | none: accepted, nothing is sent on | nothing                                  |
+
+A backup of a database inside a service, or a restart limit on anything but an application, fails its check
+(Coolify names it in a field the plugin can only check as a standalone database or an application) and is
+dropped. `status_changed` carries no resource type, so the type comes from Coolify's own link in `url`
+(`…/application/{uuid}` or `…/database/{uuid}`, matching `resource_uuid`); a preview or a service's part,
+whose link names its parent, sends nothing on, as the poller counts neither. Image vulnerability digests
+aren't in the table yet and are refused.
+
+```bash
+curl -X POST "https://termix.example.com/plugin-api/coolify/webhook/${WEBHOOK_TOKEN}" \
+  -H 'Content-Type: application/json' \
+  -d '{"success":true,"message":"This is a test webhook notification from Coolify.","event":"test","url":"https://coolify.example.com"}'
+```
+
+### Setting up the team webhook
+
+`GET`, `POST` and `DELETE /plugin-api/coolify/connections/{id}/webhook`, and
+`POST /plugin-api/coolify/connections/{id}/webhook/replace`, set Coolify's team webhook up so it posts to
+the route above. Each needs **Configure Coolify** and owner or configure access to the connection (a view or
+operate grant is 403 `forbidden`; another user's connection is 404), an unscoped token (`scoped-token`), a
+known team (`no-team`) and a token with `read:sensitive`, since Coolify hides the webhook URL from any other
+token (`secrets-unreadable`, 409). Every call reads the team's current setting first
+(`GET /notifications/webhook`) and decides by the URL Coolify holds:
+
+- **Unset, or already ours** (our route, with a token that this team's webhook row verifies): `POST` writes
+  our URL, turns the channel on and ticks the events the plugin receives (deployment success and failure,
+  status change, restart limit, backup and scheduled task success and failure, disk usage, server
+  unreachable). A token is
+  made only when the URL isn't ours already; only its sha256 is kept, and the new row has no last delivery
+  yet, so polling goes on until the first delivery. Other toggles are left as they are.
+- **Someone else's:** `POST` changes nothing and answers `{ "outcome": "replace-needed", "current": ...,
+"basePrivate": ... }`, the current URL shown only as its scheme, host and port
+  (`https://hooks.example.net/[redacted]`). Coolify sends to one place only, so replacing it is a separate,
+  destructive step: `POST .../webhook/replace` with `{ "confirm": true }`. Declining is not asking again;
+  polling stays on.
+- `DELETE` with `{ "confirm": true }` or `?confirm=true` removes our URL (and our webhook row, so polling
+  takes over) only while it is still ours. Someone else's URL is `409 not-ours` and left alone; none set is
+  `{ "outcome": "not-set" }`. Whenever Coolify doesn't hold our token (none set, someone else's, a declined
+  replace), our own webhook row is removed too, so a disable that stopped part way is finished by trying
+  again and polling never stays off for a webhook that can't deliver.
+
+The URL's base is the request's own address (`ctx.http.baseUrl`), as status pages do; an action uses the
+acting user's own last address, never another user's, and refuses with `no-base-url` (409) when there is none.
+Coolify refuses private addresses, so `GET` and every setup answer say `basePrivate` when the base is loopback,
+a private or link-local IP, or a `.local` or `.internal` name; Coolify then answers 422. The token is only in
+the URL sent to Coolify: no answer, run, MCP result, log or audit line holds it. The connection's revision is
+checked right before every request and before the row is written, so a connection repointed between the read
+and the write stops with `target-changed` (409) and nothing is written.
+
+```bash
+curl -X POST https://termix.example.com/plugin-api/coolify/connections/1/webhook \
+  -H 'Content-Type: application/json' -d '{}'
+```
+
+### Actions `coolify.webhook-status`, `coolify.webhook-setup`, `coolify.webhook-replace` and `coolify.webhook-disable`
+
+The same four steps, for the assistant and MCP, each with `connectionId`. `coolify.webhook-status` is a read;
+`coolify.webhook-setup` is a change that answers `replace-needed` rather than replace anything;
+`coolify.webhook-replace` and `coolify.webhook-disable` are destructive, so Termix confirms each run, and over
+MCP they are refused without `confirmed: true`. Their data is the route's answer, never the URL.
+
+## Dashboard cards and homepage widgets
+
+The Coolify card on Termix's dashboard and the four Coolify widgets on the homepage read through these two
+routes and two existing ones: the single resource card reads `GET /connections/{id}/resources` (and deploys
+through `POST /connections/{id}/resources/{uuid}/deploy`), and the deployments card reads
+`GET /connections/{id}/deployments`. See [the user guide](index.md#dashboard-cards-and-homepage-widgets).
+
+### `GET /plugin-api/coolify/connections/{id}/overview?refresh=`
+
+The connection's resources counted by status, and its servers. Needs **View Coolify** and any access to the
+connection; another user's connection is 404. It answers `{ connectionId, counts, total, servers, fetchedAt }`:
+
+- `counts`: `{ running, degraded, stopped, deploying }`, Parts left out and exited counted as stopped, as the
+  Overview's tiles count them. `total` is their sum.
+- `servers`: `{ total, unreachable, unusable }`, or null when the token can't read servers. No names,
+  addresses or keys.
+
+It asks Coolify nothing of its own: the counts come from the resource cache (20 seconds) and the servers from
+the server status cache (a minute) that the tab, the host dots and the activity panel read through.
+`?refresh=1` skips the resource cache. Both lists are answered only for the target they were read from: when
+the connection's address, token or Access settings change during the read, it ends with `target-changed`
+(409), and so does `GET /connections/{id}/resources`, which the single resource card reads.
+
+### `GET /plugin-api/coolify/connections/{id}/vulnerabilities?refresh=`
+
+How many of the connection's resources have known vulnerabilities, from Coolify's `GET /vulnerabilities`
+(the stored image scanning status of the team's applications, services and databases). Needs **View
+Coolify** and any access to the connection. It answers `{ connectionId, resources, affected, statuses,
+problems, fetchedAt }`:
+
+- `resources`: how many resources Coolify listed; `affected`: those whose status is update now, update
+  available or no fix.
+- `statuses`: `{ updateNow, updateAvailable, noFix, checkNeeded, ok, notChecked }`, one count per status.
+- `problems`: `{ total, critical, high, medium, exploited }`, summed over the resources.
+
+Counts only: no resource names, image names, labels or advice that Coolify wrote leave the plugin. It is
+kept five minutes per connection and shared by every reader; `?refresh=1` skips it. A summary read before
+the connection's address, token or Access settings changed is never served, and a change during the read
+ends with `target-changed` (409).
+
+### Actions `coolify.connection-overview` and `coolify.vulnerability-summary`
+
+Reads offered to the assistant and MCP: `connectionId` and optionally `refresh`. Their data is the route's
+answer. The overview's summary reads like "5 resources: 0 running, 2 degraded, 2 stopped, 1 deploying, 2
+servers (1 unreachable)", the vulnerabilities' like "3 of 5 resources have known vulnerabilities (2
+critical, 4 high)".
+
+## Alerts and alert preferences
+
+Every event the pipeline stores becomes an alert in Termix's Alerts inbox (`ctx.notify.send`), which the
+Alerts hub routes to each person's delivery channels (email, webhooks, chat). Channels are set up in Alerts;
+the connection's Alerts view links there.
+
+- **Who gets one:** the connection's owner and every user it is shared with, each only for the kinds they
+  picked. Each person needs **View Coolify** and their access to the connection when the alert is sent, so
+  losing either stops alerts at once.
+- **Default kinds**, until a person picks their own: deploy failed, restart limit, server unreachable, backup
+  failed, task failed, high disk, certificate problems and API token expiring.
+- **What it says:** the kind and the resource, server or team it is about, the connection's name and
+  Coolify's status word, built only from the stored event, which the pipeline already redacted. Its
+  category is `coolify.<kind>` (like `coolify.deployment-failed`), so alerts can be routed by kind, and its
+  severity is the event's.
+- **Once:** an event the pipeline sees again is a duplicate and sends nothing, and the hub drops a repeat
+  for the same person while their earlier alert is unread: for a repeating condition (restarts, an
+  unreachable server, high disk, certificates, an expiring token) any repeat on the same subject, for a
+  deployment the same deployment. Every other event (a task run, a backup, a status change) is its own alert.
+- **Where it points:** the Coolify tab. The alert's `context.tab` holds the tab data that opens its subject:
+  `{ section: "resources", connectionId, uuid }` for a resource, `{ section: "resources", connectionId,
+serverUuid }` for a server and `{ section: "overview", connectionId }` for a team-wide event.
+- An alert that can't be sent is logged and never fails or holds up the event.
+
+### `GET /plugin-api/coolify/connections/{id}/alert-prefs`
+
+Your alert kinds for the connection, as `{ connectionId, kinds, isDefault, defaults, available }`:
+`isDefault` is true while you picked none, `defaults` is what applies then and `available` lists every
+event kind. Needs **View Coolify** and access to the connection; another user's connection is 404.
+
+### `PUT /plugin-api/coolify/connections/{id}/alert-prefs`
+
+Body `{ "kinds": ["deployment-failed", "high-disk"] }` saves the kinds you get alerts for (an empty list
+turns them off for this connection); `{ "kinds": null }` goes back to the defaults. It answers like the
+GET. Every kind must be a known event kind, or it is 400 `invalid-input` and nothing is saved. It changes
+only your own preferences: everyone with access picks their own, and nobody reads or changes anyone
+else's. Needs **View Coolify** and access to the connection; another user's connection is 404.
+
+### Actions `coolify.alert-prefs` and `coolify.alert-prefs-set`
+
+`coolify.alert-prefs` is a read offered to the assistant and MCP: `connectionId`; its data is the route's
+answer. `coolify.alert-prefs-set` takes `connectionId` and `kinds`, or `reset: true` for the defaults, and
+is a change: over MCP it needs "Allow changes over MCP" and `confirmed: true`.
 
 ## Rollback
 
@@ -726,6 +984,41 @@ The reads are offered to the assistant and MCP, with the same data and checks as
 `connectionId` and `uuid` (or `serverUuid`), plus `minutes`, or `view`, `dim` and `range` for traffic.
 `coolify.enable-metrics` is a change: inputs `connectionId`, `serverUuid` and `confirm: true`. Over MCP it
 also needs **Allow changes over MCP** and `confirmed: true`.
+
+## Linked host rows and host metrics
+
+What Termix's dashboard host rows and the homepage's host metrics show for a Linked host. Each answers for
+every Linked host of a connection in one request, so a list of hosts costs one request per connection.
+
+### `GET /plugin-api/coolify/connections/{id}/server-health`
+
+`{ servers, degraded, counts, deploying }`, by server uuid. `servers` lists `{ uuid, reachable, usable }`, or
+is null when the token can't read servers. `counts` holds `{ running, degraded, stopped, deploying }` (Parts
+left out, `exited` is stopped, bare `unhealthy` is degraded) and `deploying` the resources with a queued or
+running deployment in Coolify's queue or a deploying status; both, and `degraded`, are null when the
+resources can't be read. Everything comes from the shared caches (servers a minute, resources 20 seconds,
+the queue 10 seconds). Needs **View Coolify**; another user's connection is 404, and a change of the
+connection's address, token or Access settings while it reads answers 409 `target-changed`.
+
+### `GET /plugin-api/coolify/connections/{id}/host-metrics?servers=`
+
+`servers` is 1 to 20 comma separated server uuids. Answers `{ servers: { uuid: { containers, cpuPercent,
+memoryBytes, cpus, memoryTotalBytes, at } }, errors: { uuid: cause } }`: the running containers' CPU
+(`cpuPercent`, where 100 is one CPU) and memory summed from one `docker stats --no-stream` over SSH on the
+server's Linked host, with the host's CPUs and memory from `docker info`. No container names. Each server is
+read at most once every 30 seconds per connection target, however many people or rows ask, which is
+never more often than the live stats socket. Needs **Operate Coolify resources** and the owner or an operate
+grant (the Stats tab's rule), checked before anything runs: 403 otherwise. A server without a summary gets
+its cause in `errors`: `not-linked`, `no-host-access` (no `connect` access to its host), `not-found`,
+`host-key` or `ssh-failed`. 400 for a bad `servers`, 409 `target-changed` as above.
+
+### Actions `coolify.host-summary` and `coolify.host-metrics`
+
+Host actions for one Linked host (send `hostId`), offered to the assistant and MCP with the same data and
+checks as the routes. Both answer `{ linked: false }` on a host that isn't linked. `coolify.host-summary`
+answers `{ linked, connectionId, serverUuid, server, counts, deploying }` for that host's server and needs
+your own `connect` access to the host. `coolify.host-metrics` answers `{ linked, connectionId, serverUuid,
+stats }` and fails with the cause when the summary can't be read.
 
 ## Running commands in containers
 

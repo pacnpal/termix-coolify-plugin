@@ -18,6 +18,11 @@ export const EVENT_KINDS = {
     severity: "warning",
     title: "Deployment failed",
   },
+  "status-changed": {
+    subject: "resource",
+    severity: "info",
+    title: "Status changed",
+  },
   "container-restarted": {
     subject: "resource",
     severity: "warning",

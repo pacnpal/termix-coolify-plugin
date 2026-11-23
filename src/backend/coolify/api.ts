@@ -2,6 +2,7 @@ import { OPERATIONS } from "./generated/operations.js";
 import { CoolifyError, type CoolifyHttp } from "./http.js";
 import { fillPath, pathRules } from "./path.js";
 import {
+  resourceServerUuid,
   toApplication,
   toDatabase,
   toDeployment,
@@ -16,6 +17,10 @@ import {
   toService,
   toStorages,
   toTeam,
+  toVulnerability,
+  toBackupRuns,
+  toScheduledTask,
+  toTaskRun,
   type DeploymentDto,
   type KeyDto,
   type PreviewDto,
@@ -23,13 +28,39 @@ import {
   type ResourceDto,
   type ResourceKind,
   type RollbackImagesDto,
+  type RunDto,
+  type ScheduledTaskDto,
   type SentinelSettingsDto,
   type ServerDto,
   type StorageDto,
   type TeamDto,
+  type VulnerabilityDto,
 } from "./dto.js";
 
+/** Something a token can be asked whether it reads (`canRead`). */
+export type ReadableSubject =
+  | { type: "application" | "service" | "database" | "server"; uuid: string }
+  | { type: "team" };
+
+/** What canRead keeps of a readable subject's answer. */
+export interface SubjectRead {
+  /** A resource's server, by field name; unchecked text, or null. */
+  serverUuid: string | null;
+}
+
+const READ_SUBJECT = {
+  application: "get-application-by-uuid",
+  service: "get-service-by-uuid",
+  database: "get-database-by-uuid",
+  server: "get-server-by-uuid",
+} as const;
+
 export type LifecycleAction = "start" | "stop" | "restart";
+
+/** Runs right before each request (after budget and retry waits); a throw sends nothing. */
+export interface FetchGuard {
+  beforeFetch?: () => Promise<void>;
+}
 
 const BY_ID = new Map(OPERATIONS.map((op) => [op.id, op]));
 
@@ -45,6 +76,23 @@ export interface KeyForCopy {
   /** Null when the token can't read key material (no read:sensitive). */
   privateKey: string | null;
   publicKey: string | null;
+}
+
+/**
+ * The team's webhook notification channel, for the one step that decides
+ * whether its URL is ours (webhooks/setup.ts). Not a DTO: the URL can hold
+ * our webhook token or someone else's secret, so it never leaves that step,
+ * and nothing returns, logs or stores it.
+ */
+export interface WebhookChannelForSetup {
+  /**
+   * False when Coolify left `webhook_url` out of its answer: it hides the
+   * field from a token without read:sensitive.
+   */
+  readable: boolean;
+  /** The URL, or null when none is set (or it isn't readable). */
+  url: string | null;
+  enabled: boolean;
 }
 
 /** Coolify's answer for one resource of a deploy request. */
@@ -201,6 +249,40 @@ export function createCoolifyApi(http: CoolifyHttp) {
       return text;
     },
 
+    /**
+     * Whether this token reads `subject`: one GET of the subject itself
+     * (`GET /team` for the team), never retried, readable only on a 200. Any
+     * other answer, a malformed uuid, a timeout or any error is null. Of
+     * what it read, only a resource's server uuid is returned. It counts against the request
+     * budget like any call. For the webhook's per-connection check (#91).
+     * `beforeFetch` runs right before the request (after the budget wait);
+     * a throw sends nothing and answers false.
+     */
+    async canRead(
+      subject: ReadableSubject,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<SubjectRead | null> {
+      try {
+        const target =
+          subject.type === "team"
+            ? op("get-token-team")
+            : op(READ_SUBJECT[subject.type], { uuid: subject.uuid });
+        const body = await call(target, {
+          retry: false,
+          exactStatus: 200,
+          beforeFetch: opts.beforeFetch,
+        });
+        return {
+          serverUuid:
+            subject.type === "team" || subject.type === "server"
+              ? null
+              : resourceServerUuid(body),
+        };
+      } catch {
+        return null;
+      }
+    },
+
     async team(): Promise<TeamDto> {
       return toTeam(await call(op("get-token-team")));
     },
@@ -209,8 +291,10 @@ export function createCoolifyApi(http: CoolifyHttp) {
       return rows(await call(op("list-projects")), "projects").map(toProject);
     },
 
-    async servers(): Promise<ServerDto[]> {
-      return rows(await call(op("list-servers")), "servers").map(toServer);
+    async servers(opts: FetchGuard = {}): Promise<ServerDto[]> {
+      return rows(await call(op("list-servers"), opts), "servers").map(
+        toServer,
+      );
     },
 
     async server(uuid: string): Promise<ServerDto> {
@@ -245,20 +329,21 @@ export function createCoolifyApi(http: CoolifyHttp) {
       };
     },
 
-    async applications(): Promise<ResourceDto[]> {
-      return rows(await call(op("list-applications")), "applications").map(
-        toApplication,
-      );
+    async applications(opts: FetchGuard = {}): Promise<ResourceDto[]> {
+      return rows(
+        await call(op("list-applications"), opts),
+        "applications",
+      ).map(toApplication);
     },
 
-    async services(): Promise<ResourceDto[]> {
-      return rows(await call(op("list-services")), "services").flatMap(
+    async services(opts: FetchGuard = {}): Promise<ResourceDto[]> {
+      return rows(await call(op("list-services"), opts), "services").flatMap(
         toService,
       );
     },
 
-    async databases(): Promise<ResourceDto[]> {
-      return rows(await call(op("list-databases")), "databases").map(
+    async databases(opts: FetchGuard = {}): Promise<ResourceDto[]> {
+      return rows(await call(op("list-databases"), opts), "databases").map(
         toDatabase,
       );
     },
@@ -398,6 +483,54 @@ export function createCoolifyApi(http: CoolifyHttp) {
       });
     },
 
+    /**
+     * The runs of every backup schedule of one database, without their
+     * messages (the poller).
+     */
+    async backupRuns(
+      databaseUuid: string,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<RunDto[]> {
+      return toBackupRuns(
+        await call(op("get-database-backups-by-uuid", { uuid: databaseUuid }), {
+          beforeFetch: opts.beforeFetch,
+        }),
+      );
+    },
+
+    /** An application's or a service's scheduled tasks, without commands. */
+    async scheduledTasks(
+      kind: "application" | "service",
+      uuid: string,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<ScheduledTaskDto[]> {
+      return rows(
+        await call(op(`list-scheduled-tasks-by-${kind}-uuid`, { uuid }), {
+          beforeFetch: opts.beforeFetch,
+        }),
+        "tasks",
+      ).map(toScheduledTask);
+    },
+
+    /** One scheduled task's runs, without their output. */
+    async taskRuns(
+      kind: "application" | "service",
+      uuid: string,
+      taskUuid: string,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<RunDto[]> {
+      return rows(
+        await call(
+          op(`list-scheduled-task-executions-by-${kind}-uuid`, {
+            uuid,
+            task_uuid: taskUuid,
+          }),
+          { beforeFetch: opts.beforeFetch },
+        ),
+        "executions",
+      ).map(toTaskRun);
+    },
+
     /** Coolify's queue: the deployments queued or running now, without logs. */
     async runningDeployments(
       opts: { beforeFetch?: () => Promise<void> } = {},
@@ -406,6 +539,19 @@ export function createCoolifyApi(http: CoolifyHttp) {
         beforeFetch: opts.beforeFetch,
       });
       return rows(body, "deployments").map((d) => toDeployment(d));
+    },
+
+    /**
+     * The team's resources with their stored image scanning status, worst
+     * first. Only counts are kept (dto.ts toVulnerability).
+     */
+    async vulnerabilities(
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<VulnerabilityDto[]> {
+      const body = await call(op("list-vulnerabilities"), {
+        beforeFetch: opts.beforeFetch,
+      });
+      return rows(body, "resources").map(toVulnerability);
     },
 
     /** The applications that carry a tag (Coolify filters by its name). */
@@ -609,6 +755,46 @@ export function createCoolifyApi(http: CoolifyHttp) {
       if (typeof body === "string") return body;
       const logs = (body as { logs?: unknown } | null)?.logs;
       return typeof logs === "string" ? logs : "";
+    },
+
+    /**
+     * The team's webhook channel (needs a team-scoped token). Only the URL,
+     * whether it was readable and the enabled flag are kept.
+     */
+    async webhookChannelForSetup(
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<WebhookChannelForSetup> {
+      const body = await call<unknown>(
+        op("get-current-team-webhook-notifications"),
+        { beforeFetch: opts.beforeFetch },
+      );
+      const record =
+        body && typeof body === "object" && !Array.isArray(body)
+          ? (body as Record<string, unknown>)
+          : {};
+      const readable = Object.prototype.hasOwnProperty.call(
+        record,
+        "webhook_url",
+      );
+      return {
+        readable,
+        url: readable ? text(record.webhook_url) : null,
+        enabled: record.webhook_enabled === true,
+      };
+    },
+
+    /**
+     * Changes the team's webhook channel. Coolify answers with the channel,
+     * URL included for a sensitive token; the answer is dropped unread.
+     */
+    async updateWebhookChannel(
+      body: Record<string, unknown>,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<void> {
+      await call(op("update-current-team-webhook-notifications"), {
+        body,
+        beforeFetch: opts.beforeFetch,
+      });
     },
 
     async patchSentinel(

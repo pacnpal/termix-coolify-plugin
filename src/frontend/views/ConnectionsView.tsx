@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Bell,
   Globe,
   Pencil,
   RefreshCw,
@@ -39,8 +40,10 @@ import {
   describeFailure,
   useConnectionForm,
 } from "./ConnectionForm";
+import { AlertPrefsView } from "./AlertPrefsView";
 import { McpPanel } from "./McpPanel";
 import { StatusPagesView } from "./StatusPagesView";
+import { WebhookSetup } from "./WebhookSetup";
 
 function ConnectionEditor({
   api,
@@ -83,7 +86,15 @@ function ConnectionEditor({
         hasCfAccess={form.current?.cfAccess ?? false}
       />
       {connection && connection.access === "owner" && (
-        <ExecSwitch api={api} connection={connection} onSaved={onSaved} />
+        <>
+          <WebhookSetup
+            key={`${connection.id}:${connection.revision}`}
+            api={api}
+            connection={connection}
+          />
+          <PollSwitch api={api} connection={connection} onSaved={onSaved} />
+          <ExecSwitch api={api} connection={connection} onSaved={onSaved} />
+        </>
       )}
       {form.result && <ProbeChecklist connection={form.result} />}
     </InlineView>
@@ -137,6 +148,52 @@ function ExecSwitch({
   );
 }
 
+/**
+ * The owner's choice to keep polling Coolify once the team's webhook has
+ * delivered. It saves on its own, apart from the form.
+ */
+function PollSwitch({
+  api,
+  connection,
+  onSaved,
+}: {
+  api: Api;
+  connection: Connection;
+  onSaved: (saved: Connection) => void;
+}) {
+  const { t } = useTranslation();
+  const [enabled, setEnabled] = useState(connection.pollEnabled === true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function change(next: boolean) {
+    setSaving(true);
+    setError(null);
+    try {
+      const saved = await api.setPoll(connection.id, next);
+      setEnabled(saved.pollEnabled === true);
+      onSaved(saved);
+    } catch {
+      setError(t("connections.poll.failed"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className={cn(PANEL.body, "flex flex-col gap-3")}>
+      <SwitchRow
+        label={t("connections.poll.label")}
+        description={t("connections.poll.description")}
+        checked={enabled}
+        disabled={saving}
+        onChange={(v) => void change(v)}
+      />
+      <FormError message={error} />
+    </div>
+  );
+}
+
 function metaLine(
   t: (key: string, o?: Record<string, unknown>) => string,
   c: Connection,
@@ -149,6 +206,11 @@ function metaLine(
   ];
   if (c.teamName) parts.push(t("connections.meta.team", { team: c.teamName }));
   if (c.lastError) parts.push(t(`causes.${c.lastError}`));
+  if (c.pollError) {
+    parts.push(
+      t("connections.poll.error", { cause: t(`causes.${c.pollError}`) }),
+    );
+  }
   return parts.join(" · ");
 }
 
@@ -183,6 +245,7 @@ export function ConnectionsView({
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Connection | "new" | null>(null);
   const [publishing, setPublishing] = useState<Connection | null>(null);
+  const [alerting, setAlerting] = useState<Connection | null>(null);
 
   // Request generations: a list answer is applied only when it is the latest
   // load and no change (save, probe, removal) landed after it was asked for.
@@ -336,6 +399,12 @@ export function ConnectionsView({
                     </ListRowAction>
                   )}
                   <ListRowAction
+                    label={t("alerts.prefs.open")}
+                    onClick={() => setAlerting(c)}
+                  >
+                    <Bell className="size-3.5" />
+                  </ListRowAction>
+                  <ListRowAction
                     label={t("connections.actions.probe")}
                     onClick={() => void probe(c)}
                   >
@@ -362,6 +431,14 @@ export function ConnectionsView({
           api={api}
           connection={publishing}
           onClose={() => setPublishing(null)}
+        />
+      )}
+      {alerting && (
+        <AlertPrefsView
+          key={alerting.id}
+          api={api}
+          connection={alerting}
+          onClose={() => setAlerting(null)}
         />
       )}
       {editing !== null && (

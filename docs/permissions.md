@@ -13,13 +13,13 @@ Coolify checks the API token's own abilities on top.
 
 Admins and users get all five by default. Admins can take any of them away per role.
 
-| Permission                       | Level      | What it allows                                                                                                                                                                                                                                                          |
-| -------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **View Coolify**                 | view       | Open the plugin, read your connections, their resources, servers, sync previews, status pages, metrics over Coolify and companion reads                                                                                                                                 |
-| **Operate Coolify resources**    | operate    | Deploy, start, stop and restart, build logs, cancelling deployments and rollback, deploying, deleting and changing pull request previews and their logs, logs, shells and consoles, running commands, metrics and traffic over SSH, update checks and installs, tunnels |
-| **Configure Coolify**            | configure  | Add, change and remove connections, sync servers into hosts and unlink them, DNS records, status pages, enabling metrics, revealing a masked value                                                                                                                      |
-| **Administer Coolify**           | administer | Rebooting a server, and the Coolify API operations that delete, create or transfer servers, provision cloud servers or change instance settings                                                                                                                         |
-| **Use the Coolify MCP endpoint** | mcp        | Reach `/plugin-api/coolify/mcp`. Each tool still needs the permission of the action it runs                                                                                                                                                                             |
+| Permission                       | Level      | What it allows                                                                                                                                                                                                                                                                                                               |
+| -------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **View Coolify**                 | view       | Open the plugin, read your connections, their resources, servers, sync previews, status pages, metrics over Coolify and companion reads, get alerts and pick your own alert kinds                                                                                                                                            |
+| **Operate Coolify resources**    | operate    | Deploy, start, stop and restart, build logs, cancelling deployments and rollback, deploying, deleting and changing pull request previews and their logs, logs, shells and consoles, running commands, metrics and traffic over SSH (including container CPU and memory in host metrics), update checks and installs, tunnels |
+| **Configure Coolify**            | configure  | Add, change and remove connections, sync servers into hosts and unlink them, DNS records, status pages, enabling metrics, setting up the team webhook, revealing a masked value                                                                                                                                              |
+| **Administer Coolify**           | administer | Rebooting a server, and the Coolify API operations that delete, create or transfer servers, provision cloud servers or change instance settings                                                                                                                                                                              |
+| **Use the Coolify MCP endpoint** | mcp        | Reach `/plugin-api/coolify/mcp`. Each tool still needs the permission of the action it runs                                                                                                                                                                                                                                  |
 
 Through the full Coolify API (`coolify.api-read`, `coolify.api-call` and the API console), each Coolify
 operation needs the level its path and method call for: reads are view, reads that show logs or command
@@ -34,6 +34,12 @@ an action needs both the Termix permission and at least that access to the conne
 Anything that reaches a Linked host over SSH also needs your own access to that host in Termix: **connect**
 for shells, logs, tunnels and update checks, and **edit** for running commands, installing updates and
 rebooting.
+
+The event log follows the same access, with one more rule for anyone who isn't the owner: a grant lends
+the owner's token, so it covers what that connection's Coolify has now. Someone granted a connection sees
+only events about its current resources and servers, plus team-wide ones (an expiring token); events from
+an earlier address or token, or about something deleted, stay hidden. If Coolify can't be read to check,
+their read fails instead of showing part of the log. The owner always sees every event.
 
 ## Changes over MCP
 

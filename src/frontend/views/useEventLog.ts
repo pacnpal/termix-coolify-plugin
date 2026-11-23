@@ -17,6 +17,7 @@ export const EVENTS_PAGE = 50;
 export const EVENT_KIND_IDS = [
   "deployment-finished",
   "deployment-failed",
+  "status-changed",
   "container-restarted",
   "restart-limit",
   "server-unreachable",

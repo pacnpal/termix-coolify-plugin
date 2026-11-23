@@ -80,6 +80,11 @@ export interface CoolifyRequestOptions {
   body?: unknown;
   /** GETs retry 429 and 5xx by default. False turns that off. */
   retry?: boolean;
+  /**
+   * The one success status accepted; any other 2xx is refused as
+   * `upstream` (the webhook's visibility check passes only on a 200).
+   */
+  exactStatus?: number;
   /** Read the answer as plain text (Coolify's /version and /health). */
   text?: boolean;
   /**
@@ -400,6 +405,12 @@ export function createCoolifyHttp(
           throw new CoolifyError("unreachable", 0);
         }
         if (response.status >= 200 && response.status < 300) {
+          if (
+            options.exactStatus !== undefined &&
+            response.status !== options.exactStatus
+          ) {
+            throw new CoolifyError("upstream", response.status);
+          }
           const answer = await success(response, options.text === true);
           if (!options.scrubSecrets) return answer as T;
           const secrets = [target.token, target.cfAccess?.secret ?? ""].filter(

@@ -530,6 +530,43 @@
           "unique": true
         }
       ]
+    },
+    "alert_prefs": {
+      "columns": {
+        "id": {
+          "type": "id",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "connectionId": {
+          "type": "integer",
+          "notNull": true
+        },
+        "userId": {
+          "type": "refUser",
+          "length": 255,
+          "notNull": true
+        },
+        "kinds": {
+          "type": "json",
+          "notNull": true
+        },
+        "updatedAt": {
+          "type": "timestamp",
+          "notNull": true,
+          "defaultNow": true
+        }
+      },
+      "indexes": [
+        {
+          "name": "idx_p_coolify_alert_prefs_connection_user",
+          "columns": [
+            "connectionId",
+            "userId"
+          ],
+          "unique": true
+        }
+      ]
     }
   }
 }
