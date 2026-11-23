@@ -3,7 +3,7 @@
   "name": "Coolify for Termix (pacnpal)",
   "apiVersion": 1,
   "publicKey": "Qhm4ZKAVAodNOzxb2Ez2DdcDccUAZUwKN9+id4JG7iU=",
-  "updatedAt": "2026-11-23T21:04:14.227Z",
+  "updatedAt": "2026-11-23T23:24:46.965Z",
   "plugins": [
     {
       "id": "coolify",
@@ -36,6 +36,43 @@
       ],
       "versions": [],
       "gated": [
+        {
+          "version": "1.0.5",
+          "api": "2",
+          "url": "https://github.com/pacnpal/termix-coolify-plugin/releases/download/v1.0.5/coolify-1.0.5.tmxplug",
+          "sha256": "b9505efd494346e5e2b49ff4790c931187fda739340b06215efe90af484877f6",
+          "signature": "8Q0i5j0beXVMUrlZIn1wkOMcYLcRXZrLTZvn6gyxw72LTBuiqxnYYBg6AqooARXqYDmBFf7Jg7WD270I9CxzAA==",
+          "size": 974851,
+          "capabilities": [
+            "db:own",
+            "secrets:own",
+            "kv:own",
+            "network:serve",
+            "network:outbound",
+            "ui:surface",
+            "hosts:read",
+            "hosts:write",
+            "hosts:lock",
+            "credentials:write",
+            "credentials:use",
+            "ssh:connect",
+            "operations:provide",
+            "notify:send",
+            "events:core",
+            "plugins:read",
+            "operations:invoke"
+          ],
+          "engine": {
+            "api": "^2.7.0",
+            "termix": ">=26.11.2-0"
+          },
+          "releaseNotesUrl": "https://github.com/pacnpal/termix-coolify-plugin/releases/tag/v1.0.5",
+          "notes": "### Changed\n\n- Rolling back an application and replacing or turning off the team webhook are no longer offered to\n  Termix's assistant or Termix's MCP, like every other destructive action. The plugin's own MCP endpoint\n  still offers them, and still refuses them without `confirmed: true`",
+          "provenance": {
+            "url": "https://github.com/pacnpal/termix-coolify-plugin/releases/download/v1.0.5/coolify-1.0.5.tmxplug.sigstore.json"
+          },
+          "publishedAt": "2026-11-23T23:23:12.000Z"
+        },
         {
           "version": "1.0.4",
           "api": "2",
