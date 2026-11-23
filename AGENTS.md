@@ -358,6 +358,29 @@ aren't obvious from the code, and anything that has bitten you before.
   `registerHostStatusIndicator` for it: a layout could draw a second dot. The "Coolify" host action and the Resources menu item open the tab with `serverUuid`, which
   `CoolifyTab` turns into a clearable server filter on Resources (cleared by a connection pick, Sync
   servers and an Overview tile).
+- Host data slots (1.2.0, #96): `src/frontend/host-slots.ts` fills `dashboard.hostRow` (stat: running,
+  degraded, stopped), `dashboard.hostRowBadge` (a Deploying badge while the server has deployments) and
+  `homepage.hostMetrics` (bars: container CPU of the host's CPUs, memory of its memory). Rows and badge
+  read `server-health` through `useServerHealth(api, link)` (`linked.ts`): the per-connection
+  `cachedServerHealth`, read again every `HEALTH_MAX_AGE_MS` while the row is mounted, keyed by the link
+  (a late answer for an old link is dropped), nothing without `coolify.view` or for an unlinked host, and
+  nothing for a server the target's server list no longer has. `server-health` is built by
+  `resources/server-health.ts` (`createServerHealth`, also behind `coolify.host-summary`): servers,
+  resources and `deployments.queue` in parallel, `counts` by `countResources`, `deploying` = the server's
+  resources (no Parts) with a running queue row or a deploying status; the reads run inside
+  `forRevision` (`connections/hold.ts`), so an answer never mixes targets (`target-changed`). The dot still
+  reads it once per mount (unchanged). Metrics: `homepage.hostMetrics` context has only `hostId`, so the
+  host comes from `useHost` (shell ids are strings) and the read needs `usePermission("operate")` and
+  `online !== false`. `createHostStatsFeed` batches every shown server of a connection into one
+  `GET /connections/:id/host-metrics?servers=a,b` (20 a request), polls `HOST_STATS_POLL_MS` after each
+  answer while any row shows it, and drops a server's value with its last row. The backend's
+  `metrics.hostStats` checks `coolify.operate` and an operate grant first (403), then per server: Linked
+  host (`not-linked`), connect access, then a cache keyed by connection, server and revision
+  (`HOST_STATS_TTL_MS`, 30 s, never below the stats socket's `STATS_INTERVAL_MS`; concurrent misses share
+  one read), else the server in Coolify, the sudo probe and one `hostStatsCommand` (`docker info` CPUs and
+  memory, then `docker stats --no-stream` for all containers), each behind `read.holds()`. Per-server
+  failures go in `errors`; a target change or a cut grant fails the whole request. `readHostStats` is a
+  `parses` entry in `tests/backend/log-exits.json`. `coolify.host-metrics` is the host action over it.
 - Frontend host surfaces: `src/frontend/linked.ts` reads a host's link from its own settings and shares one
   sync preview per connection (five minutes) with the host card. Each cached preview
   records the revision it was read for; `useLinkedRow(link, revision)` (the host card passes the
@@ -872,6 +895,6 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   so the overview and `GET /connections/:id/resources` wrap them in `forRevision`
   (`connections/hold.ts`: revision before, checked again before answering, else `target-changed` 409);
   the queue (`holds`) and vulnerabilities (snapshot revision) check it themselves. `server-health` (host
-  dots) still answers without that check. The vulnerabilities card counts only completed scans as
+  dots and host rows, `resources/server-health.ts`) wraps its reads in `forRevision` too. The vulnerabilities card counts only completed scans as
   scanned (`ok` plus affected); `check_needed` and `not_checked` are "not scanned yet", and with nothing
   scanned it never shows the clean state.

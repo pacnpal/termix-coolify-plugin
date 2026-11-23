@@ -530,7 +530,13 @@ Linked hosts are read only while Coolify manages them. They show a **Coolify** b
 and a status dot. The dot is red when Coolify can't reach the server, and amber when the server is gone
 from Coolify, not usable, or runs a degraded resource (an exited resource counts as stopped, not degraded).
 Every Linked host of a connection shares one status read, served from the plugin's own short caches, and an
-ordinary host makes none. The **Coolify** button opens the Resources list filtered to that server; clear
+ordinary host makes none. On the dashboard, a Linked host's row also shows how many of its server's
+resources are running, degraded and stopped (by the same rules), and its status badge reads **Deploying**
+while a deployment on that server is queued or running. The homepage's host metrics show the CPU and
+memory all running containers use on the host, for people who may operate the connection's resources
+(**Operate Coolify resources** and owner or operate access, as for the Stats view). They come from one
+`docker stats` reading over SSH, taken at most every 30 seconds for each host however many people look,
+and need your own connect access to the host. The **Coolify** button opens the Resources list filtered to that server; clear
 the filter to see every server. A Coolify card on the host page has **Resources**, **Sync from
 Coolify** and **Unlink**, which are also in the host's menu. **Unlink** makes the host an ordinary, editable
 host and keeps it. If you delete a Linked host yourself, the plugin forgets the link but keeps its address

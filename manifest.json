@@ -1693,6 +1693,34 @@
           }
         },
         {
+          "id": "coolify.host-summary",
+          "titleKey": "ops.hostSummary.title",
+          "descriptionKey": "ops.hostSummary.description",
+          "icon": "Boxes",
+          "scope": "host",
+          "risk": "read",
+          "permission": "view",
+          "hostAccess": "connect",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.host-metrics",
+          "titleKey": "ops.hostMetrics.title",
+          "descriptionKey": "ops.hostMetrics.description",
+          "icon": "Gauge",
+          "scope": "host",
+          "risk": "read",
+          "permission": "operate",
+          "hostAccess": "connect",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
           "id": "coolify.signal-deploying",
           "titleKey": "ops.signalDeploying.title",
           "descriptionKey": "ops.signalDeploying.description",

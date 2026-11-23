@@ -408,13 +408,33 @@ export interface ApiCallAnswer {
 }
 
 /**
- * What the Linked host dot needs of a connection's servers: reachability
- * (null when the token can't read servers) and degraded resources by server
- * uuid (null when resources can't be read).
+ * What Linked host rows need of a connection's servers: reachability (null
+ * when the token can't read servers), and by server uuid the degraded
+ * resources, resource counts and resources being deployed (null when
+ * resources can't be read).
  */
 export interface ServerHealth {
   servers: { uuid: string; reachable: boolean; usable: boolean }[] | null;
   degraded: Record<string, number> | null;
+  counts: Record<string, ResourceCounts> | null;
+  deploying: Record<string, number> | null;
+}
+
+/** A Linked host's running containers, summed from one docker stats reading. */
+export interface HostStats {
+  containers: number;
+  /** 100 is one CPU fully used. */
+  cpuPercent: number;
+  memoryBytes: number;
+  cpus: number | null;
+  memoryTotalBytes: number | null;
+  at: string;
+}
+
+/** Container summaries by server uuid, and why a server has none. */
+export interface HostStatsAnswer {
+  servers: Record<string, HostStats>;
+  errors: Record<string, string>;
 }
 
 /** A Coolify server as host sync shows it. Never carries a key. */
@@ -1259,13 +1279,31 @@ export function createApi(api: PluginApiClient) {
       const data = (
         await api.get<Partial<ServerHealth>>(`/connections/${id}/server-health`)
       ).data;
-      const degraded = data?.degraded;
+      const byServer = <T>(value: unknown): Record<string, T> | null =>
+        value && typeof value === "object" && !Array.isArray(value)
+          ? (value as Record<string, T>)
+          : null;
       return {
         servers: Array.isArray(data?.servers) ? data.servers : null,
-        degraded:
-          degraded && typeof degraded === "object" && !Array.isArray(degraded)
-            ? degraded
-            : null,
+        degraded: byServer<number>(data?.degraded),
+        counts: byServer<ResourceCounts>(data?.counts),
+        deploying: byServer<number>(data?.deploying),
+      };
+    },
+    /** Container summaries of Linked hosts, one request per connection. */
+    async hostStats(
+      id: number,
+      serverUuids: readonly string[],
+    ): Promise<HostStatsAnswer> {
+      const servers = encodeURIComponent(serverUuids.join(","));
+      const data = (
+        await api.get<Partial<HostStatsAnswer>>(
+          `/connections/${id}/host-metrics?servers=${servers}`,
+        )
+      ).data;
+      return {
+        servers: data?.servers ?? {},
+        errors: data?.errors ?? {},
       };
     },
     async syncPreview(id: number): Promise<SyncRow[]> {

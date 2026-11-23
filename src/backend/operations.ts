@@ -16,6 +16,7 @@ import type { Connections } from "./connections/service.js";
 import type { Tables } from "./db.js";
 import type { Lifecycle } from "./resources/lifecycle.js";
 import type { Metrics } from "./metrics/service.js";
+import type { ServerHealthService } from "./resources/server-health.js";
 import type { Resources } from "./resources/service.js";
 import { registerAttentionOperations } from "./ops/attention.js";
 import { registerCompanionOperations } from "./ops/companions.js";
@@ -31,6 +32,7 @@ import { registerDashboardOperations } from "./ops/dashboard.js";
 import { registerDeploymentOperations } from "./ops/deployments.js";
 import { registerPreviewOperations } from "./ops/previews.js";
 import { registerLifecycleOperations } from "./ops/lifecycle.js";
+import { registerHostSlotOperations } from "./ops/host-slots.js";
 import { registerMetricsOperations } from "./ops/metrics.js";
 import { registerResourceOperations } from "./ops/resources.js";
 import { registerRollbackOperations } from "./ops/rollback.js";
@@ -65,6 +67,7 @@ export interface Services {
   attention: AttentionService;
   events: Events;
   dashboard: Dashboard;
+  serverHealth: ServerHealthService;
 }
 
 /**
@@ -139,4 +142,5 @@ export function registerOperations(
   registerAttentionOperations(ctx, services.attention);
   registerEventOperations(ctx, services.events);
   registerDashboardOperations(ctx, services.dashboard);
+  registerHostSlotOperations(ctx, services);
 }

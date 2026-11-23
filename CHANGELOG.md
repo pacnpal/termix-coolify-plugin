@@ -29,6 +29,19 @@
   `GET /connections/{id}/overview` and `GET /connections/{id}/vulnerabilities`, for Operations Center,
   Automations, the CLI, the Termix API and MCP. The vulnerability counts come from Coolify's image scanning
   and are kept five minutes per connection; they carry no resource names or Coolify text
+- Linked hosts on Termix's dashboard show their Coolify server's resources: how many are running, degraded
+  and stopped, by the same rules as the Coolify tab (exited is stopped, Parts aren't counted). While a
+  deployment on that server is queued or running, the row's status badge shows **Deploying**. The
+  homepage's host metrics show the CPU and memory all running containers use on a Linked host, from one
+  `docker stats` reading over SSH, for people with **Operate Coolify resources** and owner or operate
+  access to the connection (the Stats tab's rule). Hosts that aren't linked show nothing. Every host of a
+  connection shares one request, the counts come from the plugin's shared caches, and a host's container
+  stats are read over SSH at most once every 30 seconds however many people look
+- Actions `coolify.host-summary` (a Linked host's resource counts and deployments) and
+  `coolify.host-metrics` (its container CPU and memory), in Operations Center, Automations, the CLI, the
+  operations API and MCP, and the route `GET /plugin-api/coolify/connections/{id}/host-metrics`.
+  `GET /plugin-api/coolify/connections/{id}/server-health` also answers each server's resource counts
+  and deployments
 
 ### Changed
 

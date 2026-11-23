@@ -22,6 +22,7 @@ import {
   registerResourceRoutes,
   registerServerHealthRoutes,
 } from "./resources/routes.js";
+import { createServerHealth } from "./resources/server-health.js";
 import { registerMcpRoutes } from "./mcp/routes.js";
 import { provideClient } from "./service.js";
 import { createContainers } from "./containers/service.js";
@@ -123,11 +124,18 @@ export async function activate(ctx: PluginContext): Promise<void> {
     connections,
     resources,
   });
+  // Linked host rows: the dot, resource counts and the deploying badge.
+  const serverHealth = createServerHealth({
+    connections,
+    resources,
+    servers,
+    deployments,
+  });
   const router = ctx.http.router<Router>({ public: PUBLIC_STATUS_PATHS });
   router.use(rememberBaseUrlMiddleware(ctx) as never);
   registerConnectionRoutes(router, ctx, connections);
   registerResourceRoutes(router, ctx, resources, connections);
-  registerServerHealthRoutes(router, ctx, { resources, servers });
+  registerServerHealthRoutes(router, ctx, serverHealth);
   registerSyncRoutes(router, ctx, sync);
   registerLifecycleRoutes(router, ctx, lifecycle);
   registerDeploymentRoutes(router, ctx, deployments);
@@ -166,6 +174,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
     attention,
     events,
     dashboard,
+    serverHealth,
   });
   provideClient(ctx);
   await statusPages.start();
