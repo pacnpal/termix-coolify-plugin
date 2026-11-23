@@ -34,9 +34,13 @@ export function registerEventRoutes(
    *       scheduled tasks, high disk, certificate problems and expiring API
    *       tokens. The log keeps the newest 1000 per connection and holds no
    *       secret, token, credentialed URL or log text. Read from the
-   *       plugin's own table; it asks Coolify nothing. Needs coolify.view
-   *       and any access to the connection; another user's connection is
-   *       404.
+   *       plugin's own table. Needs coolify.view and any access to the
+   *       connection; another user's connection is 404. The owner sees every
+   *       row and Coolify is never asked. A granted user sees only rows about
+   *       what the connection's Coolify has now (its resources and servers,
+   *       from the shared caches) plus team-wide rows, and the page is
+   *       filled past the hidden ones; when Coolify can't be read, the read
+   *       fails rather than show a partial log.
    *     tags:
    *       - Coolify
    *     parameters:
@@ -77,6 +81,11 @@ export function registerEventRoutes(
    *         description: Missing coolify.view
    *       404:
    *         description: No such connection, or another user's connection
+   *       502:
+   *         description: >-
+   *           A granted user's read, when the connection's Coolify couldn't
+   *           be read to check their rows (some Coolify causes answer 404,
+   *           409 or 429 instead, as on every Coolify read)
    */
   router.get(
     "/connections/:id/events",

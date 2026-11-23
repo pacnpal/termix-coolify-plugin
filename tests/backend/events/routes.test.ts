@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { callTool, withRun } from "../helpers/mcp.js";
-import { startLifecycle } from "../helpers/lifecycle.js";
+import {
+  grant,
+  lifecycleAnswers,
+  startLifecycle,
+} from "../helpers/lifecycle.js";
+import { resourceLists } from "../helpers/resources.js";
 import {
   declaredAction,
   OTHER,
@@ -21,7 +26,7 @@ function seed(
   connectionId: number,
   kind: string,
   key: string,
-  over: { resourceUuid?: string; serverUuid?: string } = {},
+  over: { resourceUuid?: string | null; serverUuid?: string | null } = {},
 ) {
   h.db.sqlite
     .prepare(
@@ -32,8 +37,8 @@ function seed(
     .run(
       connectionId,
       kind,
-      over.resourceUuid ?? "app-web-uuid",
-      over.serverUuid ?? "srv-vps1-uuid",
+      over.resourceUuid === undefined ? "app-web-uuid" : over.resourceUuid,
+      over.serverUuid === undefined ? "srv-vps1-uuid" : over.serverUuid,
       `${kind}: web`,
       JSON.stringify({
         name: "web",
@@ -45,8 +50,8 @@ function seed(
     );
 }
 
-async function started() {
-  const s = await startLifecycle();
+async function started(options?: Parameters<typeof startLifecycle>[0]) {
+  const s = await startLifecycle(options);
   harness = s.harness;
   return s;
 }
@@ -123,6 +128,172 @@ describe("GET /connections/:id/events", () => {
       `/connections/${s.id}/events`,
     );
     expect(answer.status).toBe(403);
+  });
+});
+
+const kinds = (body: {
+  rows: { kind: string; resourceUuid: string | null }[];
+}) => body.rows.map((r) => `${r.kind}:${r.resourceUuid ?? "-"}`);
+
+/** Rows about what the connection's Coolify has, and about what it doesn't. */
+function seedMixed(h: PluginHarness, id: number) {
+  seed(h, id, "deployment-failed", "a");
+  seed(h, id, "deployment-failed", "b", { resourceUuid: "app-gone-uuid" });
+  seed(h, id, "server-unreachable", "c", { resourceUuid: null });
+  seed(h, id, "server-unreachable", "d", {
+    resourceUuid: null,
+    serverUuid: "srv-gone-uuid",
+  });
+  seed(h, id, "token-expiring", "e", { resourceUuid: null, serverUuid: null });
+  seed(h, id, "backup-failed", "f", { resourceUuid: "db-cache-uuid" });
+  seed(h, id, "certificate-problem", "g", { resourceUuid: "app-gone-uuid" });
+}
+
+describe("the grant rule", () => {
+  it("shows a granted user only rows about what the connection's Coolify still has", async () => {
+    const { harness: h, id } = await started();
+    seedMixed(h, id);
+    grant(h, id, OTHER, "view");
+    const theirs = await h.request(
+      "GET",
+      `/connections/${id}/events`,
+      undefined,
+      OTHER,
+    );
+    expect(theirs.status).toBe(200);
+    expect(kinds(theirs.body)).toEqual([
+      "backup-failed:db-cache-uuid",
+      "token-expiring:-",
+      "server-unreachable:-",
+      "deployment-failed:app-web-uuid",
+    ]);
+    expect(theirs.body.nextBefore).toBeNull();
+    expect(JSON.stringify(theirs.body)).not.toContain("-gone-");
+    // The owner's own log is whole.
+    const mine = await h.request("GET", `/connections/${id}/events`);
+    expect(mine.body.rows).toHaveLength(7);
+  });
+
+  it("fills a granted user's page past hidden rows and says when there is more", async () => {
+    const { harness: h, id } = await started();
+    seedMixed(h, id);
+    grant(h, id, OTHER, "operate");
+    const first = await h.request(
+      "GET",
+      `/connections/${id}/events?limit=2`,
+      undefined,
+      OTHER,
+    );
+    expect(kinds(first.body)).toEqual([
+      "backup-failed:db-cache-uuid",
+      "token-expiring:-",
+    ]);
+    expect(first.body.nextBefore).toBe(first.body.rows[1].id);
+    const second = await h.request(
+      "GET",
+      `/connections/${id}/events?limit=2&before=${first.body.nextBefore}`,
+      undefined,
+      OTHER,
+    );
+    expect(kinds(second.body)).toEqual([
+      "server-unreachable:-",
+      "deployment-failed:app-web-uuid",
+    ]);
+    // Only hidden rows are left: no next page.
+    expect(second.body.nextBefore).toBeNull();
+  });
+
+  it("refuses a granted user when the connection's Coolify can't say what it has", async () => {
+    const { harness: h, id } = await started({
+      overrides: { "GET /applications": { status: 401, json: {} } },
+    });
+    seedMixed(h, id);
+    grant(h, id, OTHER, "configure");
+    const theirs = await h.request(
+      "GET",
+      `/connections/${id}/events`,
+      undefined,
+      OTHER,
+    );
+    expect(theirs.status).toBeGreaterThanOrEqual(400);
+    expect(JSON.stringify(theirs.body)).not.toContain("deployment-failed");
+    // The owner reads the plugin's own table, whatever Coolify answers.
+    const mine = await h.request("GET", `/connections/${id}/events`);
+    expect(mine.status).toBe(200);
+    expect(mine.body.rows).toHaveLength(7);
+  });
+
+  it.each(["GET /applications", "GET /servers"])(
+    "ends a granted read with target-changed when the connection moves during %s",
+    async (route) => {
+      const { harness: h, fake, id } = await started();
+      seedMixed(h, id);
+      grant(h, id, OTHER, "view");
+      const fixtures = { ...resourceLists(), ...lifecycleAnswers() };
+      const body = (fixtures[route] as { json: unknown }).json;
+      const move = (to: string) =>
+        h.db.sqlite
+          .prepare("UPDATE p_coolify_connections SET base_url = ? WHERE id = ?")
+          .run(to, id);
+      // An edit lands while the subject list is out: the rows it would
+      // authorize belong to the old target.
+      fake.set(route, () => {
+        move("https://coolify-moved.example.test");
+        return Response.json(body);
+      });
+      const answer = await h.request(
+        "GET",
+        `/connections/${id}/events`,
+        undefined,
+        OTHER,
+      );
+      expect(answer.status).toBe(409);
+      expect(answer.body.cause).toBe("target-changed");
+      expect(JSON.stringify(answer.body)).not.toContain("deployment-failed");
+
+      // The operation ends the same way, with no rows.
+      move("https://coolify.example.test");
+      fake.set(route, () => {
+        move("https://coolify-moved-again.example.test");
+        return Response.json(body);
+      });
+      h.mock.setActor(OTHER);
+      try {
+        await expect(
+          h.mock.ctx.operations.run("coolify.events-list", {
+            input: { connectionId: String(id) },
+          }),
+        ).rejects.toMatchObject({ code: "target-changed" });
+      } finally {
+        h.mock.setActor(OWNER);
+      }
+    },
+  );
+
+  it("applies to coolify.events-list and its MCP tool", async () => {
+    const { harness: h, id } = await started();
+    seedMixed(h, id);
+    grant(h, id, OTHER, "view");
+    h.mock.setActor(OTHER);
+    try {
+      const outcome = await h.mock.ctx.operations.run("coolify.events-list", {
+        input: { connectionId: String(id), kind: "deployment-failed" },
+      });
+      expect(kinds(outcome.data as never)).toEqual([
+        "deployment-failed:app-web-uuid",
+      ]);
+      const ctx = withRun(h.mock.ctx, (actionId, options) =>
+        h.mock.ctx.operations.run(actionId, options),
+      );
+      const result = await callTool(ctx, "coolify__events_list", {
+        connectionId: String(id),
+      });
+      expect(result.isError).toBe(false);
+      expect(result.content[0].text).toContain("token-expiring");
+      expect(result.content[0].text).not.toContain("-gone-");
+    } finally {
+      h.mock.setActor(OWNER);
+    }
   });
 });
 
