@@ -27,7 +27,7 @@ output are operate, other changes are configure, and the operations named above 
 
 ## Access to a connection
 
-A connection belongs to the person who added it. In 1.0 only its owner reaches it; another user's connection
+A connection belongs to the person who added it. Only its owner reaches it; another user's connection
 answers as if it didn't exist. Every check already ranks access as view, operate, configure, then owner, so
 an action needs both the Termix permission and at least that access to the connection.
 
