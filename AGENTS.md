@@ -846,7 +846,11 @@ EventRecord) => unknown`, called by `afterStored` in `createEvents` after the co
   `alerts.idle()`/`pending()` exist for tests. Preferences: `prefs`/`setPrefs` act for the actor only
   (coolify.view, `connections.access`, another user's connection 404), a list of known kinds (deduped,
   in `EVENT_KINDS` order; an empty list is no alerts) or null for the defaults; anything else is
-  invalid-input and saves nothing. Removing a connection deletes its rows in `removeNow`'s batch; a
+  invalid-input and saves nothing. Every save and reset runs in an in-process queue per
+  `connectionId:actor` (`serialized`, like sync's; one plugin process), entered before any await, so
+  the row read and its insert or update never interleave (two first saves would otherwise both insert
+  and trip the unique index) and saves apply in the order asked; no DB upsert, which the SDK does not
+  offer alike on sqlite, postgres and mysql. Removing a connection deletes its rows in `removeNow`'s batch; a
   user's rows go with the user (refUser). `coolify.alert-prefs-set` is a change with permission view and
   is in `MCP_CONFIRM_REQUIRED`. The UI is each connection row's Alerts action (every access level), keyed
   by the connection id, request generations for its loads and saves, and a button that runs the Alerts

@@ -438,6 +438,39 @@ describe("alert preferences", () => {
     expect((await alerts.prefs(own)).kinds).toEqual(["high-disk"]);
   });
 
+  it("takes two concurrent first saves, the later one winning", async () => {
+    const [first, second] = await Promise.all([
+      alerts.setPrefs(own, ["high-disk"]),
+      alerts.setPrefs(own, ["backup-failed", "task-failed"]),
+    ]);
+    expect(first.kinds).toEqual(["high-disk"]);
+    expect(second.kinds).toEqual(["backup-failed", "task-failed"]);
+    const rows = db.sqlite
+      .prepare("SELECT kinds FROM p_coolify_alert_prefs")
+      .all() as { kinds: string }[];
+    expect(rows.map((r) => JSON.parse(r.kinds))).toEqual([
+      ["backup-failed", "task-failed"],
+    ]);
+    expect((await alerts.prefs(own)).kinds).toEqual([
+      "backup-failed",
+      "task-failed",
+    ]);
+  });
+
+  it("applies a save and a reset in the order they were asked", async () => {
+    await alerts.setPrefs(own, ["high-disk"]);
+    await Promise.all([
+      alerts.setPrefs(own, null),
+      alerts.setPrefs(own, ["task-failed"]),
+    ]);
+    expect((await alerts.prefs(own)).kinds).toEqual(["task-failed"]);
+    await Promise.all([
+      alerts.setPrefs(own, ["backup-failed"]),
+      alerts.setPrefs(own, null),
+    ]);
+    expect((await alerts.prefs(own)).isDefault).toBe(true);
+  });
+
   it("goes back to the defaults on reset", async () => {
     await alerts.setPrefs(own, []);
     expect((await alerts.prefs(own)).kinds).toEqual([]);

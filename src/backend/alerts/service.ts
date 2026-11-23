@@ -140,6 +140,26 @@ export function createAlerts(ctx: PluginContext, deps: AlertsDeps) {
   const t = deps.tables.alertPrefs;
   const { connections } = deps;
   const inFlight = new Set<Promise<void>>();
+  // Every change to one person's preferences on one connection runs alone,
+  // in the order asked: the read of their row and the insert or update that
+  // follows never interleave with another save, so two first saves can't
+  // both insert and trip the unique (connectionId, userId) index. One plugin
+  // process per Termix server, like the connections service's lock.
+  const queues = new Map<string, Promise<unknown>>();
+
+  function serialized<T>(key: string, work: () => Promise<T>): Promise<T> {
+    const before = queues.get(key) ?? Promise.resolve();
+    const run = before.then(work);
+    const tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    queues.set(key, tail);
+    void tail.then(() => {
+      if (queues.get(key) === tail) queues.delete(key);
+    });
+    return run;
+  }
 
   async function rowFor(
     connectionId: number,
@@ -243,6 +263,36 @@ export function createAlerts(ctx: PluginContext, deps: AlertsDeps) {
     };
   }
 
+  async function setPrefsNow(
+    connectionId: number,
+    raw: unknown,
+  ): Promise<AlertPrefs> {
+    const userId = await reach(connectionId);
+    const kinds = raw === null ? null : readKinds(raw);
+    const db = await dbClient(ctx);
+    const where = and(eq(t.connectionId, connectionId), eq(t.userId, userId));
+    if (kinds === null) {
+      await db.delete(t).where(where);
+    } else if (await rowFor(connectionId, userId)) {
+      await db
+        .update(t)
+        .set({
+          kinds: JSON.stringify(kinds),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(where);
+    } else {
+      await db.insert(t).values({
+        connectionId,
+        userId,
+        kinds: JSON.stringify(kinds),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    await ctx.db.persist();
+    return answer(connectionId, userId);
+  }
+
   return {
     /**
      * The pipeline's onStored hook: alerts for one stored event. Never
@@ -282,30 +332,10 @@ export function createAlerts(ctx: PluginContext, deps: AlertsDeps) {
      * the defaults. Unknown kinds are invalid-input and save nothing.
      */
     async setPrefs(connectionId: number, raw: unknown): Promise<AlertPrefs> {
-      const userId = await reach(connectionId);
-      const kinds = raw === null ? null : readKinds(raw);
-      const db = await dbClient(ctx);
-      const where = and(eq(t.connectionId, connectionId), eq(t.userId, userId));
-      if (kinds === null) {
-        await db.delete(t).where(where);
-      } else if (await rowFor(connectionId, userId)) {
-        await db
-          .update(t)
-          .set({
-            kinds: JSON.stringify(kinds),
-            updatedAt: new Date().toISOString(),
-          })
-          .where(where);
-      } else {
-        await db.insert(t).values({
-          connectionId,
-          userId,
-          kinds: JSON.stringify(kinds),
-          updatedAt: new Date().toISOString(),
-        });
-      }
-      await ctx.db.persist();
-      return answer(connectionId, userId);
+      // Queued by the actor before anything is awaited, so saves apply in
+      // the order they were asked; reach() checks the actor inside.
+      const key = `${connectionId}:${ctx.currentActor() ?? ""}`;
+      return serialized(key, () => setPrefsNow(connectionId, raw));
     },
   };
 }
