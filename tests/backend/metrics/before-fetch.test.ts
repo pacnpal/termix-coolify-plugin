@@ -44,6 +44,15 @@ function setup(changeDuringWait: (method: string, path: string) => boolean) {
       ) as T;
     },
   };
+  const metrics = metricsOver(http, () => changed);
+  return { metrics, sent, guarded };
+}
+
+/**
+ * The metrics service over `http` for an owner, with no SSH: the snapshot
+ * check fails with target-changed once `changed()` says the connection moved.
+ */
+function metricsOver(http: CoolifyHttp, changed: () => boolean) {
   const snap = {
     view: { access: "owner", revision: "r1" },
     api: createCoolifyApi(http),
@@ -52,7 +61,7 @@ function setup(changeDuringWait: (method: string, path: string) => boolean) {
   const ctx = {
     rbac: { has: async () => true },
   } as unknown as PluginContext;
-  const metrics = createMetrics(ctx, {
+  return createMetrics(ctx, {
     connections: {
       snapshot: async () => snap,
       access: async () => "owner",
@@ -63,7 +72,7 @@ function setup(changeDuringWait: (method: string, path: string) => boolean) {
       },
       assertHostAccess: async () => undefined,
       assertSnapshotHolds: async () => {
-        if (changed) {
+        if (changed()) {
           throw new ConnectionError("target-changed", "changed");
         }
       },
@@ -73,7 +82,6 @@ function setup(changeDuringWait: (method: string, path: string) => boolean) {
       throw new Error("no SSH in this test");
     },
   });
-  return { metrics, sent, guarded };
 }
 
 describe("metrics: the snapshot check runs right before each fetch", () => {
@@ -109,35 +117,7 @@ describe("metrics: the snapshot check runs right before each fetch", () => {
         } as T;
       },
     };
-    const snap = {
-      view: { access: "owner", revision: "r1" },
-      api: createCoolifyApi(http),
-      http,
-    };
-    const metrics = createMetrics(
-      { rbac: { has: async () => true } } as unknown as PluginContext,
-      {
-        connections: {
-          snapshot: async () => snap,
-          access: async () => "owner",
-        } as never,
-        containers: {
-          target: async () => {
-            throw new Error("unused");
-          },
-          assertHostAccess: async () => undefined,
-          assertSnapshotHolds: async () => {
-            if (changed) {
-              throw new ConnectionError("target-changed", "changed");
-            }
-          },
-        },
-        sync: { linkedHostFor: async () => null },
-        run: async () => {
-          throw new Error("no SSH in this test");
-        },
-      },
-    );
+    const metrics = metricsOver(http, () => changed);
     await expect(metrics.serverMetrics(1, SERVER)).rejects.toMatchObject({
       code: "target-changed",
     });
