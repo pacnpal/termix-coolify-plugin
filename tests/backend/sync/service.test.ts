@@ -68,6 +68,13 @@ function lockProvider(h: PluginHarness) {
   return provider;
 }
 
+/** Coolify's GET /servers rows: no private_key_id (GET /servers/{uuid} has it). */
+function listWithoutKeyIds() {
+  const listed = ({ private_key_id: _, ...rest }: Record<string, unknown>) =>
+    rest;
+  return { "GET /servers": { json: [WEB1, WEB2, LOCAL, TUNNEL].map(listed) } };
+}
+
 describe("host sync", () => {
   it("preview lists every server with what it would become", async () => {
     const { harness: h, connectionId } = await start();
@@ -191,6 +198,59 @@ describe("host sync", () => {
     expect(byUuid(await preview(h, connectionId), "srv-web1")).toMatchObject({
       status: "linked",
       credentialId: 42,
+    });
+  });
+
+  it("reads each server's key id when Coolify's server list leaves it out", async () => {
+    const fake = syncCoolify(listWithoutKeyIds());
+    for (const s of [WEB1, WEB2, LOCAL, TUNNEL]) {
+      fake.set(`GET /servers/${s.uuid}`, { json: s });
+    }
+    const { harness: h, connectionId } = await start({ fake });
+    expect(byUuid(await preview(h, connectionId), "srv-web1")).toMatchObject({
+      status: "new",
+      mode: "coolify",
+    });
+    const results = await apply(h, connectionId, only("srv-web1", "srv-web2"));
+    expect(byUuid(results, "srv-web1").status).toBe("created");
+    expect(h.mock.createdSshKeys).toHaveLength(1);
+    for (const host of await h.mock.ctx.hosts.listOwned()) {
+      expect(host.credentialId).toBe(h.mock.createdSshKeys[0].id);
+    }
+  });
+
+  it("a stored picked credential yields to the Coolify key once it copies, and stays while it can't", async () => {
+    // No server read answers yet: the key id is unknown, as before 1.0.1.
+    const fake = syncCoolify(listWithoutKeyIds());
+    const { harness: h, connectionId } = await start({
+      fake,
+      ownCredentials: [42],
+    });
+    expect(byUuid(await preview(h, connectionId), "srv-web1")).toMatchObject({
+      cause: "needs-credential",
+    });
+    await apply(h, connectionId, [
+      { uuid: "srv-web1", include: true, credentialId: 42 },
+    ]);
+
+    // The key id is known but the key comes back without material: kept.
+    fake.set("GET /servers/srv-web1", { json: WEB1 });
+    fake.set("GET /security/keys/key-uuid", {
+      json: deployKey({ private_key: undefined }),
+    });
+    await apply(h, connectionId, only("srv-web1"));
+    let [host] = await h.mock.ctx.hosts.listOwned();
+    expect(host.credentialId).toBe(42);
+
+    fake.set("GET /security/keys/key-uuid", { json: deployKey() });
+    const results = await apply(h, connectionId, only("srv-web1"));
+    expect(byUuid(results, "srv-web1").status).toBe("updated");
+    [host] = await h.mock.ctx.hosts.listOwned();
+    expect(h.mock.createdSshKeys).toHaveLength(1);
+    expect(host.credentialId).toBe(h.mock.createdSshKeys[0].id);
+    expect(byUuid(await preview(h, connectionId), "srv-web1")).toMatchObject({
+      status: "linked",
+      mode: "coolify",
     });
   });
 

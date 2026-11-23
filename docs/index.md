@@ -546,7 +546,8 @@ see servers, so the section says so instead.
      credentials are accepted. A picked credential you no longer have blocks the server and shows the picker
      again until you pick another; one that couldn't be checked can be picked again or tried as it is.
      When copying a server's key fails (Coolify refuses to send it, or sends no key), the server asks for a
-     credential the same way until you pick one or a later sync copies the key.
+     credential the same way until you pick one or a later sync copies the key. Once a server's key does
+     copy, a credential picked for it on an earlier sync gives way to the copied key.
    - **Behind a Cloudflare tunnel**: see [Servers behind Cloudflare tunnels](#servers-behind-cloudflare-tunnels).
 3. With keys readable, each Coolify key is copied once into a Termix credential named
    **Coolify: <connection> / <key>** and shared by every server that uses it. It is reused on later syncs
