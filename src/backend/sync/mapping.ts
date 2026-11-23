@@ -71,6 +71,11 @@ export interface PlanContext {
    * current Linked host and hasn't cleared them since.
    */
   tunnelApplied: boolean;
+  /**
+   * The owner asked Termix to reach the server through a Cloudflare tunnel
+   * Coolify doesn't know about; the override is its hostname.
+   */
+  viaTunnel?: boolean;
 }
 
 const MAX_ADDRESS = 253;
@@ -184,7 +189,10 @@ export function planTunnel(
 
 /** The Termix host a Coolify server becomes, or why it can't become one yet. */
 export function planHost(server: ServerDto, ctx: PlanContext): HostPlan {
-  const ip = ctx.override ?? (server.isCoolifyHost ? null : server.ip);
+  // A tunnel Termix adds needs its hostname as the address: Coolify's own
+  // address is no tunnel hostname.
+  const ip =
+    ctx.override ?? (server.isCoolifyHost || ctx.viaTunnel ? null : server.ip);
   if (!ip || isLoopback(ip)) return { ok: false, cause: "needs-address" };
 
   const input: PluginHostCreateInput = {
@@ -211,7 +219,7 @@ export function planHost(server: ServerDto, ctx: PlanContext): HostPlan {
       ? { coolify: true, docker: true }
       : { coolify: true },
   };
-  if (server.isTunnel) return planTunnel(input, ctx);
+  if (server.isTunnel || ctx.viaTunnel) return planTunnel(input, ctx);
   // A host that never had tunnel settings needs nothing of SSH Terminal.
   if (!ctx.tunnelApplied) return { ok: true, input };
   // A Linked host keeps settings an update leaves out, so a host this sync

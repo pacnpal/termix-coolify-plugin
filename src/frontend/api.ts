@@ -552,7 +552,10 @@ export interface SyncRow {
   addressOverride: string | null;
   suggestedAddress: string | null;
   credentialId: number | null;
+  /** Reached through a Cloudflare tunnel: Coolify's, or one added in Termix. */
   tunnel: boolean;
+  /** A tunnel added in Termix for a server Coolify reaches directly. */
+  viaTunnel: boolean;
 }
 
 export interface SyncChoice {
@@ -560,6 +563,7 @@ export interface SyncChoice {
   include: boolean;
   addressOverride?: string | null;
   credentialId?: number | null;
+  viaTunnel?: boolean;
 }
 
 export interface SyncResult {

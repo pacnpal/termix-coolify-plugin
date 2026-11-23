@@ -66,7 +66,7 @@ Keep this section current when the plugin changes: what it does, how it is put t
 aren't obvious from the code, and anything that has bitten you before.
 
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
-  Where things stand: the plugin is at 1.0.1 (1.0.0 was its first release). It holds connections, resources and
+  Where things stand: the plugin is at 1.0.2 (1.0.0 was its first release). It holds connections, resources and
   lifecycle, host sync, shells, logs, exec, metrics, server updates, companions, status pages, deployments,
   previews and rollback, recent activity, the activity panel, dashboard cards and homepage widgets, the
   event pipeline and event log (#89), the poller (#90), the team webhook (#91) and its one-click setup
@@ -359,7 +359,13 @@ aren't obvious from the code, and anything that has bitten you before.
   for hosts linked before it, unknown counts as tunnelled (fail closed). A plain server whose row has it gets the tunnel switched
   off and its hostname and token cleared once, and only while SSH Terminal runs (core skips settings for
   a plugin that doesn't); otherwise `planHost` blocks it with `needs-ssh-terminal-to-clear-tunnel` and
-  the host is left untouched. Plain hosts that were never tunnelled get no SSH Terminal settings. `pluginEnable.docker` is only ever true and only
+  the host is left untouched. Plain hosts that were never tunnelled get no SSH Terminal settings. `servers.viaTunnel` (migration 0005) is
+  the owner's **Reach through a Cloudflare tunnel** for a server Coolify reaches directly, offered on every row Coolify
+  doesn't tunnel. It is meant for Coolify's own host: the plugin never sets Coolify's `is_cloudflare_tunnel`
+  there, because Coolify must keep reaching itself without Cloudflare. It sends the row
+  through `planTunnel` like Coolify's flag, with the address override as the hostname (`needs-address`
+  without one, never Coolify's address); the sync service treats `isTunnel || viaTunnel` as tunnelled
+  everywhere it checks, and turning it off clears the tunnel through `tunnelApplied` as usual. `pluginEnable.docker` is only ever true and only
   while Docker runs, which is also the only time core would take a write. `apply` and `preview` read the
   connection once with `connections.snapshot()`: view (name, address, abilities, `revision`), client and
   a lazy Access token from one row, so nothing is read again from the connection later. `apply` checks

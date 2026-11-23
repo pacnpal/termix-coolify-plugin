@@ -38,6 +38,7 @@ interface Draft {
   include: boolean;
   address: string;
   credentialId: string;
+  viaTunnel: boolean;
 }
 
 const STATUS_TONE: Record<SyncRow["status"], StatusTone> = {
@@ -80,15 +81,25 @@ function draftOf(row: SyncRow): Draft {
     include: row.status === "new" || row.status === "linked",
     address: row.addressOverride ?? "",
     credentialId: stored,
+    viaTunnel: row.viaTunnel,
   };
 }
 
 /** Whether a row can be included with what has been entered so far. */
 function ready(row: SyncRow, draft: Draft): boolean {
   if (row.status === "gone") return false;
-  if (row.cause && SSH_TERMINAL_CAUSES.has(row.cause)) return false;
-  if (row.cause === "needs-address") return draft.address.trim() !== "";
-  if (needsCredential(row)) return draft.credentialId !== "";
+  // Turning off a tunnel added in Termix drops the SSH Terminal it needed; the
+  // backend still refuses while the host has tunnel settings to clear.
+  const tunnelDropped =
+    row.viaTunnel && !draft.viaTunnel && !row.server.isTunnel;
+  if (row.cause && SSH_TERMINAL_CAUSES.has(row.cause) && !tunnelDropped) {
+    return false;
+  }
+  // A tunnel added in Termix connects to the tunnel hostname. Each need is
+  // checked on its own: a hostname never stands in for a credential.
+  const needsAddress = row.cause === "needs-address" || draft.viaTunnel;
+  if (needsAddress && draft.address.trim() === "") return false;
+  if (needsCredential(row) && draft.credentialId === "") return false;
   return true;
 }
 
@@ -113,6 +124,7 @@ function choicesOf(
       if (credential !== row.credentialId && credential !== null) {
         choice.credentialId = credential;
       }
+      if (draft.viaTunnel !== row.viaTunnel) choice.viaTunnel = draft.viaTunnel;
       return choice;
     });
 }
@@ -206,13 +218,21 @@ function SyncRowView({
         )}
         {gone ? null : (
           <TextField
-            label={t("sync.address")}
+            label={
+              draft.viaTunnel ? t("sync.tunnelHostname") : t("sync.address")
+            }
             value={draft.address}
-            placeholder={row.suggestedAddress ?? row.server.ip}
+            placeholder={
+              draft.viaTunnel
+                ? t("sync.tunnelHostnamePlaceholder")
+                : (row.suggestedAddress ?? row.server.ip)
+            }
             hint={
-              needsAddress
-                ? t("sync.addressHint", { ip: row.server.ip })
-                : t("sync.addressOptionalHint", { ip: row.server.ip })
+              draft.viaTunnel
+                ? t("sync.tunnelHostnameHint")
+                : needsAddress
+                  ? t("sync.addressHint", { ip: row.server.ip })
+                  : t("sync.addressOptionalHint", { ip: row.server.ip })
             }
             mono
             onChange={(value) =>
@@ -227,7 +247,7 @@ function SyncRowView({
               })
             }
             aside={
-              row.suggestedAddress ? (
+              row.suggestedAddress && !draft.viaTunnel ? (
                 <Button
                   size="sm"
                   variant="outline"
@@ -244,6 +264,26 @@ function SyncRowView({
               ) : undefined
             }
           />
+        )}
+        {!gone && !row.server.isTunnel && (
+          <div className="flex items-center gap-2 text-sm">
+            <Checkbox
+              id={`sync-tunnel-${row.server.uuid}`}
+              checked={draft.viaTunnel}
+              onCheckedChange={(value) =>
+                onDraft({
+                  ...draft,
+                  viaTunnel: value === true,
+                  // Unticking a stored tunnel includes the row, so the
+                  // change is sent (a left-out row saves nothing).
+                  include: draft.include || (value !== true && row.viaTunnel),
+                })
+              }
+            />
+            <label htmlFor={`sync-tunnel-${row.server.uuid}`}>
+              {t("sync.viaTunnel")}
+            </label>
+          </div>
         )}
         {needsCredential(row) && (
           <SelectField

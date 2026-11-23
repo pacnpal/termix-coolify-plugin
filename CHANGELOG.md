@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.2
+
+### Added
+
+- Servers: **Reach through a Cloudflare tunnel** for a server Coolify reaches directly, such as the server
+  Coolify runs on, which Coolify never tunnels. Enter the SSH hostname you published on a Cloudflare tunnel,
+  and its Linked host connects through SSH Terminal with the connection's Cloudflare Access token, like a
+  server Coolify tunnels. Coolify keeps its own address. Turning it off clears the tunnel from the host
+
 ## 1.0.1
 
 ### Fixed

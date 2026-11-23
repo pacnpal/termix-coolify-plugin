@@ -51,7 +51,10 @@ export interface SyncRow {
   suggestedAddress: string | null;
   /** The credential the host uses or will use, when known. */
   credentialId: number | null;
+  /** Reached through a Cloudflare tunnel: Coolify's, or one added in Termix. */
   tunnel: boolean;
+  /** A tunnel added in Termix for a server Coolify reaches directly. */
+  viaTunnel: boolean;
 }
 
 /** One line of a confirmed sync. Servers left out are not touched. */
@@ -62,6 +65,11 @@ export interface SyncChoice {
   addressOverride?: string | null;
   /** A Termix credential to use instead of a copied key. */
   credentialId?: number | null;
+  /**
+   * Reach the server through a Cloudflare tunnel Coolify doesn't know about,
+   * at the address override. undefined keeps the stored choice.
+   */
+  viaTunnel?: boolean;
 }
 
 export interface SyncResult {
@@ -82,6 +90,7 @@ interface ServerRow {
   credentialId: number | null;
   keyFingerprint: string | null;
   tunnelApplied: boolean;
+  viaTunnel: boolean;
 }
 
 /** Whether the row's current Linked host carries tunnel settings sync wrote. */
@@ -124,6 +133,12 @@ export function readChoices(value: unknown): SyncChoice[] {
       choice.credentialId = id;
     } else if (raw.credentialId === null) {
       choice.credentialId = null;
+    }
+    if (raw.viaTunnel !== undefined) {
+      if (typeof raw.viaTunnel !== "boolean") {
+        throw invalid("viaTunnel must be true or false");
+      }
+      choice.viaTunnel = raw.viaTunnel;
     }
     return choice;
   });
@@ -396,6 +411,7 @@ export async function createSync(
   ): SyncRow {
     const mode = modeOf(copy, server, row);
     const override = row?.addressOverride ?? null;
+    const viaTunnel = Boolean(row?.viaTunnel);
     const credentialId =
       mode === "termix"
         ? row?.credentialMode === "termix"
@@ -416,6 +432,7 @@ export async function createSync(
       // A preview never reads the Access token: its rows don't carry it.
       cfAccess: null,
       tunnelApplied: tunnelOn(row),
+      viaTunnel,
     });
     const hostId = row?.hostId ?? null;
     let cause: string | undefined;
@@ -429,9 +446,12 @@ export async function createSync(
       ...(cause ? { cause } : {}),
       mode,
       addressOverride: override,
-      suggestedAddress: cause === "needs-address" ? hostOf(view.baseUrl) : null,
+      // The connection's host name is no tunnel hostname.
+      suggestedAddress:
+        cause === "needs-address" && !viaTunnel ? hostOf(view.baseUrl) : null,
       credentialId: credentialId ?? null,
-      tunnel: server.isTunnel,
+      tunnel: server.isTunnel || viaTunnel,
+      viaTunnel,
     };
   }
 
@@ -454,6 +474,7 @@ export async function createSync(
         suggestedAddress: null,
         credentialId: r.credentialId,
         tunnel: false,
+        viaTunnel: Boolean(r.viaTunnel),
       }));
   }
 
@@ -590,7 +611,10 @@ export async function createSync(
         });
         continue;
       }
+      const viaTunnel = choice.viaTunnel ?? Boolean(row?.viaTunnel);
+      const tunnelled = server.isTunnel || viaTunnel;
       const remember: Partial<ServerRow> = { addressOverride: override };
+      if (choice.viaTunnel !== undefined) remember.viaTunnel = viaTunnel;
       if (choice.credentialId !== undefined) {
         remember.credentialMode = picked ? "termix" : null;
         remember.credentialId = picked;
@@ -610,6 +634,7 @@ export async function createSync(
           sshTerminal,
           cfAccess: null,
           tunnelApplied: tunnelOn(row),
+          viaTunnel,
         });
         if (!precheck.ok) {
           await beforeWrite();
@@ -684,8 +709,9 @@ export async function createSync(
           folder,
           dockerRunning: docker,
           sshTerminal,
-          cfAccess: server.isTunnel ? await accessToken() : null,
+          cfAccess: tunnelled ? await accessToken() : null,
           tunnelApplied: tunnelOn(row),
+          viaTunnel,
         });
         if (!plan.ok) throw new Error("plan changed");
         if (!folderReady) {
@@ -697,7 +723,7 @@ export async function createSync(
         let hostId: number | null = null;
         let status: SyncResult["status"] = "created";
         if (row?.hostId) {
-          if (server.isTunnel && !row.tunnelApplied) {
+          if (tunnelled && !row.tunnelApplied) {
             // Write-ahead: the flag is set before the update that turns the
             // tunnel on, so it never says false while the host has a tunnel.
             // An abort after this only costs one redundant clear later.
@@ -736,7 +762,7 @@ export async function createSync(
             // ahead; a created one gets it with its hostId here). False only
             // now that the write turning the tunnel off has succeeded:
             // planHost plans that only while SSH Terminal runs.
-            tunnelApplied: server.isTunnel,
+            tunnelApplied: tunnelled,
             lastSyncedAt: new Date().toISOString(),
           });
         } catch (err) {
@@ -840,7 +866,10 @@ export async function createSync(
         : [];
       const check = ownCredentialCheck();
       const sshTerminal = servers.some(
-        (s) => s.isTunnel || tunnelOn(byUuid.get(s.uuid)),
+        (s) =>
+          s.isTunnel ||
+          byUuid.get(s.uuid)?.viaTunnel ||
+          tunnelOn(byUuid.get(s.uuid)),
       )
         ? (await companions()).sshTerminal
         : NO_SSH_TERMINAL;

@@ -217,6 +217,11 @@
           "type": "boolean",
           "notNull": true,
           "defaultValue": false
+        },
+        "viaTunnel": {
+          "type": "boolean",
+          "notNull": true,
+          "defaultValue": false
         }
       },
       "indexes": [
