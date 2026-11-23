@@ -243,7 +243,13 @@ describe("diffing polls", () => {
         ["dep-ancient", "failed", T0 - 60 * MINUTE],
       ),
     );
+    // Nothing was seen running, so the history page isn't asked for again
+    // until HISTORY_REFRESH_MS has passed; then the deployment is still news.
     await pollAt(harness, T0 + MINUTE);
+    expect(harness.mock.operationEvents).toEqual([]);
+    await pollAt(harness, T0 + 2 * MINUTE);
+    await pollAt(harness, T0 + 3 * MINUTE);
+    await pollAt(harness, T0 + 4 * MINUTE);
     expect(harness.mock.operationEvents).toEqual([
       expect.objectContaining({
         eventId: "coolify.deployment-failed",

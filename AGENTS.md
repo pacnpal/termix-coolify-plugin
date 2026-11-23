@@ -66,7 +66,7 @@ Keep this section current when the plugin changes: what it does, how it is put t
 aren't obvious from the code, and anything that has bitten you before.
 
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
-  Where things stand: the plugin is at 1.0.2 (1.0.0 was its first release). It holds connections, resources and
+  Where things stand: the plugin is at 1.0.3 (1.0.0 was its first release). It holds connections, resources and
   lifecycle, host sync, shells, logs, exec, metrics, server updates, companions, status pages, deployments,
   previews and rollback, recent activity, the activity panel, dashboard cards and homepage widgets, the
   event pipeline and event log (#89), the poller (#90), the team webhook (#91) and its one-click setup
@@ -1051,9 +1051,14 @@ EventRecord) => unknown`, called by `afterStored` in `createEvents` after the co
   Manager frontend actions run with `invokeAction`.
 - Deployments: `src/backend/deployments/` (service, log, routes, queue, by-tag) and
   `src/backend/ops/deployments.ts`. `deployments.queue(connectionId)` is the one connection-wide read of
-  Coolify's queue (`GET /deployments`) plus the recent history of the ten most recently deployed
-  applications; it is cached 10 seconds in memory (`queue.ts`), keyed by revision and an invalidate
-  generation like the resources cache, shared by the Deployments section, the Overview, the
+  Coolify's queue (`GET /deployments`) plus the recent history of ten applications (sorted by
+  `lastDeployAt`, which Coolify v4.7.x never sends, so in practice the first ten by name); it is cached 10
+  seconds in memory (`queue.ts`), keyed by revision and an invalidate generation like the resources cache,
+  and each history page is kept per connection and revision (`histories`) and asked for again only when
+  that application's queued or running deployment has left the queue, the page is new, or it is
+  `HISTORY_REFRESH_MS` (3 minutes) old, so a steady read is one request, not eleven (every request is an
+  audit entry in core). An invalidate forgets the pages. The backstop delay stays inside the poller's
+  `CLOCK_SLACK_MS`, so a deployment that started and ended between two polls is still news when found; shared by the Deployments section, the Overview, the
   `coolify.deployment-queue` action and anything later (the sidebar panel, rail badge). Rows whose link
   names no application of the connection are dropped. Cancel, deploy by tag and rollback invalidate it. In the
   frontend, `useDeploymentQueue` is held by CoolifyTab and polls only while the tab shows Overview or
