@@ -68,8 +68,9 @@ npm run format:check
 npx termix-plugin migrations --check
 ```
 
-The Coolify API descriptions the plugin is built against are saved in `vendor/coolify/`. After updating them,
-run `npm run gen:coolify` and update `docs/coverage.md`. See [CONTRIBUTING.md](CONTRIBUTING.md).
+The Coolify API descriptions the plugin is built against are saved in `vendor/coolify/`.
+`npm run gen:coolify` builds everything in `src/backend/coolify/generated/` from them, so don't edit those
+files by hand. After updating the descriptions, run it and update `docs/coverage.md`. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 <br />
 

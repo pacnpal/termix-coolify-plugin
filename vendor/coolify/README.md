@@ -2,7 +2,7 @@
 
 Copies of Coolify's `openapi.json`, kept byte for byte as fetched from
 `https://raw.githubusercontent.com/coollabsio/coolify/<ref>/openapi.json`. Don't edit them.
-`npm run gen:coolify` builds `src/backend/coolify/generated/operations.ts` from them, and
+`npm run gen:coolify` builds `src/backend/coolify/generated/operations.ts` and `schemas.json` from them, and
 `tests/backend/coverage.test.ts` checks `docs/coverage.md` and the generated table against them.
 
 | File                  | Ref               | Commit                                     | Fetched    |

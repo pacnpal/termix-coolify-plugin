@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.4
+
+### Changed
+
+- The plugin no longer asks for the `users:read` capability, which nothing used, and no longer subscribes
+  to `host.updated`, which nothing handled
+- Permissions: a new Capabilities section says what each capability the plugin asks for is used for
+
 ## 1.0.3
 
 ### Changed
