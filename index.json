@@ -3,7 +3,7 @@
   "name": "Coolify for Termix (pacnpal)",
   "apiVersion": 1,
   "publicKey": "Qhm4ZKAVAodNOzxb2Ez2DdcDccUAZUwKN9+id4JG7iU=",
-  "updatedAt": "2026-11-23T04:01:11.391Z",
+  "updatedAt": "2026-11-23T16:07:19.626Z",
   "plugins": [
     {
       "id": "coolify",
@@ -36,6 +36,44 @@
       ],
       "versions": [],
       "gated": [
+        {
+          "version": "1.0.1",
+          "api": "2",
+          "url": "https://github.com/pacnpal/termix-coolify-plugin/releases/download/v1.0.1/coolify-1.0.1.tmxplug",
+          "sha256": "513be7f085ffef197858615dd81a4db99473d84082039bffdf294cf2ffa33e04",
+          "signature": "vsML+oaaHm5ks3415oiPIdxgnKuZoBg9ks3Y44UVhVZier/g9Fj/b4gWnx6Nnf1ENhdFRahNl2Tx7XoxeVDUBg==",
+          "size": 969368,
+          "capabilities": [
+            "db:own",
+            "secrets:own",
+            "kv:own",
+            "network:serve",
+            "network:outbound",
+            "ui:surface",
+            "hosts:read",
+            "hosts:write",
+            "hosts:lock",
+            "credentials:write",
+            "credentials:use",
+            "ssh:connect",
+            "operations:provide",
+            "notify:send",
+            "events:core",
+            "plugins:read",
+            "users:read",
+            "operations:invoke"
+          ],
+          "engine": {
+            "api": "^2.7.0",
+            "termix": ">=26.11.2-0"
+          },
+          "releaseNotesUrl": "https://github.com/pacnpal/termix-coolify-plugin/releases/tag/v1.0.1",
+          "notes": "### Fixed\n\n- Sync servers copies each server's SSH key from Coolify again. Coolify's server list doesn't say which\n  key a server uses, so every server asked for a Termix credential, and a key the server doesn't accept\n  failed with \"All configured authentication methods failed\". Sync now reads each server for its key. A\n  Linked host that was given a picked credential switches to the Coolify key on its next sync, once the key\n  copies; a credential picked in that sync is still used as picked",
+          "provenance": {
+            "url": "https://github.com/pacnpal/termix-coolify-plugin/releases/download/v1.0.1/coolify-1.0.1.tmxplug.sigstore.json"
+          },
+          "publishedAt": "2026-11-23T16:06:24.000Z"
+        },
         {
           "version": "1.0.0",
           "api": "2",
