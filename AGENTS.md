@@ -752,7 +752,12 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   its uuid in `deps.subjects.servers` (the server statuses cache), `any` rows the resource when they name
   one, else the server, and team rows always pass. A row naming no subject it needs is hidden. Each list
   is read once per call and only when a row needs it; a failed read throws (Coolify's cause, usually
-  502), so a grantee never gets a silently partial log. `list` scans chunks of `limit + 1` until the
+  502), so a grantee never gets a silently partial log. The resources and server caches only stop
+  caching when the revision changes mid-fetch and still answer what they fetched, so a granted read
+  runs whole (lookups, scan, page) inside `forRevision` (connections/hold.ts), and `grantRule`'s
+  `holds` checks the revision the read started under before and after each lookup (a lookup that threw
+  after a move is target-changed too): a list from an old target never authorizes a row, and a move
+  mid-read is 409 `target-changed` with no rows. The owner path makes no lookup and skips both. `list` scans chunks of `limit + 1` until the
   page is full, so `nextBefore` is set only when another visible row is older (bounded at twice
   `EVENT_LOG_LIMIT` scanned rows; then `nextBefore` is the scan's cursor). `createServerStatuses` is made
   before `createEvents` in `index.ts` for this.

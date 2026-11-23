@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { callTool, withRun } from "../helpers/mcp.js";
-import { grant, startLifecycle } from "../helpers/lifecycle.js";
+import {
+  grant,
+  lifecycleAnswers,
+  startLifecycle,
+} from "../helpers/lifecycle.js";
+import { resourceLists } from "../helpers/resources.js";
 import {
   declaredAction,
   OTHER,
@@ -217,6 +222,53 @@ describe("the grant rule", () => {
     expect(mine.status).toBe(200);
     expect(mine.body.rows).toHaveLength(7);
   });
+
+  it.each(["GET /applications", "GET /servers"])(
+    "ends a granted read with target-changed when the connection moves during %s",
+    async (route) => {
+      const { harness: h, fake, id } = await started();
+      seedMixed(h, id);
+      grant(h, id, OTHER, "view");
+      const fixtures = { ...resourceLists(), ...lifecycleAnswers() };
+      const body = (fixtures[route] as { json: unknown }).json;
+      const move = (to: string) =>
+        h.db.sqlite
+          .prepare("UPDATE p_coolify_connections SET base_url = ? WHERE id = ?")
+          .run(to, id);
+      // An edit lands while the subject list is out: the rows it would
+      // authorize belong to the old target.
+      fake.set(route, () => {
+        move("https://coolify-moved.example.test");
+        return Response.json(body);
+      });
+      const answer = await h.request(
+        "GET",
+        `/connections/${id}/events`,
+        undefined,
+        OTHER,
+      );
+      expect(answer.status).toBe(409);
+      expect(answer.body.cause).toBe("target-changed");
+      expect(JSON.stringify(answer.body)).not.toContain("deployment-failed");
+
+      // The operation ends the same way, with no rows.
+      move("https://coolify.example.test");
+      fake.set(route, () => {
+        move("https://coolify-moved-again.example.test");
+        return Response.json(body);
+      });
+      h.mock.setActor(OTHER);
+      try {
+        await expect(
+          h.mock.ctx.operations.run("coolify.events-list", {
+            input: { connectionId: String(id) },
+          }),
+        ).rejects.toMatchObject({ code: "target-changed" });
+      } finally {
+        h.mock.setActor(OWNER);
+      }
+    },
+  );
 
   it("applies to coolify.events-list and its MCP tool", async () => {
     const { harness: h, id } = await started();

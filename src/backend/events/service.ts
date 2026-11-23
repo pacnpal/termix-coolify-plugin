@@ -12,6 +12,7 @@ import {
   or,
 } from "drizzle-orm";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
+import { forRevision } from "../connections/hold.js";
 import { ConnectionError, type Connections } from "../connections/service.js";
 import { redactLog } from "../containers/logs.js";
 import { dbClient, type Tables } from "../db.js";
@@ -388,23 +389,42 @@ function toRecord(row: EventRow): EventRecord | null {
  * sees is hidden. Each list is read once per call, and only when a row
  * needs it; a failed read throws, so "couldn't check" never reads as
  * "nothing to show".
+ *
+ * The lists' own caches only stop caching when the connection moves during
+ * a fetch; they still answer what they fetched. So `holds` (the revision the
+ * read started under) runs before and after each lookup, and a lookup that
+ * failed because the target moved ends as target-changed too: a list from
+ * the old target never authorizes a row.
  */
 function grantRule(
   subjects: EventSubjects,
   connectionId: number,
+  holds: () => Promise<void>,
 ): (record: EventRecord) => Promise<boolean> {
   const sets: {
     resources?: Promise<Set<string>>;
     servers?: Promise<Set<string>>;
   } = {};
-  const uuids = async (rows: Promise<readonly { uuid: string }[]>) =>
-    new Set((await rows).map((r) => r.uuid));
+  const uuids = async (
+    lookup: (id: number) => Promise<readonly { uuid: string }[]>,
+  ) => {
+    await holds();
+    let rows: readonly { uuid: string }[];
+    try {
+      rows = await lookup(connectionId);
+    } catch (err) {
+      await holds();
+      throw err;
+    }
+    await holds();
+    return new Set(rows.map((r) => r.uuid));
+  };
   const resourceIn = async (uuid: string) => {
-    sets.resources ??= uuids(subjects.resources(connectionId));
+    sets.resources ??= uuids((id) => subjects.resources(id));
     return (await sets.resources).has(uuid);
   };
   const serverIn = async (uuid: string) => {
-    sets.servers ??= uuids(subjects.servers(connectionId));
+    sets.servers ??= uuids((id) => subjects.servers(id));
     return (await sets.servers).has(uuid);
   };
   return async (record) => {
@@ -811,52 +831,83 @@ export function createEvents(ctx: PluginContext, deps: EventsDeps) {
         throw new ConnectionError("not-found", "Coolify connection not found");
       }
       const q = readQuery(query);
-      const visible =
-        access === "owner"
-          ? async () => true
-          : grantRule(deps.subjects, connectionId);
-      const db = await dbClient(ctx);
-      const chunk = q.limit + 1;
-      const rows: EventRecord[] = [];
-      let cursor = q.before;
-      // The log keeps EVENT_LOG_LIMIT rows a connection; this only bounds a
-      // scan that rows written meanwhile keep feeding.
-      for (let scanned = 0; scanned < 2 * EVENT_LOG_LIMIT;) {
-        const conditions = [
-          eq(t.connectionId, connectionId),
-          // Pending rows were never emitted: not part of the log.
-          or(isNull(t.dedupeKey), notLike(t.dedupeKey, `${PENDING}%`)),
-        ];
-        if (cursor !== null) conditions.push(lt(t.id, cursor));
-        if (q.kind !== null) conditions.push(eq(t.kind, q.kind));
-        if (q.uuid !== null) {
-          conditions.push(
-            or(eq(t.resourceUuid, q.uuid), eq(t.serverUuid, q.uuid)),
-          );
-        }
-        const found = (await db
-          .select()
-          .from(t)
-          .where(and(...conditions))
-          .orderBy(desc(t.id))
-          .limit(chunk)) as EventRow[];
-        for (const row of found) {
-          const record = toRecord(row);
-          if (!record || !(await visible(record))) continue;
-          // A full page and one more row to show: there is a next page.
-          if (rows.length === q.limit) {
-            return { rows, nextBefore: rows[rows.length - 1].id };
-          }
-          rows.push(record);
-        }
-        if (found.length < chunk) return { rows, nextBefore: null };
-        cursor = found[found.length - 1].id;
-        scanned += found.length;
+      // The owner's read asks Coolify nothing (no subject lookup), so no
+      // revision can make it answer for another target: it reads as is.
+      if (access === "owner") {
+        return scan(connectionId, q, async () => true);
       }
-      // Scanned as far as one read goes: the caller pages on from there.
-      return { rows, nextBefore: cursor };
+      // A granted read answers only for the target it started on: the
+      // subject lookups, the row scan and the page all run inside
+      // forRevision, and each lookup checks the revision again.
+      return forRevision(connections, connectionId, async () => {
+        const start = await connections.revision(connectionId);
+        const holds = async () => {
+          if ((await connections.revision(connectionId)) !== start) {
+            throw new ConnectionError(
+              "target-changed",
+              "The connection's address, token or Access settings changed. Try again.",
+            );
+          }
+        };
+        return scan(
+          connectionId,
+          q,
+          grantRule(deps.subjects, connectionId, holds),
+        );
+      });
     },
   };
+
+  /**
+   * A page of the log newest first, filled past rows `visible` hides, so
+   * `nextBefore` is set only when another visible row is older.
+   */
+  async function scan(
+    connectionId: number,
+    q: ReturnType<typeof readQuery>,
+    visible: (record: EventRecord) => Promise<boolean>,
+  ): Promise<EventPage> {
+    const db = await dbClient(ctx);
+    const chunk = q.limit + 1;
+    const rows: EventRecord[] = [];
+    let cursor = q.before;
+    // The log keeps EVENT_LOG_LIMIT rows a connection; this only bounds a
+    // scan that rows written meanwhile keep feeding.
+    for (let scanned = 0; scanned < 2 * EVENT_LOG_LIMIT;) {
+      const conditions = [
+        eq(t.connectionId, connectionId),
+        // Pending rows were never emitted: not part of the log.
+        or(isNull(t.dedupeKey), notLike(t.dedupeKey, `${PENDING}%`)),
+      ];
+      if (cursor !== null) conditions.push(lt(t.id, cursor));
+      if (q.kind !== null) conditions.push(eq(t.kind, q.kind));
+      if (q.uuid !== null) {
+        conditions.push(
+          or(eq(t.resourceUuid, q.uuid), eq(t.serverUuid, q.uuid)),
+        );
+      }
+      const found = (await db
+        .select()
+        .from(t)
+        .where(and(...conditions))
+        .orderBy(desc(t.id))
+        .limit(chunk)) as EventRow[];
+      for (const row of found) {
+        const record = toRecord(row);
+        if (!record || !(await visible(record))) continue;
+        // A full page and one more row to show: there is a next page.
+        if (rows.length === q.limit) {
+          return { rows, nextBefore: rows[rows.length - 1].id };
+        }
+        rows.push(record);
+      }
+      if (found.length < chunk) return { rows, nextBefore: null };
+      cursor = found[found.length - 1].id;
+      scanned += found.length;
+    }
+    // Scanned as far as one read goes: the caller pages on from there.
+    return { rows, nextBefore: cursor };
+  }
 }
 
 export type Events = ReturnType<typeof createEvents>;
