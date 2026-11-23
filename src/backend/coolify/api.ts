@@ -38,6 +38,11 @@ import {
 
 export type LifecycleAction = "start" | "stop" | "restart";
 
+/** Runs right before each request (after budget and retry waits); a throw sends nothing. */
+export interface FetchGuard {
+  beforeFetch?: () => Promise<void>;
+}
+
 const BY_ID = new Map(OPERATIONS.map((op) => [op.id, op]));
 
 /**
@@ -216,8 +221,10 @@ export function createCoolifyApi(http: CoolifyHttp) {
       return rows(await call(op("list-projects")), "projects").map(toProject);
     },
 
-    async servers(): Promise<ServerDto[]> {
-      return rows(await call(op("list-servers")), "servers").map(toServer);
+    async servers(opts: FetchGuard = {}): Promise<ServerDto[]> {
+      return rows(await call(op("list-servers"), opts), "servers").map(
+        toServer,
+      );
     },
 
     async server(uuid: string): Promise<ServerDto> {
@@ -252,20 +259,21 @@ export function createCoolifyApi(http: CoolifyHttp) {
       };
     },
 
-    async applications(): Promise<ResourceDto[]> {
-      return rows(await call(op("list-applications")), "applications").map(
-        toApplication,
-      );
+    async applications(opts: FetchGuard = {}): Promise<ResourceDto[]> {
+      return rows(
+        await call(op("list-applications"), opts),
+        "applications",
+      ).map(toApplication);
     },
 
-    async services(): Promise<ResourceDto[]> {
-      return rows(await call(op("list-services")), "services").flatMap(
+    async services(opts: FetchGuard = {}): Promise<ResourceDto[]> {
+      return rows(await call(op("list-services"), opts), "services").flatMap(
         toService,
       );
     },
 
-    async databases(): Promise<ResourceDto[]> {
-      return rows(await call(op("list-databases")), "databases").map(
+    async databases(opts: FetchGuard = {}): Promise<ResourceDto[]> {
+      return rows(await call(op("list-databases"), opts), "databases").map(
         toDatabase,
       );
     },

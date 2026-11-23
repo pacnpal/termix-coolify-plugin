@@ -19,6 +19,7 @@ import {
   diffPoll,
   type PollRead,
   type PolledRun,
+  type RunsRead,
   type SeenState,
 } from "./diff.js";
 
@@ -80,17 +81,36 @@ function causeOf(err: unknown): string {
   return err instanceof CoolifyError ? err.cause : "upstream";
 }
 
-/** A read that a resource's own absence or the token's scope leaves empty. */
-async function orEmpty<T>(read: Promise<T[]>): Promise<T[]> {
+/** Whether Coolify refused the read for the token's scope or abilities. */
+function refused(err: unknown): boolean {
+  return err instanceof CoolifyError && err.cause === "forbidden-ability";
+}
+
+/**
+ * A read the token's scope may legitimately be refused: null when it is
+ * (that part counts as unread this poll, unchanged), its answer otherwise.
+ * Every other error fails the poll.
+ */
+async function unlessRefused<T>(read: () => Promise<T>): Promise<T | null> {
   try {
-    return await read;
+    return await read();
   } catch (err) {
-    if (
-      err instanceof CoolifyError &&
-      (err.cause === "not-found" || err.cause === "forbidden-ability")
-    ) {
-      return [];
-    }
+    if (refused(err)) return null;
+    throw err;
+  }
+}
+
+/**
+ * One resource's backup, task or task-run list: empty when the resource
+ * is gone (not-found), null when the token is refused it, the list
+ * otherwise. Every other error fails the poll.
+ */
+async function resourceList<T>(read: () => Promise<T[]>): Promise<T[] | null> {
+  try {
+    return await read();
+  } catch (err) {
+    if (err instanceof CoolifyError && err.cause === "not-found") return [];
+    if (refused(err)) return null;
     throw err;
   }
 }
@@ -201,21 +221,34 @@ export function createPoller(ctx: PluginContext, deps: PollerDeps) {
     return (await connections.unattendedSnapshot(id))?.revision === revision;
   }
 
-  /** Backup runs of each database, and runs of each scheduled task. */
+  /**
+   * Backup runs of each database, and runs of each scheduled task. A
+   * resource the token is refused any of these for is in `refused`: what
+   * was seen of its runs stays, and nothing about them is sent.
+   */
   async function readRuns(
     api: CoolifyApi,
     resources: ResourceDto[],
     guard: () => Promise<void>,
-  ): Promise<PolledRun[]> {
+  ): Promise<RunsRead> {
     const opts = { beforeFetch: guard };
+    const refusedFor = new Set<string>();
+    const listOf = async <T>(owner: ResourceDto, read: () => Promise<T[]>) => {
+      const found = await resourceList(read);
+      if (found === null) refusedFor.add(owner.uuid);
+      return found ?? [];
+    };
+    const kindOf = (r: ResourceDto) => r.kind as "application" | "service";
     const databases = resources.filter((r) => r.kind === "database");
     const backups = await mapLimit(databases, CONCURRENCY, async (db) =>
-      (await orEmpty(api.backupRuns(db.uuid, opts))).map((run): PolledRun => ({
-        ...run,
-        type: "backup",
-        resource: db,
-        task: null,
-      })),
+      (await listOf(db, () => api.backupRuns(db.uuid, opts))).map(
+        (run): PolledRun => ({
+          ...run,
+          type: "backup",
+          resource: db,
+          task: null,
+        }),
+      ),
     );
     const owners = resources
       .filter((r) => r.kind === "application" || r.kind === "service")
@@ -223,12 +256,8 @@ export function createPoller(ctx: PluginContext, deps: PollerDeps) {
     const tasks = (
       await mapLimit(owners, CONCURRENCY, async (owner) =>
         (
-          await orEmpty(
-            api.scheduledTasks(
-              owner.kind as "application" | "service",
-              owner.uuid,
-              opts,
-            ),
+          await listOf(owner, () =>
+            api.scheduledTasks(kindOf(owner), owner.uuid, opts),
           )
         )
           .filter((task) => task.enabled && task.uuid)
@@ -242,13 +271,8 @@ export function createPoller(ctx: PluginContext, deps: PollerDeps) {
       CONCURRENCY,
       async ({ owner, task }) =>
         (
-          await orEmpty<RunDto>(
-            api.taskRuns(
-              owner.kind as "application" | "service",
-              owner.uuid,
-              task.uuid,
-              opts,
-            ),
+          await listOf<RunDto>(owner, () =>
+            api.taskRuns(kindOf(owner), owner.uuid, task.uuid, opts),
           )
         ).map((run): PolledRun => ({
           ...run,
@@ -257,7 +281,10 @@ export function createPoller(ctx: PluginContext, deps: PollerDeps) {
           task: task.name || null,
         })),
     );
-    return [...backups.flat(), ...taskRuns.flat()].filter((r) => r.uuid);
+    return {
+      runs: [...backups.flat(), ...taskRuns.flat()].filter((r) => r.uuid),
+      refused: refusedFor,
+    };
   }
 
   /** Everything one poll reads, each request checking the revision first. */
@@ -272,16 +299,23 @@ export function createPoller(ctx: PluginContext, deps: PollerDeps) {
     };
     const resources = (await deps.resources.readUnattended(id, snap)).rows;
     await guard();
-    const queue = await deps.deployments.queueUnattended(id, snap, resources);
+    // The queue and its history: a refusal leaves deployments unread.
+    const queue = await unlessRefused(() =>
+      deps.deployments.queueUnattended(id, snap, resources),
+    );
     await guard();
-    const servers = await deps.servers.listUnattended(id, snap);
+    // A scoped token is always refused /servers (the probe found it so):
+    // not asked. An unscoped one refused counts as unread too.
+    const servers = snap.scoped
+      ? null
+      : await unlessRefused(() => deps.servers.listUnattended(id, snap));
     await guard();
     const runs = withRuns
       ? await readRuns(await snap.api(), resources, guard)
       : null;
     return {
       resources,
-      deployments: [...queue.running, ...queue.recent],
+      deployments: queue ? [...queue.running, ...queue.recent] : null,
       servers,
       runs,
     };
@@ -353,7 +387,8 @@ export function createPoller(ctx: PluginContext, deps: PollerDeps) {
         forget(id);
         return;
       }
-      failed(id, at, err);
+      // The wait counts from the failure, however long the poll took.
+      failed(id, now(), err);
     }
   }
 

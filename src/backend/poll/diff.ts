@@ -12,7 +12,7 @@ import {
 } from "../../shared/resource-health.js";
 
 /**
- * How long before the last poll an unseen deployment's or run's end may be
+ * How long before the last read an unseen deployment's or run's end may be
  * and still count as new. Coolify's clock and Termix's can differ; a
  * deployment that ended earlier than this, never seen, is older history (an
  * application that just entered the recent window), not a change.
@@ -27,13 +27,26 @@ export interface PolledRun extends RunDto {
   task: string | null;
 }
 
-/** What one poll read, already reduced to what diffing needs. */
+/** The backup and task runs one poll read. */
+export interface RunsRead {
+  runs: PolledRun[];
+  /**
+   * Resources whose runs the token was refused: what was seen of them stays
+   * as it was, and nothing about them is sent.
+   */
+  refused: Set<string>;
+}
+
+/**
+ * What one poll read, already reduced to what diffing needs. A part that is
+ * null was not read this poll (refused by the token's scope, or not due):
+ * what was seen of it stays as it was, and it sends nothing.
+ */
 export interface PollRead {
   resources: ResourceDto[];
-  deployments: QueueRow[];
-  servers: ServerStatus[];
-  /** Null when backups and tasks weren't due this poll. */
-  runs: PolledRun[] | null;
+  deployments: QueueRow[] | null;
+  servers: ServerStatus[] | null;
+  runs: RunsRead | null;
 }
 
 /** What the poller remembers of a connection between polls. */
@@ -42,11 +55,18 @@ export interface SeenState {
   readAt: number;
   /** Deployment uuid to its status. */
   deployments: Map<string, string>;
+  /** When the deployments were last read (0: never). */
+  deploymentsReadAt: number;
   /** Top-level resource uuid to its last settled health (never deploying). */
   health: Map<string, ResourceHealth>;
+  /** Top-level resource uuid to Coolify's status word as last read. */
+  statuses: Map<string, string>;
   /** Server uuid to whether Coolify could reach it. */
   reachable: Map<string, boolean>;
-  /** Backup and task runs, `<type>:<uuid>` to status; null before the first read. */
+  /**
+   * Backup and task runs, `<type>:<resource uuid>:<run uuid>` to status;
+   * null before the first read.
+   */
   runs: Map<string, string> | null;
   /** When backups and tasks were last read. */
   runsReadAt: number;
@@ -57,9 +77,14 @@ function timeOf(value: string | null | undefined): number {
   return value ? Date.parse(value) : Number.NaN;
 }
 
-/** Whether an unseen thing that ended at `ended` ended after the last poll. */
+/** Whether an unseen thing that ended at `ended` ended after the last read. */
 function endedSince(ended: number, lastReadAt: number): boolean {
   return Number.isFinite(ended) && ended >= lastReadAt - CLOCK_SLACK_MS;
+}
+
+/** The state part of a status word: "restarting" of "restarting:unhealthy". */
+function stateOf(status: string): string {
+  return status.trim().toLowerCase().split(":")[0] ?? "";
 }
 
 function diffDeployments(
@@ -69,14 +94,16 @@ function diffDeployments(
 ): { events: SourceEvent[]; seen: Map<string, string> } {
   const seen = new Map<string, string>();
   const events: SourceEvent[] = [];
+  const lastRead = prev?.deploymentsReadAt ?? 0;
   for (const row of rows) {
     seen.set(row.uuid, row.status);
-    if (!prev || !isFinalDeployment(row.status)) continue;
+    // A baseline, or deployments never read before: nothing is news.
+    if (!prev || !lastRead || !isFinalDeployment(row.status)) continue;
     const before = prev.deployments.get(row.uuid);
     const ended = timeOf(row.finishedAt ?? row.updatedAt);
     const isNew =
       before === undefined
-        ? endedSince(ended, prev.readAt)
+        ? endedSince(ended, lastRead)
         : !isFinalDeployment(before);
     if (!isNew) continue;
     events.push({
@@ -97,40 +124,58 @@ function diffDeployments(
 
 /**
  * Status changes of top-level resources (Parts are covered by their
- * service), by health: a deploy's passing states (starting, building) are
- * no change, so running, deploying, running is nothing. A change into
- * `restarting` is a container restart; any other is a status change.
+ * service). Entering `restarting` is a container restart, read from
+ * Coolify's own word, so `running:unhealthy` to `restarting` counts though
+ * both are degraded. Any other change compares health: a deploy's passing
+ * states (starting, building) are no change, so running, deploying,
+ * running is nothing.
  */
 function diffStatuses(
   prev: SeenState | null,
   resources: ResourceDto[],
   at: number,
-): { events: SourceEvent[]; seen: Map<string, ResourceHealth> } {
-  const seen = new Map<string, ResourceHealth>();
+): {
+  events: SourceEvent[];
+  health: Map<string, ResourceHealth>;
+  statuses: Map<string, string>;
+} {
+  const health = new Map<string, ResourceHealth>();
+  const statuses = new Map<string, string>();
   const events: SourceEvent[] = [];
   for (const r of resources) {
     if (r.parentUuid) continue;
-    const health = resourceHealth(r.status);
+    statuses.set(r.uuid, r.status);
+    const now = resourceHealth(r.status);
     const before = prev?.health.get(r.uuid);
-    if (health === "deploying") {
-      if (before) seen.set(r.uuid, before);
+    const beforeStatus = prev?.statuses.get(r.uuid);
+    if (now === "deploying") {
+      if (before) health.set(r.uuid, before);
       continue;
     }
-    seen.set(r.uuid, health);
-    if (!before || before === health) continue;
-    const state = r.status.trim().toLowerCase().split(":")[0];
-    events.push({
-      kind: state === "restarting" ? "container-restarted" : "status-changed",
-      source: "poll",
+    health.set(r.uuid, now);
+    const event = {
+      source: "poll" as const,
       resourceUuid: r.uuid,
       serverUuid: r.serverUuid,
       name: r.name,
       status: r.status,
       at,
-      fields: { from: before, to: health },
-    });
+    };
+    const restarted =
+      stateOf(r.status) === "restarting" &&
+      beforeStatus !== undefined &&
+      stateOf(beforeStatus) !== "restarting";
+    if (restarted) {
+      events.push({ ...event, kind: "container-restarted" });
+    } else if (before && before !== now) {
+      events.push({
+        ...event,
+        kind: "status-changed",
+        fields: { from: before, to: now },
+      });
+    }
   }
-  return { events, seen };
+  return { events, health, statuses };
 }
 
 /** A server Coolify could reach and now can't. */
@@ -162,16 +207,23 @@ const RUN_DONE: Record<string, "succeeded" | "failed"> = {
   failed: "failed",
 };
 
+const runKey = (type: string, resourceUuid: string, uuid: string) =>
+  `${type}:${resourceUuid}:${uuid}`;
+
 /** Backup and task runs that ended since the last read of them. */
 function diffRuns(
   prev: SeenState | null,
-  runs: PolledRun[],
+  read: RunsRead,
 ): { events: SourceEvent[]; seen: Map<string, string> } {
   const seen = new Map<string, string>();
   const events: SourceEvent[] = [];
   const before = prev?.runs ?? null;
-  for (const run of runs) {
-    const key = `${run.type}:${run.uuid}`;
+  // A resource whose runs were refused keeps what was seen of them.
+  for (const [key, status] of before ?? []) {
+    if (read.refused.has(key.split(":")[1] ?? "")) seen.set(key, status);
+  }
+  for (const run of read.runs) {
+    const key = runKey(run.type, run.resource.uuid, run.uuid);
     seen.set(key, run.status);
     const done = RUN_DONE[run.status];
     if (!before || !done) continue;
@@ -201,6 +253,7 @@ function diffRuns(
  * baseline) and what this poll read at `at`, and what to remember next. A
  * baseline records everything and emits nothing, so a first poll (after a
  * start, a repoint or a pause) never floods the log with what already was.
+ * A part this poll didn't read keeps what was seen of it and sends nothing.
  */
 export function diffPoll(
   prev: SeenState | null,
@@ -208,26 +261,30 @@ export function diffPoll(
   at: number,
 ): { events: SourceEvent[]; next: SeenState } {
   const servers = new Map(read.resources.map((r) => [r.uuid, r.serverUuid]));
-  const deployments = diffDeployments(
-    prev,
-    read.deployments,
-    (uuid) => servers.get(uuid) ?? null,
-  );
+  const deployments = read.deployments
+    ? diffDeployments(
+        prev,
+        read.deployments,
+        (uuid) => servers.get(uuid) ?? null,
+      )
+    : null;
   const statuses = diffStatuses(prev, read.resources, at);
-  const reach = diffServers(prev, read.servers, at);
+  const reach = read.servers ? diffServers(prev, read.servers, at) : null;
   const runs = read.runs ? diffRuns(prev, read.runs) : null;
   return {
     events: [
-      ...deployments.events,
+      ...(deployments?.events ?? []),
       ...statuses.events,
-      ...reach.events,
+      ...(reach?.events ?? []),
       ...(runs?.events ?? []),
     ],
     next: {
       readAt: at,
-      deployments: deployments.seen,
-      health: statuses.seen,
-      reachable: reach.seen,
+      deployments: deployments?.seen ?? prev?.deployments ?? new Map(),
+      deploymentsReadAt: deployments ? at : (prev?.deploymentsReadAt ?? 0),
+      health: statuses.health,
+      statuses: statuses.statuses,
+      reachable: reach?.seen ?? prev?.reachable ?? new Map(),
       runs: runs ? runs.seen : (prev?.runs ?? null),
       runsReadAt: runs ? at : (prev?.runsReadAt ?? 0),
     },

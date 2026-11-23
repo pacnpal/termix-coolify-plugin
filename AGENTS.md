@@ -666,9 +666,18 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   reads, each through that snapshot: `resources.readUnattended` (the 20 s cache), `deployments.
 queueUnattended` (the 10 s queue cache, running plus recent, its `revision` source the snapshot's),
   `servers.listUnattended`, and when due the backup runs of each database and the runs of each enabled
-  scheduled task of the first 50 applications and services (at most 50 tasks; a resource's `not-found`
-  or `forbidden-ability` is empty, not a failure); `holds` (revision and the poller's generation)
-  is checked before each Coolify request and after each read; then the last `holds`, the diff, one
+  scheduled task of the first 50 applications and services (at most 50 tasks). Token scope: a
+  `forbidden-ability` on the queue (or its history), on servers or on one resource's backups, tasks
+  or task runs makes that part unread (`null` in `PollRead`, or the resource in `RunsRead.refused`):
+  what was seen of it stays and it sends nothing, never "gone" events. A scoped connection
+  (`unattendedSnapshot().scoped`, the probe's flag) is never asked `/servers`. A resource's
+  `not-found` is an empty list. Only the resource lists failing fails the poll for scope; every other
+  error fails it. Unread deployments keep their own `deploymentsReadAt`, so the unseen-deployment
+  window doesn't skip them. Every request is guarded: the resources fetch (all three lists) and the
+  servers fetch check their own source revision in `beforeFetch` (for actor reads too), the queue and
+  the run reads take the poll's guard (`holds`: revision and the poller's generation), so a removal
+  or repoint during a budget or retry wait sends nothing more; `holds` is also checked after each
+  read; then the last `holds`, the diff, one
   `events.ingest` per change with the snapshot's revision (a `dropped` other than `invalid` forgets
   and stops), `holds` again, and only then the seen state and timing are kept. What was seen is in
   memory per connection with the revision and a per-instance generation (`<epoch>:<n>`, advanced by
@@ -678,12 +687,15 @@ queueUnattended` (the 10 s queue cache, running plus recent, its `revision` sour
   and emits nothing; changes while nothing polled are lost by design, so a restart never replays
   history. After a baseline, an unseen deployment or run counts only when it ended within
   `CLOCK_SLACK_MS` (5 min) before the last poll or later (older history that comes into the recent
-  window is not news). Statuses compare `resourceHealth` of top-level resources only; deploying is
-  no change (the last settled health stays), into `restarting` is `container-restarted`, any other
-  change `status-changed` (a kind this ticket added, `fields` `from`/`to`). Servers: reachable to
+  window is not news). Statuses of top-level resources only: entering `restarting` is read from
+  Coolify's raw word (the seen state keeps `statuses`), so `running:unhealthy` to `restarting` (both
+  degraded) is still `container-restarted`, and only that event; other changes compare
+  `resourceHealth`, deploying is no change (the last settled health stays), and any other change is
+  `status-changed` (a kind this ticket added, `fields` `from`/`to`). Servers: reachable to
   unreachable is `server-unreachable`. A `target-changed` anywhere forgets and is not a failure;
   any other error keeps the last state (the next success diffs against it and catches up) and backs
-  off `POLL_BACKOFF_MS` 1, 2, 5, 15 minutes, with the cause id (`CoolifyError.cause`, else
+  off `POLL_BACKOFF_MS` 1, 2, 5, 15 minutes counted from `now()` when the failure is handled (not the
+  tick's start), with the cause id (`CoolifyError.cause`, else
   `upstream`) as the connection's `pollError` (through `ConnectionsOptions.pollError`, in memory, not
   `lastError`, which stays the probe's). A success clears both. One tick runs at a time.
 - Event pipeline (1.2.0, #89): `src/backend/events/` (`kinds.ts`, `service.ts` `createEvents`,

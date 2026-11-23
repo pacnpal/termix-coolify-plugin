@@ -8,6 +8,7 @@ import {
   POLL_ID,
   SLOW_POLL_MS,
 } from "../../../src/backend/poll/service.js";
+import { HEAVY_TEST_MS } from "../../shared/timing.js";
 
 const T0 = Date.parse("2026-11-23T10:00:00.000Z");
 const MINUTE = 60_000;
@@ -297,6 +298,20 @@ describe("diffing polls", () => {
     expect(kinds(harness)).toEqual(["coolify.container-restarted"]);
   });
 
+  it.each(["running:unhealthy", "running:healthy", "degraded:unhealthy"])(
+    "%s to restarting is one container-restarted, however the health reads",
+    async (before) => {
+      const { harness, fake } = await start({
+        "GET /applications": web(before),
+      });
+      await pollAt(harness, T0);
+      fake.set("GET /applications", web("restarting:unhealthy"));
+      await pollAt(harness, T0 + MINUTE);
+      await pollAt(harness, T0 + 2 * MINUTE);
+      expect(kinds(harness)).toEqual(["coolify.container-restarted"]);
+    },
+  );
+
   it("a poll needs no actor and never reads Coolify as anyone but the owner's token", async () => {
     const { harness, fake } = await start();
     const before = fake.calls.length;
@@ -346,6 +361,92 @@ describe("a target change", () => {
     fake.set("GET /deployments", running());
     await pollAt(harness, T0 + 2 * MINUTE);
     expect(harness.mock.operationEvents).toEqual([]);
+  });
+
+  it.each(["/services", "/servers"])(
+    "a repoint while %s waits to retry sends no further request",
+    async (path) => {
+      const { harness, fake, id } = await start();
+      await pollAt(harness, T0);
+      // Coolify asks for a retry; the connection is repointed meanwhile.
+      fake.set(`GET ${path}`, () => {
+        harness.db.sqlite
+          .prepare(
+            "UPDATE p_coolify_connections SET allow_private = 1 WHERE id = ?",
+          )
+          .run(id);
+        return new Response("{}", {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        });
+      });
+      const before = fake.calls.length;
+      await pollAt(harness, T0 + MINUTE);
+      const sent = fake.calls.slice(before).map((c) => c.path);
+      expect(sent.filter((p) => p === path)).toHaveLength(1);
+      // Nothing after the repoint but the list reads already sent with it.
+      const inFlight = new Set(["/applications", "/databases"]);
+      expect(
+        sent.slice(sent.indexOf(path) + 1).filter((p) => !inFlight.has(p)),
+      ).toEqual([]);
+      expect(harness.mock.operationEvents).toEqual([]);
+      expect((await connection(harness, id)).pollError).toBeNull();
+    },
+    HEAVY_TEST_MS,
+  );
+});
+
+describe("a token scope", () => {
+  const forbidden: FakeAnswer = {
+    status: 403,
+    json: { message: "This token can't do that." },
+  };
+
+  it("a scoped connection polls its resources and deployments, and never its servers", async () => {
+    const { harness, fake, id } = await start({
+      "GET /team": forbidden,
+      "GET /servers": forbidden,
+      "GET /deployments": running(["dep-1", "in_progress"]),
+    });
+    expect((await connection(harness, id)) as unknown).toMatchObject({
+      scoped: true,
+    });
+    const before = fake.calls.length;
+    await pollAt(harness, T0);
+    fake.set("GET /deployments", running());
+    fake.set(HISTORY, history(["dep-1", "finished", T0 + 30_000]));
+    fake.set("GET /applications", web("exited"));
+    await pollAt(harness, T0 + MINUTE);
+    expect(kinds(harness).sort()).toEqual([
+      "coolify.deployment-finished",
+      "coolify.status-changed",
+    ]);
+    expect(
+      fake.calls.slice(before).filter((c) => c.path === "/servers"),
+    ).toEqual([]);
+    expect((await connection(harness, id)).pollError).toBeNull();
+  });
+
+  it("a read the token is refused leaves that part as it was: no events, no failure", async () => {
+    const { harness, fake, id } = await start({
+      "GET /deployments": running(["dep-1", "in_progress"]),
+    });
+    await pollAt(harness, T0);
+    // Servers refused while edge goes down: nothing about servers is sent,
+    // and the rest of the poll still counts.
+    fake.set("GET /servers", forbidden);
+    fake.set("GET /deployments", running());
+    fake.set(HISTORY, history(["dep-1", "finished", T0 + 30_000]));
+    await pollAt(harness, T0 + MINUTE);
+    expect(kinds(harness)).toEqual(["coolify.deployment-finished"]);
+    expect((await connection(harness, id)).pollError).toBeNull();
+    // Readable again: what was seen before the refusal still counts.
+    fake.set("GET /servers", servers(false));
+    await pollAt(harness, T0 + 2 * MINUTE);
+    expect(kinds(harness)).toEqual([
+      "coolify.deployment-finished",
+      "coolify.server-unreachable",
+    ]);
   });
 });
 
@@ -526,6 +627,29 @@ describe("backoff", () => {
     });
     await pollAt(harness, T0);
     expect((await connection(harness, id)).pollError).toBe("unreachable");
+  });
+
+  it("the wait counts from when the poll failed, not from when it started", async () => {
+    const { harness, fake } = await start();
+    const polls = () =>
+      fake.calls.filter((c) => c.path === "/deployments").length;
+    await pollAt(harness, T0);
+    // The failing answer comes 90 seconds into the poll.
+    fake.set("GET /deployments", () => {
+      vi.setSystemTime(T0 + MINUTE + 90_000);
+      return new Response(JSON.stringify({ message: "Unauthenticated." }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    await pollAt(harness, T0 + MINUTE);
+    fake.set("GET /deployments", running());
+    const count = polls();
+    // A minute after the start, but not yet after the failure.
+    await pollAt(harness, T0 + 2 * MINUTE + 89_000);
+    expect(polls()).toBe(count);
+    await pollAt(harness, T0 + 2 * MINUTE + 90_000);
+    expect(polls()).toBe(count + 1);
   });
 });
 

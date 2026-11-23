@@ -4,7 +4,7 @@ import type { SignalResult } from "@termix-ssh/plugin-sdk/operations";
 import { createCache } from "../cache.js";
 import type { CoolifyApi } from "../coolify/api.js";
 import type { ServerDto } from "../coolify/dto.js";
-import type { Connections } from "../connections/service.js";
+import { ConnectionError, type Connections } from "../connections/service.js";
 import type { Tables } from "../db.js";
 import type { Resources } from "../resources/service.js";
 import type { Sync } from "../sync/service.js";
@@ -94,7 +94,17 @@ export function createServerStatuses(
     const pending = inflight.get(key);
     if (pending) return pending;
     const started = (async () => {
-      const list = (await (await api()).servers()).map(statusOf);
+      // Each request checks the revision right before it is sent (after
+      // any budget or retry wait), so a repoint sends nothing more.
+      const beforeFetch = async () => {
+        if ((await current()) !== revision) {
+          throw new ConnectionError(
+            "target-changed",
+            "The connection's address, token or Access settings changed. Try again.",
+          );
+        }
+      };
+      const list = (await (await api()).servers({ beforeFetch })).map(statusOf);
       // Cached only while the revision and generation the fetch started
       // under are still current. The row carries both, so a change that
       // lands after this check still never serves it.

@@ -517,7 +517,7 @@ scheduled task runs (at most 50 of each). It only reads. The changes since the l
 | --------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | A deployment ended (also one that started and ended between two polls)      | `deployment-finished` or `deployment-failed`                           |
 | A resource went between running, degraded and stopped (not while deploying) | `status-changed`, `fields` `from` and `to`                             |
-| A resource started restarting                                               | `container-restarted`                                                  |
+| A resource started restarting (also from an unhealthy state)                | `container-restarted`                                                  |
 | A server Coolify could reach became unreachable                             | `server-unreachable`                                                   |
 | A backup or scheduled task run ended                                        | `backup-succeeded`, `backup-failed`, `task-succeeded` or `task-failed` |
 
@@ -530,11 +530,17 @@ scheduled task runs (at most 50 of each). It only reads. The changes since the l
   `PATCH /plugin-api/coolify/connections/{id}` and `pollEnabled`, or with `coolify.connection-set-poll`.
 - Nothing polls while the admin setting **Allow polling** is off, nor for a connection whose owner lost **View
   Coolify**.
-- After a failed poll the connection waits 1, 2, 5 and then 15 minutes before the next, and shows the cause
+- **Scoped tokens.** A token limited to projects or resources polls its resources and deployments. Its
+  servers are never asked (Coolify refuses them), so it gets no `server-unreachable`. Any read Coolify
+  refuses for the token's abilities (servers, deployments, one resource's backups or scheduled tasks)
+  counts as not read for that poll: nothing about it is sent, and what was seen before is kept for the
+  next poll. Only other errors fail the poll.
+- After a failed poll the connection waits 1, 2, 5 and then 15 minutes, counted from when it failed, before the next, and shows the cause
   as `pollError` on the connection (`unreachable`, `unauthorized` and so on, the same words as a failed
   check). A poll that works clears it and the wait.
 - A poll is about one read of the connection. If its address, token, Access or TLS settings change while it
-  runs, it keeps nothing and sends nothing, and the next poll is a baseline again.
+  runs, it keeps nothing and sends nothing, and the next poll is a baseline again. Each request checks
+  first, so none is sent with the old token after the change, even one waiting to retry.
 
 ### Action `coolify.connection-set-poll`
 

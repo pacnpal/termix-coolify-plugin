@@ -1082,6 +1082,11 @@ export function createConnections(
     async unattendedSnapshot(id: number): Promise<{
       userId: string;
       revision: string;
+      /**
+       * Whether the last probe found the token scoped to projects or
+       * resources (no /team, /servers or /security/keys).
+       */
+      scoped: boolean;
       api: () => Promise<CoolifyApi>;
       /**
        * The token and Access secret of that same row, for masking them in
@@ -1094,6 +1099,7 @@ export function createConnections(
       return {
         userId: found.userId,
         revision: revisionOf(found),
+        scoped: parseStored(found.abilities).scoped,
         api: async () => (await cachedClient(found)).api,
         secrets: async () =>
           [

@@ -46,6 +46,11 @@ interface CachedRows {
 
 const notFound = () =>
   new ConnectionError("not-found", "Coolify connection not found");
+const targetChanged = () =>
+  new ConnectionError(
+    "target-changed",
+    "The connection's address, token or Access settings changed. Try again.",
+  );
 
 /**
  * A connection's applications, services (each followed by its Parts) and
@@ -117,10 +122,18 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
     source: FetchSource = actorSource(connectionId),
   ): Promise<ResourceList> {
     const api = await source.api();
+    // Right before each request (after any budget or retry wait): the
+    // connection still points where this fetch began, so a removal or a
+    // repoint sends nothing more with the old token.
+    const guard = {
+      beforeFetch: async () => {
+        if ((await source.revision()) !== revision) throw targetChanged();
+      },
+    };
     const [applications, services, databases] = await Promise.all([
-      api.applications(),
-      api.services(),
-      api.databases(),
+      api.applications(guard),
+      api.services(guard),
+      api.databases(guard),
     ]);
     const list = {
       rows: [...applications, ...services, ...databases],
