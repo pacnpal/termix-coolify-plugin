@@ -39,6 +39,13 @@ export function linearLimit(factor: number): number {
 const TRIES = 3;
 
 /**
+ * Calls of each size made before anything is timed. The first calls run before
+ * the JIT has optimized them; timed, they read the small size (sampled first)
+ * as costlier than it is, which made a quadratic call look linear on CI.
+ */
+export const WARM_UP_CALLS = 3;
+
+/**
  * Sub-samples of each size in one try. Their median ignores one paused
  * sub-sample, whichever size it hits.
  */
@@ -129,6 +136,10 @@ export function growth(
   const limit = linearLimit(factor);
   const small = at(1 / factor);
   const full = at(1);
+  for (let i = 0; i < WARM_UP_CALLS; i += 1) {
+    small();
+    full();
+  }
   let smallest = Number.POSITIVE_INFINITY;
   let fullest = Number.POSITIVE_INFINITY;
   for (let i = 0; i < TRIES; i += 1) {
