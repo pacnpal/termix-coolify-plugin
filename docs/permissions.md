@@ -29,7 +29,9 @@ output are operate, other changes are configure, and the operations named above 
 
 A connection belongs to the person who added it. Only its owner reaches it; another user's connection
 answers as if it didn't exist. Every check already ranks access as view, operate, configure, then owner, so
-an action needs both the Termix permission and at least that access to the connection.
+an action needs both the Termix permission and at least that access to the connection. The checks also
+handle shared access (a grant of view, operate or configure), but nothing creates a grant yet, so the grant
+rules on this page apply once sharing arrives.
 
 Anything that reaches a Linked host over SSH also needs your own access to that host in Termix: **connect**
 for shells, logs, tunnels and update checks, and **edit** for running commands, installing updates and
