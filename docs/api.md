@@ -64,6 +64,8 @@ appear in run history.
 | `coolify.events-list`              | `GET /plugin-api/coolify/connections/:id/events`                                              | `/operations/coolify.events-list/run`              | `operations:read` or `operations:run` | `coolify__events_list`              | `curl -X POST "$TERMIX/operations/coolify.events-list/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'`                                                                                           |
 | `coolify.connection-overview`      | `GET /plugin-api/coolify/connections/:id/overview`                                            | `/operations/coolify.connection-overview/run`      | `operations:read` or `operations:run` | `coolify__connection_overview`      | `curl -X POST "$TERMIX/operations/coolify.connection-overview/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'`                                                                                   |
 | `coolify.vulnerability-summary`    | `GET /plugin-api/coolify/connections/:id/vulnerabilities`                                     | `/operations/coolify.vulnerability-summary/run`    | `operations:read` or `operations:run` | `coolify__vulnerability_summary`    | `curl -X POST "$TERMIX/operations/coolify.vulnerability-summary/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'`                                                                                 |
+| `coolify.alert-prefs`              | `GET /plugin-api/coolify/connections/:id/alert-prefs`                                         | `/operations/coolify.alert-prefs/run`              | `operations:read` or `operations:run` | `coolify__alert_prefs`              | `curl -X POST "$TERMIX/operations/coolify.alert-prefs/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1"}}'`                                                                                           |
+| `coolify.alert-prefs-set`          | `PUT /plugin-api/coolify/connections/:id/alert-prefs`                                         | `/operations/coolify.alert-prefs-set/run`          | `operations:run`                      | `coolify__alert_prefs_set`          | `curl -X POST "$TERMIX/operations/coolify.alert-prefs-set/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","kinds":["deployment-failed","server-unreachable"]}}'`                                    |
 | `coolify.deploy-by-tag`            | `POST /plugin-api/coolify/connections/:id/deploy-by-tag`                                      | `/operations/coolify.deploy-by-tag/run`            | `operations:run`                      | `coolify__deploy_by_tag`            | `curl -X POST "$TERMIX/operations/coolify.deploy-by-tag/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"input":{"connectionId":"1","tag":"prod","force":false}}'`                                                              |
 | `coolify.signal-degraded`          | `GET /plugin-api/coolify/connections/:id/resources`                                           | `/operations/coolify.signal-degraded/run`          | `operations:read` or `operations:run` | `coolify__signal_degraded`          | `curl -X POST "$TERMIX/operations/coolify.signal-degraded/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7}'`                                                                                                         |
 | `coolify.signal-server`            | `GET /plugin-api/coolify/connections/:id/servers`                                             | `/operations/coolify.signal-server/run`            | `operations:read` or `operations:run` | `coolify__signal_server`            | `curl -X POST "$TERMIX/operations/coolify.signal-server/run" -H "Authorization: Bearer $TERMIX_API_KEY" -H "Content-Type: application/json" -d '{"hostId":7}'`                                                                                                           |
@@ -224,6 +226,8 @@ serves.
 | `GET /plugin-api/coolify/connections/:id/events`                                              | `coolify.events-list`                                                                                                                                                |
 | `GET /plugin-api/coolify/connections/:id/overview`                                            | `coolify.connection-overview`                                                                                                                                        |
 | `GET /plugin-api/coolify/connections/:id/vulnerabilities`                                     | `coolify.vulnerability-summary`                                                                                                                                      |
+| `GET /plugin-api/coolify/connections/:id/alert-prefs`                                         | `coolify.alert-prefs`                                                                                                                                                |
+| `PUT /plugin-api/coolify/connections/:id/alert-prefs`                                         | `coolify.alert-prefs-set`                                                                                                                                            |
 | `GET /plugin-api/coolify/connections/:id/deploy-by-tag`                                       | `coolify.deploy-by-tag` (its dry run lists the same resources)                                                                                                       |
 | `POST /plugin-api/coolify/connections/:id/deploy-by-tag`                                      | `coolify.deploy-by-tag`                                                                                                                                              |
 | `POST /plugin-api/coolify/connections/:id/resources/:uuid/shell`                              | `coolify.shell-command`                                                                                                                                              |
@@ -720,6 +724,50 @@ Reads offered to the assistant and MCP: `connectionId` and optionally `refresh`.
 answer. The overview's summary reads like "5 resources: 0 running, 2 degraded, 2 stopped, 1 deploying, 2
 servers (1 unreachable)", the vulnerabilities' like "3 of 5 resources have known vulnerabilities (2
 critical, 4 high)".
+
+## Alerts and alert preferences
+
+Every event the pipeline stores becomes an alert in Termix's Alerts inbox (`ctx.notify.send`), which the
+Alerts hub routes to each person's delivery channels (email, webhooks, chat). Channels are set up in Alerts;
+the connection's Alerts view links there.
+
+- **Who gets one:** the connection's owner and every user it is shared with, each only for the kinds they
+  picked. Each person needs **View Coolify** and their access to the connection when the alert is sent, so
+  losing either stops alerts at once.
+- **Default kinds**, until a person picks their own: deploy failed, restart limit, server unreachable, backup
+  failed, task failed, high disk, certificate problems and API token expiring.
+- **What it says:** the kind and the resource, server or team it is about, the connection's name and
+  Coolify's status word, built only from the stored event, which the pipeline already redacted. Its
+  category is `coolify.<kind>` (like `coolify.deployment-failed`), so alerts can be routed by kind, and its
+  severity is the event's.
+- **Once:** an event the pipeline sees again is a duplicate and sends nothing, and the hub drops a repeat
+  for the same person while their earlier alert is unread: for a repeating condition (restarts, an
+  unreachable server, high disk, certificates, an expiring token) any repeat on the same subject, for a
+  deployment the same deployment. Every other event (a task run, a backup, a status change) is its own alert.
+- **Where it points:** the Coolify tab. The alert's `context.tab` holds the tab data that opens its subject:
+  `{ section: "resources", connectionId, uuid }` for a resource, `{ section: "resources", connectionId,
+serverUuid }` for a server and `{ section: "overview", connectionId }` for a team-wide event.
+- An alert that can't be sent is logged and never fails or holds up the event.
+
+### `GET /plugin-api/coolify/connections/{id}/alert-prefs`
+
+Your alert kinds for the connection, as `{ connectionId, kinds, isDefault, defaults, available }`:
+`isDefault` is true while you picked none, `defaults` is what applies then and `available` lists every
+event kind. Needs **View Coolify** and access to the connection; another user's connection is 404.
+
+### `PUT /plugin-api/coolify/connections/{id}/alert-prefs`
+
+Body `{ "kinds": ["deployment-failed", "high-disk"] }` saves the kinds you get alerts for (an empty list
+turns them off for this connection); `{ "kinds": null }` goes back to the defaults. It answers like the
+GET. Every kind must be a known event kind, or it is 400 `invalid-input` and nothing is saved. It changes
+only your own preferences: everyone with access picks their own, and nobody reads or changes anyone
+else's. Needs **View Coolify** and access to the connection; another user's connection is 404.
+
+### Actions `coolify.alert-prefs` and `coolify.alert-prefs-set`
+
+`coolify.alert-prefs` is a read offered to the assistant and MCP: `connectionId`; its data is the route's
+answer. `coolify.alert-prefs-set` takes `connectionId` and `kinds`, or `reset: true` for the defaults, and
+is a change: over MCP it needs "Allow changes over MCP" and `confirmed: true`.
 
 ## Rollback
 

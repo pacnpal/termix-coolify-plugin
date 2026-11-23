@@ -10,6 +10,8 @@ import { createCompanions } from "./companions/service.js";
 import { createContainerCompanions } from "./companions/container-service.js";
 import { registerContainerCompanionRoutes } from "./companions/container-routes.js";
 import { createConnections } from "./connections/service.js";
+import { createAlerts } from "./alerts/service.js";
+import { registerAlertRoutes } from "./alerts/routes.js";
 import { createEvents } from "./events/service.js";
 import { registerEventRoutes } from "./events/routes.js";
 import { createDashboard } from "./dashboard/service.js";
@@ -76,8 +78,15 @@ export async function activate(ctx: PluginContext): Promise<void> {
   });
   sync = await createSync(ctx, { tables, connections });
   const resources = createResources(ctx, { tables, connections });
+  // Alerts for each event the pipeline stored, through the Alerts hub.
+  const alerts = createAlerts(ctx, { tables, connections });
   // The one event pipeline. The poller and the team webhook feed it.
-  const events = createEvents(ctx, { tables, connections, sync });
+  const events = createEvents(ctx, {
+    tables,
+    connections,
+    sync,
+    onStored: (event) => alerts.notify(event),
+  });
   // The one post-start hook every deploy path shares: recent activity.
   const deployed = createDeployActivity(ctx, sync);
   const lifecycle = createLifecycle(ctx, {
@@ -180,6 +189,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
   registerAttentionRoutes(router, ctx, attention);
   registerEventRoutes(router, ctx, events);
   registerDashboardRoutes(router, ctx, dashboard);
+  registerAlertRoutes(router, ctx, alerts);
   registerContainerRoutes(router, ctx, containers, logs);
   registerLogSocket(ctx, { logs });
   registerStatsSocket(ctx, { connections, containers });
@@ -215,6 +225,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
     dashboard,
     serverHealth,
     webhookSetup,
+    alerts,
   });
   provideClient(ctx);
   await statusPages.start();

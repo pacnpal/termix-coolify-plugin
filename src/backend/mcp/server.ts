@@ -46,7 +46,8 @@ export const MCP_CHANGES_EXEMPT: readonly string[] = [
  * coolify.preview-create deploys a pull request's code and
  * coolify.preview-domains changes where a preview answers;
  * coolify.webhook-replace points the team's webhook away from someone else
- * and coolify.webhook-disable turns ours off.
+ * and coolify.webhook-disable turns ours off;
+ * coolify.alert-prefs-set changes which alerts the caller gets.
  */
 export const MCP_CONFIRM_REQUIRED: readonly string[] = [
   "coolify.exec",
@@ -58,6 +59,7 @@ export const MCP_CONFIRM_REQUIRED: readonly string[] = [
   "coolify.resource-rollback",
   "coolify.webhook-replace",
   "coolify.webhook-disable",
+  "coolify.alert-prefs-set",
 ];
 
 /**

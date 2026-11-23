@@ -434,6 +434,14 @@ export interface EventsDeps {
   now?: () => number;
   /** The event table's reads and writes; tests pass one with spies. */
   store?: EventStore;
+  /**
+   * Runs once for each event the pipeline stored, after its emit and
+   * commit: the alerts (#93). It is started, never awaited, so it can't
+   * hold up the connection's next ingest, and whatever it throws or rejects
+   * with is caught and logged by the error's name only: an alert failure
+   * never fails or blocks an ingest. It gets the stored, redacted record.
+   */
+  onStored?: (event: EventRecord) => unknown;
 }
 
 /**
@@ -563,6 +571,22 @@ export function createEvents(ctx: PluginContext, deps: EventsDeps) {
   const now = deps.now ?? (() => Date.now());
   const queues = new Map<number, Promise<unknown>>();
 
+  /** Starts deps.onStored; never throws and never waits for it. */
+  function afterStored(event: EventRecord): void {
+    const hook = deps.onStored;
+    if (!hook) return;
+    const failed = (err: unknown) =>
+      ctx.log.warn(
+        `coolify event hook failed: ${(err as Error)?.name ?? "error"}`,
+      );
+    try {
+      // A copy: what the hook does to it never reaches the answer.
+      void Promise.resolve(hook(structuredClone(event))).catch(failed);
+    } catch (err) {
+      failed(err);
+    }
+  }
+
   function serialized<T>(key: number, fn: () => Promise<T>): Promise<T> {
     const run = (queues.get(key) ?? Promise.resolve()).then(fn, fn);
     const tail = run.catch(() => undefined);
@@ -673,6 +697,7 @@ export function createEvents(ctx: PluginContext, deps: EventsDeps) {
         return { outcome: "dropped", reason: "connection-gone" };
       }
       await ctx.db.persist();
+      afterStored(event);
       return { outcome: "stored", event };
     } catch (err) {
       try {

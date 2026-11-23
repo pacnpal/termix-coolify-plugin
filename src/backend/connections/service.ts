@@ -795,6 +795,7 @@ export function createConnections(
           t.statusPages,
           t.dnsRecords,
           t.recent,
+          t.alertPrefs,
         ].map((table) =>
           db.delete(table).where(eq(table.connectionId, found.id)),
         );
@@ -855,6 +856,47 @@ export function createConnections(
     async access(id: number): Promise<AccessLevel | null> {
       const found = await row(id);
       return found ? accessTo(found, actor()) : null;
+    },
+
+    /**
+     * Who may see connection `id` right now, with no actor (the alerts):
+     * its name, its owner and every user with a grant of a known level.
+     * Null when the connection is gone. The caller checks each person's
+     * permission itself.
+     */
+    async audience(id: number): Promise<{
+      name: string;
+      ownerId: string;
+      grantees: string[];
+    } | null> {
+      const found = await row(id);
+      if (!found) return null;
+      const db = await dbClient(ctx);
+      const grants = (await db
+        .select()
+        .from(t.grants)
+        .where(eq(t.grants.connectionId, found.id))
+        .orderBy(t.grants.id)) as { userId: string; level: string }[];
+      const grantees: string[] = [];
+      for (const g of grants) {
+        if (
+          GRANT_LEVELS.has(g.level) &&
+          g.userId !== found.userId &&
+          !grantees.includes(g.userId)
+        ) {
+          grantees.push(g.userId);
+        }
+      }
+      return { name: found.name, ownerId: found.userId, grantees };
+    },
+
+    /**
+     * What `userId` may do on connection `id` right now, with no actor:
+     * owner, a known grant level, or null (gone or no access).
+     */
+    async accessFor(id: number, userId: string): Promise<AccessLevel | null> {
+      const found = await row(id);
+      return found ? accessTo(found, userId) : null;
     },
 
     /** Probes first; refuses Coolify older than 4.4 and stores nothing then. */

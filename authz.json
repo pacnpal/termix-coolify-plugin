@@ -726,6 +726,31 @@
         "id": "coolify.connection"
       }
     },
+    "GET /plugin-api/coolify/connections/:id/alert-prefs": {
+      "access": "user",
+      "permission": "coolify.view",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      }
+    },
+    "PUT /plugin-api/coolify/connections/:id/alert-prefs": {
+      "access": "user",
+      "permission": "coolify.view",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      },
+      "body": {
+        "kinds": ["deployment-failed"]
+      }
+    },
     "GET /plugin-api/coolify/connections/:id/status-pages": {
       "access": "user",
       "permission": "coolify.view",

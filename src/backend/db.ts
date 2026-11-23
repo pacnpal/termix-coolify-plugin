@@ -1,6 +1,7 @@
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import type { PluginContext } from "@termix-ssh/plugin-sdk/backend";
 import {
+  alertPrefs,
   cache,
   connections,
   dnsRecords,
@@ -28,6 +29,7 @@ export interface Tables {
   statusPages: Table;
   dnsRecords: Table;
   recent: Table;
+  alertPrefs: Table;
 }
 
 /** Defines every plugin table once, in activate. */
@@ -43,6 +45,7 @@ export async function defineTables(ctx: PluginContext): Promise<Tables> {
     statusPages: await ctx.db.define(statusPages),
     dnsRecords: await ctx.db.define(dnsRecords),
     recent: await ctx.db.define(recent),
+    alertPrefs: await ctx.db.define(alertPrefs),
   };
 }
 

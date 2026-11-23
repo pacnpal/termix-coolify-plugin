@@ -407,6 +407,24 @@ vulnerability counts are the one read only cards make, kept five minutes per con
 `coolify.connection-overview` and `coolify.vulnerability-summary` give the same answers to Operations
 Center, Automations, the CLI, the Termix API and MCP. See [the API reference](api.md#dashboard-cards-and-homepage-widgets).
 
+## Alerts
+
+What happens in Coolify reaches your Termix Alerts inbox, and from there the delivery channels you set up
+in Alerts (email, webhooks, chat): a failed deploy, a container that hit its restart limit, an unreachable
+server, a failed backup or scheduled task, a full disk, a certificate problem or an expiring API token.
+
+- You get alerts from your own connections and from connections shared with you, as long as you have
+  **View Coolify** and the connection is still yours or shared with you. Lose either and the alerts stop
+  at once.
+- Each connection has an **Alerts** action in Connections. Pick the kinds you want from that connection;
+  until you pick, you get the ones above. Only you see and change your picks: everyone the connection is
+  shared with picks their own. **Delivery channels** opens Alerts, where you decide where alerts go.
+- An alert names the resource (or server) and what happened, never a token, password or log text, and
+  opens it in the Coolify tab. Each event sends one alert; its category is `coolify.<kind>`, like
+  `coolify.deployment-failed`, so Alerts can route kinds to different channels.
+- The same picks are the `coolify.alert-prefs` and `coolify.alert-prefs-set` actions and the
+  `/connections/{id}/alert-prefs` routes ([API and MCP reference](api.md)).
+
 ## Pull request previews
 
 An application's **Previews** view lists its pull request previews: each one's status, domains, pull

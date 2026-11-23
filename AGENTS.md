@@ -69,7 +69,7 @@ aren't obvious from the code, and anything that has bitten you before.
   Where things stand: 1.0.0 is feature complete (connections, resources and lifecycle, host sync, shells,
   logs, exec, metrics, server updates, companions, status pages, the full Coolify API, the MCP endpoint and
   the `coolify.client` service). 1.2.0 (Alerts) is under way: the event pipeline and event log (#89), the
-  poller (#90), the team webhook (#91) and its one-click setup (#92) are in; alerts and the event log view build on them. The read-only smoke test against a real Coolify is the owner's
+  poller (#90), the team webhook (#91) and its one-click setup (#92), alerts with per-person preferences (#93) are in; the event log view builds on them. The read-only smoke test against a real Coolify is the owner's
   (`scripts/smoke-readonly.md`). User docs: `docs/index.md`, `tunnels.md`, `permissions.md`,
   `companions.md`, `troubleshooting.md`, `api.md`, `coverage.md`.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
@@ -822,6 +822,39 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   lines (`coolify_webhook_setup`, `coolify_webhook_disable`) hold the connection id and outcome. Frontend:
   `views/WebhookSetup.tsx` in `ConnectionEditor` (owner only), keyed by `id:revision`, confirms through
   `useConfirmFor`, and a read generation keeps only the newest status.
+- Alerts (1.2.0, #93): `src/backend/alerts/` (`service.ts` `createAlerts`, `routes.ts`),
+  `src/backend/ops/alerts.ts`, `src/shared/alerts.ts` (`DEFAULT_ALERT_KINDS`, `alertTabData`) and
+  `src/frontend/views/AlertPrefsView.tsx`. The one pipeline hook is `EventsDeps.onStored?: (event:
+EventRecord) => unknown`, called by `afterStored` in `createEvents` after the commit and its persist,
+  right before `stored` is answered: started with a copy of the record and never awaited (it can't hold
+  up the connection's queue), and whatever it throws or rejects with is logged by the error's name only,
+  so an alert failure never fails or blocks an ingest. `index.ts` makes `createAlerts` before the
+  pipeline and passes `onStored: (event) => alerts.notify(event)`. `notify` reads
+  `connections.audience(id)` (name, owner, grantees of a known level; no actor) and, for each person in
+  turn: their kinds (`p_coolify_alert_prefs`, migration 0004, one row per connection and user; no row is
+  `DEFAULT_ALERT_KINDS`), `ctx.rbac.hasFor(user, "view")`, then `connections.accessFor(id, user)` as the
+  last read before `ctx.notify.send({ audience: { userId } })`, so a lost permission or grant stops the
+  next alert. One failed send is logged and the others go on. Text is `fill` of `alerts.title.*` and
+  `alerts.body.*` from the stored, redacted record only (name, status, uuids) plus the connection's own
+  name, passed through `redactLog` once more. Category `coolify.<kind>`, severity the kind's, dedupeKey
+  `coolify:<user>:<connection>:<kind>:<dedupeSubject>`: the deployment, the subject for a `REPEATING`
+  condition (restarts, unreachable, high disk, certificates, token expiry), else the event id, so two
+  task runs (#118 keys them by `taskUuid`, which `EventRecord` lacks) or a status change and the change
+  back are separate alerts (a duplicate event never
+  reaches the hook at all). The SDK's `link` names only a tab type, so it is `{ tab: "coolify" }` and the
+  subject's tab data (`alertTabData`, the shape `requestOf` in CoolifyTab reads) is `context.tab`.
+  `alerts.idle()`/`pending()` exist for tests. Preferences: `prefs`/`setPrefs` act for the actor only
+  (coolify.view, `connections.access`, another user's connection 404), a list of known kinds (deduped,
+  in `EVENT_KINDS` order; an empty list is no alerts) or null for the defaults; anything else is
+  invalid-input and saves nothing. Every save and reset runs in an in-process queue per
+  `connectionId:actor` (`serialized`, like sync's; one plugin process), entered before any await, so
+  the row read and its insert or update never interleave (two first saves would otherwise both insert
+  and trip the unique index) and saves apply in the order asked; no DB upsert, which the SDK does not
+  offer alike on sqlite, postgres and mysql. Removing a connection deletes its rows in `removeNow`'s batch; a
+  user's rows go with the user (refUser). `coolify.alert-prefs-set` is a change with permission view and
+  is in `MCP_CONFIRM_REQUIRED`. The UI is each connection row's Alerts action (every access level), keyed
+  by the connection id, request generations for its loads and saves, and a button that runs the Alerts
+  hub's `alerts.openChannels` (in the manifest's `uses`).
 - Abort: `registerOperations` hands the ops files a ctx whose `operations.register` wraps every handler in
   `abortable` (operations.ts), so a cancelled run throws its signal's reason before it starts; the wrapper
   only adds that check, so each handler's own permission and confirm checks still run. Long handlers

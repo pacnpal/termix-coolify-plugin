@@ -1655,6 +1655,119 @@
           }
         },
         {
+          "id": "coolify.alert-prefs",
+          "titleKey": "ops.alertPrefs.title",
+          "descriptionKey": "ops.alertPrefs.description",
+          "icon": "Bell",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.alert-prefs-set",
+          "titleKey": "ops.alertPrefsSet.title",
+          "descriptionKey": "ops.alertPrefsSet.description",
+          "icon": "BellRing",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "kinds",
+              "type": "multiselect",
+              "labelKey": "ops.alertPrefsSet.kinds.label",
+              "descriptionKey": "ops.alertPrefsSet.kinds.description",
+              "options": [
+                {
+                  "value": "deployment-finished",
+                  "labelKey": "alerts.kinds.deployment-finished"
+                },
+                {
+                  "value": "deployment-failed",
+                  "labelKey": "alerts.kinds.deployment-failed"
+                },
+                {
+                  "value": "status-changed",
+                  "labelKey": "alerts.kinds.status-changed"
+                },
+                {
+                  "value": "container-restarted",
+                  "labelKey": "alerts.kinds.container-restarted"
+                },
+                {
+                  "value": "restart-limit",
+                  "labelKey": "alerts.kinds.restart-limit"
+                },
+                {
+                  "value": "server-unreachable",
+                  "labelKey": "alerts.kinds.server-unreachable"
+                },
+                {
+                  "value": "backup-succeeded",
+                  "labelKey": "alerts.kinds.backup-succeeded"
+                },
+                {
+                  "value": "backup-failed",
+                  "labelKey": "alerts.kinds.backup-failed"
+                },
+                {
+                  "value": "task-succeeded",
+                  "labelKey": "alerts.kinds.task-succeeded"
+                },
+                {
+                  "value": "task-failed",
+                  "labelKey": "alerts.kinds.task-failed"
+                },
+                {
+                  "value": "high-disk",
+                  "labelKey": "alerts.kinds.high-disk"
+                },
+                {
+                  "value": "certificate-problem",
+                  "labelKey": "alerts.kinds.certificate-problem"
+                },
+                {
+                  "value": "token-expiring",
+                  "labelKey": "alerts.kinds.token-expiring"
+                }
+              ]
+            },
+            {
+              "key": "reset",
+              "type": "boolean",
+              "labelKey": "ops.alertPrefsSet.reset.label",
+              "descriptionKey": "ops.alertPrefsSet.reset.description"
+            }
+          ],
+          "risk": "change",
+          "permission": "view",
+          "check": "coolify.alert-prefs",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
           "id": "coolify.connection-overview",
           "titleKey": "ops.connectionOverview.title",
           "descriptionKey": "ops.connectionOverview.description",
@@ -3484,7 +3597,8 @@
       "files.openHost",
       "files.openEditor",
       "tunnels.views",
-      "homepage.widgets"
+      "homepage.widgets",
+      "alerts.openChannels"
     ]
   },
   "locales": "locales",
