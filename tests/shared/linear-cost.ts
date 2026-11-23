@@ -8,6 +8,11 @@
  * whatever the machine's speed or load. Both sizes are timed back to back on
  * the same thread, by the thread's own CPU time where Node has it (time spent
  * waiting for a CPU isn't counted), and each takes the best of a few tries.
+ *
+ * A long pause on the thread (a major GC, a deopt) is counted as the thread's
+ * CPU time, so one sample never decides a check (#124): each try takes the
+ * median of a few sub-samples per size, and a check fails only after every
+ * try. Only a pass ends it early.
  */
 
 /** How many times as long the full input is as the small one. */
@@ -33,6 +38,12 @@ export function linearLimit(factor: number): number {
 
 const TRIES = 3;
 
+/**
+ * Sub-samples of each size in one try. Their median ignores one paused
+ * sub-sample, whichever size it hits.
+ */
+const SUB_SAMPLES = 3;
+
 const clock: () => number =
   typeof process?.threadCpuUsage === "function"
     ? () => {
@@ -56,8 +67,12 @@ function clockStep(): number {
   return (edges[2] - edges[0]) / 2;
 }
 
-/** Samples are repeated to at least this long, so one step is a few percent. */
-const MIN_SAMPLE_US = Math.max(2_000, 25 * clockStep());
+/**
+ * Sub-samples are repeated to at least this long, so one clock step is at
+ * most a tenth of a sub-sample. A try takes six, about as long as the two
+ * 25-step samples it took before #124.
+ */
+const MIN_SAMPLE_US = Math.max(1_000, 10 * clockStep());
 
 /** Microseconds one call of `fn` costs, calling it until the sample is long enough. */
 function perCall(fn: () => unknown): number {
@@ -72,35 +87,61 @@ function perCall(fn: () => unknown): number {
   return spent / calls;
 }
 
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+/**
+ * One try: the median cost per call of each size. The sizes take turns, so
+ * anything that drifts during the try weighs on both alike.
+ */
+function oneTry(
+  small: () => unknown,
+  full: () => unknown,
+): { small: number; full: number } {
+  const smalls: number[] = [];
+  const fulls: number[] = [];
+  for (let i = 0; i < SUB_SAMPLES; i += 1) {
+    smalls.push(perCall(small));
+    fulls.push(perCall(full));
+  }
+  return { small: median(smalls), full: median(fulls) };
+}
+
 /**
  * How many times as much the work of `at(1)` costs as that of
- * `at(1 / factor)` (SIZE_FACTOR unless given). `at(scale)` builds the input at that share of the
- * test's full size and returns the call to measure. Best of a few tries; it
- * stops at the first try within linearLimit(factor), which a linear call
- * needs.
+ * `at(1 / factor)` (SIZE_FACTOR unless given). `at(scale)` builds the input at
+ * that share of the test's full size and returns the call to measure. Best of
+ * a few tries, each the median of a few sub-samples per size. It stops at the
+ * first try within linearLimit(factor), which a linear call needs, and
+ * otherwise takes every try: one paused sample can't fail a check (#124).
  *
- * Each size is repeated for at least 25 clock steps, so a check takes a few
- * tenths of a second of CPU: a test that makes one takes HEAVY_TEST_MS
+ * Each try runs six sub-samples of at least 10 clock steps, so a check takes
+ * a few tenths of a second of CPU: a test that makes one takes HEAVY_TEST_MS
  * (shared/timing.ts) rather than Vitest's 5 s.
  */
 export function growth(
   at: (scale: number) => () => unknown,
   factor = SIZE_FACTOR,
 ): number {
+  const began = clock();
   const limit = linearLimit(factor);
   const small = at(1 / factor);
   const full = at(1);
   let smallest = Number.POSITIVE_INFINITY;
   let fullest = Number.POSITIVE_INFINITY;
   for (let i = 0; i < TRIES; i += 1) {
-    smallest = Math.min(smallest, perCall(small));
-    fullest = Math.min(fullest, perCall(full));
-    const grew = fullest / smallest;
-    // Within the bound, or quadratic beyond doubt: another try can't change it.
-    if (grew < limit || grew > factor ** 2) break;
+    const sampled = oneTry(small, full);
+    smallest = Math.min(smallest, sampled.small);
+    fullest = Math.min(fullest, sampled.full);
+    if (fullest / smallest < limit) break;
   }
   if (process.env.LINEAR_COST_LOG) {
-    console.log(`growth ${(fullest / smallest).toFixed(1)}`);
+    const spent = (clock() - began) / 1_000;
+    console.log(
+      `growth ${(fullest / smallest).toFixed(1)}, ${spent.toFixed(0)} ms CPU`,
+    );
   }
   return fullest / smallest;
 }
