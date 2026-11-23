@@ -40,6 +40,7 @@ import { createSync, type Sync } from "./sync/service.js";
 import { registerSyncRoutes } from "./sync/routes.js";
 import { createServerStatuses } from "./ops/signals.js";
 import { createUpdates } from "./updates/service.js";
+import { createPoller, type Poller } from "./poll/service.js";
 import { registerUpdateRoutes } from "./updates/routes.js";
 import { rememberBaseUrlMiddleware } from "./status/base-url.js";
 import { createStatusPages } from "./status/service.js";
@@ -50,11 +51,18 @@ export async function activate(ctx: PluginContext): Promise<void> {
   // Removing a connection unlinks its Linked hosts first (or deletes them
   // with removeHosts). Sync is made right after, before any call can arrive.
   let sync: Sync | null = null;
+  // The poller is made once the services it reads exist; until then a
+  // connection change has nothing to tell it.
+  let poller: Poller | null = null;
   const connections = createConnections(ctx, tables, {
     releaseLinkedHosts: async (connectionId, opts, deleteRows) => {
       if (sync) await sync.releaseConnection(connectionId, opts, deleteRows);
       else await deleteRows();
     },
+    changed: async (id) => {
+      await poller?.changed(id);
+    },
+    pollError: (id) => poller?.lastError(id) ?? null,
   });
   sync = await createSync(ctx, { tables, connections });
   const resources = createResources(ctx, { tables, connections });
@@ -67,6 +75,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
     resources,
     sync,
     deployed,
+    events,
   });
   const containers = createContainers(ctx, { connections, lifecycle, sync });
   const logs = createLogs(ctx, { connections, containers });
@@ -77,6 +86,15 @@ export async function activate(ctx: PluginContext): Promise<void> {
   });
   const previews = createPreviews(ctx, { deployments });
   const servers = createServerStatuses(ctx, { tables, connections });
+  // The polling source of the event pipeline (the webhook is the other).
+  poller = createPoller(ctx, {
+    tables,
+    connections,
+    resources,
+    deployments,
+    servers,
+    events,
+  });
   const exec = createExec(ctx, {
     connections,
     containers,
@@ -164,6 +182,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
   });
   provideClient(ctx);
   await statusPages.start();
+  await poller.start();
 }
 
 export async function deactivate(): Promise<void> {

@@ -297,9 +297,13 @@ describe("status page routes", () => {
       (s: string | { id: string }) => (typeof s === "string" ? s : s.id),
     );
     expect(declared).toContain(STATUS_REFRESH_ID);
+    // This refresh and the poller (#90), both a minute apart.
     expect(
       harness.mock.scheduled.filter((j) => j.kind === "every" && !j.stopped),
-    ).toEqual([expect.objectContaining({ ms: 60_000 })]);
+    ).toEqual([
+      expect.objectContaining({ ms: 60_000 }),
+      expect.objectContaining({ ms: 60_000 }),
+    ]);
     await publish(harness, id);
     expect(harness.mock.awake.has(KEEP_AWAKE_REASON)).toBe(true);
   });
@@ -358,7 +362,10 @@ describe("status page routes", () => {
   });
 
   it("refresh stops and keepAwake false when the last page is revoked", async () => {
-    const { harness, fake, id } = await start();
+    // Polling off, so the only job that could read Coolify is the refresh.
+    const { harness, fake, id } = await start({
+      settings: { allowPolling: false },
+    });
     const first = await publish(harness, id);
     const second = await publish(harness, id, {
       title: "Second",

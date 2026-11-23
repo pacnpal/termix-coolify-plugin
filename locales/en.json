@@ -464,6 +464,10 @@
       "previewDockerTag": {
         "label": "Docker tag",
         "description": "The image tag, for an application built from a Docker image."
+      },
+      "pollEnabled": {
+        "label": "Keep polling",
+        "description": "On keeps polling Coolify once the team's webhook has delivered; off leaves changes to the webhook."
       }
     },
     "listConnections": {
@@ -627,6 +631,10 @@
       "tokenExpiring": {
         "title": "Coolify API token expiring",
         "description": "A Coolify API token expires soon."
+      },
+      "statusChanged": {
+        "title": "Coolify status changed",
+        "description": "A resource went from running to degraded or stopped, or back, as polling saw it."
       }
     },
     "shellCommand": {
@@ -819,6 +827,10 @@
         "label": "Older than",
         "description": "Only events older than this event log entry: the last page's nextBefore."
       }
+    },
+    "connectionSetPoll": {
+      "title": "Keep polling a Coolify connection after its webhook",
+      "description": "Whether this connection keeps polling Coolify for changes once its team's webhook has delivered. Until a webhook arrives it polls anyway. Only the connection's owner can change it."
     }
   },
   "connections": {
@@ -920,6 +932,12 @@
       "description": "Lets coolify.exec run one command at a time in this connection's containers, for API keys and MCP clients. An admin must also allow it in the plugin settings.",
       "warning": "Anyone with edit access to a Linked host and Operate Coolify resources can then run any command in its containers, including reading their secrets. Each run is audited.",
       "failed": "The setting was not changed."
+    },
+    "poll": {
+      "label": "Keep polling after a webhook arrives",
+      "description": "This connection polls Coolify every minute for deployments, statuses, backups and scheduled tasks. Once Coolify's webhook for its team has delivered, it polls only while this is on.",
+      "failed": "The setting was not changed.",
+      "error": "Polling failed: {{cause}}"
     }
   },
   "causes": {

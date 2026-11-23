@@ -83,7 +83,10 @@ function ConnectionEditor({
         hasCfAccess={form.current?.cfAccess ?? false}
       />
       {connection && connection.access === "owner" && (
-        <ExecSwitch api={api} connection={connection} onSaved={onSaved} />
+        <>
+          <PollSwitch api={api} connection={connection} onSaved={onSaved} />
+          <ExecSwitch api={api} connection={connection} onSaved={onSaved} />
+        </>
       )}
       {form.result && <ProbeChecklist connection={form.result} />}
     </InlineView>
@@ -137,6 +140,52 @@ function ExecSwitch({
   );
 }
 
+/**
+ * The owner's choice to keep polling Coolify once the team's webhook has
+ * delivered. It saves on its own, apart from the form.
+ */
+function PollSwitch({
+  api,
+  connection,
+  onSaved,
+}: {
+  api: Api;
+  connection: Connection;
+  onSaved: (saved: Connection) => void;
+}) {
+  const { t } = useTranslation();
+  const [enabled, setEnabled] = useState(connection.pollEnabled === true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function change(next: boolean) {
+    setSaving(true);
+    setError(null);
+    try {
+      const saved = await api.setPoll(connection.id, next);
+      setEnabled(saved.pollEnabled === true);
+      onSaved(saved);
+    } catch {
+      setError(t("connections.poll.failed"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className={cn(PANEL.body, "flex flex-col gap-3")}>
+      <SwitchRow
+        label={t("connections.poll.label")}
+        description={t("connections.poll.description")}
+        checked={enabled}
+        disabled={saving}
+        onChange={(v) => void change(v)}
+      />
+      <FormError message={error} />
+    </div>
+  );
+}
+
 function metaLine(
   t: (key: string, o?: Record<string, unknown>) => string,
   c: Connection,
@@ -149,6 +198,11 @@ function metaLine(
   ];
   if (c.teamName) parts.push(t("connections.meta.team", { team: c.teamName }));
   if (c.lastError) parts.push(t(`causes.${c.lastError}`));
+  if (c.pollError) {
+    parts.push(
+      t("connections.poll.error", { cause: t(`causes.${c.pollError}`) }),
+    );
+  }
   return parts.join(" · ");
 }
 

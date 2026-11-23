@@ -143,27 +143,47 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
     return list;
   }
 
+  /** The cached list while fresh, under `revision` and the current generation. */
+  async function freshHit(
+    connectionId: number,
+    revision: string,
+  ): Promise<ResourceList | null> {
+    const hit = await cache.fresh<Partial<CachedRows>>(
+      connectionId,
+      RESOURCES_CACHE_KIND,
+      RESOURCE_TTL_MS,
+      now(),
+    );
+    const value = hit?.value;
+    return hit &&
+      value?.revision === revision &&
+      value.generation === generationOf(connectionId) &&
+      Array.isArray(value.rows)
+      ? { rows: value.rows, fetchedAt: hit.fetchedAt }
+      : null;
+  }
+
+  /** A fetch through an unattended snapshot, checking its revision to cache. */
+  function unattendedSource(
+    connectionId: number,
+    api: () => Promise<CoolifyApi>,
+  ): FetchSource {
+    return {
+      api,
+      revision: async () =>
+        (await deps.connections.unattendedSnapshot(connectionId))?.revision ??
+        null,
+    };
+  }
+
   async function load(
     connectionId: number,
     opts: { refresh?: boolean } = {},
   ): Promise<ResourceList> {
     const revision = await reach(connectionId);
     if (!opts.refresh) {
-      const hit = await cache.fresh<Partial<CachedRows>>(
-        connectionId,
-        RESOURCES_CACHE_KIND,
-        RESOURCE_TTL_MS,
-        now(),
-      );
-      const value = hit?.value;
-      if (
-        hit &&
-        value?.revision === revision &&
-        value.generation === generationOf(connectionId) &&
-        Array.isArray(value.rows)
-      ) {
-        return { rows: value.rows, fetchedAt: hit.fetchedAt };
-      }
+      const hit = await freshHit(connectionId, revision);
+      if (hit) return hit;
     }
     return shared(connectionId, revision);
   }
@@ -227,12 +247,33 @@ export function createResources(ctx: PluginContext, deps: ResourcesDeps) {
     async refreshUnattended(connectionId: number): Promise<void> {
       const snap = await deps.connections.unattendedSnapshot(connectionId);
       if (!snap) throw notFound();
-      await shared(connectionId, snap.revision, {
-        api: snap.api,
-        revision: async () =>
-          (await deps.connections.unattendedSnapshot(connectionId))?.revision ??
-          null,
-      });
+      await shared(
+        connectionId,
+        snap.revision,
+        unattendedSource(connectionId, snap.api),
+      );
+    },
+
+    /**
+     * The list for background work with no actor (the poller), read through
+     * the caller's unattended snapshot: the cached rows while fresh under its
+     * revision and the current generation, else a fetch (shared with any
+     * already in flight for them) that is cached only while the revision
+     * holds. The caller checks the owner's access before and keeps the rows
+     * to itself.
+     */
+    async readUnattended(
+      connectionId: number,
+      snap: { revision: string; api: () => Promise<CoolifyApi> },
+    ): Promise<ResourceList> {
+      return (
+        (await freshHit(connectionId, snap.revision)) ??
+        shared(
+          connectionId,
+          snap.revision,
+          unattendedSource(connectionId, snap.api),
+        )
+      );
     },
 
     /**

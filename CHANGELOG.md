@@ -17,9 +17,22 @@
   once per kind, resource (or server) and minute, so the same thing seen in different minutes can be
   separate events. It carries the host only when its server is Linked. Events hold no secrets, tokens, credentials inside
   URLs or log text. Polling and the Coolify webhook start sending them in a later 1.2 update
+- Polling: every connection checks Coolify with its own token every minute (or the admin's **Minimum poll
+  interval**), and its backups and scheduled tasks every five minutes, and sends what changed as events:
+  a deployment that finished or failed, a resource that went between running, degraded and stopped (the
+  new `coolify.status-changed` event) or started restarting, a server that became unreachable, and a
+  backup or scheduled task run that succeeded or failed. The first poll after Termix starts, or after the
+  connection's address or token changes, only notes what is there, so nothing that already happened is
+  sent. A connection polls until its team's Coolify webhook has delivered once, and after that only with
+  **Keep polling after a webhook arrives** on, in the connection editor or with the new
+  `coolify.connection-set-poll` action (MCP tool `coolify__connection_set_poll`, or `pollEnabled` on
+  `PATCH /plugin-api/coolify/connections/{id}`). After failures it waits 1, 2, 5, then 15 minutes, and
+  the connection shows why its last poll failed. The admin setting **Allow polling** turns it off
 
 ### Changed
 
+- A deploy with `wait` now sends its deployment event through the event pipeline, so it is in the event
+  log, and a poll that sees the same deployment end sends no second event
 - `coolify.container-restarted` and `coolify.server-unreachable` are now Termix-wide events like the
   deployment events, since they carry a host only when the server is Linked, and their payloads gained
   `status` (and `deploymentUuid` for a container restart). Neither was sent before this release

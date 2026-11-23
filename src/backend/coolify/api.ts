@@ -16,6 +16,9 @@ import {
   toService,
   toStorages,
   toTeam,
+  toBackupRuns,
+  toScheduledTask,
+  toTaskRun,
   type DeploymentDto,
   type KeyDto,
   type PreviewDto,
@@ -23,6 +26,8 @@ import {
   type ResourceDto,
   type ResourceKind,
   type RollbackImagesDto,
+  type RunDto,
+  type ScheduledTaskDto,
   type SentinelSettingsDto,
   type ServerDto,
   type StorageDto,
@@ -396,6 +401,54 @@ export function createCoolifyApi(http: CoolifyHttp) {
           message: text(d.message),
         };
       });
+    },
+
+    /**
+     * The runs of every backup schedule of one database, without their
+     * messages (the poller).
+     */
+    async backupRuns(
+      databaseUuid: string,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<RunDto[]> {
+      return toBackupRuns(
+        await call(op("get-database-backups-by-uuid", { uuid: databaseUuid }), {
+          beforeFetch: opts.beforeFetch,
+        }),
+      );
+    },
+
+    /** An application's or a service's scheduled tasks, without commands. */
+    async scheduledTasks(
+      kind: "application" | "service",
+      uuid: string,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<ScheduledTaskDto[]> {
+      return rows(
+        await call(op(`list-scheduled-tasks-by-${kind}-uuid`, { uuid }), {
+          beforeFetch: opts.beforeFetch,
+        }),
+        "tasks",
+      ).map(toScheduledTask);
+    },
+
+    /** One scheduled task's runs, without their output. */
+    async taskRuns(
+      kind: "application" | "service",
+      uuid: string,
+      taskUuid: string,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<RunDto[]> {
+      return rows(
+        await call(
+          op(`list-scheduled-task-executions-by-${kind}-uuid`, {
+            uuid,
+            task_uuid: taskUuid,
+          }),
+          { beforeFetch: opts.beforeFetch },
+        ),
+        "executions",
+      ).map(toTaskRun);
     },
 
     /** Coolify's queue: the deployments queued or running now, without logs. */

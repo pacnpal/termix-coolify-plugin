@@ -21,6 +21,11 @@ order: 50
 A plain `http` address is refused unless it is `localhost` or a private IP address with **On my local
 network** on. A name such as `coolify.lan` always needs `https`.
 
+**Polling failed: …** on a connection means its last background check of Coolify failed, for one of the
+reasons above. It tries again after 1, 2, 5 and then 15 minutes, and the line goes away once a check works.
+If no events arrive at all, check that an admin hasn't turned off **Allow polling**, and that **Keep polling
+after a webhook arrives** is on when Coolify's webhook for the team has delivered before.
+
 ## Host sync
 
 - **needs-address**: Coolify has no address Termix can reach for the server. Enter one on the server's row.

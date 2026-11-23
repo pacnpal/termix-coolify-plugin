@@ -117,6 +117,56 @@ describe("connections view", () => {
     expect(api.get).toHaveBeenCalledWith("/connections");
   });
 
+  it("shows the last failed poll's cause on the connection", async () => {
+    const api = stubApi([{ ...scopedConnection, pollError: "unreachable" }]);
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions: ALL,
+    });
+    rendered.renderTab("coolify", { isVisible: true });
+    await openConnections();
+    expect(
+      screen.getByText(
+        L.poll.error.replace("{{cause}}", locales.causes.unreachable),
+        { exact: false },
+      ),
+    ).toBeTruthy();
+  });
+
+  it("the owner keeps polling after a webhook from the editor", async () => {
+    const owned = { ...scopedConnection, scoped: false, pollEnabled: false };
+    const api = stubApi([owned]);
+    api.patch.mockResolvedValueOnce({
+      data: { ...owned, pollEnabled: true },
+    } as never);
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions: ALL,
+    });
+    rendered.renderTab("coolify", { isVisible: true });
+    await openConnections();
+    fireEvent.click(screen.getByRole("button", { name: L.actions.edit }));
+    const toggle = await screen.findByRole("switch", { name: L.poll.label });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith("/connections/1", {
+        pollEnabled: true,
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("switch", { name: L.poll.label })
+          .getAttribute("aria-checked"),
+      ).toBe("true"),
+    );
+  });
+
   it("shows an empty state with the add button", async () => {
     rendered = await renderWithApp(plugin, {
       manifest,

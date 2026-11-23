@@ -70,6 +70,10 @@
       {
         "id": "status-refresh",
         "every": 60000
+      },
+      {
+        "id": "coolify-poll",
+        "every": 60000
       }
     ],
     "events": ["host.deleted", "host.updated"]
@@ -448,6 +452,32 @@
             "assistant": false,
             "mcp": false
           }
+        },
+        {
+          "id": "coolify.connection-set-poll",
+          "titleKey": "ops.connectionSetPoll.title",
+          "descriptionKey": "ops.connectionSetPoll.description",
+          "icon": "RefreshCw",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "pollEnabled",
+              "type": "boolean",
+              "labelKey": "ops.fields.pollEnabled.label",
+              "descriptionKey": "ops.fields.pollEnabled.description",
+              "required": true
+            }
+          ],
+          "risk": "change",
+          "permission": "configure"
         },
         {
           "id": "coolify.list-resources-all",
@@ -2860,6 +2890,40 @@
           "titleKey": "ops.events.deploymentFailed.title",
           "descriptionKey": "ops.events.deploymentFailed.description",
           "severity": "warning",
+          "scope": "server",
+          "payload": [
+            {
+              "key": "connectionId",
+              "type": "number",
+              "labelKey": "ops.fields.connectionId.label"
+            },
+            {
+              "key": "uuid",
+              "type": "string",
+              "labelKey": "ops.fields.uuid.label"
+            },
+            {
+              "key": "name",
+              "type": "string",
+              "labelKey": "ops.events.fields.name"
+            },
+            {
+              "key": "deploymentUuid",
+              "type": "string",
+              "labelKey": "ops.events.fields.deploymentUuid"
+            },
+            {
+              "key": "status",
+              "type": "string",
+              "labelKey": "ops.events.fields.status"
+            }
+          ]
+        },
+        {
+          "id": "coolify.status-changed",
+          "titleKey": "ops.events.statusChanged.title",
+          "descriptionKey": "ops.events.statusChanged.description",
+          "severity": "info",
           "scope": "server",
           "payload": [
             {
