@@ -14,7 +14,10 @@ import {
   type AccessLevel,
   type Connections,
 } from "../connections/service.js";
-import type { Containers } from "../containers/service.js";
+import { dockerPrefix } from "../containers/commands.js";
+import { ContainerError, type Containers } from "../containers/service.js";
+import { parseDockerStats } from "../containers/stats.js";
+import { mapLimit } from "../deployments/queue.js";
 import { isHostKeyError, sshRunner, type SshRunner } from "../ssh.js";
 import type { Sync } from "../sync/service.js";
 import {
@@ -241,6 +244,97 @@ export function withoutIps(value: unknown): unknown {
     return out;
   }
   return value;
+}
+
+/**
+ * A Linked host's running containers, summed from one docker stats reading.
+ * No container names, addresses or keys.
+ */
+export interface HostStats {
+  containers: number;
+  /** Summed docker CPUPerc: 100 is one CPU fully used. */
+  cpuPercent: number;
+  memoryBytes: number;
+  /** The host's CPUs and memory from docker info; null when unknown. */
+  cpus: number | null;
+  memoryTotalBytes: number | null;
+  /** When docker stats ran, ISO. */
+  at: string;
+}
+
+/**
+ * A host's container summary is read over SSH at most once in this long per
+ * connection target, however many callers ask. Never shorter than the live
+ * stats socket's interval (STATS_INTERVAL_MS).
+ */
+export const HOST_STATS_TTL_MS = 30_000;
+/** Servers one host stats request may ask for. */
+export const MAX_HOST_STATS_SERVERS = 20;
+/** Linked hosts read at the same time in one request. */
+const HOST_STATS_CONCURRENCY = 4;
+
+/** docker info's CPUs and memory, then one JSON line per running container. */
+export function hostStatsCommand(sudo: boolean): string {
+  const docker = dockerPrefix(sudo);
+  return `${docker} info --format '{{.NCPU}} {{.MemTotal}}' 2>/dev/null; ${docker} stats --no-stream --format '{{json .}}'`;
+}
+
+/** hostStatsCommand's output, summed; lines that aren't a reading are skipped. */
+export function parseHostStats(stdout: string, at: number): HostStats {
+  const lines = stdout
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  let cpus: number | null = null;
+  let memoryTotalBytes: number | null = null;
+  const info = /^(\d{1,6}) (\d{1,20})$/.exec(lines[0] ?? "");
+  if (info) {
+    cpus = Number(info[1]) || null;
+    memoryTotalBytes = Number(info[2]) || null;
+    lines.shift();
+  }
+  let containers = 0;
+  let cpu = 0;
+  let memoryBytes = 0;
+  for (const line of lines) {
+    const sample = parseDockerStats(line);
+    if (!sample) continue;
+    containers += 1;
+    cpu += sample.cpu;
+    memoryBytes += sample.memBytes;
+  }
+  return {
+    containers,
+    cpuPercent: Math.round(cpu * 100) / 100,
+    memoryBytes,
+    cpus,
+    memoryTotalBytes,
+    at: new Date(at).toISOString(),
+  };
+}
+
+/**
+ * The servers of a host stats request, from a query (`a,b`) or an input
+ * list: 1 to MAX_HOST_STATS_SERVERS Coolify uuids, duplicates dropped.
+ */
+export function readServerList(raw: unknown): string[] {
+  const parts =
+    typeof raw === "string"
+      ? raw.split(",")
+      : Array.isArray(raw) && raw.every((v) => typeof v === "string")
+        ? (raw as string[])
+        : null;
+  const list = parts ? [...new Set(parts.map((p) => p.trim()))] : [];
+  if (
+    list.length === 0 ||
+    list.length > MAX_HOST_STATS_SERVERS ||
+    list.some((uuid) => !uuid || badUuid(uuid))
+  ) {
+    throw invalid(
+      `servers must be 1 to ${MAX_HOST_STATS_SERVERS} Coolify server uuids`,
+    );
+  }
+  return list;
 }
 
 export interface ResourceMetrics {
@@ -500,7 +594,143 @@ export function createMetrics(ctx: PluginContext, deps: MetricsDeps) {
     };
   }
 
+  /** Host summaries by `connection:server:revision`, and reads running. */
+  const hostCache = new Map<string, { at: number; value: HostStats }>();
+  const hostReads = new Map<string, Promise<HostStats>>();
+
+  function keepHostStats(key: string, value: HostStats): void {
+    const at = now();
+    for (const [k, hit] of hostCache) {
+      if (at - hit.at >= HOST_STATS_TTL_MS) hostCache.delete(k);
+    }
+    hostCache.set(key, { at, value });
+  }
+
+  /**
+   * One fresh docker stats reading of a Linked host: the server in this
+   * connection's Coolify, then docker over SSH, each step behind the
+   * snapshot and grant check. Only the summed numbers leave it.
+   */
+  async function readHostStats(
+    read: Read,
+    serverUuid: string,
+    hostId: number,
+  ): Promise<HostStats> {
+    await serverOf(read, serverUuid);
+    const sudo = await overSsh(read, hostId, () =>
+      dockerNeedsSudo(run, hostId),
+    );
+    if (sudo === null) {
+      throw new MetricsError(
+        "ssh-failed",
+        "The Linked host's user could not be read.",
+      );
+    }
+    const result = await overSsh(read, hostId, () =>
+      run(hostId, hostStatsCommand(sudo)),
+    );
+    if (result.code !== 0 || result.truncated || result.timedOut) {
+      throw new MetricsError(
+        "ssh-failed",
+        "The Linked host could not run docker stats.",
+      );
+    }
+    return parseHostStats(result.stdout, now());
+  }
+
+  /**
+   * One server's container summary: its Linked host (else not-linked), the
+   * actor's own connect access to it, then the cached reading for this
+   * target, or one fresh read: the server in this connection's Coolify, then
+   * docker over SSH, each step behind the snapshot and grant check. A read
+   * is kept only once that check passed after it, so a changed target or a
+   * cut grant keeps nothing.
+   */
+  async function hostStatsOf(read: Read, serverUuid: string) {
+    const hostId = await deps.sync.linkedHostFor(read.connectionId, serverUuid);
+    if (!hostId) {
+      throw new MetricsError(
+        "not-linked",
+        "Link this server first: sync it from Coolify to make it a Linked host.",
+      );
+    }
+    await deps.containers.assertHostAccess(hostId);
+    const key = `${read.connectionId}:${serverUuid}:${read.snap.view.revision}`;
+    const hit = hostCache.get(key);
+    const age = hit ? now() - hit.at : -1;
+    let value: HostStats;
+    if (hit && age >= 0 && age < HOST_STATS_TTL_MS) {
+      value = hit.value;
+    } else {
+      let running = hostReads.get(key);
+      if (!running) {
+        running = readHostStats(read, serverUuid, hostId)
+          .then((stats) => {
+            keepHostStats(key, stats);
+            return stats;
+          })
+          .finally(() => hostReads.delete(key));
+        hostReads.set(key, running);
+      }
+      value = await running;
+    }
+    // Each caller's own snapshot and grant, whoever started the read.
+    await read.holds();
+    return value;
+  }
+
   return {
+    /**
+     * Linked hosts' container summaries for a connection's servers, one
+     * request for every host row of that connection. Needs coolify.operate
+     * and an operate grant (the Stats tab's rule), checked before anything
+     * is read; then each server on its own (`errors` names why one has no
+     * summary). docker stats runs at most once per HOST_STATS_TTL_MS per
+     * server and target. A target change or a cut grant fails the request.
+     */
+    async hostStats(
+      connectionId: number,
+      rawServers: unknown,
+    ): Promise<{
+      servers: Record<string, HostStats>;
+      errors: Record<string, string>;
+    }> {
+      const list = readServerList(rawServers);
+      if ((await ctx.rbac.has("operate")) !== true) {
+        throw new MetricsError(
+          "forbidden",
+          "Container stats need coolify.operate.",
+        );
+      }
+      const read = await begin(connectionId, OPERATE_ACCESS);
+      if (!OPERATE_ACCESS.has(read.snap.view.access)) {
+        throw new MetricsError(
+          "forbidden",
+          "Container stats need operate access to this connection.",
+        );
+      }
+      const servers: Record<string, HostStats> = {};
+      const errors: Record<string, string> = {};
+      await mapLimit(list, HOST_STATS_CONCURRENCY, async (uuid) => {
+        try {
+          servers[uuid] = await hostStatsOf(read, uuid);
+        } catch (err) {
+          // Whatever ends the request for every server ends it here too.
+          if (err instanceof MetricsError && err.code !== "forbidden") {
+            errors[uuid] = err.code;
+          } else if (err instanceof ContainerError) {
+            errors[uuid] = err.code;
+          } else if (err instanceof CoolifyError) {
+            errors[uuid] = err.cause;
+          } else {
+            throw err;
+          }
+        }
+      });
+      await read.holds();
+      return { servers, errors };
+    },
+
     async serverMetrics(
       connectionId: number,
       serverUuid: string,

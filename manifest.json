@@ -100,6 +100,13 @@
         "icon": "Activity"
       }
     ],
+    "dashboardCards": [
+      {
+        "id": "coolify",
+        "titleKey": "dashboardCard.title",
+        "icon": "Rocket"
+      }
+    ],
     "hostSections": [
       {
         "id": "coolify",
@@ -1556,6 +1563,64 @@
           }
         },
         {
+          "id": "coolify.connection-overview",
+          "titleKey": "ops.connectionOverview.title",
+          "descriptionKey": "ops.connectionOverview.description",
+          "icon": "LayoutDashboard",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "refresh",
+              "type": "boolean",
+              "labelKey": "ops.fields.refresh.label",
+              "descriptionKey": "ops.fields.refresh.description"
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.vulnerability-summary",
+          "titleKey": "ops.vulnerabilitySummary.title",
+          "descriptionKey": "ops.vulnerabilitySummary.description",
+          "icon": "ShieldAlert",
+          "scope": "server",
+          "inputs": [
+            {
+              "key": "connectionId",
+              "type": "select",
+              "labelKey": "ops.fields.connectionId.label",
+              "descriptionKey": "ops.fields.connectionId.description",
+              "optionsFrom": "coolify.list-connections",
+              "required": true
+            },
+            {
+              "key": "refresh",
+              "type": "boolean",
+              "labelKey": "ops.fields.refresh.label",
+              "descriptionKey": "ops.fields.refresh.description"
+            }
+          ],
+          "risk": "read",
+          "permission": "view",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
           "id": "coolify.deploy-by-tag",
           "titleKey": "ops.deployByTag.title",
           "descriptionKey": "ops.deployByTag.description",
@@ -1651,6 +1716,34 @@
           "scope": "host",
           "risk": "read",
           "permission": "view",
+          "hostAccess": "connect",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.host-summary",
+          "titleKey": "ops.hostSummary.title",
+          "descriptionKey": "ops.hostSummary.description",
+          "icon": "Boxes",
+          "scope": "host",
+          "risk": "read",
+          "permission": "view",
+          "hostAccess": "connect",
+          "surfaces": {
+            "assistant": true,
+            "mcp": true
+          }
+        },
+        {
+          "id": "coolify.host-metrics",
+          "titleKey": "ops.hostMetrics.title",
+          "descriptionKey": "ops.hostMetrics.description",
+          "icon": "Gauge",
+          "scope": "host",
+          "risk": "read",
+          "permission": "operate",
           "hostAccess": "connect",
           "surfaces": {
             "assistant": true,
@@ -3298,7 +3391,8 @@
       "terminal.view",
       "files.openHost",
       "files.openEditor",
-      "tunnels.views"
+      "tunnels.views",
+      "homepage.widgets"
     ]
   },
   "locales": "locales",

@@ -647,6 +647,52 @@ export function toStorages(input: unknown): StorageDto[] {
   return [...volumes, ...files];
 }
 
+/** Coolify's security statuses from image scanning. */
+export const SECURITY_STATUSES = [
+  "update_now",
+  "update_available",
+  "no_fix",
+  "check_needed",
+  "ok",
+  "not_checked",
+] as const;
+export type SecurityStatus = (typeof SECURITY_STATUSES)[number];
+
+/**
+ * One row of Coolify's `/vulnerabilities`: the resource's security status
+ * and its problem counts. Names, labels, actions and image references are
+ * left out: the summary built from it carries counts only.
+ */
+export interface VulnerabilityDto {
+  uuid: string;
+  /** An unknown or missing status reads as not checked. */
+  status: SecurityStatus;
+  problems: number;
+  critical: number;
+  high: number;
+  medium: number;
+  exploited: number;
+}
+
+const count = (value: unknown) => {
+  const n = num(value);
+  return n !== null && Number.isSafeInteger(n) && n > 0 ? n : 0;
+};
+
+export function toVulnerability(input: unknown): VulnerabilityDto {
+  const raw = obj(input);
+  const security = obj(raw.security);
+  const status = SECURITY_STATUSES.find((s) => s === security.status);
+  return {
+    uuid: str(raw.uuid),
+    status: status ?? "not_checked",
+    problems: count(security.problem_count),
+    critical: count(security.critical_count),
+    high: count(security.high_count),
+    medium: count(security.medium_count),
+    exploited: count(security.exploited_count),
+  };
+}
 /**
  * One run of a database backup or a scheduled task, as the poller reads it:
  * its uuid, Coolify's status word and when it ended. The run's message
