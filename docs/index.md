@@ -602,7 +602,8 @@ Servers Coolify reaches through a Cloudflare tunnel sync into hosts that use SSH
 Coolify never tunnels the server it runs on, since it reaches itself directly. To reach that server (or any
 other Coolify reaches directly) through a tunnel you published yourself, tick **Reach through a Cloudflare
 tunnel** on its row and enter the tunnel's SSH hostname. Only the Termix host uses the tunnel; Coolify keeps
-its own address.
+its own address. See [The server Coolify runs on](tunnels.md#the-server-coolify-runs-on) for the whole setup,
+from the tunnel to closing the SSH port.
 
 ## Server updates
 
