@@ -19,7 +19,8 @@ service for other plugins.
   and running commands in containers
 - The plugin's tables (connections, grants, webhooks, servers, cache, events, onboardings, status pages, DNS
   records and recent items) with migrations for SQLite, PostgreSQL and MySQL
-- Every action stops before it reaches Coolify when its run is cancelled
+- A cancelled run stops before it asks Coolify for anything. A deploy that waits for its result stops
+  waiting when cancelled, but Coolify has already accepted that deploy
 - A confirm answered after its view moved to another resource, connection or host, or closed, does
   nothing
 
@@ -33,6 +34,8 @@ service for other plugins.
   keys, logs and instance settings, with a plain cause and fix when something fails
 - The Connections view and a "Connect Coolify" setup step
 - Actions to list, check, add, change and remove connections; token fields never appear in run history
+- A connection is reached only by the person who added it. Every check already knows shared access
+  (grants), but nothing creates a grant yet
 - A read that finishes after its connection's address, token or Access settings changed never answers the
   old target's data. It ends with `target-changed` (409), or reads as unknown, and you can try again
 
@@ -300,7 +303,10 @@ service for other plugins.
   Coolify "resource stopped" notification becomes a `coolify.status-changed` event for a standalone
   application or database (not for a preview or a service's part, which the poller doesn't count either).
   While the plugin is still checking 32 deliveries of one team it answers `503`, which Coolify retries,
-  and doesn't count the delivery, so polling never stops on a delivery whose event was not sent
+  and doesn't count the delivery, so a busy answer never stops polling. Once a delivery is counted, a
+  connection whose own check refuses or fails gets nothing for that event, and with polling off nothing
+  catches it later: turn on **Keep polling after a webhook arrives** for a connection that must not miss
+  one
 - One-click Coolify webhook setup: **Set up webhook** in a connection's settings, the actions
   `coolify.webhook-status`, `coolify.webhook-setup`, `coolify.webhook-replace` and
   `coolify.webhook-disable` (Operations Center, Automations, the CLI, the Termix API and MCP), and
@@ -435,7 +441,8 @@ service for other plugins.
 - An MCP endpoint at `/plugin-api/coolify/mcp` for Termix API keys scoped to `operations:read` or
   `operations:run`: one tool per action plus `list_connections`, `list_hosts`, `list_resources` and
   `take_status_page_url`, run through Termix's operations with approvals and history. Changes over MCP
-  stay off until an admin turns on "Allow changes over MCP"
+  stay off until an admin turns on "Allow changes over MCP", except deploy and restart, which MCP may run
+  either way
 - MCP output masks tokens, passwords, keys, env values and compose files at any depth, and cuts long output
   at 8,000 characters
 - "Use with an MCP client" in the Connections view, with the endpoint and a client config to copy
