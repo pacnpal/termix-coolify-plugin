@@ -68,6 +68,18 @@
   whose event was not sent
 - Scheduled task events are told apart by their task: two tasks of one application ending in the same
   minute are two events, while a poll and the webhook seeing the same task run are still one
+- One-click Coolify webhook setup: **Set up webhook** in a connection's settings, the actions
+  `coolify.webhook-status`, `coolify.webhook-setup`, `coolify.webhook-replace` and
+  `coolify.webhook-disable` (Operations Center, Automations, the CLI, the Termix API and MCP), and
+  `GET`, `POST` and `DELETE /plugin-api/coolify/connections/{id}/webhook` with
+  `POST .../webhook/replace`. It reads the team's webhook first: none set, or already this Termix, and it
+  writes this Termix's address and ticks the notifications the plugin turns into events; set to somewhere
+  else, and it shows only that address's host and asks before replacing it (declining changes nothing and
+  leaves polling on). Turning it off removes only this Termix's own address. The address is the one Termix
+  was opened at, never guessed, and the settings warn when it is private, which Coolify refuses. The
+  webhook token is only ever sent to Coolify, never shown, kept in run history or logged. Needs
+  **Configure Coolify** and owner or configure access to the connection; replacing and turning off ask
+  for a confirm, and over MCP need `confirmed: true`
 
 ### Changed
 

@@ -257,13 +257,13 @@ run `npm run gen:coolify` and add the new rows.
 | get-current-team-pushover-notifications    | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.2 Alerts / 1.3 Configure (Notifications section). |
 | get-current-team-slack-notifications       | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.2 Alerts / 1.3 Configure (Notifications section). |
 | get-current-team-telegram-notifications    | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.2 Alerts / 1.3 Configure (Notifications section). |
-| get-current-team-webhook-notifications     | used   | Task 18A generic `coolify.api-read` and the Task 23A API console; its own UI is planned for 1.2 Alerts / 1.3 Configure (Notifications section). |
+| get-current-team-webhook-notifications     | used   | #92 webhook setup (`coolify.webhook-status`, `-setup`, `-replace`, `-disable`), the generic `coolify.api-read` and the API console.             |
 | update-current-team-discord-notifications  | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.2 Alerts / 1.3 Configure (Notifications section). |
 | update-current-team-email-notifications    | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.2 Alerts / 1.3 Configure (Notifications section). |
 | update-current-team-pushover-notifications | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.2 Alerts / 1.3 Configure (Notifications section). |
 | update-current-team-slack-notifications    | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.2 Alerts / 1.3 Configure (Notifications section). |
 | update-current-team-telegram-notifications | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.2 Alerts / 1.3 Configure (Notifications section). |
-| update-current-team-webhook-notifications  | used   | Task 18A generic `coolify.api-call` and the Task 23A API console; its own UI is planned for 1.2 Alerts / 1.3 Configure (Notifications section). |
+| update-current-team-webhook-notifications  | used   | #92 webhook setup (`coolify.webhook-setup`, `-replace`, `-disable`), the generic `coolify.api-call` and the API console.                        |
 
 ## Private Keys
 

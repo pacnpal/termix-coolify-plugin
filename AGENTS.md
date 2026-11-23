@@ -69,7 +69,7 @@ aren't obvious from the code, and anything that has bitten you before.
   Where things stand: 1.0.0 is feature complete (connections, resources and lifecycle, host sync, shells,
   logs, exec, metrics, server updates, companions, status pages, the full Coolify API, the MCP endpoint and
   the `coolify.client` service). 1.2.0 (Alerts) is under way: the event pipeline and event log (#89), the
-  poller (#90) and the team webhook (#91) are in; alerts and the event log view build on them. The read-only smoke test against a real Coolify is the owner's
+  poller (#90), the team webhook (#91) and its one-click setup (#92) are in; alerts and the event log view build on them. The read-only smoke test against a real Coolify is the owner's
   (`scripts/smoke-readonly.md`). User docs: `docs/index.md`, `tunnels.md`, `permissions.md`,
   `companions.md`, `troubleshooting.md`, `api.md`, `coverage.md`.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
@@ -787,6 +787,41 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   its application or service, a backup's `/databases/{uuid}`, restart limit `/applications/{uuid}`
   (Coolify names any resource application_uuid; others fail closed). `issueWebhookToken()` gives #92
   `{ token, tokenHash }`; `webhooks.verify(token)` answers `{ id, instanceKey }` or null.
+- Webhook setup (1.2.0, #92): `src/backend/webhooks/setup.ts` (`createWebhookSetup`, made in `index.ts`
+  right after `createWebhooks`), `setup-routes.ts` (`GET`/`POST`/`DELETE /connections/:id/webhook`,
+  `POST .../webhook/replace`) and `src/backend/ops/webhooks.ts` (`coolify.webhook-status` read,
+  `coolify.webhook-setup` change, `coolify.webhook-replace` and `coolify.webhook-disable` destructive and
+  in `MCP_CONFIRM_REQUIRED`; the handlers pass `confirmed` because core confirms every destructive run).
+  Coolify's specs describe no body for `/notifications/webhook`: the field names (`webhook_url`,
+  `webhook_enabled`, `*_webhook_notifications`) come from Coolify's NotificationsController and
+  WebhookNotificationSettings at tag v4.7.5. `WEBHOOK_EVENT_TOGGLES` maps each event `shape.ts` gives a
+  kind to the key its notification passes to `getEnabledChannels` (`<key>_webhook_notifications`, so
+  `status_changed` needs `status_change`); a test keeps its keys equal to the mapped events, so a new
+  mapped event must add its toggle. `webhook_url` is hidden unless the token has
+  read:sensitive, so a GET without the key is `secrets-unreadable` (409), never "unset". The URL is read
+  only by `api.webhookChannelForSetup()` (`WebhookChannelForSetup`, like `KeyForCopy` not a DTO) and the
+  PATCH answer is dropped unread. Order: `coolify.configure`, `connections.snapshot` once (its new
+  `instanceKey`), owner or configure access, not `scoped`, an instanceKey (`no-team`), confirm, a base
+  (`no-base-url`), then one queue per instanceKey (two setups for one team would each write a token).
+  `holds` (revision plus the live permission and access) is every request's `beforeFetch` and runs before
+  the row write. Ours means the path ends in `/plugin-api/<id>/webhook/<43-char token>`, no query, and
+  `webhooks.verify(token)` finds this instanceKey's row; ours keeps its token and row (the URL is
+  rewritten on today's base), unset and replace give the row a new `tokenHash` (write-ahead, before the
+  PATCH; the old token wasn't in Coolify) and reset `lastReceivedAt`, so polling goes on until the new URL
+  delivers (a busy 503 refusal stamps nothing, so polling also stays on through those). Someone else's URL is shown only through `maskWebhookUrl` (scheme, host, port, then
+  `/[redacted]`). Disable writes `{ webhook_url: null, webhook_enabled: false }` only when ours, then
+  deletes that row (by instanceKey and token hash). Every partial failure converges on a retry:
+  `dropRow` removes this team's row whenever Coolify doesn't hold its token (disable finding unset or
+  someone else's, and a declined replace), with no `holds` first since the row is dead either way, so a
+  disable that cleared Coolify but lost its row delete, or a URL someone replaced, never leaves a
+  `lastReceivedAt` that keeps polling off (fail closed: polling resumes). A setup whose PATCH failed
+  left only a write-ahead row with no `lastReceivedAt`; its retry rotates the token again. The base is `baseUrlOf(req)` on routes and
+  `knownBaseUrl(ctx, actor)` in operations. `privateBase` is `isPrivateAddress` (connections/service.ts,
+  the transport check's `hostReach`) plus Coolify's blocked `.local`/`.internal` names; it only warns.
+  Nothing returns, logs or audits the URL: answers carry `outcome`, `replaced`, `basePrivate`; the audit
+  lines (`coolify_webhook_setup`, `coolify_webhook_disable`) hold the connection id and outcome. Frontend:
+  `views/WebhookSetup.tsx` in `ConnectionEditor` (owner only), keyed by `id:revision`, confirms through
+  `useConfirmFor`, and a read generation keeps only the newest status.
 - Abort: `registerOperations` hands the ops files a ctx whose `operations.register` wraps every handler in
   `abortable` (operations.ts), so a cancelled run throws its signal's reason before it starts; the wrapper
   only adds that check, so each handler's own permission and confirm checks still run. Long handlers

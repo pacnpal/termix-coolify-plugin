@@ -78,6 +78,23 @@ export interface KeyForCopy {
   publicKey: string | null;
 }
 
+/**
+ * The team's webhook notification channel, for the one step that decides
+ * whether its URL is ours (webhooks/setup.ts). Not a DTO: the URL can hold
+ * our webhook token or someone else's secret, so it never leaves that step,
+ * and nothing returns, logs or stores it.
+ */
+export interface WebhookChannelForSetup {
+  /**
+   * False when Coolify left `webhook_url` out of its answer: it hides the
+   * field from a token without read:sensitive.
+   */
+  readable: boolean;
+  /** The URL, or null when none is set (or it isn't readable). */
+  url: string | null;
+  enabled: boolean;
+}
+
 /** Coolify's answer for one resource of a deploy request. */
 export interface DeployRow {
   resourceUuid: string | null;
@@ -738,6 +755,46 @@ export function createCoolifyApi(http: CoolifyHttp) {
       if (typeof body === "string") return body;
       const logs = (body as { logs?: unknown } | null)?.logs;
       return typeof logs === "string" ? logs : "";
+    },
+
+    /**
+     * The team's webhook channel (needs a team-scoped token). Only the URL,
+     * whether it was readable and the enabled flag are kept.
+     */
+    async webhookChannelForSetup(
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<WebhookChannelForSetup> {
+      const body = await call<unknown>(
+        op("get-current-team-webhook-notifications"),
+        { beforeFetch: opts.beforeFetch },
+      );
+      const record =
+        body && typeof body === "object" && !Array.isArray(body)
+          ? (body as Record<string, unknown>)
+          : {};
+      const readable = Object.prototype.hasOwnProperty.call(
+        record,
+        "webhook_url",
+      );
+      return {
+        readable,
+        url: readable ? text(record.webhook_url) : null,
+        enabled: record.webhook_enabled === true,
+      };
+    },
+
+    /**
+     * Changes the team's webhook channel. Coolify answers with the channel,
+     * URL included for a sensitive token; the answer is dropped unread.
+     */
+    async updateWebhookChannel(
+      body: Record<string, unknown>,
+      opts: { beforeFetch?: () => Promise<void> } = {},
+    ): Promise<void> {
+      await call(op("update-current-team-webhook-notifications"), {
+        body,
+        beforeFetch: opts.beforeFetch,
+      });
     },
 
     async patchSentinel(

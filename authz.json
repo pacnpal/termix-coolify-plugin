@@ -819,6 +819,65 @@
       "allowed": "any",
       "note": "No login: Coolify's team webhook posts here and the token in the path is the only credential. Only its sha256 is stored and the run can't seed one, so every caller gets the same 400 for this unknown token."
     },
+    "GET /plugin-api/coolify/connections/:id/webhook": {
+      "access": "user",
+      "permission": ["coolify.view", "coolify.configure"],
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid and its probe failed, so it has no Coolify team: an allowed caller gets 409 no-team before Coolify is asked or anything changes."
+    },
+    "POST /plugin-api/coolify/connections/:id/webhook": {
+      "access": "user",
+      "permission": ["coolify.view", "coolify.configure"],
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      },
+      "body": {},
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid and its probe failed, so it has no Coolify team: an allowed caller gets 409 no-team before Coolify is asked or anything changes."
+    },
+    "POST /plugin-api/coolify/connections/:id/webhook/replace": {
+      "access": "user",
+      "permission": ["coolify.view", "coolify.configure"],
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      },
+      "body": {
+        "confirm": true
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid and its probe failed, so it has no Coolify team: an allowed caller gets 409 no-team before Coolify is asked or anything changes."
+    },
+    "DELETE /plugin-api/coolify/connections/:id/webhook": {
+      "access": "user",
+      "permission": ["coolify.view", "coolify.configure"],
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      },
+      "body": {
+        "confirm": true
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid and its probe failed, so it has no Coolify team: an allowed caller gets 409 no-team before Coolify is asked or anything changes."
+    },
     "GET /plugin-api/coolify/connections/:id/api/operations": {
       "access": "user",
       "permission": "coolify.view",

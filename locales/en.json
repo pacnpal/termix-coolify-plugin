@@ -847,6 +847,22 @@
     "connectionSetPoll": {
       "title": "Keep polling a Coolify connection after its webhook",
       "description": "Whether this connection keeps polling Coolify for changes once its team's webhook has delivered. Until a webhook arrives it polls anyway. Only the connection's owner can change it."
+    },
+    "webhookStatus": {
+      "title": "Read a Coolify team's webhook",
+      "description": "Whether the team's Coolify webhook is unset, already points at this Termix or points somewhere else (shown masked), and whether Termix's own address is a private one Coolify refuses. Needs configure access to the connection."
+    },
+    "webhookSetup": {
+      "title": "Set up the Coolify webhook",
+      "description": "Points the team's Coolify webhook at this Termix so events arrive at once. When it is unset or already ours, writes our URL and ticks the events; when it points somewhere else, changes nothing and answers the current URL masked (use Replace the Coolify webhook). The URL is never shown. Needs configure access to the connection."
+    },
+    "webhookReplace": {
+      "title": "Replace the Coolify webhook",
+      "description": "Points the team's Coolify webhook at this Termix even when it points somewhere else now. Coolify sends to one place only, so the other receiver stops getting events. Needs configure access to the connection."
+    },
+    "webhookDisable": {
+      "title": "Turn the Coolify webhook off",
+      "description": "Removes this Termix's URL from the team's Coolify webhook, only while it is still ours. Someone else's URL is left alone. Polling takes over again. Needs configure access to the connection."
     }
   },
   "connections": {
@@ -954,6 +970,39 @@
       "description": "This connection polls Coolify every minute for deployments, statuses, backups and scheduled tasks. Once Coolify's webhook for its team has delivered, it polls only while this is on.",
       "failed": "The setting was not changed.",
       "error": "Polling failed: {{cause}}"
+    },
+    "webhook": {
+      "title": "Coolify webhook",
+      "description": "Coolify sends deployments, backups, scheduled tasks and server problems here as they happen, instead of waiting for the next poll. Coolify keeps one webhook per team.",
+      "privateWarning": "Coolify refuses webhook addresses on a private network (localhost, 10.x, 172.16-31.x, 192.168.x, .local). Termix must be reachable from Coolify by a public address.",
+      "basePrivate": "This Termix's address, {{base}}, is private, so Coolify will refuse it. Open Termix by its public address and try again.",
+      "noBase": "Termix's own address isn't known yet. Open Termix by the address Coolify should use.",
+      "loading": "Reading the team's webhook...",
+      "loadFailed": "The team's webhook couldn't be read.",
+      "state": {
+        "unset": "No webhook is set for this Coolify team.",
+        "ours": "The team's webhook sends to this Termix.",
+        "foreign": "The team's webhook sends somewhere else: {{current}}"
+      },
+      "disabledNote": "The webhook is set but turned off in Coolify.",
+      "setup": "Set up webhook",
+      "working": "Working...",
+      "configured": "The webhook is set up. Coolify now sends events to this Termix.",
+      "declined": "The webhook was left as it is. Polling stays on.",
+      "disabled": "The webhook is off. Polling takes over.",
+      "notSet": "No webhook was set.",
+      "cancel": "Cancel",
+      "replace": {
+        "title": "Replace the team's webhook?",
+        "description": "It sends to {{current}} now. Coolify sends to one place only, so that receiver will stop getting Coolify's events.",
+        "confirm": "Replace"
+      },
+      "disable": {
+        "action": "Turn webhook off",
+        "title": "Turn the team's webhook off?",
+        "description": "Coolify stops sending events to this Termix, and polling takes over.",
+        "confirm": "Turn off"
+      }
     }
   },
   "causes": {
@@ -979,7 +1028,11 @@
     "confirm-required": "This needs a confirm first.",
     "not-masked": "That value is not a masked one.",
     "secrets-unreadable": "The token can't read secrets.",
-    "token-ability": "This connection's token can't run this operation."
+    "token-ability": "This connection's token can't run this operation.",
+    "no-base-url": "Termix's own address isn't known. Open Termix by the address Coolify should use, then try again.",
+    "no-team": "This connection's Coolify team is unknown. Check the connection again.",
+    "scoped-token": "A token limited to projects or resources can't change the team's webhook.",
+    "not-ours": "The team's webhook points somewhere else, so it was left as it is."
   },
   "fixes": {
     "unreachable": "Check the URL. If Coolify is on your local network, turn on \"On my local network\" under Advanced.",

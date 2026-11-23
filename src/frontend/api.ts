@@ -69,6 +69,25 @@ export type ConnectionPatch = Partial<
   autoSync?: boolean;
 };
 
+/** The team webhook as the setup reads it. Never holds a token. */
+export interface WebhookStatus {
+  state: "unset" | "ours" | "foreign";
+  enabled: boolean;
+  /** Someone else's URL, masked to its scheme, host and port; else null. */
+  current: string | null;
+  /** The address our URL would use: this request's own, or null. */
+  base: string | null;
+  /** Whether that address is private, which Coolify refuses. */
+  basePrivate: boolean;
+}
+
+export type WebhookSetupAnswer =
+  | { outcome: "configured"; replaced: boolean; basePrivate: boolean }
+  | { outcome: "replace-needed"; current: string; basePrivate: boolean };
+
+export type WebhookDisableAnswer =
+  { outcome: "disabled" } | { outcome: "not-set" };
+
 export interface ProbeAnswer {
   connection: Connection;
   probe: {
@@ -846,6 +865,29 @@ export function createApi(api: PluginApiClient) {
     async setPoll(id: number, pollEnabled: boolean): Promise<Connection> {
       return (
         await api.patch<Connection>(`/connections/${id}`, { pollEnabled })
+      ).data;
+    },
+    async webhookStatus(id: number): Promise<WebhookStatus> {
+      return (await api.get<WebhookStatus>(`/connections/${id}/webhook`)).data;
+    },
+    async setupWebhook(id: number): Promise<WebhookSetupAnswer> {
+      return (
+        await api.post<WebhookSetupAnswer>(`/connections/${id}/webhook`, {})
+      ).data;
+    },
+    async replaceWebhook(id: number): Promise<WebhookSetupAnswer> {
+      return (
+        await api.post<WebhookSetupAnswer>(
+          `/connections/${id}/webhook/replace`,
+          { confirm: true },
+        )
+      ).data;
+    },
+    async disableWebhook(id: number): Promise<WebhookDisableAnswer> {
+      return (
+        await api.delete<WebhookDisableAnswer>(
+          `/connections/${id}/webhook?confirm=true`,
+        )
       ).data;
     },
     async deleteConnection(id: number): Promise<void> {

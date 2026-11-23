@@ -26,6 +26,17 @@ reasons above. It tries again after 1, 2, 5 and then 15 minutes, and the line go
 If no events arrive at all, check that an admin hasn't turned off **Allow polling**, and that **Keep polling
 after a webhook arrives** is on when Coolify's webhook for the team has delivered before.
 
+**Set up webhook** refusals:
+
+| Message                                                   | What to do                                                                                      |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Termix's own address isn't known                          | Open Termix by the address Coolify should use (not `localhost`), then try again                 |
+| The token can't read secrets                              | Give the token `read:sensitive`: Coolify hides the current webhook address from other tokens    |
+| A token limited to projects or resources can't change it  | Use a token for the whole team                                                                  |
+| This connection's Coolify team is unknown                 | Check the connection again                                                                      |
+| Coolify refused the values sent                           | Termix's address is private; Coolify only sends webhooks to public addresses. Polling covers it |
+| The team's webhook points somewhere else (on turning off) | Nothing was changed: only this Termix's own address is ever removed                             |
+
 ## Host sync
 
 - **needs-address**: Coolify has no address Termix can reach for the server. Enter one on the server's row.
