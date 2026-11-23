@@ -424,6 +424,32 @@
       "allowed": "any",
       "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify (the resource list can't be read); there is no reachable Coolify in the authz run."
     },
+    "GET /plugin-api/coolify/connections/:id/overview": {
+      "access": "user",
+      "permission": "coolify.view",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify (the resource list can't be read); there is no reachable Coolify in the authz run."
+    },
+    "GET /plugin-api/coolify/connections/:id/vulnerabilities": {
+      "access": "user",
+      "permission": "coolify.view",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      },
+      "allowed": "any",
+      "note": "The seeded connection points at coolify.invalid, so an allowed caller gets 502 from Coolify (the vulnerability list can't be read); there is no reachable Coolify in the authz run."
+    },
     "GET /plugin-api/coolify/connections/:id/deploy-by-tag": {
       "access": "user",
       "permission": "coolify.operate",
@@ -688,6 +714,17 @@
       },
       "allowed": "any",
       "note": "Answers 404 companion-missing unless the Databases plugin runs, and the authz run installs no companions"
+    },
+    "GET /plugin-api/coolify/connections/:id/events": {
+      "access": "user",
+      "permission": "coolify.view",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      }
     },
     "GET /plugin-api/coolify/connections/:id/status-pages": {
       "access": "user",

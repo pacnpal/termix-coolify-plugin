@@ -584,7 +584,7 @@
     },
     "events": {
       "fields": {
-        "name": "Resource name",
+        "name": "Name",
         "deploymentUuid": "Deployment",
         "status": "Status"
       },
@@ -603,6 +603,38 @@
       "serverUnreachable": {
         "title": "Coolify server unreachable",
         "description": "Coolify can no longer reach a server."
+      },
+      "restartLimit": {
+        "title": "Coolify restart limit reached",
+        "description": "A resource's container kept restarting and Coolify stopped trying."
+      },
+      "backupSucceeded": {
+        "title": "Coolify backup succeeded",
+        "description": "A scheduled database backup finished."
+      },
+      "backupFailed": {
+        "title": "Coolify backup failed",
+        "description": "A scheduled database backup failed."
+      },
+      "taskSucceeded": {
+        "title": "Coolify scheduled task succeeded",
+        "description": "A scheduled task ran and succeeded."
+      },
+      "taskFailed": {
+        "title": "Coolify scheduled task failed",
+        "description": "A scheduled task ran and failed."
+      },
+      "highDisk": {
+        "title": "Coolify server disk almost full",
+        "description": "A server's disk usage went over Coolify's limit."
+      },
+      "certificateProblem": {
+        "title": "Coolify certificate problem",
+        "description": "A certificate is expiring, has expired or could not be renewed."
+      },
+      "tokenExpiring": {
+        "title": "Coolify API token expiring",
+        "description": "A Coolify API token expires soon."
       }
     },
     "shellCommand": {
@@ -752,6 +784,14 @@
       "title": "Coolify activity",
       "description": "Deployments in progress, recent failed deployments, degraded resources and unreachable servers across every connection you can view."
     },
+    "connectionOverview": {
+      "title": "Coolify connection overview",
+      "description": "The connection's resources counted by status and its servers, with how many Coolify can't reach."
+    },
+    "vulnerabilitySummary": {
+      "title": "Coolify vulnerabilities",
+      "description": "How many of the connection's resources have known vulnerabilities, from Coolify's image scanning, with counts by severity."
+    },
     "deployByTag": {
       "title": "Deploy Coolify resources by tag",
       "description": "Deploys every application and service on the connection that carries a tag. A dry run lists them."
@@ -775,6 +815,26 @@
     "previewLogs": {
       "title": "Read a pull request preview's logs",
       "description": "The preview's container logs through Coolify, with secrets masked."
+    },
+    "eventsList": {
+      "title": "Coolify event log",
+      "description": "A page of the connection's event log, newest first: deployments, restarts, unreachable servers, backups, scheduled tasks, disk, certificates and expiring tokens. It holds no secrets or log text.",
+      "kind": {
+        "label": "Event kind",
+        "description": "Only events of this kind."
+      },
+      "uuid": {
+        "label": "Resource or server",
+        "description": "Only events about this resource or server uuid."
+      },
+      "limit": {
+        "label": "Events per page",
+        "description": "1 to 200; 50 when empty."
+      },
+      "before": {
+        "label": "Older than",
+        "description": "Only events older than this event log entry: the last page's nextBefore."
+      }
     }
   },
   "connections": {
@@ -1619,6 +1679,57 @@
     "noRunning": "Nothing is queued or running.",
     "noRecent": "No recent deployments.",
     "back": "All deployments"
+  },
+  "dashboardCard": {
+    "title": "Coolify"
+  },
+  "dashboard": {
+    "loading": "Loading Coolify…",
+    "failed": "Couldn't read Coolify.",
+    "noPermission": "You don't have access to Coolify.",
+    "noAccess": "This Coolify connection isn't available to you.",
+    "pickHint": "Pick a Coolify connection in this card's settings.",
+    "settings": {
+      "connection": "Connection",
+      "resource": "Resource",
+      "none": "No Coolify connections yet. Add one in the Coolify tab.",
+      "noResources": "This connection has no resources.",
+      "failed": "Couldn't load the list."
+    },
+    "overview": {
+      "title": "Coolify overview",
+      "description": "A connection's resources by status, and its servers.",
+      "empty": "This connection has no resources yet.",
+      "servers": "{{total}} servers, {{unreachable}} unreachable",
+      "noServers": "This token can't read servers."
+    },
+    "resource": {
+      "title": "Coolify resource",
+      "description": "One resource's status, with Deploy.",
+      "gone": "This resource is no longer in Coolify.",
+      "deploy": "Deploy",
+      "deployConfirm": {
+        "title": "Deploy {{name}}?",
+        "description": "Coolify starts a new deployment of this resource.",
+        "confirm": "Deploy"
+      }
+    },
+    "deployments": {
+      "title": "Coolify deployments",
+      "description": "A connection's deployments in progress.",
+      "empty": "No deployments in progress."
+    },
+    "vulnerabilities": {
+      "title": "Coolify vulnerabilities",
+      "description": "How many of a connection's resources have known vulnerabilities.",
+      "empty": "No known vulnerabilities.",
+      "scanned": "{{count}} resources scanned",
+      "unscanned": "{{count}} not scanned yet",
+      "noneScanned": "Not scanned yet",
+      "affected": "Resources with vulnerabilities",
+      "severity": "{{critical}} critical, {{high}} high",
+      "open": "Open Coolify"
+    }
   },
   "activityPanel": {
     "title": "Coolify activity",

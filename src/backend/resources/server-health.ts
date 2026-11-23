@@ -1,4 +1,5 @@
-import { ConnectionError, type Connections } from "../connections/service.js";
+import { forRevision } from "../connections/hold.js";
+import type { Connections } from "../connections/service.js";
 import type { Deployments } from "../deployments/service.js";
 import type { ServerStatuses } from "../ops/signals.js";
 import {
@@ -36,32 +37,32 @@ export interface ServerHealthDeps {
  * host rows (the dot, the counts and the deploying badge). Every part comes
  * from a shared cache (servers a minute, resources 20 seconds, the queue 10
  * seconds), so all the host rows of a connection cost one call here and at
- * most one Coolify read per list. The connection's revision is read before
- * and after, so an answer never mixes two targets: a change while it reads
- * ends with target-changed.
+ * most one Coolify read per list. The reads run inside `forRevision`, so an
+ * answer never mixes two targets: a change while they read ends with
+ * target-changed, and a connection the actor can't reach is not-found.
  */
 export function createServerHealth(deps: ServerHealthDeps) {
   return {
     async read(connectionId: number): Promise<ServerHealth> {
-      // Checks the actor's access; the reads below check it again.
-      const before = await deps.connections.revision(connectionId);
-      const [list, servers, queue] = await Promise.allSettled([
-        deps.resources.load(connectionId),
-        deps.servers.list(connectionId),
-        deps.deployments.queue(connectionId),
-      ]);
-      if (list.status === "rejected" && servers.status === "rejected") {
-        throw list.reason;
-      }
-      if (
-        before === null ||
-        (await deps.connections.revision(connectionId)) !== before
-      ) {
-        throw new ConnectionError(
-          "target-changed",
-          "The connection's address, token or Access settings changed. Try again.",
-        );
-      }
+      // One target for every part: a repoint while they read is target-changed.
+      const [list, servers, queue] = await forRevision(
+        deps.connections,
+        connectionId,
+        async () => {
+          const parts = await Promise.allSettled([
+            deps.resources.load(connectionId),
+            deps.servers.list(connectionId),
+            deps.deployments.queue(connectionId),
+          ]);
+          if (
+            parts[0].status === "rejected" &&
+            parts[1].status === "rejected"
+          ) {
+            throw parts[0].reason;
+          }
+          return parts;
+        },
+      );
       const health: ServerHealth = {
         servers:
           servers.status === "fulfilled"

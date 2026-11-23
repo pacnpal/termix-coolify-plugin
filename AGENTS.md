@@ -68,7 +68,8 @@ aren't obvious from the code, and anything that has bitten you before.
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
   Where things stand: 1.0.0 is feature complete (connections, resources and lifecycle, host sync, shells,
   logs, exec, metrics, server updates, companions, status pages, the full Coolify API, the MCP endpoint and
-  the `coolify.client` service). The read-only smoke test against a real Coolify is the owner's
+  the `coolify.client` service). 1.2.0 (Alerts) is under way: the event pipeline and event log (#89) are
+  in; the poller, webhook, alerts and event log view build on them. The read-only smoke test against a real Coolify is the owner's
   (`scripts/smoke-readonly.md`). User docs: `docs/index.md`, `tunnels.md`, `permissions.md`,
   `companions.md`, `troubleshooting.md`, `api.md`, `coverage.md`.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
@@ -366,8 +367,8 @@ aren't obvious from the code, and anything that has bitten you before.
   nothing for a server the target's server list no longer has. `server-health` is built by
   `resources/server-health.ts` (`createServerHealth`, also behind `coolify.host-summary`): servers,
   resources and `deployments.queue` in parallel, `counts` by `countResources`, `deploying` = the server's
-  resources (no Parts) with a running queue row or a deploying status; the connection's revision is read
-  before and after and a change is `target-changed`, so an answer never mixes targets. The dot still
+  resources (no Parts) with a running queue row or a deploying status; the reads run inside
+  `forRevision` (`connections/hold.ts`), so an answer never mixes targets (`target-changed`). The dot still
   reads it once per mount (unchanged). Metrics: `homepage.hostMetrics` context has only `hostId`, so the
   host comes from `useHost` (shell ids are strings) and the read needs `usePermission("operate")` and
   `online !== false`. `createHostStatsFeed` batches every shown server of a connection into one
@@ -644,9 +645,56 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   `unhealthy` does. `coolify.updates` takes the newer (`newestSecurity`, parsed timestamps, an unparsable
   one counts as oldest) of Coolify's patch check (`ServerDto.patch`) and the updates service's own last
   check (`updates.lastCheck`: the `updates:<serverUuid>` cache row, served only under the current revision
-  and generation, as in `status`); a signal never runs SSH or calls Coolify beyond the servers cache. The
-  deployment events are emitted only by a deploy run with `wait`; container-restarted and
-  server-unreachable are declared for later polling.
+  and generation, as in `status`); a signal never runs SSH or calls Coolify beyond the servers cache.
+  A deploy run with `wait` still emits its deployment event directly (lifecycle.ts), outside the event
+  pipeline; moving it onto `events.ingest` (source `poll` or a new one) is left to the poller ticket.
+- Event pipeline (1.2.0, #89): `src/backend/events/` (`kinds.ts`, `service.ts` `createEvents`,
+  `routes.ts`) and `src/backend/ops/events.ts`. It is the only writer of the `events` table and the only
+  emitter of the `coolify.<kind>` operations events; the poller (#90) and the webhook (#91) feed it, alerts
+  (#93) and the event log view (#94) read it. The source interface, made in `index.ts` right after
+  `createResources` and passed to whatever feeds it:
+  `events.ingest(connectionId: number, event: SourceEvent, read: { revision: string }): Promise<IngestResult>`.
+  `SourceEvent` is `{ kind, source: "poll" | "webhook", resourceUuid?, serverUuid?, deploymentUuid?,
+name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snapshot's, as the source
+  read Coolify. `IngestResult` is `stored` (with the `EventRecord`), `duplicate`, or `dropped` with
+  `invalid`, `connection-gone`, `target-changed` or `no-access` (owner lost `coolify.view`). It needs no
+  actor (it uses `connections.unattendedSnapshot`, which also gives `secrets()`) and throws only when the
+  database or the emit fails, and then keeps nothing that makes a retry a duplicate. A row is inserted
+  with a pending key (`pending|<nonce>|<key>`, which neither the dedupe lookup nor the log read matches
+  and the nonce keeps off the unique index) and gets its real `dedupeKey` (`store.commit`) only after the
+  emit. Step order: sweep, connection check, owner view, clean, dedupe lookup, insert pending, read-back,
+  prune, persist, then `linkedHostFor`, then the last check `current()` as the very last await, then the emit
+  with no await between, commit, persist. A failed last check deletes the pending row and answers
+  `dropped` with its reason. `store.commit` answers how many rows it updated (read back by the new key, as
+  no dialect reports affected rows alike); 0 means a removal (under the connections lock, not this queue)
+  deleted the row after the emit, and the answer is `dropped`/`connection-gone`, not `stored`, though the
+  event went out. Every step after the insert shares one catch that deletes by `(connectionId, [pendingKey, dedupeKey])` and rethrows. If
+  that delete fails too, the pending row stays, unlisted and ignored, and the next ingest for the
+  connection sweeps it (`store.sweep`): fail closed, a retry may send again but is never suppressed. The
+  table steps are `createEventStore` (deps.store), so tests make each fail once. Kinds live in `EVENT_KINDS` (kinds.ts) with their subject (`resource`, `server`,
+  `any`, `team`), severity and log title; each is declared in the manifest as `coolify.<kind>` with scope
+  `server` (hostId only when Linked, so no event needs one) and the payload `PAYLOAD_KEYS[subject]`; a
+  test checks both lists and every emitted payload's keys. A new kind adds a row there, a manifest event
+  and its `ops.events.*` locale. Dedupe: `deployment|<deploymentUuid>` when there is one (one event per
+  deployment, whatever its kind), else `<kind>|<resourceUuid or serverUuid>|<minute>`, the minute from
+  the source's `at` unless it is missing, invalid or more than a minute ahead of the clock (then the
+  pipeline's `now`). The key is the `dedupeKey` column with a unique `(connectionId, dedupeKey)` index
+  (migration 0003 hand-adds it: the generator writes no index for an existing table); ingests for one
+  connection run one at a time in memory (single process, like `withLock`), so read, insert and prune
+  never interleave. Pruning keeps the newest `EVENT_LOG_LIMIT` (1000) per connection by id, never createdAt (ids
+  only grow, so the row just written is never pruned; `prune` also excludes its id). Removing a
+  connection deletes its events in `removeNow`'s batch; hostId is
+  `sync.linkedHostFor(connectionId, serverUuid)` read right before the last check (an unlink or host.deleted doesn't
+  change the revision) and written at commit, so a resource event needs its server's uuid from the
+  source. Redaction: uuids must match `^[A-Za-z0-9_-]{1,128}$` (else `invalid`); `name` and `status` go
+  through `redactLog` with the connection's own secrets, then keep their first line, capped (255, 64);
+  `fields` keeps at most 20 top-level scalars with plain names, drops log-shaped names (any name ending in `log`,
+  `logs`, `output`, `stdout` or `stderr` in any case, like `backup_log`, `deploymentLogs` or
+  `commandoutput`, except plain words in `NOT_LOG_FIELDS` such as `catalog` and `dialog`) and nested values, runs `redact()` (secret keys) and then each string
+  as `name`, capped at 500. The read is `events.list(connectionId, { limit, before, kind, uuid })`
+  (a list or other non-scalar is 400; the route refuses a repeated query key rather than ignore it)
+  (coolify.view, any access, another user's 404), answering `{ rows: EventRecord[], nextBefore }` newest
+  first, paged by id.
 - Abort: `registerOperations` hands the ops files a ctx whose `operations.register` wraps every handler in
   `abortable` (operations.ts), so a cancelled run throws its signal's reason before it starts; the wrapper
   only adds that check, so each handler's own permission and confirm checks still run. Long handlers
@@ -822,3 +870,31 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   `undoInput` only when it is listed; a failed read never blocks the deploy. `PluginOperationOutcome` has
   no `undoInput`, so tests read it from the handler's own result. `RollbackView` re-checks after the
   confirm that it is still mounted and on the same application before it posts.
+- Dashboard cards and homepage widgets (1.2): `src/frontend/views/dashboard/` (`register.tsx`,
+  `CoolifyCards.tsx`, `useCardRead.ts`), shared kinds, settings and poll intervals in
+  `src/shared/dashboard.ts`, backend reads in `src/backend/dashboard/` and `ops/dashboard.ts`. One
+  dashboard card `coolify` (manifest `dashboardCards`) whose `entries` are the four kinds, each entry's
+  `config` `{ card }`; the card's own `setConfig` adds `connectionId` (and `uuid` for the resource card).
+  The same four go to `homepage.widgets` (in `uses`) as `coolify.<kind>`, with `components` `view`,
+  `editForm` and `label` (the Homepage plugin's `WidgetRegistry` reads those three; its widget props are
+  `{ widget, config, onConfigUpdate }`, its edit form's `{ config, onChange }`). A widget has no
+  visibility prop, so it reads only while `document.visibilityState` is visible. `readCardConfig` keeps
+  only well formed stored values. `useCardRead` reads the connection (403/404: the no-access state), then
+  the card's data, keyed by the card's target, newest read only, a setTimeout chain every
+  `CARD_POLL_MS[kind]`, which `poll-intervals.test.ts` holds at or above each backend cache's TTL.
+  Overview reads `GET /connections/:id/overview` (resources and server statuses caches, no Coolify request
+  of its own); the resource card reads the resource list and deploys through `useLifecycle` after a
+  `useConfirmFor` keyed by connection, uuid and revision, with the body keyed by target (the terminal
+  companion's rule for the button: `coolify.operate` and `OPERATE_ACCESS`, never a Part); deployments
+  reads the queue route; vulnerabilities reads `GET /connections/:id/vulnerabilities`, Coolify's
+  `/vulnerabilities` summarized to counts (`dashboard/vulnerabilities.ts`, in memory five minutes, keyed
+  by revision, shared in-flight, kept only if the revision held; no names or Coolify text, so nothing to
+  redact) and links to the connection's `baseUrl`. No recent events on any card: the event pipeline (#89)
+  is separate, and an events card belongs to the event log ticket. `resources.load()` and
+  `servers.list()` return what they fetched even across a repoint (their revision only gates the cache),
+  so the overview and `GET /connections/:id/resources` wrap them in `forRevision`
+  (`connections/hold.ts`: revision before, checked again before answering, else `target-changed` 409);
+  the queue (`holds`) and vulnerabilities (snapshot revision) check it themselves. `server-health` (host
+  dots and host rows, `resources/server-health.ts`) wraps its reads in `forRevision` too. The vulnerabilities card counts only completed scans as
+  scanned (`ok` plus affected); `check_needed` and `not_checked` are "not scanned yet", and with nothing
+  scanned it never shows the clean state.
