@@ -4,7 +4,7 @@
   "repository": "https://github.com/pacnpal/termix-coolify-plugin",
   "publicKey": "Qhm4ZKAVAodNOzxb2Ez2DdcDccUAZUwKN9+id4JG7iU=",
   "since": null,
-  "index": "0715552343e0f066f70f5f49c28af51fd89edac44651d355774f5440d48f2182",
+  "index": "9b6ada2e2f4bb03fd0be0d47f8dff0442b98eb31b0ea15f1ec16defe29371376",
   "releases": [
     {
       "facts": {
@@ -120,6 +120,35 @@
         "tmxplug": "01de4fcbcd6211f0c085f44a01fbeb42b82936e651509bc40187b24a967a0c77",
         "sig": "95b8644cac74fc900b42942f8d51e697d891169f14e896b50adcc71c141d4142",
         "provenance": "7ac9e75fbb004285e9354778b3c46d04d4d23441d27c010076783dfe738fd17c"
+      }
+    },
+    {
+      "facts": {
+        "tag": "v1.0.4",
+        "draft": false,
+        "prerelease": false,
+        "htmlUrl": "https://github.com/pacnpal/termix-coolify-plugin/releases/tag/v1.0.4",
+        "publishedAt": "2026-11-23T21:03:24Z",
+        "tmxplug": {
+          "name": "coolify-1.0.4.tmxplug",
+          "url": "https://github.com/pacnpal/termix-coolify-plugin/releases/download/v1.0.4/coolify-1.0.4.tmxplug",
+          "updatedAt": "2026-11-23T21:03:23Z"
+        },
+        "sig": {
+          "name": "coolify-1.0.4.tmxplug.sig",
+          "url": "https://github.com/pacnpal/termix-coolify-plugin/releases/download/v1.0.4/coolify-1.0.4.tmxplug.sig",
+          "updatedAt": "2026-11-23T21:03:22Z"
+        },
+        "provenance": {
+          "name": "coolify-1.0.4.tmxplug.sigstore.json",
+          "url": "https://github.com/pacnpal/termix-coolify-plugin/releases/download/v1.0.4/coolify-1.0.4.tmxplug.sigstore.json",
+          "updatedAt": "2026-11-23T21:03:23Z"
+        }
+      },
+      "digests": {
+        "tmxplug": "f8bf35f8aa365222ea84ef0ebe6985ce661ed0d0cae1847eda978d6f6de4612d",
+        "sig": "003ba735fc5ed81e15a6c2effada480204b0e6b956a67849bca8325c156cec27",
+        "provenance": "e18e1fb0843c0b2080ee9e18dfa5a758dca992e4dbe2a3e09b2035a4eceb9680"
       }
     }
   ]
