@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.1
+
+### Fixed
+
+- Sync servers copies each server's SSH key from Coolify again. Coolify's server list doesn't say which
+  key a server uses, so every server asked for a Termix credential, and a key the server doesn't accept
+  failed with "All configured authentication methods failed". Sync now reads each server for its key. A
+  Linked host that was given a picked credential switches to the Coolify key on its next sync, once the key
+  copies; a credential picked in that sync is still used as picked
+
 ## 1.0.0
 
 The first release of Coolify for Termix. It brings Coolify servers and resources into Termix: connections,

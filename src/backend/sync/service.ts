@@ -5,6 +5,7 @@ import type {
 } from "@termix-ssh/plugin-sdk/backend";
 import { toServer, type ServerDto } from "../coolify/dto.js";
 import { CoolifyError } from "../coolify/http.js";
+import type { CoolifyApi, FetchGuard } from "../coolify/api.js";
 import { stillAt } from "../connections/hold.js";
 import {
   ConnectionError,
@@ -357,6 +358,33 @@ export async function createSync(
     return copy && server.privateKeyId !== null ? "coolify" : "termix";
   }
 
+  /**
+   * Coolify's server list leaves out private_key_id; only the one-server read
+   * has it. Each server without one is read again for it, only when keys may
+   * be copied. A failed read keeps it unknown (the server asks for a picked
+   * credential); a guard's refusal ends the sync.
+   */
+  function withKeyIds(
+    api: CoolifyApi,
+    servers: ServerDto[],
+    copy: boolean,
+    guard: FetchGuard = {},
+  ): Promise<ServerDto[]> {
+    if (!copy) return Promise.resolve(servers);
+    return Promise.all(
+      servers.map(async (s) => {
+        if (s.privateKeyId !== null) return s;
+        try {
+          const { privateKeyId } = await api.server(s.uuid, guard);
+          return { ...s, privateKeyId };
+        } catch (err) {
+          if (err instanceof CoolifyError) return s;
+          throw err;
+        }
+      }),
+    );
+  }
+
   function previewRow(
     view: ConnectionView,
     copy: boolean,
@@ -482,14 +510,14 @@ export async function createSync(
     const target = await connections.snapshot(connectionId);
     const view = requireOwner(target.view);
     const { api } = target;
-    const servers = await api.servers();
+    const copy = await copyAllowed(view);
+    const servers = await withKeyIds(api, await api.servers(), copy);
     // The list came from the snapshot's target; a change while it was read
     // ends the sync before any key is copied or any row is saved.
     await assertSnapshotHolds(connectionId, view.revision);
     const rows = await rowsOf(connectionId);
     const byUuid = new Map(rows.map((r) => [r.serverUuid, r]));
     const wanted = choices && new Map(choices.map((c) => [c.uuid, c]));
-    const copy = await copyAllowed(view);
     const known: KnownCopy[] = rows
       .filter((r) => r.credentialMode === "coolify" && r.credentialId)
       .map((r) => ({
@@ -544,12 +572,12 @@ export async function createSync(
         choice.addressOverride !== undefined
           ? choice.addressOverride
           : (row?.addressOverride ?? null);
+      const stored =
+        choice.credentialId === undefined && row?.credentialMode === "termix"
+          ? row.credentialId
+          : null;
       const picked =
-        choice.credentialId !== undefined
-          ? choice.credentialId
-          : row?.credentialMode === "termix"
-            ? row.credentialId
-            : null;
+        choice.credentialId !== undefined ? choice.credentialId : stored;
       // A picked credential, new or stored, must be one of the actor's own
       // before anything is written for this server.
       const credentialCause = picked ? await checkCredential(picked) : null;
@@ -599,24 +627,28 @@ export async function createSync(
         let mode: SyncMode = "termix";
         let fingerprint: string | null = null;
         let copyFailed = false;
-        if (!credentialId && copy) {
+        // A stored pick yields to Coolify's own key once that copies: a pick
+        // was only asked for when it couldn't (before 1.0.1 every server,
+        // since the key id was read from the list, which never has it). A
+        // pick made in this request is always used.
+        if (copy && (!credentialId || credentialId === stored)) {
           const copied = await copier.credentialFor(server.privateKeyId);
-          if (copied && "cause" in copied) {
-            await beforeWrite();
-            await saveRow(connectionId, server.uuid, row, remember);
-            results.push({
-              ...base,
-              status: "blocked",
-              cause: copied.cause,
-              hostId: row?.hostId ?? null,
-            });
-            continue;
-          }
           if (copied && "credentialId" in copied) {
             credentialId = copied.credentialId;
             fingerprint = copied.fingerprint;
             mode = "coolify";
-          } else {
+          } else if (!credentialId) {
+            if (copied && "cause" in copied) {
+              await beforeWrite();
+              await saveRow(connectionId, server.uuid, row, remember);
+              results.push({
+                ...base,
+                status: "blocked",
+                cause: copied.cause,
+                hostId: row?.hostId ?? null,
+              });
+              continue;
+            }
             copyFailed = server.privateKeyId !== null;
           }
         }
@@ -790,11 +822,16 @@ export async function createSync(
       const { view, api } = await connections.snapshot(connectionId);
       const sameTarget = () =>
         stillAt(connections, connectionId, view.revision);
-      const servers = await api.servers({ beforeFetch: sameTarget });
+      const copy = await copyAllowed(view);
+      const servers = await withKeyIds(
+        api,
+        await api.servers({ beforeFetch: sameTarget }),
+        copy,
+        { beforeFetch: sameTarget },
+      );
       await sameTarget();
       const rows = await rowsOf(connectionId);
       const byUuid = new Map(rows.map((r) => [r.serverUuid, r]));
-      const copy = await copyAllowed(view);
       const present = new Set(servers.map((s) => s.uuid));
       const gone = rows.some(
         (r) => r.hostId !== null && !present.has(r.serverUuid),

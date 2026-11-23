@@ -66,7 +66,7 @@ Keep this section current when the plugin changes: what it does, how it is put t
 aren't obvious from the code, and anything that has bitten you before.
 
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
-  Where things stand: the plugin is at 1.0.0, its first release. It holds connections, resources and
+  Where things stand: the plugin is at 1.0.1 (1.0.0 was its first release). It holds connections, resources and
   lifecycle, host sync, shells, logs, exec, metrics, server updates, companions, status pages, deployments,
   previews and rollback, recent activity, the activity panel, dashboard cards and homepage widgets, the
   event pipeline and event log (#89), the poller (#90), the team webhook (#91) and its one-click setup
@@ -333,7 +333,11 @@ aren't obvious from the code, and anything that has bitten you before.
   order is always the connections service's `withLock` first, then the sync queue; sync never takes
   `withLock`. `apply` also re-checks `ownedConnection` before its first host write and ends with the
   `ConnectionError` if the connection is gone. A host `apply` created whose link row fails to save is
-  unlocked and deleted (`discardHost`). Key material comes only from
+  unlocked and deleted (`discardHost`). Coolify's `GET /servers` has no `private_key_id`
+  (only `GET /servers/{uuid}` does; the specs list neither), so `withKeyIds` reads each server without
+  one, only when keys may be copied, and a failed read leaves it unknown. Before 1.0.1 every server
+  asked for a picked credential because of it, so a stored pick (`credentialMode = "termix"`) yields to
+  the copied key whenever the copy succeeds; a pick sent in that apply is always used. Key material comes only from
   `api.keyForCopy()` (not a DTO) and goes only to `ctx.credentials.createSshKey`; reuse is by fingerprint
   among the connection's `credentialMode = "coolify"` rows, and only while the id is still in
   `ctx.credentials.listSshKeys()` (a deleted copy is made again; an unreadable list blocks the server with

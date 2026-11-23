@@ -297,8 +297,8 @@ export function createCoolifyApi(http: CoolifyHttp) {
       );
     },
 
-    async server(uuid: string): Promise<ServerDto> {
-      return toServer(await call(op("get-server-by-uuid", { uuid })));
+    async server(uuid: string, opts: FetchGuard = {}): Promise<ServerDto> {
+      return toServer(await call(op("get-server-by-uuid", { uuid }), opts));
     },
 
     async keys(): Promise<KeyDto[]> {
