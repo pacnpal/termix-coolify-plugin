@@ -640,7 +640,7 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   with a pending key (`pending|<nonce>|<key>`, which neither the dedupe lookup nor the log read matches
   and the nonce keeps off the unique index) and gets its real `dedupeKey` (`store.commit`) only after the
   emit. Step order: sweep, connection check, owner view, clean, dedupe lookup, insert pending, read-back,
-  prune, persist, then the last check (`current()` and `linkedHostFor` in one `Promise.all`), then the emit
+  prune, persist, then `linkedHostFor`, then the last check `current()` as the very last await, then the emit
   with no await between, commit, persist. A failed last check deletes the pending row and answers
   `dropped` with its reason. `store.commit` answers how many rows it updated (read back by the new key, as
   no dialect reports affected rows alike); 0 means a removal (under the connections lock, not this queue)
@@ -661,7 +661,7 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   never interleave. Pruning keeps the newest `EVENT_LOG_LIMIT` (1000) per connection by id, never createdAt (ids
   only grow, so the row just written is never pruned; `prune` also excludes its id). Removing a
   connection deletes its events in `removeNow`'s batch; hostId is
-  `sync.linkedHostFor(connectionId, serverUuid)` read in the last check (an unlink or host.deleted doesn't
+  `sync.linkedHostFor(connectionId, serverUuid)` read right before the last check (an unlink or host.deleted doesn't
   change the revision) and written at commit, so a resource event needs its server's uuid from the
   source. Redaction: uuids must match `^[A-Za-z0-9_-]{1,128}$` (else `invalid`); `name` and `status` go
   through `redactLog` with the connection's own secrets, then keep their first line, capped (255, 64);

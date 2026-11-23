@@ -13,7 +13,7 @@ import {
   createConnections,
   type Connections,
 } from "../../../src/backend/connections/service.js";
-import { createSync } from "../../../src/backend/sync/service.js";
+import { createSync, type Sync } from "../../../src/backend/sync/service.js";
 import {
   createEvents,
   createEventStore,
@@ -38,6 +38,7 @@ let mock: MockPluginContext;
 let connections: Connections;
 let events: Events;
 let store: EventStore;
+let sync: Sync;
 let clock: number;
 let own: number;
 let others: number;
@@ -106,7 +107,7 @@ beforeEach(async () => {
   });
   const tables = await defineTables(mock.ctx);
   connections = createConnections(mock.ctx, tables);
-  const sync = await createSync(mock.ctx, { tables, connections });
+  sync = await createSync(mock.ctx, { tables, connections });
   clock = Date.parse("2026-11-19T10:00:30.000Z");
   store = createEventStore(mock.ctx, tables);
   events = createEvents(mock.ctx, {
@@ -681,10 +682,15 @@ describe("a change that lands after the insert", () => {
     ["prune", "a repoint", repointOwn, "target-changed"],
     ["persist", "a removal", removeOwn, "connection-gone"],
     ["persist", "a repoint", repointOwn, "target-changed"],
+    ["linkedHostFor", "a repoint", repointOwn, "target-changed"],
   ] as const)(
     "%s with %s landing: nothing is sent or kept",
     async (step, _, change, reason) => {
-      const target = step === "prune" ? store : mock.ctx.db;
+      const target = {
+        prune: store,
+        persist: mock.ctx.db,
+        linkedHostFor: sync,
+      }[step];
       landsDuring(target as Record<string, unknown>, step, change);
       expect(await ingest(own, failedDeploy("dep-1"))).toEqual({
         outcome: "dropped",

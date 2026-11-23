@@ -627,16 +627,14 @@ export function createEvents(ctx: PluginContext, deps: EventsDeps) {
       if (!stored) throw new Error("The event could not be stored");
       await store.prune(connectionId, stored.id);
       await ctx.db.persist();
-      // The last check, with no await between it and the emit: the
-      // connection as the source read it, and its server's Linked host now
-      // (an unlink or a host.deleted doesn't change the revision). A removal
-      // or a repoint that landed meanwhile wins: nothing is sent or kept.
-      const [last, linked] = await Promise.all([
-        current(connectionId, revision),
-        clean.serverUuid
-          ? sync.linkedHostFor(connectionId, clean.serverUuid)
-          : Promise.resolve(null),
-      ]);
+      // The server's Linked host now (an unlink or a host.deleted doesn't
+      // change the revision), then the last check, the very last await
+      // before the emit: the connection as the source read it. A removal or
+      // a repoint that landed meanwhile wins: nothing is sent or kept.
+      const linked = clean.serverUuid
+        ? await sync.linkedHostFor(connectionId, clean.serverUuid)
+        : null;
+      const last = await current(connectionId, revision);
       if (last.reason) {
         await store.remove(connectionId, [pendingKey]);
         return { outcome: "dropped", reason: last.reason };
