@@ -6,12 +6,14 @@ import { ANON, startPlugin, type PluginHarness } from "../helpers/plugin.js";
 import { byText } from "../helpers/order.js";
 import { issueWebhookToken } from "../../../src/backend/webhooks/service.js";
 import { COOLIFY_WEBHOOKS } from "../fixtures/coolify-webhooks.js";
+import { POLL_AWAKE_REASON } from "../../../src/backend/poll/service.js";
 
 const TOKEN = "fake-token-webhook-route";
 
 let harness: PluginHarness | null = null;
 
 afterEach(async () => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   await harness?.close();
   harness = null;
@@ -165,5 +167,55 @@ describe("POST /webhook/:token", () => {
     expect(
       h.mock.httpRouters.some((o) => o?.publicRateLimit !== undefined),
     ).toBe(false);
+  });
+});
+
+describe("the webhook and the poller (T120)", () => {
+  it("after an accepted delivery for its team, a connection polls only with pollEnabled", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const T0 = Date.parse("2026-11-23T10:00:00.000Z");
+    vi.setSystemTime(T0);
+    const {
+      harness: h,
+      fake,
+      token,
+      id,
+    } = await start({
+      "GET /deployments": { json: [] },
+      "GET /servers": { json: [] },
+    });
+    const polls = () =>
+      fake.calls.filter((c) => c.path === "/deployments").length;
+    const pollAt = async (ms: number) => {
+      vi.setSystemTime(ms);
+      h.mock.setActor(undefined);
+      try {
+        await h.mock.runScheduled();
+      } finally {
+        h.mock.setActor("user-1");
+      }
+    };
+    await pollAt(T0);
+    expect(polls()).toBe(1);
+    expect(h.mock.awake.has(POLL_AWAKE_REASON)).toBe(true);
+
+    const answer = await post(
+      h,
+      `/webhook/${token}`,
+      JSON.stringify(COOLIFY_WEBHOOKS.test),
+    );
+    expect(answer.status).toBe(200);
+    await pollAt(T0 + 60_000);
+    // pollEnabled is off (the default), so the webhook replaces polling.
+    expect(polls()).toBe(1);
+    expect(h.mock.awake.has(POLL_AWAKE_REASON)).toBe(false);
+
+    const outcome = await h.mock.ctx.operations.run(
+      "coolify.connection-set-poll",
+      { input: { connectionId: String(id), pollEnabled: true } },
+    );
+    expect(outcome.data).toMatchObject({ id, pollEnabled: true });
+    await pollAt(T0 + 2 * 60_000);
+    expect(polls()).toBe(2);
   });
 });

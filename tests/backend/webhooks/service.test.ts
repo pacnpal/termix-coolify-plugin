@@ -321,6 +321,32 @@ describe("webhook fan-out", () => {
     expect(rows(a)).toHaveLength(1);
   });
 
+  it("sends no check for a connection repointed while the check waited for its budget", async () => {
+    vi.useFakeTimers();
+    const api = await (await connections.unattendedSnapshot(a))!.api();
+    for (let i = 0; i < 150; i++) await api.team();
+    mock.setActor(undefined);
+    const answer = await webhooks.receive(
+      token,
+      COOLIFY_WEBHOOKS.server_unreachable,
+      200,
+    );
+    mock.setActor(OWNER);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(checks(TOKEN_A)).toEqual([]);
+    await connections.update(a, { token: "fake-token-webhook-a2" });
+    calls = [];
+    await vi.advanceTimersByTimeAsync(60_000);
+    const results = answer.accepted ? await answer.fanout : [];
+    // Nothing went out for A, with the old token or the new one.
+    expect(
+      calls.filter((x) => x.route === "GET /servers/srv-vps1-uuid"),
+    ).toEqual([]);
+    expect(results).toContainEqual({ connectionId: a, outcome: "dropped" });
+    expect(rows(a)).toHaveLength(0);
+    expect(rows(b)).toHaveLength(1);
+  });
+
   it("drops the event for a connection repointed while it was checked", async () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((r) => (release = r));

@@ -113,8 +113,19 @@ export function createWebhooks(ctx: PluginContext, deps: WebhooksDeps) {
       }
       // The connection's own client, so the check shares its budget.
       const api = await snap.api().catch(() => null);
-      if (!api || !(await api.canRead(ingest.subject))) {
-        return result("not-visible");
+      if (!api) return result("not-visible");
+      // Right before the GET (after any budget wait): the connection still
+      // points where the snapshot did, or nothing is sent with its token.
+      let moved = false;
+      const beforeFetch = async () => {
+        const now = await connections.unattendedSnapshot(connectionId);
+        if (now?.revision !== snap.revision) {
+          moved = true;
+          throw new Error("target changed");
+        }
+      };
+      if (!(await api.canRead(ingest.subject, { beforeFetch }))) {
+        return result(moved ? "dropped" : "not-visible");
       }
       const ingested = await events.ingest(connectionId, ingest.event, {
         revision: snap.revision,

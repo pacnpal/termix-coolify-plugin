@@ -68,8 +68,8 @@ aren't obvious from the code, and anything that has bitten you before.
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
   Where things stand: 1.0.0 is feature complete (connections, resources and lifecycle, host sync, shells,
   logs, exec, metrics, server updates, companions, status pages, the full Coolify API, the MCP endpoint and
-  the `coolify.client` service). 1.2.0 (Alerts) is under way: the event pipeline and event log (#89) are
-  in, and the team webhook (#91) feeds them; the poller, alerts and event log view build on them. The read-only smoke test against a real Coolify is the owner's
+  the `coolify.client` service). 1.2.0 (Alerts) is under way: the event pipeline and event log (#89), the
+  poller (#90) and the team webhook (#91) are in; alerts and the event log view build on them. The read-only smoke test against a real Coolify is the owner's
   (`scripts/smoke-readonly.md`). User docs: `docs/index.md`, `tunnels.md`, `permissions.md`,
   `companions.md`, `troubleshooting.md`, `api.md`, `coverage.md`.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
@@ -358,6 +358,29 @@ aren't obvious from the code, and anything that has bitten you before.
   `registerHostStatusIndicator` for it: a layout could draw a second dot. The "Coolify" host action and the Resources menu item open the tab with `serverUuid`, which
   `CoolifyTab` turns into a clearable server filter on Resources (cleared by a connection pick, Sync
   servers and an Overview tile).
+- Host data slots (1.2.0, #96): `src/frontend/host-slots.ts` fills `dashboard.hostRow` (stat: running,
+  degraded, stopped), `dashboard.hostRowBadge` (a Deploying badge while the server has deployments) and
+  `homepage.hostMetrics` (bars: container CPU of the host's CPUs, memory of its memory). Rows and badge
+  read `server-health` through `useServerHealth(api, link)` (`linked.ts`): the per-connection
+  `cachedServerHealth`, read again every `HEALTH_MAX_AGE_MS` while the row is mounted, keyed by the link
+  (a late answer for an old link is dropped), nothing without `coolify.view` or for an unlinked host, and
+  nothing for a server the target's server list no longer has. `server-health` is built by
+  `resources/server-health.ts` (`createServerHealth`, also behind `coolify.host-summary`): servers,
+  resources and `deployments.queue` in parallel, `counts` by `countResources`, `deploying` = the server's
+  resources (no Parts) with a running queue row or a deploying status; the reads run inside
+  `forRevision` (`connections/hold.ts`), so an answer never mixes targets (`target-changed`). The dot still
+  reads it once per mount (unchanged). Metrics: `homepage.hostMetrics` context has only `hostId`, so the
+  host comes from `useHost` (shell ids are strings) and the read needs `usePermission("operate")` and
+  `online !== false`. `createHostStatsFeed` batches every shown server of a connection into one
+  `GET /connections/:id/host-metrics?servers=a,b` (20 a request), polls `HOST_STATS_POLL_MS` after each
+  answer while any row shows it, and drops a server's value with its last row. The backend's
+  `metrics.hostStats` checks `coolify.operate` and an operate grant first (403), then per server: Linked
+  host (`not-linked`), connect access, then a cache keyed by connection, server and revision
+  (`HOST_STATS_TTL_MS`, 30 s, never below the stats socket's `STATS_INTERVAL_MS`; concurrent misses share
+  one read), else the server in Coolify, the sudo probe and one `hostStatsCommand` (`docker info` CPUs and
+  memory, then `docker stats --no-stream` for all containers), each behind `read.holds()`. Per-server
+  failures go in `errors`; a target change or a cut grant fails the whole request. `readHostStats` is a
+  `parses` entry in `tests/backend/log-exits.json`. `coolify.host-metrics` is the host action over it.
 - Frontend host surfaces: `src/frontend/linked.ts` reads a host's link from its own settings and shares one
   sync preview per connection (five minutes) with the host card. Each cached preview
   records the revision it was read for; `useLinkedRow(link, revision)` (the host card passes the
@@ -623,8 +646,58 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   one counts as oldest) of Coolify's patch check (`ServerDto.patch`) and the updates service's own last
   check (`updates.lastCheck`: the `updates:<serverUuid>` cache row, served only under the current revision
   and generation, as in `status`); a signal never runs SSH or calls Coolify beyond the servers cache.
-  A deploy run with `wait` still emits its deployment event directly (lifecycle.ts), outside the event
-  pipeline; moving it onto `events.ingest` (source `poll` or a new one) is left to the poller ticket.
+  A deploy run with `wait` hands its deployment's end to `events.ingest` (lifecycle.ts, source `poll`,
+  with the revision read before its client: a change in between drops the event), so it and a poll of
+  the same deployment are one event (dedupe by deployment uuid); the pipeline adds the Linked host from
+  the resource's server. The poller reads servers through `listUnattended(id, snap)`, the same cache
+  and keys as `list`.
+- Poller (1.2.0, #90): `src/backend/poll/` (`service.ts` `createPoller`, `diff.ts` pure `diffPoll`),
+  made in `index.ts` after `createServerStatuses` and started after the status pages. The
+  `coolify-poll` job (60 s, 10 s jitter, in `sandbox.schedules`) polls each connection at most every
+  `max(60 s, minPollSeconds)` (a success's next time is that minus the jitter, so an early tick counts),
+  and backups and scheduled tasks at most every `SLOW_POLL_MS` (5 minutes, strict). Which connections
+  poll (`polling()`): none while `allowPolling` is false; otherwise every connection
+  (`connections.pollTargets()`, no access check, nothing returned) unless its `instanceKey` has a
+  `webhooks` row with `lastReceivedAt` set (#91 sets it) and `pollEnabled` is false, and only while
+  `ctx.rbac.hasFor(owner, "view")`. `keepAwake("coolify polling", any)` follows that list on every tick
+  and on `connections`' `changed` hook (create, remove, `setPoll`; awaited, failures only logged), so
+  a new connection wakes core. Step order of one connection's poll (`pollOne`): its backoff time,
+  `connections.unattendedSnapshot(id)` once (gone: forget), the owner's view (else forget), then the
+  reads, each through that snapshot: `resources.readUnattended` (the 20 s cache), `deployments.
+queueUnattended` (the 10 s queue cache, running plus recent, its `revision` source the snapshot's),
+  `servers.listUnattended`, and when due the backup runs of each database and the runs of each enabled
+  scheduled task of the first 50 applications and services (at most 50 tasks). Token scope: a
+  `forbidden-ability` on the queue (or its history), on servers or on one resource's backups, tasks
+  or task runs makes that part unread (`null` in `PollRead`, or the resource in `RunsRead.refused`):
+  what was seen of it stays and it sends nothing, never "gone" events. A scoped connection
+  (`unattendedSnapshot().scoped`, the probe's flag) is never asked `/servers`. A resource's
+  `not-found` is an empty list. Only the resource lists failing fails the poll for scope; every other
+  error fails it. Unread deployments keep their own `deploymentsReadAt`, so the unseen-deployment
+  window doesn't skip them. Every request is guarded: the resources fetch (all three lists) and the
+  servers fetch check their own source revision in `beforeFetch` (for actor reads too), the queue and
+  the run reads take the poll's guard (`holds`: revision and the poller's generation), so a removal
+  or repoint during a budget or retry wait sends nothing more; `holds` is also checked after each
+  read; then the last `holds`, the diff, one
+  `events.ingest` per change with the snapshot's revision (a `dropped` other than `invalid` forgets
+  and stops), `holds` again, and only then the seen state and timing are kept. What was seen is in
+  memory per connection with the revision and a per-instance generation (`<epoch>:<n>`, advanced by
+  `forget`): a state from another revision or generation is not used. Startup must not flood: the
+  first poll of a connection (after a start, since the state is only in memory; after a repoint; after
+  polling stopped for it, its owner lost view or `changed` ran) is a baseline that records everything
+  and emits nothing; changes while nothing polled are lost by design, so a restart never replays
+  history. After a baseline, an unseen deployment or run counts only when it ended within
+  `CLOCK_SLACK_MS` (5 min) before the last poll or later (older history that comes into the recent
+  window is not news). Statuses of top-level resources only: entering `restarting` is read from
+  Coolify's raw word (the seen state keeps `statuses`), so `running:unhealthy` to `restarting` (both
+  degraded) is still `container-restarted`, and only that event; other changes compare
+  `resourceHealth`, deploying is no change (the last settled health stays), and any other change is
+  `status-changed` (a kind this ticket added, `fields` `from`/`to`). Servers: reachable to
+  unreachable is `server-unreachable`. A `target-changed` anywhere forgets and is not a failure;
+  any other error keeps the last state (the next success diffs against it and catches up) and backs
+  off `POLL_BACKOFF_MS` 1, 2, 5, 15 minutes counted from `now()` when the failure is handled (not the
+  tick's start), with the cause id (`CoolifyError.cause`, else
+  `upstream`) as the connection's `pollError` (through `ConnectionsOptions.pollError`, in memory, not
+  `lastError`, which stays the probe's). A success clears both. One tick runs at a time.
 - Event pipeline (1.2.0, #89): `src/backend/events/` (`kinds.ts`, `service.ts` `createEvents`,
   `routes.ts`) and `src/backend/ops/events.ts`. It is the only writer of the `events` table and the only
   emitter of the `coolify.<kind>` operations events; the poller (#90) and the webhook (#91) feed it, alerts
@@ -693,7 +766,10 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   owner `hasFor(view)` (else skipped, not asked), `snap.api()` (the connection's cached client, so the
   check shares its 150 a minute budget), `api.canRead(subject)` (api.ts: one GET of the subject itself,
   `retry: false`, `exactStatus: 200`, any throw false; `GET /team` for a team subject, which no v4.7.5
-  event maps to yet), then `events.ingest(id, event, { revision: snap.revision })`. A task's subject is
+  event maps to yet; its `beforeFetch` re-reads `unattendedSnapshot` right before the GET, after the budget
+  wait, and a changed revision sends nothing and answers `dropped`), then
+  `events.ingest(id, event, { revision: snap.revision })`. #90's poller reads `lastReceivedAt` to make
+  polling follow `pollEnabled` (cross-checked in `webhooks/routes.test.ts`). A task's subject is
   its application or service, a backup's `/databases/{uuid}`, restart limit `/applications/{uuid}`
   (Coolify names any resource application_uuid; others fail closed). `issueWebhookToken()` gives #92
   `{ token, tokenHash }`; `webhooks.verify(token)` answers `{ id, instanceKey }` or null.
@@ -872,3 +948,31 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   `undoInput` only when it is listed; a failed read never blocks the deploy. `PluginOperationOutcome` has
   no `undoInput`, so tests read it from the handler's own result. `RollbackView` re-checks after the
   confirm that it is still mounted and on the same application before it posts.
+- Dashboard cards and homepage widgets (1.2): `src/frontend/views/dashboard/` (`register.tsx`,
+  `CoolifyCards.tsx`, `useCardRead.ts`), shared kinds, settings and poll intervals in
+  `src/shared/dashboard.ts`, backend reads in `src/backend/dashboard/` and `ops/dashboard.ts`. One
+  dashboard card `coolify` (manifest `dashboardCards`) whose `entries` are the four kinds, each entry's
+  `config` `{ card }`; the card's own `setConfig` adds `connectionId` (and `uuid` for the resource card).
+  The same four go to `homepage.widgets` (in `uses`) as `coolify.<kind>`, with `components` `view`,
+  `editForm` and `label` (the Homepage plugin's `WidgetRegistry` reads those three; its widget props are
+  `{ widget, config, onConfigUpdate }`, its edit form's `{ config, onChange }`). A widget has no
+  visibility prop, so it reads only while `document.visibilityState` is visible. `readCardConfig` keeps
+  only well formed stored values. `useCardRead` reads the connection (403/404: the no-access state), then
+  the card's data, keyed by the card's target, newest read only, a setTimeout chain every
+  `CARD_POLL_MS[kind]`, which `poll-intervals.test.ts` holds at or above each backend cache's TTL.
+  Overview reads `GET /connections/:id/overview` (resources and server statuses caches, no Coolify request
+  of its own); the resource card reads the resource list and deploys through `useLifecycle` after a
+  `useConfirmFor` keyed by connection, uuid and revision, with the body keyed by target (the terminal
+  companion's rule for the button: `coolify.operate` and `OPERATE_ACCESS`, never a Part); deployments
+  reads the queue route; vulnerabilities reads `GET /connections/:id/vulnerabilities`, Coolify's
+  `/vulnerabilities` summarized to counts (`dashboard/vulnerabilities.ts`, in memory five minutes, keyed
+  by revision, shared in-flight, kept only if the revision held; no names or Coolify text, so nothing to
+  redact) and links to the connection's `baseUrl`. No recent events on any card: the event pipeline (#89)
+  is separate, and an events card belongs to the event log ticket. `resources.load()` and
+  `servers.list()` return what they fetched even across a repoint (their revision only gates the cache),
+  so the overview and `GET /connections/:id/resources` wrap them in `forRevision`
+  (`connections/hold.ts`: revision before, checked again before answering, else `target-changed` 409);
+  the queue (`holds`) and vulnerabilities (snapshot revision) check it themselves. `server-health` (host
+  dots and host rows, `resources/server-health.ts`) wraps its reads in `forRevision` too. The vulnerabilities card counts only completed scans as
+  scanned (`ok` plus affected); `check_needed` and `not_checked` are "not scanned yet", and with nothing
+  scanned it never shows the clean state.

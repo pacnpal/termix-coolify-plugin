@@ -646,3 +646,106 @@ export function toStorages(input: unknown): StorageDto[] {
   });
   return [...volumes, ...files];
 }
+
+/** Coolify's security statuses from image scanning. */
+export const SECURITY_STATUSES = [
+  "update_now",
+  "update_available",
+  "no_fix",
+  "check_needed",
+  "ok",
+  "not_checked",
+] as const;
+export type SecurityStatus = (typeof SECURITY_STATUSES)[number];
+
+/**
+ * One row of Coolify's `/vulnerabilities`: the resource's security status
+ * and its problem counts. Names, labels, actions and image references are
+ * left out: the summary built from it carries counts only.
+ */
+export interface VulnerabilityDto {
+  uuid: string;
+  /** An unknown or missing status reads as not checked. */
+  status: SecurityStatus;
+  problems: number;
+  critical: number;
+  high: number;
+  medium: number;
+  exploited: number;
+}
+
+const count = (value: unknown) => {
+  const n = num(value);
+  return n !== null && Number.isSafeInteger(n) && n > 0 ? n : 0;
+};
+
+export function toVulnerability(input: unknown): VulnerabilityDto {
+  const raw = obj(input);
+  const security = obj(raw.security);
+  const status = SECURITY_STATUSES.find((s) => s === security.status);
+  return {
+    uuid: str(raw.uuid),
+    status: status ?? "not_checked",
+    problems: count(security.problem_count),
+    critical: count(security.critical_count),
+    high: count(security.high_count),
+    medium: count(security.medium_count),
+    exploited: count(security.exploited_count),
+  };
+}
+/**
+ * One run of a database backup or a scheduled task, as the poller reads it:
+ * its uuid, Coolify's status word and when it ended. The run's message
+ * (backup or command output) is never kept.
+ */
+export interface RunDto {
+  uuid: string;
+  status: string;
+  /** When it finished, else when it was last updated or created; ISO text. */
+  at: string | null;
+}
+
+/** A scheduled task without its command: only what names it. */
+export interface ScheduledTaskDto {
+  uuid: string;
+  name: string;
+  enabled: boolean;
+}
+
+function toRun(input: unknown): RunDto {
+  const raw = obj(input);
+  return {
+    uuid: str(raw.uuid),
+    status: str(raw.status, "unknown"),
+    at:
+      strOrNull(raw.finished_at) ??
+      strOrNull(raw.updated_at) ??
+      strOrNull(raw.created_at),
+  };
+}
+
+/**
+ * The runs of every backup schedule of one database, as
+ * `GET /databases/{uuid}/backups` lists them (each schedule with its
+ * `executions`).
+ */
+export function toBackupRuns(input: unknown): RunDto[] {
+  return list(input).flatMap((config) =>
+    list(obj(config).executions).map(toRun),
+  );
+}
+
+/** One scheduled task, as `GET /<kind>s/{uuid}/scheduled-tasks` lists it. */
+export function toScheduledTask(input: unknown): ScheduledTaskDto {
+  const raw = obj(input);
+  return {
+    uuid: str(raw.uuid),
+    name: str(raw.name),
+    enabled: raw.enabled === undefined ? true : bool(raw.enabled),
+  };
+}
+
+/** One task run, as `.../scheduled-tasks/{task_uuid}/executions` lists it. */
+export function toTaskRun(input: unknown): RunDto {
+  return toRun(input);
+}

@@ -380,6 +380,33 @@ do the same from Operations Center, Automations, the CLI, the Termix API and MCP
 them, and the confirm names the tag. A rollback is also the **undo** of a deploy: deploying an application
 records the image it ran before, and undoing the run in Operations Center rolls back to it.
 
+## Dashboard cards and homepage widgets
+
+Termix's dashboard offers four Coolify cards under **Coolify** in its add list, and the Homepage plugin
+offers the same four as widgets. You can add each as often as you like; each one keeps its own connection
+(and resource) in its own settings. A new card asks for them until they are picked; on the dashboard you
+change them while arranging it, on the homepage in the widget's edit form.
+
+- **Coolify overview**: the connection's resources by status (running, degraded, stopped, deploying; a
+  resource you stopped counts as stopped) and how many of its servers Coolify can't reach.
+- **Coolify resource**: one resource's status, with **Deploy**. Deploy needs **Operate Coolify resources**
+  and owner, operate or configure access to the connection, as everywhere else; anyone else sees no
+  button. It asks first, and a yes given after the card was switched to another resource or connection, or
+  closed, deploys nothing.
+- **Coolify deployments**: the connection's deployments in progress.
+- **Coolify vulnerabilities**: how many of the connection's resources Coolify's image scanning found
+  vulnerabilities in, with the critical and high counts and a link to your Coolify. Only completed scans
+  count: resources Coolify hasn't scanned yet are counted as not scanned, and with none scanned the card
+  never says there are no known vulnerabilities.
+
+Every card needs **View Coolify** and access to its connection, and says so when either is missing. They
+read through the same cached reads as the tab: a card reads again only once that cache has turned over
+(the overview every minute, a resource every 20 seconds, deployments every 10 seconds, vulnerabilities
+every five minutes), only while it is shown, so cards add no Coolify requests the tab wouldn't make. The
+vulnerability counts are the one read only cards make, kept five minutes per connection. The actions
+`coolify.connection-overview` and `coolify.vulnerability-summary` give the same answers to Operations
+Center, Automations, the CLI, the Termix API and MCP. See [the API reference](api.md#dashboard-cards-and-homepage-widgets).
+
 ## Pull request previews
 
 An application's **Previews** view lists its pull request previews: each one's status, domains, pull
@@ -503,7 +530,13 @@ Linked hosts are read only while Coolify manages them. They show a **Coolify** b
 and a status dot. The dot is red when Coolify can't reach the server, and amber when the server is gone
 from Coolify, not usable, or runs a degraded resource (an exited resource counts as stopped, not degraded).
 Every Linked host of a connection shares one status read, served from the plugin's own short caches, and an
-ordinary host makes none. The **Coolify** button opens the Resources list filtered to that server; clear
+ordinary host makes none. On the dashboard, a Linked host's row also shows how many of its server's
+resources are running, degraded and stopped (by the same rules), and its status badge reads **Deploying**
+while a deployment on that server is queued or running. The homepage's host metrics show the CPU and
+memory all running containers use on the host, for people who may operate the connection's resources
+(**Operate Coolify resources** and owner or operate access, as for the Stats view). They come from one
+`docker stats` reading over SSH, taken at most every 30 seconds for each host however many people look,
+and need your own connect access to the host. The **Coolify** button opens the Resources list filtered to that server; clear
 the filter to see every server. A Coolify card on the host page has **Resources**, **Sync from
 Coolify** and **Unlink**, which are also in the host's menu. **Unlink** makes the host an ordinary, editable
 host and keeps it. If you delete a Linked host yourself, the plugin forgets the link but keeps its address

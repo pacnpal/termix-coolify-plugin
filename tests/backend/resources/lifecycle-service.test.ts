@@ -8,6 +8,7 @@ import {
   createCoolifyHttp,
 } from "../../../src/backend/coolify/http.js";
 import type { Connections } from "../../../src/backend/connections/service.js";
+import type { Events } from "../../../src/backend/events/service.js";
 import type { ResourceDto } from "../../../src/backend/coolify/dto.js";
 import {
   createLifecycle,
@@ -158,20 +159,29 @@ describe("createLifecycle run", () => {
     const invalidate = vi.fn(async (id: number) => {
       order.push(`invalidate ${id}`);
     });
+    // The event pipeline: a waited deploy hands it the deployment's end.
+    const ingest = vi.fn(
+      async (..._args: Parameters<Events["ingest"]>) =>
+        ({ outcome: "duplicate" }) as const,
+    );
     const { ctx } = createMockCtx({
       pluginId: "coolify",
       manifest: manifestJson as unknown as PluginManifest,
       capabilities: (manifestJson as unknown as PluginManifest).capabilities,
     });
     const life = createLifecycle(ctx, {
-      connections: { api: async () => api } as unknown as Connections,
+      connections: {
+        api: async () => api,
+        revision: async () => "rev-1",
+      } as unknown as Connections,
       resources: { invalidate } as unknown as Resources,
       sync: { linkOfHost: async () => null, linkedHostFor: async () => null },
       deployed: async () => {},
+      events: { ingest },
       sleep: async () => {},
       ...over,
     });
-    return { life, invalidate, order, ctx };
+    return { life, invalidate, order, ctx, ingest };
   }
 
   it("drops the resource list after each action, also when Coolify refuses it", async () => {
@@ -230,7 +240,7 @@ describe("createLifecycle run", () => {
     const sleep = vi.fn(async () => {
       throw new Error("waited for a deployment that had already ended");
     });
-    const { life, order, ctx } = runner(
+    const { life, order, ctx, ingest } = runner(
       {
         "POST /deploy": {
           json: {
@@ -264,24 +274,30 @@ describe("createLifecycle run", () => {
       "coolify GET /deployments/dep-uuid",
       "invalidate 1",
     ]);
-    expect(emit).toHaveBeenCalledTimes(1);
-    expect(emit).toHaveBeenCalledWith(
-      "coolify.deployment-failed",
+    // One event, through the pipeline (which adds the Linked host and
+    // dedupes it with a poll of the same deployment), under the revision
+    // the run read Coolify with; never emitted directly.
+    expect(emit).not.toHaveBeenCalled();
+    expect(ingest).toHaveBeenCalledTimes(1);
+    expect(ingest).toHaveBeenCalledWith(
+      1,
       {
-        connectionId: 1,
-        uuid: "app-web-uuid",
-        name: "web",
+        kind: "deployment-failed",
+        source: "poll",
+        resourceUuid: "app-web-uuid",
+        serverUuid: "srv-vps1-uuid",
         deploymentUuid: "dep-uuid",
+        name: "web",
         status: "skipped",
       },
-      { hostId: 7 },
+      { revision: "rev-1" },
     );
   });
 
   it.each(["failed", "error", "cancelled", "cancelled-by-user"])(
     "a waited deploy that ends %s stays a deployment-failed run",
     async (status) => {
-      const { life, ctx } = runner({
+      const { life, ingest } = runner({
         "POST /deploy": {
           json: {
             deployments: [
@@ -293,12 +309,11 @@ describe("createLifecycle run", () => {
           json: { deployment_uuid: "dep-uuid", status },
         },
       });
-      const emit = vi.spyOn(ctx.operations, "emit");
       await expect(
         life.run(1, web, "deploy", { wait: true }),
       ).rejects.toMatchObject({ code: "deployment-failed", status });
-      expect(emit.mock.calls.map((c) => c[0])).toEqual([
-        "coolify.deployment-failed",
+      expect(ingest.mock.calls.map((c) => c[1].kind)).toEqual([
+        "deployment-failed",
       ]);
     },
   );
@@ -306,7 +321,7 @@ describe("createLifecycle run", () => {
   it("a waited deploy still running at the 30 minute limit fails with wait-timeout and no event", async () => {
     // The real sleep and clock, both on vitest's fake timers.
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
-    const { life, ctx, order } = runner(
+    const { life, ctx, order, ingest } = runner(
       {
         "POST /deploy": {
           json: {
@@ -347,6 +362,7 @@ describe("createLifecycle run", () => {
     );
     // The deployment hasn't ended: neither event.
     expect(emit).not.toHaveBeenCalled();
+    expect(ingest).not.toHaveBeenCalled();
     // The list is dropped after the deploy and again when the wait ends.
     expect(order.filter((o) => o.startsWith("invalidate"))).toEqual([
       "invalidate 1",

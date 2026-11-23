@@ -12,6 +12,8 @@ import { registerContainerCompanionRoutes } from "./companions/container-routes.
 import { createConnections } from "./connections/service.js";
 import { createEvents } from "./events/service.js";
 import { registerEventRoutes } from "./events/routes.js";
+import { createDashboard } from "./dashboard/service.js";
+import { registerDashboardRoutes } from "./dashboard/routes.js";
 import { registerConnectionRoutes } from "./connections/routes.js";
 import { createResources } from "./resources/service.js";
 import { createLifecycle } from "./resources/lifecycle.js";
@@ -20,6 +22,7 @@ import {
   registerResourceRoutes,
   registerServerHealthRoutes,
 } from "./resources/routes.js";
+import { createServerHealth } from "./resources/server-health.js";
 import { registerMcpRoutes } from "./mcp/routes.js";
 import { provideClient } from "./service.js";
 import { createContainers } from "./containers/service.js";
@@ -40,6 +43,7 @@ import { createSync, type Sync } from "./sync/service.js";
 import { registerSyncRoutes } from "./sync/routes.js";
 import { createServerStatuses } from "./ops/signals.js";
 import { createUpdates } from "./updates/service.js";
+import { createPoller, type Poller } from "./poll/service.js";
 import { registerUpdateRoutes } from "./updates/routes.js";
 import { rememberBaseUrlMiddleware } from "./status/base-url.js";
 import { createStatusPages } from "./status/service.js";
@@ -55,11 +59,18 @@ export async function activate(ctx: PluginContext): Promise<void> {
   // Removing a connection unlinks its Linked hosts first (or deletes them
   // with removeHosts). Sync is made right after, before any call can arrive.
   let sync: Sync | null = null;
+  // The poller is made once the services it reads exist; until then a
+  // connection change has nothing to tell it.
+  let poller: Poller | null = null;
   const connections = createConnections(ctx, tables, {
     releaseLinkedHosts: async (connectionId, opts, deleteRows) => {
       if (sync) await sync.releaseConnection(connectionId, opts, deleteRows);
       else await deleteRows();
     },
+    changed: async (id) => {
+      await poller?.changed(id);
+    },
+    pollError: (id) => poller?.lastError(id) ?? null,
   });
   sync = await createSync(ctx, { tables, connections });
   const resources = createResources(ctx, { tables, connections });
@@ -72,6 +83,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
     resources,
     sync,
     deployed,
+    events,
   });
   const containers = createContainers(ctx, { connections, lifecycle, sync });
   const logs = createLogs(ctx, { connections, containers });
@@ -82,6 +94,15 @@ export async function activate(ctx: PluginContext): Promise<void> {
   });
   const previews = createPreviews(ctx, { deployments });
   const servers = createServerStatuses(ctx, { tables, connections });
+  // The polling source of the event pipeline (the webhook is the other).
+  poller = createPoller(ctx, {
+    tables,
+    connections,
+    resources,
+    deployments,
+    servers,
+    events,
+  });
   const exec = createExec(ctx, {
     connections,
     containers,
@@ -120,10 +141,18 @@ export async function activate(ctx: PluginContext): Promise<void> {
     deployments,
     servers,
   });
+  const dashboard = createDashboard(ctx, { connections, resources, servers });
   const statusPages = createStatusPages(ctx, {
     tables,
     connections,
     resources,
+  });
+  // Linked host rows: the dot, resource counts and the deploying badge.
+  const serverHealth = createServerHealth({
+    connections,
+    resources,
+    servers,
+    deployments,
   });
   // The team webhook: Coolify's deliveries, checked per connection, feed
   // the event pipeline.
@@ -134,14 +163,15 @@ export async function activate(ctx: PluginContext): Promise<void> {
   });
   router.use(rememberBaseUrlMiddleware(ctx) as never);
   registerConnectionRoutes(router, ctx, connections);
-  registerResourceRoutes(router, ctx, resources);
-  registerServerHealthRoutes(router, ctx, { resources, servers });
+  registerResourceRoutes(router, ctx, resources, connections);
+  registerServerHealthRoutes(router, ctx, serverHealth);
   registerSyncRoutes(router, ctx, sync);
   registerLifecycleRoutes(router, ctx, lifecycle);
   registerDeploymentRoutes(router, ctx, deployments);
   registerPreviewRoutes(router, ctx, previews);
   registerAttentionRoutes(router, ctx, attention);
   registerEventRoutes(router, ctx, events);
+  registerDashboardRoutes(router, ctx, dashboard);
   registerContainerRoutes(router, ctx, containers, logs);
   registerLogSocket(ctx, { logs });
   registerStatsSocket(ctx, { connections, containers });
@@ -173,9 +203,12 @@ export async function activate(ctx: PluginContext): Promise<void> {
     metrics,
     attention,
     events,
+    dashboard,
+    serverHealth,
   });
   provideClient(ctx);
   await statusPages.start();
+  await poller.start();
 }
 
 export async function deactivate(): Promise<void> {
