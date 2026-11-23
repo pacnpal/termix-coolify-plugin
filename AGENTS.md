@@ -66,11 +66,12 @@ Keep this section current when the plugin changes: what it does, how it is put t
 aren't obvious from the code, and anything that has bitten you before.
 
 - What it does: "Coolify for Termix" (id `coolify`) brings Coolify servers and resources into Termix.
-  Where things stand: 1.0.0 is feature complete (connections, resources and lifecycle, host sync, shells,
-  logs, exec, metrics, server updates, companions, status pages, the full Coolify API, the MCP endpoint and
-  the `coolify.client` service). 1.2.0 (Alerts) is under way: the event pipeline and event log (#89), the
-  poller (#90), the team webhook (#91) and its one-click setup (#92), alerts with per-person preferences (#93)
-  and the Events section that reads the log (#94) are in. The read-only smoke test against a real Coolify is the owner's
+  Where things stand: the plugin is at 1.0.0, its first release. It holds connections, resources and
+  lifecycle, host sync, shells, logs, exec, metrics, server updates, companions, status pages, deployments,
+  previews and rollback, recent activity, the activity panel, dashboard cards and homepage widgets, the
+  event pipeline and event log (#89), the poller (#90), the team webhook (#91) and its one-click setup
+  (#92), alerts with per-person preferences (#93), the Events section (#94), the full Coolify API, the MCP
+  endpoint and the `coolify.client` service. The read-only smoke test against a real Coolify is the owner's
   (`scripts/smoke-readonly.md`). User docs: `docs/index.md`, `tunnels.md`, `permissions.md`,
   `companions.md`, `troubleshooting.md`, `api.md`, `coverage.md`.
   The design is in `docs/superpowers/specs/2026-11-19-coolify-plugin-design.md` and the build plan in
@@ -116,7 +117,7 @@ aren't obvious from the code, and anything that has bitten you before.
   (`{ abilities, scoped, teamId, steps }`), since there is no column for scope or the checklist.
   `lastError` holds a cause id, which the UI translates under `causes`. Create refuses Coolify older than
   4.4 and stores nothing; any other failed probe is saved with `lastError`, so authz CI can seed one with
-  an unreachable URL. Another user's connection is always 404. Only owners reach a connection in 1.0; the
+  an unreachable URL. Another user's connection is always 404. Only owners reach a connection; the
   grants table is read but nothing writes it. `remove` calls the `releaseLinkedHosts` hook first (host sync
   supplies it) and keeps the webhook row, which other connections to the same team share.
 - Probe: `abilities.root` is never inferred. `GET /settings/email` answers any root-team admin's token
@@ -371,7 +372,7 @@ aren't obvious from the code, and anything that has bitten you before.
   `pluginSettings` and `pluginEnable`, so tests spy on the calls to check them. `coolify.unlink`'s server
   input uses `ops.fields.linkedServerUuid`: `ops.fields.serverUuid` is the optional filter of
   `coolify.list-resources-all`.
-- Host dot and host action (1.1.0): the badge's `useDot` runs `useHostDot` (`src/frontend/index.tsx`,
+- Host dot and host action: the badge's `useDot` runs `useHostDot` (`src/frontend/index.tsx`,
   over `useHostProblem` in `linked.ts`). It reads
   `GET /connections/:id/server-health`, cached a minute per connection in the frontend
   (`cachedServerHealth`); the route answers from the backend's shared server statuses (`ops/signals.ts`,
@@ -381,7 +382,7 @@ aren't obvious from the code, and anything that has bitten you before.
   `registerHostStatusIndicator` for it: a layout could draw a second dot. The "Coolify" host action and the Resources menu item open the tab with `serverUuid`, which
   `CoolifyTab` turns into a clearable server filter on Resources (cleared by a connection pick, Sync
   servers and an Overview tile).
-- Host data slots (1.2.0, #96): `src/frontend/host-slots.ts` fills `dashboard.hostRow` (stat: running,
+- Host data slots (#96): `src/frontend/host-slots.ts` fills `dashboard.hostRow` (stat: running,
   degraded, stopped), `dashboard.hostRowBadge` (a Deploying badge while the server has deployments) and
   `homepage.hostMetrics` (bars: container CPU of the host's CPUs, memory of its memory). Rows and badge
   read `server-health` through `useServerHealth(api, link)` (`linked.ts`): the per-connection
@@ -411,7 +412,7 @@ aren't obvious from the code, and anything that has bitten you before.
   `SyncView` keys its preview on the connection's id and `revision`: a change clears rows, drafts and
   results and loads again, and a request generation drops a late answer. The host card shows the
   tunnel line from the row's `tunnel` flag and opens the host editor with `shell.editHost`.
-  Terminal companion (1.1.0): `app.registerCompanion("coolify", TerminalCompanion, { tabTypes:
+  Terminal companion: `app.registerCompanion("coolify", TerminalCompanion, { tabTypes:
 ["terminal"], when: isLinked })` in `src/frontend/index.tsx` (the core id is `coolify.coolify`; not the
   backend's `companions/`, which is about other plugins). `views/TerminalCompanion.tsx` draws nothing and
   asks nothing without a link; otherwise its body is keyed by `connectionId:serverUuid`, so a host change
@@ -679,7 +680,7 @@ conn.userId` (refused otherwise), `rbac.has("operate")` and the follow's own `re
   the same deployment are one event (dedupe by deployment uuid); the pipeline adds the Linked host from
   the resource's server. The poller reads servers through `listUnattended(id, snap)`, the same cache
   and keys as `list`.
-- Poller (1.2.0, #90): `src/backend/poll/` (`service.ts` `createPoller`, `diff.ts` pure `diffPoll`),
+- Poller (#90): `src/backend/poll/` (`service.ts` `createPoller`, `diff.ts` pure `diffPoll`),
   made in `index.ts` after `createServerStatuses` and started after the status pages. The
   `coolify-poll` job (60 s, 10 s jitter, in `sandbox.schedules`) polls each connection at most every
   `max(60 s, minPollSeconds)` (a success's next time is that minus the jitter, so an early tick counts),
@@ -726,7 +727,7 @@ queueUnattended` (the 10 s queue cache, running plus recent, its `revision` sour
   tick's start), with the cause id (`CoolifyError.cause`, else
   `upstream`) as the connection's `pollError` (through `ConnectionsOptions.pollError`, in memory, not
   `lastError`, which stays the probe's). A success clears both. One tick runs at a time.
-- Event pipeline (1.2.0, #89): `src/backend/events/` (`kinds.ts`, `service.ts` `createEvents`,
+- Event pipeline (#89): `src/backend/events/` (`kinds.ts`, `service.ts` `createEvents`,
   `routes.ts`) and `src/backend/ops/events.ts`. It is the only writer of the `events` table and the only
   emitter of the `coolify.<kind>` operations events; the poller (#90) and the webhook (#91) feed it, alerts
   (#93) and the event log view (#94) read it. The source interface, made in `index.ts` right after
@@ -800,7 +801,7 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   (`mayOperate`), else the resource detail, the server filter on Resources, or nothing for team rows.
   `EVENT_KIND_IDS` mirrors `EVENT_KINDS` (a test checks it) and each kind has an `eventLog.kinds` label.
   No dashboard card or widget for the log yet; it would reuse `coolify.events-list`.
-- Team webhook (1.2.0, #91): `src/backend/webhooks/` (`shape.ts`, `service.ts` `createWebhooks`,
+- Team webhook (#91): `src/backend/webhooks/` (`shape.ts`, `service.ts` `createWebhooks`,
   `routes.ts`), made in `index.ts` after `createEvents`; `PUBLIC_WEBHOOK_PATHS` joins the router's `public`
   list (no `publicRateLimit`). `POST /webhook/:token` answers `200 {"ok":true}` or one fixed
   `400 {"error":"Bad request"}` for an unknown token, a body over `WEBHOOK_BODY_MAX` (65,536 bytes: the
@@ -842,7 +843,7 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   its application or service, a backup's `/databases/{uuid}`, restart limit `/applications/{uuid}`
   (Coolify names any resource application_uuid; others fail closed). `issueWebhookToken()` gives #92
   `{ token, tokenHash }`; `webhooks.verify(token)` answers `{ id, instanceKey }` or null.
-- Webhook setup (1.2.0, #92): `src/backend/webhooks/setup.ts` (`createWebhookSetup`, made in `index.ts`
+- Webhook setup (#92): `src/backend/webhooks/setup.ts` (`createWebhookSetup`, made in `index.ts`
   right after `createWebhooks`), `setup-routes.ts` (`GET`/`POST`/`DELETE /connections/:id/webhook`,
   `POST .../webhook/replace`) and `src/backend/ops/webhooks.ts` (`coolify.webhook-status` read,
   `coolify.webhook-setup` change, `coolify.webhook-replace` and `coolify.webhook-disable` destructive and
@@ -877,7 +878,7 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   lines (`coolify_webhook_setup`, `coolify_webhook_disable`) hold the connection id and outcome. Frontend:
   `views/WebhookSetup.tsx` in `ConnectionEditor` (owner only), keyed by `id:revision`, confirms through
   `useConfirmFor`, and a read generation keeps only the newest status.
-- Alerts (1.2.0, #93): `src/backend/alerts/` (`service.ts` `createAlerts`, `routes.ts`),
+- Alerts (#93): `src/backend/alerts/` (`service.ts` `createAlerts`, `routes.ts`),
   `src/backend/ops/alerts.ts`, `src/shared/alerts.ts` (`DEFAULT_ALERT_KINDS`, `alertTabData`) and
   `src/frontend/views/AlertPrefsView.tsx`. The one pipeline hook is `EventsDeps.onStored?: (event:
 EventRecord) => unknown`, called by `afterStored` in `createEvents` after the commit and its persist,
@@ -1038,7 +1039,7 @@ EventRecord) => unknown`, called by `afterStored` in `createEvents` after the co
   state, `notCoolifyHost`, with no connection read, since only the hostless tab lists every connection's
   resources). `files.openHost` and `files.openEditor` are File
   Manager frontend actions run with `invokeAction`.
-- Deployments (1.1): `src/backend/deployments/` (service, log, routes, queue, by-tag) and
+- Deployments: `src/backend/deployments/` (service, log, routes, queue, by-tag) and
   `src/backend/ops/deployments.ts`. `deployments.queue(connectionId)` is the one connection-wide read of
   Coolify's queue (`GET /deployments`) plus the recent history of the ten most recently deployed
   applications; it is cached 10 seconds in memory (`queue.ts`), keyed by revision and an invalidate
@@ -1049,7 +1050,7 @@ EventRecord) => unknown`, called by `afterStored` in `createEvents` after the co
   Deployments. Deploy by tag finds the tag's targets itself (`/applications?tag=` and each service's tags)
   and deploys them by uuid: Coolify's own `tag` parameter refuses `pr` and `docker_tag`, and deploying by
   uuid deploys exactly what the confirm listed (`targets`, checked again before Coolify is asked).
-- Recent activity (1.1): `src/backend/activity.ts`. `recordShell` runs in `containers.shell` (route and
+- Recent activity: `src/backend/activity.ts`. `recordShell` runs in `containers.shell` (route and
   `coolify.shell-command`) once the answer is built. `createDeployActivity(ctx, sync)` makes the one
   post-start hook (`deployed`), built in `index.ts` and passed as a required dep to `createLifecycle` and
   `createDeployments` (previews reach it as `deployments.deployed`), so a new deploy service has to wire
@@ -1064,7 +1065,7 @@ EventRecord) => unknown`, called by `afterStored` in `createEvents` after the co
   `coolify_deploy` (`src/shared/activity.ts`) are claimed by the `coolify` tab's `activityTypes`. It needs
   only `hosts:read`; `hosts:activity-provide` is for the plugin that stores activity. `coolify.api-call`
   passthroughs record nothing.
-- Activity panel and rail badge (1.1): `src/backend/attention/` and `src/backend/ops/attention.ts`
+- Activity panel and rail badge: `src/backend/attention/` and `src/backend/ops/attention.ts`
   (`GET /attention`, `coolify.attention`) put together, for every connection the actor can view, the
   queue's running rows, recent failures (`recentFailures`: the application's latest ended deployment per
   pull request, failed, ended within 24 hours), degraded resources (no Parts) and unreachable servers. It
@@ -1077,7 +1078,7 @@ EventRecord) => unknown`, called by `afterStored` in `createEvents` after the co
   polling every 15 s while `active`). Panel rows open the tab with data the tab reads in `requestOf`:
   `uuid` on Resources opens that resource's detail, `resourceUuid` + `deploymentUuid` on Deployments
   opens the build log, but only with operate (`shownDeployment` in CoolifyTab).
-- Rollback (1.1): `deployments/service.ts` `rollbackImages` (view) and `rollback` (operate), applications
+- Rollback: `deployments/service.ts` `rollbackImages` (view) and `rollback` (operate), applications
   only, through the same `open`/`holds` snapshot re-check as cancel; the image must be in Coolify's list as
   read in that same call. `ops/rollback.ts` has both scopes; the rollbacks are destructive and in
   `MCP_CONFIRM_REQUIRED`. `coolify.deploy` / `coolify.resource-deploy` declare them as `undo`: before an
@@ -1085,7 +1086,7 @@ EventRecord) => unknown`, called by `afterStored` in `createEvents` after the co
   `undoInput` only when it is listed; a failed read never blocks the deploy. `PluginOperationOutcome` has
   no `undoInput`, so tests read it from the handler's own result. `RollbackView` re-checks after the
   confirm that it is still mounted and on the same application before it posts.
-- Dashboard cards and homepage widgets (1.2): `src/frontend/views/dashboard/` (`register.tsx`,
+- Dashboard cards and homepage widgets: `src/frontend/views/dashboard/` (`register.tsx`,
   `CoolifyCards.tsx`, `useCardRead.ts`), shared kinds, settings and poll intervals in
   `src/shared/dashboard.ts`, backend reads in `src/backend/dashboard/` and `ops/dashboard.ts`. One
   dashboard card `coolify` (manifest `dashboardCards`) whose `entries` are the four kinds, each entry's

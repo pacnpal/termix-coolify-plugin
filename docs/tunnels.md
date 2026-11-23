@@ -34,10 +34,6 @@ takes SSH Terminal's settings while it is on, so until then that server says **T
 behind a Cloudflare tunnel, but its host still has SSH Terminal's tunnel settings**, with **Open Plugins**,
 and its host is left as it is. Hosts that were never tunnelled don't need SSH Terminal.
 
-Hosts linked before 1.0's database migration have no record of whether sync gave them tunnel settings, so
-they count as possibly tunnelled: once their server is a plain one, they may need SSH Terminal on for one
-sync to confirm their tunnel is off. After that they sync without it.
-
 This needs **SSH Terminal 1.2.0 or newer**, turned on. Version 1.0.3 tunnelled only its own terminal tab.
 Until then a tunnelled server can't sync and says why, with an **Open Plugins** button that opens Termix's
 Plugins tab:

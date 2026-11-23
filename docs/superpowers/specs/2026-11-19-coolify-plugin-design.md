@@ -1455,9 +1455,11 @@ Everything goes through `ctx.db.persist()`, lazily for cache, events and recent.
 - **Host (hidden):** `coolifyConnectionId` and `coolifyServerUuid`.
 - Everything else is per connection.
 
-### Milestones (each shippable, each passes the full Done checklist)
+### Milestones (each passes the full Done checklist)
 
-1. **1.0.0: Foundation.**
+The first release, 1.0.0, holds Foundation, Observe and Alerts. The later milestones have no version yet.
+
+1. **Foundation.**
    - Template rename to `coolify`.
    - Vendored spec, generated client, DTO strippers and the coverage test with `docs/coverage.md`.
    - Connections and the probe.
@@ -1468,7 +1470,7 @@ Everything goes through `ctx.db.persist()`, lazily for cache, events and recent.
    - Host section, badge, dot, menu, import menu, host action.
    - Operations resource, lifecycle actions and signals.
    - Palette, onboarding step.
-   - **Added at the owner's request ("all of them, now, as 1.0"):**
+   - **Added at the owner's request ("all of them, now"):**
      - Companion plugins: every integration in "Companion plugins".
      - Metrics, traffic and the Coolify MCP client: Sentinel over SSH, MCP server metrics, the Stats and
        Traffic tabs.
@@ -1479,39 +1481,39 @@ Everything goes through `ctx.db.persist()`, lazily for cache, events and recent.
        `coolify.exec`, `coolify.logs-tail`, `coolify.api-read` and `coolify.api-call`), the
        `/plugin-api/coolify/mcp` endpoint, `docs/api.md`, the redactor, the API console, the extended
        coverage tests and the `coolify.client` service.
-2. **1.1.0: Observe.**
+2. **Observe.**
    - Logs snapshot and follow, Stats.
    - Deployments section with live build logs, cancel, rollback, previews.
    - Companion panel, sidebar panel, rail badge, `terminal.toolbarStatus`.
    - Recent activity.
-3. **1.2.0: Alerts.**
+3. **Alerts.**
    - Webhook and one-click Coolify setup, poller, event log.
    - Notify and operations events, alert preferences.
    - Dashboard cards, homepage widgets, `dashboard.hostRow` slots.
-4. **1.3.0: Configure.**
+4. **Configure.**
    - Env vars (resource and shared), storages and volume backups, database backups and imports, scheduled
      tasks.
    - Domains and DNS, tags, secret managers, resource Settings edit.
    - Notifications section.
-5. **1.4.0: Create.**
+5. **Create.**
    - Projects and environments CRUD.
    - Create wizards for app, database and service.
    - Clone, move, migrate, delete.
    - Sources (git apps), S3 storages.
-6. **1.5.0: Infrastructure.**
+6. **Infrastructure.**
    - Servers section in full (proxy, destinations, registries, cleanup, sentinel, scanning, drains, tunnel,
      transfer).
    - Reverse onboarding.
    - Keys section and generate.
    - Cloud tokens, cloud-init and the cloud server wizard.
    - Integration tokens.
-7. **1.6.0: Team and sharing.**
+7. **Team and sharing.**
    - Connection grants with host sharing.
    - Security section (vulnerabilities, audit), Team and Instance sections.
    - Assistant and MCP surfaces review.
    - Mobile polish.
 
-Each milestone updates `docs/coverage.md`. By 1.6.0 every spec operation is either used or listed with a
+Each milestone updates `docs/coverage.md`. By the last milestone every spec operation is either used or listed with a
 reason.
 
 ### Identity (AGENTS.md first-time setup)
