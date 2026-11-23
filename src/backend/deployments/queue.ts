@@ -134,6 +134,21 @@ export function createQueueCache(deps: {
   const generationOf = (id: number) => `${epoch}:${generations.get(id) ?? 0}`;
   const histories = new Map<number, Histories>();
 
+  /**
+   * Advances the connection's generation and drops its cached queue, its
+   * kept pages and its running reads: a read started before can still answer
+   * its own callers, but no longer writes the cache or the pages. After a
+   * deploy, cancel or rollback (invalidate), and before a fresh baseline read.
+   */
+  function supersede(connectionId: number): void {
+    generations.set(connectionId, (generations.get(connectionId) ?? 0) + 1);
+    cache.delete(connectionId);
+    histories.delete(connectionId);
+    for (const key of [...inflight.keys()]) {
+      if (key.startsWith(`${connectionId}:`)) inflight.delete(key);
+    }
+  }
+
   async function fetchQueue(
     connectionId: number,
     api: CoolifyApi,
@@ -259,12 +274,24 @@ export function createQueueCache(deps: {
          */
         revision?: () => Promise<string | null>;
       },
-      opts: { refresh?: boolean } = {},
+      opts: {
+        refresh?: boolean;
+        /**
+         * Every history page read now, none reused: the poller's baseline,
+         * which must not take in pages from before polling stopped. It
+         * supersedes every read already running, as an invalidate does, so
+         * none of them can write the cache or the pages after it.
+         */
+        freshHistory?: boolean;
+      } = {},
     ): Promise<DeploymentQueue> {
+      const fresh = opts.freshHistory === true;
+      if (fresh) supersede(connectionId);
       const generation = generationOf(connectionId);
       const hit = cache.get(connectionId);
       if (
         !opts.refresh &&
+        !fresh &&
         hit &&
         hit.revision === revision &&
         hit.generation === generation
@@ -290,14 +317,6 @@ export function createQueueCache(deps: {
     },
 
     /** Drops the cached queue, after a cancel or a deploy. */
-    invalidate(connectionId: number): void {
-      generations.set(connectionId, (generations.get(connectionId) ?? 0) + 1);
-      cache.delete(connectionId);
-      // A deploy, cancel or rollback: the next read asks for every page.
-      histories.delete(connectionId);
-      for (const key of [...inflight.keys()]) {
-        if (key.startsWith(`${connectionId}:`)) inflight.delete(key);
-      }
-    },
+    invalidate: supersede,
   };
 }
