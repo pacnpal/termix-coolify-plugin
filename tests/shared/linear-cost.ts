@@ -46,10 +46,11 @@ const TRIES = 3;
 export const WARM_UP_CALLS = 3;
 
 /**
- * Sub-samples of each size in one try. Their median ignores one paused
- * sub-sample, whichever size it hits.
+ * Sub-samples of each size in one try. Their median ignores two disturbed
+ * sub-samples, whichever size they hit: a long pause and the garbage
+ * collection that can follow it.
  */
-const SUB_SAMPLES = 3;
+const SUB_SAMPLES = 5;
 
 const clock: () => number =
   typeof process?.threadCpuUsage === "function"
@@ -76,8 +77,7 @@ function clockStep(): number {
 
 /**
  * Sub-samples are repeated to at least this long, so one clock step is at
- * most a tenth of a sub-sample. A try takes six, about as long as the two
- * 25-step samples it took before #124.
+ * most a tenth of a sub-sample. A try takes ten.
  */
 const MIN_SAMPLE_US = Math.max(1_000, 10 * clockStep());
 
@@ -124,7 +124,7 @@ function oneTry(
  * first try within linearLimit(factor), which a linear call needs, and
  * otherwise takes every try: one paused sample can't fail a check (#124).
  *
- * Each try runs six sub-samples of at least 10 clock steps, so a check takes
+ * Each try runs ten sub-samples of at least 10 clock steps, so a check takes
  * a few tenths of a second of CPU: a test that makes one takes HEAVY_TEST_MS
  * (shared/timing.ts) rather than Vitest's 5 s.
  */

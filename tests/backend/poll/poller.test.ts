@@ -502,6 +502,25 @@ describe("who is polled", () => {
     expect(harness.mock.operationEvents).toEqual([]);
   });
 
+  it("a new baseline reads history fresh: a deployment that ended while polling was off is never news", async () => {
+    const { harness, fake } = await start();
+    await pollAt(harness, T0);
+    // Polling stops for the connection (its owner loses view) ...
+    const hasFor = vi
+      .spyOn(harness.mock.ctx.rbac, "hasFor")
+      .mockResolvedValue(false);
+    await pollAt(harness, T0 + 20_000);
+    // ... a deployment ends meanwhile, and polling resumes within the
+    // history pages' HISTORY_REFRESH_MS: its baseline must read them again.
+    fake.set(HISTORY, history(["dep-while-off", "failed", T0 + 30_000]));
+    hasFor.mockRestore();
+    await pollAt(harness, T0 + MINUTE);
+    for (let minute = 2; minute <= 5; minute += 1) {
+      await pollAt(harness, T0 + minute * MINUTE);
+    }
+    expect(harness.mock.operationEvents).toEqual([]);
+  });
+
   it("polls by default; once the team's webhook delivered, follows pollEnabled", async () => {
     const { harness, fake, id } = await start();
     expect((await connection(harness, id)).pollEnabled).toBe(false);

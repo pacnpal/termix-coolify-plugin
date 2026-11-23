@@ -529,14 +529,20 @@ export function createDeployments(ctx: PluginContext, deps: DeploymentsDeps) {
       connectionId: number,
       snap: { revision: string; api: () => Promise<CoolifyApi> },
       applications: ResourceDto[],
+      opts: { freshHistory?: boolean } = {},
     ): Promise<DeploymentQueue> {
-      return queueCache.read(connectionId, snap.revision, {
-        api: await snap.api(),
-        applications: applications.filter((r) => r.kind === "application"),
-        revision: async () =>
-          (await connections.unattendedSnapshot(connectionId))?.revision ??
-          null,
-      });
+      return queueCache.read(
+        connectionId,
+        snap.revision,
+        {
+          api: await snap.api(),
+          applications: applications.filter((r) => r.kind === "application"),
+          revision: async () =>
+            (await connections.unattendedSnapshot(connectionId))?.revision ??
+            null,
+        },
+        opts,
+      );
     },
 
     /** Drops the cached queue, so the next read asks Coolify. */

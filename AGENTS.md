@@ -147,8 +147,9 @@ aren't obvious from the code, and anything that has bitten you before.
   10 steps), must cost less than 24 times as much (linear about 8, quadratic about 64). storagePaths
   can't take a longer path (4096 cap), so it compares against a 32nd (`growth(at, 32)`, bound
   `linearLimit(32)` = 96). One sample never decides a check (#124): a pause on the thread (a major
-  GC, a deopt) counts as its CPU time. Each of up to three tries takes the median of three
-  interleaved sub-samples per size, the best try of each size counts, and only a pass stops early;
+  GC, a deopt) counts as its CPU time. Each of up to three tries takes the median of five
+  interleaved sub-samples per size (two disturbed ones are ignored: the self-check's pause, and the GC
+  it can cause, failed one in four full runs with three), the best try of each size counts, and only a pass stops early;
   a failure takes every try. Each size is called `WARM_UP_CALLS` (3) times first, untimed: cold calls
   ran before the JIT and read a quadratic call as linear on CI. `tests/shared/linear-cost.test.ts` (run with the backend tests) checks
   that one paused call reads a linear call as linear and a quadratic one as quadratic.
@@ -1061,7 +1062,9 @@ EventRecord) => unknown`, called by `afterStored` in `createEvents` after the co
   `HISTORY_REFRESH_MS` (3 minutes) old, so a steady read is one request, not eleven (every request is an
   audit entry in core). An invalidate forgets the pages. The queue's `historyReadAt` (oldest page used,
   never answered to callers) is the poller's `deploymentsReadAt` watermark, so a reused page never eats
-  into `CLOCK_SLACK_MS` and a deployment that started and ended between two polls is still news when found; shared by the Deployments section, the Overview, the
+  into `CLOCK_SLACK_MS` and a deployment that started and ended between two polls is still news when found.
+  A poller baseline asks with `freshHistory` (no cache, no kept pages, no joined read), so a page from
+  before polling stopped never lets a deployment that ended meanwhile come up later as news; shared by the Deployments section, the Overview, the
   `coolify.deployment-queue` action and anything later (the sidebar panel, rail badge). Rows whose link
   names no application of the connection are dropped. Cancel, deploy by tag and rollback invalidate it. In the
   frontend, `useDeploymentQueue` is held by CoolifyTab and polls only while the tab shows Overview or

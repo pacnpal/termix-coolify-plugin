@@ -295,6 +295,8 @@ export function createPoller(ctx: PluginContext, deps: PollerDeps) {
     snap: Snapshot,
     generation: string,
     withRuns: boolean,
+    /** A baseline: history is read fresh, never reused from before. */
+    baseline: boolean,
   ): Promise<PollRead> {
     const guard = async () => {
       if (!(await holds(id, snap.revision, generation))) throw targetChanged();
@@ -303,7 +305,9 @@ export function createPoller(ctx: PluginContext, deps: PollerDeps) {
     await guard();
     // The queue and its history: a refusal leaves deployments unread.
     const queue = await unlessRefused(() =>
-      deps.deployments.queueUnattended(id, snap, resources),
+      deps.deployments.queueUnattended(id, snap, resources, {
+        freshHistory: baseline,
+      }),
     );
     await guard();
     // A scoped token is always refused /servers (the probe found it so):
@@ -363,7 +367,7 @@ export function createPoller(ctx: PluginContext, deps: PollerDeps) {
         : null;
     const withRuns = !prev?.runs || at - prev.runsReadAt >= SLOW_POLL_MS;
     try {
-      const polled = await read(id, snap, generation, withRuns);
+      const polled = await read(id, snap, generation, withRuns, !prev);
       if (!(await holds(id, snap.revision, generation))) throw targetChanged();
       const { events, next } = diffPoll(prev, polled, at);
       for (const event of events) {
