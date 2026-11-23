@@ -10,6 +10,8 @@ import { createCompanions } from "./companions/service.js";
 import { createContainerCompanions } from "./companions/container-service.js";
 import { registerContainerCompanionRoutes } from "./companions/container-routes.js";
 import { createConnections } from "./connections/service.js";
+import { createEvents } from "./events/service.js";
+import { registerEventRoutes } from "./events/routes.js";
 import { createDashboard } from "./dashboard/service.js";
 import { registerDashboardRoutes } from "./dashboard/routes.js";
 import { registerConnectionRoutes } from "./connections/routes.js";
@@ -58,6 +60,8 @@ export async function activate(ctx: PluginContext): Promise<void> {
   });
   sync = await createSync(ctx, { tables, connections });
   const resources = createResources(ctx, { tables, connections });
+  // The one event pipeline. The poller and the team webhook feed it.
+  const events = createEvents(ctx, { tables, connections, sync });
   // The one post-start hook every deploy path shares: recent activity.
   const deployed = createDeployActivity(ctx, sync);
   const lifecycle = createLifecycle(ctx, {
@@ -129,6 +133,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
   registerDeploymentRoutes(router, ctx, deployments);
   registerPreviewRoutes(router, ctx, previews);
   registerAttentionRoutes(router, ctx, attention);
+  registerEventRoutes(router, ctx, events);
   registerDashboardRoutes(router, ctx, dashboard);
   registerContainerRoutes(router, ctx, containers, logs);
   registerLogSocket(ctx, { logs });
@@ -159,6 +164,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
     genericApi,
     metrics,
     attention,
+    events,
     dashboard,
   });
   provideClient(ctx);

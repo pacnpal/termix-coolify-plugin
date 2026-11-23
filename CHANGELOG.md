@@ -4,6 +4,19 @@
 
 ### Added
 
+- An event log for every connection, read with the new `coolify.events-list` action (Operations Center,
+  Automations, the CLI, the operations API and the MCP tool `coolify__events_list`) or
+  `GET /plugin-api/coolify/connections/{id}/events`. It lists the connection's events newest first, a page
+  at a time, filtered by kind or by resource or server. It keeps the newest 1,000 events per connection,
+  and removing a connection removes its events. Needs **View Coolify**; another user's connection is
+  never shown
+- New operations events for Automations: `coolify.restart-limit`, `coolify.backup-succeeded`,
+  `coolify.backup-failed`, `coolify.task-succeeded`, `coolify.task-failed`, `coolify.high-disk`,
+  `coolify.certificate-problem` and `coolify.token-expiring`, next to the deployment, restart and
+  unreachable server events. Each event is sent once per dedupe key: once per deployment, and otherwise
+  once per kind, resource (or server) and minute, so the same thing seen in different minutes can be
+  separate events. It carries the host only when its server is Linked. Events hold no secrets, tokens, credentials inside
+  URLs or log text. Polling and the Coolify webhook start sending them in a later 1.2 update
 - Coolify on Termix's dashboard and homepage: four cards, each with its own connection (and resource) in
   its settings. **Coolify overview** counts the connection's resources by status and its unreachable
   servers, **Coolify resource** shows one resource's status with Deploy (for operators only, with a
@@ -16,6 +29,12 @@
   `GET /connections/{id}/overview` and `GET /connections/{id}/vulnerabilities`, for Operations Center,
   Automations, the CLI, the Termix API and MCP. The vulnerability counts come from Coolify's image scanning
   and are kept five minutes per connection; they carry no resource names or Coolify text
+
+### Changed
+
+- `coolify.container-restarted` and `coolify.server-unreachable` are now Termix-wide events like the
+  deployment events, since they carry a host only when the server is Linked, and their payloads gained
+  `status` (and `deploymentUuid` for a container restart). Neither was sent before this release
 
 ## 1.1.2
 

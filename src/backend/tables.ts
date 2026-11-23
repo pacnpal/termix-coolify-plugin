@@ -147,7 +147,11 @@ export const cache = defineTable(
   },
 );
 
-/** Deployments, restarts and other things that happened, with no secrets. */
+/**
+ * The event log: deployments, restarts and other things that happened, with
+ * no secrets. Only the event pipeline (src/backend/events/service.ts) writes
+ * it, already redacted; it keeps the newest EVENT_LOG_LIMIT per connection.
+ */
 export const events = defineTable(
   "events",
   {
@@ -161,12 +165,22 @@ export const events = defineTable(
     title: text().notNull(),
     detail: json(),
     createdAt: timestamp().notNull().defaultNow(),
+    // The Coolify server the event is about (or its resource's server).
+    serverUuid: varchar(255),
+    // "deployment|<uuid>" or "<kind>|<subject>|<minute>": one row per event.
+    dedupeKey: varchar(255),
   },
   {
     indexes: [
       {
         name: "idx_p_coolify_events_connection_created",
         columns: ["connectionId", "createdAt"],
+      },
+    ],
+    uniques: [
+      {
+        name: "idx_p_coolify_events_connection_dedupe",
+        columns: ["connectionId", "dedupeKey"],
       },
     ],
   },

@@ -715,6 +715,17 @@
       "allowed": "any",
       "note": "Answers 404 companion-missing unless the Databases plugin runs, and the authz run installs no companions"
     },
+    "GET /plugin-api/coolify/connections/:id/events": {
+      "access": "user",
+      "permission": "coolify.view",
+      "resource": {
+        "kind": "own",
+        "fixture": "coolify.connection"
+      },
+      "params": {
+        "id": "coolify.connection"
+      }
+    },
     "GET /plugin-api/coolify/connections/:id/status-pages": {
       "access": "user",
       "permission": "coolify.view",
