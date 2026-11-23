@@ -95,12 +95,17 @@ ssh -o ProxyCommand="cloudflared access ssh --hostname %h" root@ssh-coolify.exam
    settings, as for [servers behind a tunnel](#servers-behind-a-tunnel), and the key copied from Coolify
    still logs in.
 
-Untick the box and sync again to go back to a direct address; sync then clears the tunnel from the host.
+To go back to a direct address, untick the box, replace the tunnel hostname with an address that reaches the
+server directly (the tunnel hostname points at Cloudflare, not the server), and sync again. Sync then
+clears the tunnel from the host. The server Coolify runs on always needs an address here, since Coolify's
+own (`host.docker.internal`) can't be used from Termix.
 
 ### 4. Close SSH to the internet
 
 Do this only once the Termix host connects through the tunnel, and keep your provider's web console open in
-case you lock yourself out. Run these on the server as root.
+case you lock yourself out. Run these on the server as root. They use port 22; if sshd listens on another
+port (the one in step 2's **Service URL**), use that port in every rule below, in the rule you delete, and in
+the check in step 6.
 
 First check what is there:
 
@@ -112,7 +117,7 @@ ufw status verbose
 ss -tlnp | grep -v '127.0.0.1\|::1'
 ```
 
-If ufw already allows SSH (`22/tcp` or `OpenSSH`), delete that rule first, or it matches before the block
+If ufw already allows SSH (`22/tcp`, your sshd's port or `OpenSSH`), delete that rule first, or it matches before the block
 below. If anything that isn't Docker listens on the host besides sshd, allow it before turning ufw on.
 
 Coolify reaches its own host over the Docker bridge (from an address like `10.0.1.7`), and `cloudflared`
