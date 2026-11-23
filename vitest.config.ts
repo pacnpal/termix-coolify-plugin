@@ -12,6 +12,11 @@ for (const project of config.test.projects) {
   if (project.test.environment === "jsdom") {
     project.test.setupFiles.push(frontendSetup);
   }
+  // The shared test helpers' own tests (tests/shared/linear-cost.test.ts) run
+  // with the backend's.
+  if (project.test.environment === "node") {
+    project.test.include.push("tests/shared/**/*.test.ts");
+  }
 }
 
 export default config;
