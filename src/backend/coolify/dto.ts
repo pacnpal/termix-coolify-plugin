@@ -321,6 +321,14 @@ function serverUuidOf(raw: Raw): string | null {
   );
 }
 
+/**
+ * The server uuid a resource's own answer names (server_uuid, server.uuid or
+ * destination.server.uuid), or null. Unchecked text: callers check its shape.
+ */
+export function resourceServerUuid(raw: unknown): string | null {
+  return serverUuidOf(obj(raw));
+}
+
 function serverNameOf(raw: Raw): string | null {
   return (
     strOrNull(obj(raw.server).name) ??

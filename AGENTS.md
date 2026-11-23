@@ -768,7 +768,12 @@ name?, status?, at?, fields? }`; `revision` is `connections.revision()`/the snap
   `retry: false`, `exactStatus: 200`, any throw false; `GET /team` for a team subject, which no v4.7.5
   event maps to yet; its `beforeFetch` re-reads `unattendedSnapshot` right before the GET, after the budget
   wait, and a changed revision sends nothing and answers `dropped`), then
-  `events.ingest(id, event, { revision: snap.revision })`. #90's poller reads `lastReceivedAt` to make
+  `events.ingest(id, event, { revision: snap.revision })`. `deliverTo` gets the row's `instanceKey` and
+  drops the event when the snapshot's own `instanceKey` (now on `unattendedSnapshot`, from the same row)
+  or the `beforeFetch` re-read differs, so a connection repointed after it was picked sends nothing. A
+  resource event's `serverUuid` comes from the check's own 200 body (`canRead` answers
+  `{ serverUuid }`, picked by `resourceServerUuid` in dto.ts, the same fields as `ResourceDto.serverUuid`;
+  `plainUuid` or null), so the pipeline gives it the Linked host; no extra request. #90's poller reads `lastReceivedAt` to make
   polling follow `pollEnabled` (cross-checked in `webhooks/routes.test.ts`). A task's subject is
   its application or service, a backup's `/databases/{uuid}`, restart limit `/applications/{uuid}`
   (Coolify names any resource application_uuid; others fail closed). `issueWebhookToken()` gives #92

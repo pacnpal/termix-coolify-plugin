@@ -24,6 +24,11 @@ import type { SourceEvent } from "../events/service.js";
 /** A Coolify uuid: one plain segment, never a path (as the pipeline's). */
 const UUID = /^[A-Za-z0-9_-]{1,128}$/;
 
+/** `value` when it is a plain Coolify uuid the pipeline takes, else null. */
+export function plainUuid(value: unknown): string | null {
+  return typeof value === "string" && UUID.test(value) ? value : null;
+}
+
 type FieldType =
   /** true or false */
   | "bool"

@@ -321,6 +321,68 @@ describe("webhook fan-out", () => {
     expect(rows(a)).toHaveLength(1);
   });
 
+  it("drops the event for a connection repointed to another team after it was picked", async () => {
+    const original = connections.unattendedSnapshot.bind(connections);
+    let repointed = false;
+    vi.spyOn(connections, "unattendedSnapshot").mockImplementation(
+      async (id) => {
+        if (id === a && !repointed) {
+          repointed = true;
+          // Between the instanceKey selection and the snapshot: A now
+          // reaches team 99 with TOKEN_C.
+          mock.setActor(OWNER);
+          await connections.update(a, { token: TOKEN_C });
+          mock.setActor(undefined);
+          calls = [];
+        }
+        return original(id);
+      },
+    );
+    const got = await deliver(COOLIFY_WEBHOOKS.server_unreachable);
+    expect(repointed).toBe(true);
+    expect(instanceKeyOf(a)).toBe(instanceKeyOf(c));
+    expect(checks(TOKEN_C)).toEqual([]);
+    expect(rows(a)).toHaveLength(0);
+    expect(rows(b)).toHaveLength(1);
+    expect(got.results).toContainEqual({ connectionId: a, outcome: "dropped" });
+  });
+
+  it("gives a resource event the server from the check's own answer, and so its Linked host", async () => {
+    db.sqlite
+      .prepare(
+        "INSERT INTO p_coolify_servers (connection_id, server_uuid, host_id) VALUES (?, ?, ?)",
+      )
+      .run(a, "srv-vps1-uuid", 41);
+    perToken.set(TOKEN_A, {
+      "GET /applications/app-web-uuid": {
+        json: {
+          uuid: "app-web-uuid",
+          destination: { server: { uuid: "srv-vps1-uuid", name: "vps1" } },
+        },
+      },
+    });
+    perToken.set(TOKEN_B, {
+      "GET /applications/app-web-uuid": {
+        json: {
+          uuid: "app-web-uuid",
+          destination: { server: { uuid: "../not-a-uuid" } },
+        },
+      },
+    });
+    await deliver(COOLIFY_WEBHOOKS.deployment_failed);
+    expect(rows(a)[0]).toMatchObject({
+      server_uuid: "srv-vps1-uuid",
+      host_id: 41,
+    });
+    // A malformed server uuid is left out, not a reason to drop the event.
+    expect(rows(b)[0]).toMatchObject({ server_uuid: null, host_id: null });
+    expect(mock.operationEvents.map((e) => e.hostId ?? null).sort()).toEqual(
+      [41, null].sort(),
+    );
+    // Still one GET per connection: the server came from the check itself.
+    expect(checks(TOKEN_A)).toEqual(["GET /applications/app-web-uuid"]);
+  });
+
   it("sends no check for a connection repointed while the check waited for its budget", async () => {
     vi.useFakeTimers();
     const api = await (await connections.unattendedSnapshot(a))!.api();

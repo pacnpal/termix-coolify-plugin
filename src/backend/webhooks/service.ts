@@ -4,7 +4,7 @@ import type { Connections } from "../connections/service.js";
 import { dbClient, type Tables } from "../db.js";
 import type { Events, IngestResult } from "../events/service.js";
 import { hashToken, newToken, tokenMatches } from "../status/service.js";
-import { readWebhook, type WebhookIngest } from "./shape.js";
+import { plainUuid, readWebhook, type WebhookIngest } from "./shape.js";
 
 /** The largest body accepted, in bytes: 64 KB. */
 export const WEBHOOK_BODY_MAX = 65_536;
@@ -97,9 +97,15 @@ export function createWebhooks(ctx: PluginContext, deps: WebhooksDeps) {
     return { id: found.id, instanceKey: found.instanceKey };
   }
 
-  /** One connection's copy: the owner's view, the live check, then ingest. */
+  /**
+   * One connection's copy: the owner's view, the live check, then ingest.
+   * `instanceKey` is the webhook's team: the snapshot the check uses must
+   * still reach it, so a connection repointed after it was picked gets
+   * nothing, and nothing is sent with its new token.
+   */
   async function deliverTo(
     connectionId: number,
+    instanceKey: string,
     ingest: WebhookIngest,
   ): Promise<FanoutResult> {
     const result = (outcome: FanoutResult["outcome"]) => ({
@@ -111,23 +117,31 @@ export function createWebhooks(ctx: PluginContext, deps: WebhooksDeps) {
       if (!snap || !(await ctx.rbac.hasFor(snap.userId, "view"))) {
         return result("skipped");
       }
+      if (snap.instanceKey !== instanceKey) return result("dropped");
       // The connection's own client, so the check shares its budget.
       const api = await snap.api().catch(() => null);
       if (!api) return result("not-visible");
       // Right before the GET (after any budget wait): the connection still
-      // points where the snapshot did, or nothing is sent with its token.
+      // points where the snapshot did, at this team, or nothing is sent.
       let moved = false;
       const beforeFetch = async () => {
         const now = await connections.unattendedSnapshot(connectionId);
-        if (now?.revision !== snap.revision) {
+        if (
+          now?.revision !== snap.revision ||
+          now?.instanceKey !== instanceKey
+        ) {
           moved = true;
           throw new Error("target changed");
         }
       };
-      if (!(await api.canRead(ingest.subject, { beforeFetch }))) {
-        return result(moved ? "dropped" : "not-visible");
-      }
-      const ingested = await events.ingest(connectionId, ingest.event, {
+      const read = await api.canRead(ingest.subject, { beforeFetch });
+      if (!read) return result(moved ? "dropped" : "not-visible");
+      // A resource event takes its server from the check's own answer, so
+      // the pipeline can give it the Linked host; a malformed one is left out.
+      const event = ingest.event.serverUuid
+        ? ingest.event
+        : { ...ingest.event, serverUuid: plainUuid(read.serverUuid) };
+      const ingested = await events.ingest(connectionId, event, {
         revision: snap.revision,
       });
       return result(ingested.outcome);
@@ -160,7 +174,9 @@ export function createWebhooks(ctx: PluginContext, deps: WebhooksDeps) {
           id: number;
         }[]
       ).map((r) => r.id);
-      return await Promise.all(ids.map((id) => deliverTo(id, ingest)));
+      return await Promise.all(
+        ids.map((id) => deliverTo(id, row.instanceKey, ingest)),
+      );
     } catch (err) {
       ctx.log.warn(
         `coolify webhook fan-out failed: ${(err as Error)?.name ?? "error"}`,

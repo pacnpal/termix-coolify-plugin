@@ -22,19 +22,28 @@ function apiWith(routes: Record<string, FakeAnswer>) {
 describe("canRead: the webhook's visibility check", () => {
   it("GETs the subject itself and passes only on a 200", async () => {
     const { api, fake } = apiWith({
-      "GET /applications/app-a": { json: { uuid: "app-a" } },
-      "GET /services/svc-a": { json: { uuid: "svc-a" } },
+      "GET /applications/app-a": {
+        json: { uuid: "app-a", destination: { server: { uuid: "srv-a" } } },
+      },
+      "GET /services/svc-a": { json: { uuid: "svc-a", server_uuid: "srv-b" } },
       "GET /databases/db-a": { json: { uuid: "db-a" } },
       "GET /servers/srv-a": { json: { uuid: "srv-a" } },
       "GET /team": { json: { id: 7 } },
     });
-    expect(await api.canRead({ type: "application", uuid: "app-a" })).toBe(
-      true,
-    );
-    expect(await api.canRead({ type: "service", uuid: "svc-a" })).toBe(true);
-    expect(await api.canRead({ type: "database", uuid: "db-a" })).toBe(true);
-    expect(await api.canRead({ type: "server", uuid: "srv-a" })).toBe(true);
-    expect(await api.canRead({ type: "team" })).toBe(true);
+    // Readable, with the resource's server as its answer names it.
+    expect(await api.canRead({ type: "application", uuid: "app-a" })).toEqual({
+      serverUuid: "srv-a",
+    });
+    expect(await api.canRead({ type: "service", uuid: "svc-a" })).toEqual({
+      serverUuid: "srv-b",
+    });
+    expect(await api.canRead({ type: "database", uuid: "db-a" })).toEqual({
+      serverUuid: null,
+    });
+    expect(await api.canRead({ type: "server", uuid: "srv-a" })).toEqual({
+      serverUuid: null,
+    });
+    expect(await api.canRead({ type: "team" })).toEqual({ serverUuid: null });
     expect(fake.calls.map((c) => `${c.method} ${c.path}`)).toEqual([
       "GET /applications/app-a",
       "GET /services/svc-a",
@@ -44,7 +53,7 @@ describe("canRead: the webhook's visibility check", () => {
     ]);
   });
 
-  it("answers false for 401, 403, 404, 204, 500 and a failed fetch, never retrying", async () => {
+  it("answers null for 401, 403, 404, 204, 500 and a failed fetch, never retrying", async () => {
     for (const answer of [
       { status: 401, json: { message: "Unauthenticated." } },
       { status: 403, json: { message: "Forbidden." } },
@@ -57,7 +66,7 @@ describe("canRead: the webhook's visibility check", () => {
       },
     ] as FakeAnswer[]) {
       const { api, fake } = apiWith({ "GET /servers/srv-a": answer });
-      expect(await api.canRead({ type: "server", uuid: "srv-a" })).toBe(false);
+      expect(await api.canRead({ type: "server", uuid: "srv-a" })).toBeNull();
       expect(fake.calls).toHaveLength(1);
     }
   });
@@ -66,7 +75,7 @@ describe("canRead: the webhook's visibility check", () => {
     const { api, fake } = apiWith({});
     expect(
       await api.canRead({ type: "application", uuid: "../servers/x" }),
-    ).toBe(false);
+    ).toBeNull();
     expect(fake.calls).toHaveLength(0);
   });
 });

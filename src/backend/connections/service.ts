@@ -1087,6 +1087,8 @@ export function createConnections(
        * resources (no /team, /servers or /security/keys).
        */
       scoped: boolean;
+      /** The Coolify team the same row reaches (the webhook's key), or null. */
+      instanceKey: string | null;
       api: () => Promise<CoolifyApi>;
       /**
        * The token and Access secret of that same row, for masking them in
@@ -1099,6 +1101,7 @@ export function createConnections(
       return {
         userId: found.userId,
         revision: revisionOf(found),
+        instanceKey: found.instanceKey ?? null,
         scoped: parseStored(found.abilities).scoped,
         api: async () => (await cachedClient(found)).api,
         secrets: async () =>
