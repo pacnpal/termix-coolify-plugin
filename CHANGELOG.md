@@ -17,6 +17,13 @@
   once per kind, resource (or server) and minute, so the same thing seen in different minutes can be
   separate events. It carries the host only when its server is Linked. Events hold no secrets, tokens, credentials inside
   URLs or log text. Polling and the Coolify webhook start sending them in a later 1.2 update
+- Coolify's team webhook: `POST /plugin-api/coolify/webhook/{token}` takes Coolify's own notifications
+  (deployments, restart limits, backups, scheduled tasks, high disk usage, unreachable servers) and turns
+  them into events at once. One webhook serves every connection to the same Coolify team, and each event
+  reaches only the connections whose own token can read what it is about, checked live with one request per
+  event and connection that counts against that connection's request budget; any refusal or error drops it
+  there. The token is 32 random bytes, stored only as a hash. Bodies over 64 KB, of any shape but Coolify's,
+  or with an unknown token get the same refusal, and nothing sent is ever echoed back
 
 ### Changed
 

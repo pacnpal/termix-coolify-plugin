@@ -613,6 +613,27 @@ The same is available as actions: `coolify.status-page-list`, `coolify.status-pa
 and rotate answer a `handoffId`, and the link is taken once with it. See [Status page URLs](api.md#status-page-urls).
 Listing needs **View Coolify**; the rest need **Configure Coolify**.
 
+## Coolify's webhook
+
+Coolify can send its notifications (deployments, backups, scheduled tasks, disk usage, unreachable servers)
+to one webhook per team. Pointed at the plugin's webhook address, they become plugin events at once: they
+appear in each connection's event log and as Termix operations events for Automations.
+
+- **One webhook per Coolify team.** Every connection to the same Coolify address and team shares it. The
+  address is `/plugin-api/coolify/webhook/<token>`; the token is its only password, and the plugin keeps only
+  a hash of it.
+- **Each connection sees only what its own token can.** For every event and every connection to that team,
+  the plugin asks Coolify, with that connection's token, for the application, database, service or server
+  the event is about. Only a connection whose token can read it gets the event; any refusal or error drops
+  the event for that connection, and it isn't asked again. These checks share the connection's 150 requests
+  a minute with everything else it does.
+- **Strict.** A delivery must be one of Coolify's own notification payloads, at most 64 KB; anything else,
+  and an unknown token, gets the same refusal. Notifications that no event kind covers yet (Coolify's Test
+  button, Docker cleanup, patch checks) are accepted and show that the webhook works, but add no event.
+
+See [Coolify's team webhook](api.md#post-plugin-apicoolifywebhooktoken-coolifys-team-webhook) for the payloads
+it takes.
+
 ## The full Coolify API
 
 Everything in Coolify's API is reachable from Termix, checked against your permissions:

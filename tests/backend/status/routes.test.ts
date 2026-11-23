@@ -457,8 +457,9 @@ describe("status page routes", () => {
     const publicPaths = harness.mock.httpRouters.flatMap(
       (o) => o?.public ?? [],
     );
+    // Plus the Coolify webhook (tests/backend/webhooks/routes.test.ts).
     expect(publicPaths.sort(byText)).toEqual(
-      ["/status/:token", "/status/:token.json"].sort(byText),
+      ["/status/:token", "/status/:token.json", "/webhook/:token"].sort(byText),
     );
     // Core's public rate limit (120 a minute per address) stays in force.
     expect(

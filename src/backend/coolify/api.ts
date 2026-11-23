@@ -29,6 +29,18 @@ import {
   type TeamDto,
 } from "./dto.js";
 
+/** Something a token can be asked whether it reads (`canRead`). */
+export type ReadableSubject =
+  | { type: "application" | "service" | "database" | "server"; uuid: string }
+  | { type: "team" };
+
+const READ_SUBJECT = {
+  application: "get-application-by-uuid",
+  service: "get-service-by-uuid",
+  database: "get-database-by-uuid",
+  server: "get-server-by-uuid",
+} as const;
+
 export type LifecycleAction = "start" | "stop" | "restart";
 
 const BY_ID = new Map(OPERATIONS.map((op) => [op.id, op]));
@@ -199,6 +211,26 @@ export function createCoolifyApi(http: CoolifyHttp) {
         throw new CoolifyError("not-coolify", 200);
       }
       return text;
+    },
+
+    /**
+     * Whether this token reads `subject`: one GET of the subject itself
+     * (`GET /team` for the team), never retried, true only on a 200. Any
+     * other answer, a malformed uuid, a timeout or any error is false.
+     * Nothing it read is kept or returned. It counts against the request
+     * budget like any call. For the webhook's per-connection check (#91).
+     */
+    async canRead(subject: ReadableSubject): Promise<boolean> {
+      try {
+        const target =
+          subject.type === "team"
+            ? op("get-token-team")
+            : op(READ_SUBJECT[subject.type], { uuid: subject.uuid });
+        await call(target, { retry: false, exactStatus: 200 });
+        return true;
+      } catch {
+        return false;
+      }
     },
 
     async team(): Promise<TeamDto> {

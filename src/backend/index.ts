@@ -44,6 +44,11 @@ import { registerUpdateRoutes } from "./updates/routes.js";
 import { rememberBaseUrlMiddleware } from "./status/base-url.js";
 import { createStatusPages } from "./status/service.js";
 import { PUBLIC_STATUS_PATHS, registerStatusRoutes } from "./status/routes.js";
+import { createWebhooks } from "./webhooks/service.js";
+import {
+  PUBLIC_WEBHOOK_PATHS,
+  registerWebhookRoutes,
+} from "./webhooks/routes.js";
 
 export async function activate(ctx: PluginContext): Promise<void> {
   const tables = await defineTables(ctx);
@@ -120,7 +125,13 @@ export async function activate(ctx: PluginContext): Promise<void> {
     connections,
     resources,
   });
-  const router = ctx.http.router<Router>({ public: PUBLIC_STATUS_PATHS });
+  // The team webhook: Coolify's deliveries, checked per connection, feed
+  // the event pipeline.
+  const webhooks = createWebhooks(ctx, { tables, connections, events });
+  // Core's public rate limit (120 a minute per address) stays in force.
+  const router = ctx.http.router<Router>({
+    public: [...PUBLIC_STATUS_PATHS, ...PUBLIC_WEBHOOK_PATHS],
+  });
   router.use(rememberBaseUrlMiddleware(ctx) as never);
   registerConnectionRoutes(router, ctx, connections);
   registerResourceRoutes(router, ctx, resources);
@@ -141,6 +152,7 @@ export async function activate(ctx: PluginContext): Promise<void> {
   registerApiConsoleRoutes(router, ctx, genericApi);
   registerMcpRoutes(router, ctx);
   registerStatusRoutes(router, ctx, statusPages);
+  registerWebhookRoutes(router, ctx, webhooks);
   registerOperations(ctx, {
     tables,
     connections,
