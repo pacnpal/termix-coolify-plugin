@@ -986,6 +986,11 @@ export function createConnections(
       userId: string;
       revision: string;
       api: () => Promise<CoolifyApi>;
+      /**
+       * The token and Access secret of that same row, for masking them in
+       * what Coolify sent (the event pipeline). Never return or log them.
+       */
+      secrets: () => Promise<string[]>;
     } | null> {
       const found = await row(id);
       if (!found) return null;
@@ -993,6 +998,11 @@ export function createConnections(
         userId: found.userId,
         revision: revisionOf(found),
         api: async () => (await cachedClient(found)).api,
+        secrets: async () =>
+          [
+            await readable(found.tokenSealed),
+            await readable(found.cfAccessSecretSealed),
+          ].filter((v): v is string => v !== null),
       };
     },
 
