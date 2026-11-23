@@ -3,7 +3,7 @@
   "name": "Coolify for Termix (pacnpal)",
   "apiVersion": 1,
   "publicKey": "Qhm4ZKAVAodNOzxb2Ez2DdcDccUAZUwKN9+id4JG7iU=",
-  "updatedAt": "2026-11-23T16:07:19.626Z",
+  "updatedAt": "2026-11-23T16:52:20.024Z",
   "plugins": [
     {
       "id": "coolify",
@@ -36,6 +36,44 @@
       ],
       "versions": [],
       "gated": [
+        {
+          "version": "1.0.2",
+          "api": "2",
+          "url": "https://github.com/pacnpal/termix-coolify-plugin/releases/download/v1.0.2/coolify-1.0.2.tmxplug",
+          "sha256": "05c4926e39818bdf77a8e47adfbfe0827e5517684403488a71214b2f75df3ddf",
+          "signature": "RGIjvyvEZWGdRc53y4SkT9HKVTMP34WCRfN3Oc1oO4mSj6PbwLaxHo/tNtKPA8tfDnhachlMPOuvRX7TRPZYAQ==",
+          "size": 972000,
+          "capabilities": [
+            "db:own",
+            "secrets:own",
+            "kv:own",
+            "network:serve",
+            "network:outbound",
+            "ui:surface",
+            "hosts:read",
+            "hosts:write",
+            "hosts:lock",
+            "credentials:write",
+            "credentials:use",
+            "ssh:connect",
+            "operations:provide",
+            "notify:send",
+            "events:core",
+            "plugins:read",
+            "users:read",
+            "operations:invoke"
+          ],
+          "engine": {
+            "api": "^2.7.0",
+            "termix": ">=26.11.2-0"
+          },
+          "releaseNotesUrl": "https://github.com/pacnpal/termix-coolify-plugin/releases/tag/v1.0.2",
+          "notes": "### Added\n\n- Servers: **Reach through a Cloudflare tunnel** for a server Coolify reaches directly, such as the server\n  Coolify runs on, which Coolify never tunnels. Enter the SSH hostname you published on a Cloudflare tunnel,\n  and its Linked host connects through SSH Terminal with the connection's Cloudflare Access token, like a\n  server Coolify tunnels. Coolify keeps its own address. Turning it off clears the tunnel from the host",
+          "provenance": {
+            "url": "https://github.com/pacnpal/termix-coolify-plugin/releases/download/v1.0.2/coolify-1.0.2.tmxplug.sigstore.json"
+          },
+          "publishedAt": "2026-11-23T16:51:35.000Z"
+        },
         {
           "version": "1.0.1",
           "api": "2",
