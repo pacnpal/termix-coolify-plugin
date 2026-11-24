@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.6
+
+### Fixed
+
+- The connection editor shows the webhook, polling and exec settings as soon as a new connection is
+  saved, instead of only after closing and reopening it, and reads the webhook's status again after a
+  save changes the connection's address
+- The event log saves the cleanup of rows an interrupted event left behind, as every other database
+  write does
+
 ## 1.0.5
 
 ### Changed

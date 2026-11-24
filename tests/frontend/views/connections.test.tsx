@@ -461,6 +461,42 @@ describe("connections view under concurrent requests", () => {
     ).toBe("fake-typed-later");
   });
 
+  it("the owner's panels follow the row the editor saved", async () => {
+    const api = stubApi([]);
+    api.post.mockResolvedValueOnce({
+      data: { ...scopedConnection, id: 5, revision: "r1" },
+    } as never);
+    api.patch.mockResolvedValueOnce({
+      data: { ...scopedConnection, id: 5, revision: "r2" },
+    } as never);
+    rendered = await renderWithApp(plugin, {
+      manifest,
+      locales,
+      api,
+      permissions: ALL,
+    });
+    rendered.renderTab("coolify", { isVisible: true });
+    fireEvent.click((await screen.findAllByRole("button", { name: L.add }))[0]);
+    expect(screen.queryByRole("switch", { name: L.poll.label })).toBeNull();
+    await fillAddForm(within(document.body));
+    fireEvent.click(screen.getByRole("button", { name: L.form.save }));
+    // A create shows them at once, without reopening the editor.
+    expect(
+      await screen.findByRole("switch", { name: L.poll.label }),
+    ).toBeTruthy();
+    const webhookReads = () =>
+      api.get.mock.calls.filter(
+        ([url]) => (url as string) === "/connections/5/webhook",
+      ).length;
+    await waitFor(() => expect(webhookReads()).toBe(1));
+    // A new target reads the webhook again, for the new revision.
+    fireEvent.change(screen.getByPlaceholderText(L.form.baseUrlPlaceholder), {
+      target: { value: "https://coolify-new.example.test" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: L.form.save }));
+    await waitFor(() => expect(webhookReads()).toBe(2));
+  });
+
   it("a second save after a create changes the saved connection", async () => {
     const api = stubApi([]);
     const failed = { ...scopedConnection, id: 5, lastError: "unreachable" };
