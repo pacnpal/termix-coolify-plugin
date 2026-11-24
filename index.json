@@ -3,7 +3,7 @@
   "name": "Coolify for Termix (pacnpal)",
   "apiVersion": 1,
   "publicKey": "Qhm4ZKAVAodNOzxb2Ez2DdcDccUAZUwKN9+id4JG7iU=",
-  "updatedAt": "2026-11-23T23:24:46.965Z",
+  "updatedAt": "2026-11-24T22:18:55.319Z",
   "plugins": [
     {
       "id": "coolify",
@@ -36,6 +36,43 @@
       ],
       "versions": [],
       "gated": [
+        {
+          "version": "1.0.6",
+          "api": "2",
+          "url": "https://github.com/pacnpal/termix-coolify-plugin/releases/download/v1.0.6/coolify-1.0.6.tmxplug",
+          "sha256": "bd48cb745cb32d30e69c1b91d8038c885d2b3dcd49e9ec9fcba1cfaa3d364cf7",
+          "signature": "DliPueqfsbR+16+cTJgyJzu9E8hlk5rYg8XOiLrAUPQR7mjAJffWZB6KXkdoW/TiEkPRX9vrmMXdGMPWHTrYAg==",
+          "size": 975157,
+          "capabilities": [
+            "db:own",
+            "secrets:own",
+            "kv:own",
+            "network:serve",
+            "network:outbound",
+            "ui:surface",
+            "hosts:read",
+            "hosts:write",
+            "hosts:lock",
+            "credentials:write",
+            "credentials:use",
+            "ssh:connect",
+            "operations:provide",
+            "notify:send",
+            "events:core",
+            "plugins:read",
+            "operations:invoke"
+          ],
+          "engine": {
+            "api": "^2.7.0",
+            "termix": ">=26.11.2-0"
+          },
+          "releaseNotesUrl": "https://github.com/pacnpal/termix-coolify-plugin/releases/tag/v1.0.6",
+          "notes": "### Fixed\n\n- The connection editor shows the webhook, polling and exec settings as soon as a new connection is\n  saved, instead of only after closing and reopening it, and reads the webhook's status again after a\n  save changes the connection's address\n- The event log saves the cleanup of rows an interrupted event left behind, as every other database\n  write does",
+          "provenance": {
+            "url": "https://github.com/pacnpal/termix-coolify-plugin/releases/download/v1.0.6/coolify-1.0.6.tmxplug.sigstore.json"
+          },
+          "publishedAt": "2026-11-24T22:18:14.000Z"
+        },
         {
           "version": "1.0.5",
           "api": "2",
