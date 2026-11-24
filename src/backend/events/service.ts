@@ -622,6 +622,8 @@ export function createEventStore(ctx: PluginContext, tables: Tables) {
             like(t.dedupeKey, `${PENDING}%`),
           ),
         );
+      // Lazy: a lost sweep only leaves dead rows for the next one.
+      await ctx.db.persist({ lazy: true });
     },
   };
 }

@@ -1,7 +1,7 @@
 {
   "id": "coolify",
   "name": "Coolify for Termix",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Coolify inside Termix: servers become hosts (tunnels included), one-click container shells, deploys, logs, variables, backups and alerts, and the full Coolify API.",
   "author": {
     "name": "pacnpal",
@@ -3605,7 +3605,7 @@
   "provides": [
     {
       "service": "coolify.client",
-      "version": "1.0.5",
+      "version": "1.0.6",
       "permission": "coolify.view"
     }
   ],

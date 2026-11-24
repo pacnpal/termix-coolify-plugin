@@ -58,6 +58,9 @@ function ConnectionEditor({
 }) {
   const { t } = useTranslation();
   const form = useConnectionForm(api, connection, onSaved);
+  // The row as last saved here: a create gives the panels below a
+  // connection, and a new target their new revision.
+  const saved = form.current;
   return (
     <InlineView
       open
@@ -85,15 +88,15 @@ function ConnectionEditor({
         form={form}
         hasCfAccess={form.current?.cfAccess ?? false}
       />
-      {connection && connection.access === "owner" && (
+      {saved && saved.access === "owner" && (
         <>
           <WebhookSetup
-            key={`${connection.id}:${connection.revision}`}
+            key={`${saved.id}:${saved.revision}`}
             api={api}
-            connection={connection}
+            connection={saved}
           />
-          <PollSwitch api={api} connection={connection} onSaved={onSaved} />
-          <ExecSwitch api={api} connection={connection} onSaved={onSaved} />
+          <PollSwitch api={api} connection={saved} onSaved={onSaved} />
+          <ExecSwitch api={api} connection={saved} onSaved={onSaved} />
         </>
       )}
       {form.result && <ProbeChecklist connection={form.result} />}
